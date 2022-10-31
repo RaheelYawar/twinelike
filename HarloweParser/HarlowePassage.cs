@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 
-namespace TwineLike
+namespace Harlowe
 {
   public class HarlowePassage
   {

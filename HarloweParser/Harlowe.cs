@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using HtmlAgilityPack;
 
-namespace TwineLike
+namespace Harlowe
 {
   public class Harlowe
   {
