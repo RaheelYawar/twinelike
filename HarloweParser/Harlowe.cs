@@ -6,8 +6,8 @@ namespace Harlowe
 {
   public class Harlowe
   {
-    private const string HEADER_PID_KEY = "pid";
-    private const string HEADER_NAME_KEY = "name";
+    private const string HeaderPidKey = "pid";
+    private const string HeaderNameKey = "name";
 
     private Dictionary<string, HarlowePassage> _passages;
 
@@ -28,16 +28,16 @@ namespace Harlowe
     
     public string GetPassageBody(string passageName)
     {
-      if (!_passages.ContainsKey(passageName)) return string.Empty;
+      if (!_passages.TryGetValue(passageName, out var passage)) return string.Empty;
 
-      return _passages[passageName].Body;
+      return passage.Body;
     }
 
     public List<HarloweBranch> GetPassageBranches(string passageName)
     {
-      if (!_passages.ContainsKey(passageName)) return null;
+      if (!_passages.TryGetValue(passageName, out var passage)) return null;
 
-      return _passages[passageName].Branches;
+      return passage.Branches;
     }
 
     public void Parse(string htmlText)
@@ -51,13 +51,13 @@ namespace Harlowe
       foreach (var passageData in passagesData)
       {
         var body = passageData.InnerHtml;
-        var branches = ParseBody(ref body);
+        var branches = ParsePassageBody(ref body);
         
         var passage = new HarlowePassage
         {
           Body = body,
-          Pid = passageData.Attributes[HEADER_PID_KEY].Value,
-          Name = passageData.Attributes[HEADER_NAME_KEY].Value,
+          Pid = passageData.Attributes[HeaderPidKey].Value,
+          Name = passageData.Attributes[HeaderNameKey].Value,
           Branches = branches,
         };
         
@@ -65,7 +65,7 @@ namespace Harlowe
       }
     }
     
-    private List<HarloweBranch> ParseBody(ref string body)
+    private List<HarloweBranch> ParsePassageBody(ref string body)
     {
       body = body.Replace("&#39;", "'");
       
