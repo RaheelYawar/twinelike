@@ -10,6 +10,8 @@ namespace Harlowe
     private const string HeaderNameKey = "name";
 
     private Dictionary<string, HarlowePassage> _passages;
+    
+    public int PassageCount => _passages.Count;
 
     public Harlowe(string htmlText)
     {
