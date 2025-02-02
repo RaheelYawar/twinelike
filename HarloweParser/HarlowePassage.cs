@@ -7,6 +7,7 @@ namespace Harlowe
     public string Pid;
     public string Name;
     public string Body;
-    public List<HarloweBranch> Branches;
+    public List<string> Tags;
+    public List<Branch> Branches;
   }
 }

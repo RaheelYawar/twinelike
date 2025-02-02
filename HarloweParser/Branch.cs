@@ -1,6 +1,6 @@
 ﻿namespace Harlowe
 {
-  public class HarloweBranch
+  public class Branch
   {
     public string Text;
     public string Name;

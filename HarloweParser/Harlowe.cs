@@ -6,21 +6,36 @@ namespace Harlowe
 {
   public class Harlowe
   {
-    private const string HeaderPidKey = "pid";
-    private const string HeaderNameKey = "name";
-
+    private string _storyName;
+    private string _creator;
+    private string _creatorVersion;
     private Dictionary<string, HarlowePassage> _passages;
     
+    public string StartNode { get; private set; }
+
     public int PassageCount => _passages.Count;
 
     public Harlowe(string htmlText)
     {
-      Parse(htmlText);
-    }
+      var htmlDoc = new HtmlDocument();
+      htmlDoc.LoadHtml(htmlText);
 
-    public string GetFirstPassageName()
+      HtmlNode storyNode = htmlDoc.DocumentNode.SelectSingleNode("//tw-storydata");
+      if (storyNode == null)
+      {
+        throw new Exception("Invalid Harlowe HTML file: <tw-storydata> not found."); 
+      }
+      
+      ParseStoryData(ref storyNode);
+      Parse(storyNode.SelectNodes("//tw-passagedata"));
+    }
+    
+    private void ParseStoryData(ref HtmlNode storyNode)
     {
-      return "First";
+      _storyName = storyNode.GetAttributeValue("name", "");
+      StartNode = storyNode.GetAttributeValue("startnode", "0");
+      _creator = storyNode.GetAttributeValue("creator", "");
+      _creatorVersion = storyNode.GetAttributeValue("creator-version", "");
     }
 
     public HarlowePassage GetPassage(string passageName)
@@ -35,43 +50,42 @@ namespace Harlowe
       return passage.Body;
     }
 
-    public List<HarloweBranch> GetPassageBranches(string passageName)
+    public List<Branch> GetPassageBranches(string passageName)
     {
       if (!_passages.TryGetValue(passageName, out var passage)) return null;
 
       return passage.Branches;
     }
 
-    public void Parse(string htmlText)
+    private void Parse(HtmlNodeCollection passageNodes)
     {
       _passages = new Dictionary<string, HarlowePassage>();
-      
-      var htmlDoc = new HtmlDocument();
-      htmlDoc.LoadHtml(htmlText);
-      var passagesData = htmlDoc.DocumentNode.SelectNodes("//tw-passagedata");
-
-      foreach (var passageData in passagesData)
+      foreach (var passageNode in passageNodes)
       {
-        var body = passageData.InnerHtml;
-        var branches = ParsePassageBody(ref body);
+        var body = ParseBody(passageNode.InnerHtml);
+        var branches = ParseBranches(ref body);
         
         var passage = new HarlowePassage
         {
           Body = body,
-          Pid = passageData.Attributes[HeaderPidKey].Value,
-          Name = passageData.Attributes[HeaderNameKey].Value,
+          Pid = passageNode.Attributes["pid"].Value,
+          Name = passageNode.Attributes["name"].Value,
+          Tags = null,  // TODO: Parse tags
           Branches = branches,
         };
         
         _passages.Add(passage.Name, passage);
       }
     }
-    
-    private List<HarloweBranch> ParsePassageBody(ref string body)
+
+    private string ParseBody(string body)
     {
-      body = body.Replace("&#39;", "'");
-      
-      var branches = new List<HarloweBranch>();
+      return body.Replace("&#39;", "'");
+    }
+    
+    private List<Branch> ParseBranches(ref string body)
+    {
+      var branches = new List<Branch>();
       var tokens = body.Split(new[] { "[[" }, StringSplitOptions.None);
       body = tokens[0];
 
@@ -81,7 +95,7 @@ namespace Harlowe
         tokens[i] = tokens[i].Replace("\n", string.Empty);
         
         var branchTokens = tokens[i].Split(new[] { "-&gt;" }, StringSplitOptions.None);
-        var branch = new HarloweBranch
+        var branch = new Branch
         {
           Text = branchTokens[0],
           Name = branchTokens[1],
