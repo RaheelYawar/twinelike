@@ -2,6 +2,14 @@ using System.Collections.Generic;
 
 namespace Harlowe.Tokens
 {
+  /// <summary>
+  /// Default <see cref="ITokenizer"/> implementation for Harlowe passage bodies.
+  /// Operates as a mode stack: the outer mode is <see cref="TokenizerMode.Body"/>
+  /// (prose-and-markup), and encountering <c>(name:</c> pushes
+  /// <see cref="TokenizerMode.Expression"/> until the matching <c>)</c>. Macros
+  /// can nest inside macro arguments, so the stack — not a single flag —
+  /// tracks the current context.
+  /// </summary>
   public class HarloweTokenizer : ITokenizer
   {
     private string _src;
@@ -10,8 +18,6 @@ namespace Harlowe.Tokens
     private int _col;
     private List<Token> _tokens;
 
-    // Stack of contexts: passage-body emits Text/Variable/MacroOpen/HookOpen/LinkOpen;
-    // expression emits literals, identifiers, operators, nested MacroOpen until matching ParenClose.
     private Stack<TokenizerMode> _modes;
 
     public IList<Token> Tokenize(string passageBody)
@@ -30,6 +36,11 @@ namespace Harlowe.Tokens
     }
   }
 
+  /// <summary>
+  /// Internal lexer state. Body mode emits prose/markup tokens; Expression
+  /// mode emits literals/operators/etc. and is entered between a macro's
+  /// opening colon and matching close paren.
+  /// </summary>
   internal enum TokenizerMode
   {
     Body,
