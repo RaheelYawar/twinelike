@@ -11,10 +11,12 @@ A C# library that parses Twine/Harlowe interactive fiction stories exported as H
 - The library csproj sits at the repo root and uses `<DefaultItemExcludes>` to keep it from globbing the test folder.
 
 ## Architecture
-- Entry point: `Harlowe` class constructor takes an HTML string and parses it
-- Uses **HtmlAgilityPack** to parse the DOM and extract `<tw-storydata>` / `<tw-passagedata>` elements
-- Branch links use Harlowe's `[[display text->passage name]]` syntax (HTML-encoded as `-&gt;`)
-- All source lives in `HarloweParser/`; data models are simple public-field classes
+- Entry point: `Harlowe` class constructor takes an HTML string and parses it.
+- Two parsing layers. **Layer 1 (HTML host)** uses HtmlAgilityPack to extract `<tw-storydata>` / `<tw-passagedata>` elements and their attributes. **Layer 2 (Harlowe markup)** parses each passage's inner text — currently a string-level shortcut in `Harlowe.cs` (`ParseBody`, `ParseBranches`), being replaced by the new tokenizer + AST pipeline under `HarloweParser/Tokens/` and `HarloweParser/Ast/`.
+- The AST splits node types between **body** (prose, hooks, links, command macros — `IBodyNode`) and **expression** (macro arguments — `IExpressionNode`). Same `(name: ...)` syntax can become either `MacroNode` or `MacroCallNode` depending on position, which is why the split exists. Both trees use the visitor pattern.
+- The tokenizer is mode-stack-based (Body vs. Expression) so nested macros in argument lists tokenize correctly.
+- Branch links use Harlowe's `[[display text->passage name]]` syntax (HTML-encoded as `-&gt;`).
+- All source lives in `HarloweParser/`; data models are simple public-field classes.
 
 ## Key Files
 - `HarloweParser/Harlowe.cs` — Main parser: metadata extraction, passage parsing, branch parsing
@@ -37,6 +39,8 @@ A C# library that parses Twine/Harlowe interactive fiction stories exported as H
 - **No LINQ usage** — the codebase uses explicit loops and Dictionary lookups
 
 ## Known TODOs
-- Passage tag parsing is stubbed out (`Tags = null`)
-- Body parsing only decodes `&#39;` → `'`; other HTML entities are not handled
-- Metadata fields (`_storyName`, `_creator`, `_creatorVersion`) are private with no public accessors
+- **`HarloweTokenizer.Tokenize` body is deferred** — only the interface and mode-stack skeleton exist. Implementing it is the next step; the body parser, expression parser, and evaluator all sit on top of it.
+- The legacy `Harlowe.ParseBody` / `Harlowe.ParseBranches` will be replaced by the tokenizer/AST pipeline once it's in place. Keep `Branches` populated for backward compatibility — derive it from `LinkNode`s in the new AST.
+- Passage tag parsing is stubbed out (`Tags = null`).
+- Body parsing only decodes `&#39;` → `'`; other HTML entities are not handled.
+- Metadata fields (`_storyName`, `_creator`, `_creatorVersion`) are private with no public accessors.
