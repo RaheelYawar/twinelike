@@ -4,10 +4,11 @@
 A C# library that parses Twine/Harlowe interactive fiction stories exported as HTML. It extracts story metadata, passages, and branching links into structured objects.
 
 ## Build & Run
-- **Framework:** .NET Framework 4.0 (SDK-style csproj)
-- **Build:** `dotnet build` or open `harlowe-parser.sln` in Visual Studio/Rider
+- **Framework:** Library targets .NET Framework 4.0; test project targets .NET Framework 4.8 (SDK-style csprojs)
+- **Build:** `dotnet build harlowe-parser.sln`
+- **Test:** `dotnet test harlowe-parser.sln`
 - **Output:** Library DLL (`harlowe_parser.dll`)
-- **No unit test project exists yet.** The only test artifact is `TestFiles/DeathTrip.html`.
+- The library csproj sits at the repo root and uses `<DefaultItemExcludes>` to keep it from globbing the test folder.
 
 ## Architecture
 - Entry point: `Harlowe` class constructor takes an HTML string and parses it
@@ -19,7 +20,11 @@ A C# library that parses Twine/Harlowe interactive fiction stories exported as H
 - `HarloweParser/Harlowe.cs` — Main parser: metadata extraction, passage parsing, branch parsing
 - `HarloweParser/HarlowePassage.cs` — Passage model (Pid, Name, Body, Tags, Branches)
 - `HarloweParser/Branch.cs` — Link model (Text, Name)
-- `TestFiles/DeathTrip.html` — Sample Harlowe story (19 passages)
+- `HarloweParser/Tokens/` — Tokenizer interface and `HarloweTokenizer` skeleton (mode-stack design; body implementation deferred)
+- `HarloweParser/Ast/Body/` — Passage-body AST nodes (`MacroNode`, `HookNode`, `LinkNode`, etc.) with `IBodyVisitor`
+- `HarloweParser/Ast/Expression/` — Expression AST nodes used inside macro arg lists with `IExpressionVisitor`
+- `HarloweParser.Tests/` — xUnit test project (end-to-end tests against `testFile.html`)
+- `TestFiles/testFile.html` — Sample Harlowe story (8 passages; some links target absent passages — useful for testing tolerant parsing)
 
 ## Code Conventions
 - **Namespace:** `Harlowe`
