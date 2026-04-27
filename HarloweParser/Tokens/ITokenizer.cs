@@ -17,6 +17,6 @@ namespace Harlowe.Tokens
     /// bounds-checking.
     /// </summary>
     /// <param name="passageBody">The inner text of a single <c>&lt;tw-passagedata&gt;</c> element.</param>
-    IList<Token> Tokenize(string passageBody);
+    IReadOnlyList<Token> Tokenize(string passageBody);
   }
 }

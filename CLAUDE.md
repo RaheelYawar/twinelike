@@ -4,7 +4,7 @@
 A C# library that parses Twine/Harlowe interactive fiction stories exported as HTML. It extracts story metadata, passages, and branching links into structured objects.
 
 ## Build & Run
-- **Framework:** Library targets .NET Framework 4.0 (TFM `net40`); test project targets .NET Framework 4.8 (TFM `net48`). Both are SDK-style csprojs. Use the canonical short TFMs (`net40`, not `net4.0`) — Rider's surface-heuristics build path fails to resolve the dotted alias.
+- **Framework:** Library targets `netstandard2.0` for maximum consumer reach (Unity 2018.1+, Godot 3/4, .NET Framework 4.6.1+, .NET 5+, Mono, Xamarin). Test project targets `net48`. Both are SDK-style csprojs.
 - **Build:** `dotnet build harlowe-parser.sln`
 - **Test:** `dotnet test harlowe-parser.sln`
 - **Output:** Library DLL (`harlowe_parser.dll`)

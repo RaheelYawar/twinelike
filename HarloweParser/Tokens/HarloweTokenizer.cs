@@ -20,7 +20,7 @@ namespace Harlowe.Tokens
 
     private Stack<TokenizerMode> _modes;
 
-    public IList<Token> Tokenize(string passageBody)
+    public IReadOnlyList<Token> Tokenize(string passageBody)
     {
       _src = passageBody ?? string.Empty;
       _pos = 0;

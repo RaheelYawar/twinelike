@@ -1,10 +1,9 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
         <OutputType>Library</OutputType>
-        <TargetFramework>net40</TargetFramework>
+        <TargetFramework>netstandard2.0</TargetFramework>
         <RootNamespace>harlowe_parser</RootNamespace>
         <AssemblyName>harlowe_parser</AssemblyName>
-        <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
         <DefaultItemExcludes>$(DefaultItemExcludes);HarloweParser.Tests\**</DefaultItemExcludes>
     </PropertyGroup>
 
