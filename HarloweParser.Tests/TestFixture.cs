@@ -21,6 +21,10 @@ namespace Harlowe.Tests
       }
     }
 
+    /// <summary>
+    /// Builds a fresh <see cref="Harlowe"/> from the cached fixture HTML.
+    /// Each test gets its own instance so mutations cannot leak between tests.
+    /// </summary>
     public static Harlowe LoadTestFile() => new Harlowe(TestFileHtml);
   }
 }

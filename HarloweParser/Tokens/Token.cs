@@ -26,6 +26,11 @@ namespace Harlowe.Tokens
     /// <summary>One-based column number where this token starts.</summary>
     public int Column;
 
+    /// <summary>
+    /// Constructs a token with its category, value, and source position. All
+    /// fields are public for direct mutation, but tokenizers should treat
+    /// emitted tokens as immutable.
+    /// </summary>
     public Token(TokenType type, string value, int position, int line, int column)
     {
       Type = type;
@@ -35,6 +40,10 @@ namespace Harlowe.Tokens
       Column = column;
     }
 
+    /// <summary>
+    /// Debug-friendly representation of the form <c>Type(Value) @ Line:Column</c>.
+    /// Intended for diagnostics, not serialisation.
+    /// </summary>
     public override string ToString() => $"{Type}({Value}) @ {Line}:{Column}";
   }
 }
