@@ -24,7 +24,9 @@ namespace Harlowe.Tokens
 
     private static readonly HashSet<string> WordOperators = new HashSet<string>
     {
-      "is", "to", "into", "and", "or", "not", "contains", "of"
+      "is", "to", "into", "and", "or", "not", "contains", "of",
+      "in", "a", "matches", "where", "when", "via", "making", "each",
+      "its", "bind"
     };
 
     /// <summary>
@@ -210,13 +212,17 @@ namespace Harlowe.Tokens
           if (TryScanTempVariable(startPos, startLine, startCol)) return;
           break;
         case '"':
+          ScanStringLiteral(c, startPos, startLine, startCol);
+          return;
         case '\'':
+          if (TryScanPossessive(startPos, startLine, startCol)) return;
           ScanStringLiteral(c, startPos, startLine, startCol);
           return;
       }
 
       if (char.IsDigit(c))
       {
+        if (c == '2' && TryScanTwoBind(startPos, startLine, startCol)) return;
         ScanNumberLiteral(startPos, startLine, startCol);
         return;
       }
@@ -400,7 +406,10 @@ namespace Harlowe.Tokens
     /// <c>true</c>/<c>false</c> become <see cref="TokenType.BoolLiteral"/>,
     /// known word operators (see <see cref="WordOperators"/>) become
     /// <see cref="TokenType.Operator"/>, and anything else becomes a bare
-    /// <see cref="TokenType.Identifier"/>.
+    /// <see cref="TokenType.Identifier"/>. Before classifying, attempts to fuse
+    /// the word with following words into a single multi-word operator (e.g.
+    /// <c>is not in</c>, <c>does not contain</c>) via
+    /// <see cref="TryFuseMultiWordOperator"/>.
     /// </summary>
     private void ScanIdentifierOrKeyword(int startPos, int startLine, int startCol)
     {
@@ -409,11 +418,146 @@ namespace Harlowe.Tokens
       string word = _src.Substring(start, _pos - start);
 
       if (word == "true" || word == "false")
+      {
         Emit(TokenType.BoolLiteral, word, startPos, startLine, startCol);
-      else if (WordOperators.Contains(word))
+        return;
+      }
+
+      if (TryFuseMultiWordOperator(word, startPos, startLine, startCol))
+        return;
+
+      if (WordOperators.Contains(word))
         Emit(TokenType.Operator, word, startPos, startLine, startCol);
       else
         Emit(TokenType.Identifier, word, startPos, startLine, startCol);
+    }
+
+    /// <summary>
+    /// Tries to fuse <paramref name="firstWord"/> (already consumed; cursor sits
+    /// just past it) with following whitespace-separated words into one of
+    /// Harlowe's multi-word operators: <c>is not</c>, <c>is in</c>, <c>is a</c>,
+    /// <c>is not in</c>, <c>is not a</c>, <c>does not contain</c>, <c>does not match</c>.
+    /// Greedy: prefers longer matches (<c>is not in</c> over <c>is not</c>). On
+    /// a successful fusion the cursor advances past every consumed word and one
+    /// <see cref="TokenType.Operator"/> token is emitted; on no match the cursor
+    /// is left where the caller left it and the caller falls through to its
+    /// single-word classification.
+    /// </summary>
+    private bool TryFuseMultiWordOperator(string firstWord, int startPos, int startLine, int startCol)
+    {
+      if (firstWord == "is")
+      {
+        string w2 = PeekNextWordFrom(_pos, out int afterW2);
+        if (w2 == "not")
+        {
+          string w3 = PeekNextWordFrom(afterW2, out int afterW3);
+          if (w3 == "in" || w3 == "a")
+          {
+            AdvanceTo(afterW3);
+            Emit(TokenType.Operator, "is not " + w3, startPos, startLine, startCol);
+            return true;
+          }
+          AdvanceTo(afterW2);
+          Emit(TokenType.Operator, "is not", startPos, startLine, startCol);
+          return true;
+        }
+        if (w2 == "in" || w2 == "a")
+        {
+          AdvanceTo(afterW2);
+          Emit(TokenType.Operator, "is " + w2, startPos, startLine, startCol);
+          return true;
+        }
+        return false;
+      }
+
+      if (firstWord == "does")
+      {
+        string w2 = PeekNextWordFrom(_pos, out int afterW2);
+        if (w2 != "not") return false;
+        string w3 = PeekNextWordFrom(afterW2, out int afterW3);
+        if (w3 == "contain" || w3 == "match")
+        {
+          AdvanceTo(afterW3);
+          Emit(TokenType.Operator, "does not " + w3, startPos, startLine, startCol);
+          return true;
+        }
+        return false;
+      }
+
+      return false;
+    }
+
+    /// <summary>
+    /// Lookahead helper: skips any whitespace starting at <paramref name="from"/>,
+    /// then reads a contiguous identifier word. Returns the word (or null if no
+    /// identifier is found there). <paramref name="afterPos"/> is set to the
+    /// position just past the word on success, or to <paramref name="from"/> on
+    /// failure. Does not move the tokenizer cursor.
+    /// </summary>
+    private string PeekNextWordFrom(int from, out int afterPos)
+    {
+      int p = from;
+      while (p < _src.Length && char.IsWhiteSpace(_src[p])) p++;
+      if (p >= _src.Length || !char.IsLetter(_src[p]))
+      {
+        afterPos = from;
+        return null;
+      }
+      int wordStart = p;
+      while (p < _src.Length && IsIdContinue(_src[p])) p++;
+      afterPos = p;
+      return _src.Substring(wordStart, p - wordStart);
+    }
+
+    /// <summary>
+    /// Advances the cursor character-by-character to <paramref name="target"/>,
+    /// preserving line/column tracking via <see cref="Advance"/>. Used by the
+    /// multi-word operator fusion to commit a successful lookahead.
+    /// </summary>
+    private void AdvanceTo(int target)
+    {
+      while (_pos < target) Advance();
+    }
+
+    /// <summary>
+    /// Tries to consume the <c>'s</c> possessive operator (precedence 3). Only
+    /// fuses when <c>'</c> is immediately preceded by a value-producing token
+    /// with no intervening whitespace, immediately followed by <c>s</c>, and
+    /// that <c>s</c> is not part of a longer word. On no match returns false so
+    /// the caller falls back to scanning <c>'</c> as a string literal opener.
+    /// </summary>
+    private bool TryScanPossessive(int startPos, int startLine, int startCol)
+    {
+      if (_pos == 0) return false;
+      if (char.IsWhiteSpace(_src[_pos - 1])) return false;
+      if (_pos + 1 >= _src.Length || _src[_pos + 1] != 's') return false;
+      if (_pos + 2 < _src.Length && IsIdContinue(_src[_pos + 2])) return false;
+      if (_tokens.Count == 0) return false;
+      var prev = _tokens[_tokens.Count - 1].Type;
+      if (prev != TokenType.Variable && prev != TokenType.TempVariable && prev != TokenType.Identifier
+          && prev != TokenType.ParenClose && prev != TokenType.BracketClose && prev != TokenType.MacroClose
+          && prev != TokenType.StringLiteral && prev != TokenType.NumberLiteral && prev != TokenType.BoolLiteral)
+        return false;
+      AdvanceN(2);
+      Emit(TokenType.Operator, "'s", startPos, startLine, startCol);
+      return true;
+    }
+
+    /// <summary>
+    /// Tries to consume the <c>2bind</c> two-way bind operator (precedence 6).
+    /// Required because <c>2bind</c> begins with a digit and would otherwise
+    /// tokenize as <c>NumberLiteral("2") + Identifier("bind")</c>. Matches only
+    /// when the literal characters <c>2bind</c> are not followed by another
+    /// identifier-continuation char.
+    /// </summary>
+    private bool TryScanTwoBind(int startPos, int startLine, int startCol)
+    {
+      if (!MatchString("2bind")) return false;
+      int after = _pos + 5;
+      if (after < _src.Length && IsIdContinue(_src[after])) return false;
+      AdvanceN(5);
+      Emit(TokenType.Operator, "2bind", startPos, startLine, startCol);
+      return true;
     }
 
     /// <summary>
@@ -436,17 +580,48 @@ namespace Harlowe.Tokens
         }
       }
 
+      if (_pos + 2 < _src.Length && _src[_pos] == '.' && _src[_pos + 1] == '.' && _src[_pos + 2] == '.')
+      {
+        AdvanceN(3);
+        Emit(TokenType.Operator, "...", startPos, startLine, startCol);
+        return true;
+      }
+
       char c = _src[_pos];
       switch (c)
       {
-        case '+': case '-': case '*': case '/': case '%':
+        case '+': case '*': case '/':
         case '<': case '>': case '=':
           Advance();
           Emit(TokenType.Operator, c.ToString(), startPos, startLine, startCol);
           return true;
+        case '-':
+          if (TryScanTypeSuffix(startPos, startLine, startCol)) return true;
+          Advance();
+          Emit(TokenType.Operator, "-", startPos, startLine, startCol);
+          return true;
       }
 
       return false;
+    }
+
+    /// <summary>
+    /// Tries to consume the <c>-type</c> TypedVar suffix (precedence 14). Returns
+    /// true when <c>-</c> is immediately followed by the literal word <c>type</c>
+    /// (no intervening whitespace; <c>type</c> not followed by an identifier
+    /// continuation char). Emits one fused <see cref="TokenType.Operator"/> token
+    /// with value <c>"-type"</c>. On no match, returns false so the caller emits
+    /// <c>-</c> as binary subtraction or unary minus.
+    /// </summary>
+    private bool TryScanTypeSuffix(int startPos, int startLine, int startCol)
+    {
+      if (_pos + 4 >= _src.Length) return false;
+      if (_src[_pos + 1] != 't' || _src[_pos + 2] != 'y' || _src[_pos + 3] != 'p' || _src[_pos + 4] != 'e') return false;
+      int after = _pos + 5;
+      if (after < _src.Length && IsIdContinue(_src[after])) return false;
+      AdvanceN(5);
+      Emit(TokenType.Operator, "-type", startPos, startLine, startCol);
+      return true;
     }
 
     /// <summary>

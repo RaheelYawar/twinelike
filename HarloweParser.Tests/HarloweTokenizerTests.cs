@@ -408,5 +408,307 @@ namespace Harlowe.Tests
         (TokenType.HookClose, "]"),
         (TokenType.EndOfFile, ""));
     }
+
+    // --- Step 1 (tokenizer extension): operator surface coverage ---
+
+    [Fact]
+    public void PercentInBody_TreatedAsPlainText()
+    {
+      // Harlowe has no `%` operator (modulo is the (modulo:) macro). In body mode
+      // it's just prose.
+      AssertSequence(Tokenize("50% chance"),
+        (TokenType.Text, "50% chance"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void PercentInExpression_NotEmittedAsOperator()
+    {
+      // `%` is no longer in the symbol-operator set; it's silently skipped in
+      // expression mode like any other unrecognised char. The surrounding tokens
+      // should still parse correctly.
+      AssertSequence(Tokenize("(print: 5 % 2)"),
+        (TokenType.MacroOpen, "print"),
+        (TokenType.NumberLiteral, "5"),
+        (TokenType.NumberLiteral, "2"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void Spread_TokenizedAsSingleOperator()
+    {
+      AssertSequence(Tokenize("(a: ...$xs)"),
+        (TokenType.MacroOpen, "a"),
+        (TokenType.Operator, "..."),
+        (TokenType.Variable, "xs"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Theory]
+    [InlineData("in")]
+    [InlineData("matches")]
+    [InlineData("where")]
+    [InlineData("when")]
+    [InlineData("via")]
+    [InlineData("making")]
+    [InlineData("each")]
+    [InlineData("its")]
+    [InlineData("bind")]
+    public void NewSingleWordOperators_TokenizedAsOperator(string op)
+    {
+      AssertSequence(Tokenize("(print: " + op + ")"),
+        (TokenType.MacroOpen, "print"),
+        (TokenType.Operator, op),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void IsNot_FusedAsSingleOperator()
+    {
+      AssertSequence(Tokenize("(if: $a is not 1)"),
+        (TokenType.MacroOpen, "if"),
+        (TokenType.Variable, "a"),
+        (TokenType.Operator, "is not"),
+        (TokenType.NumberLiteral, "1"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void IsIn_FusedAsSingleOperator()
+    {
+      AssertSequence(Tokenize("(if: 1 is in $xs)"),
+        (TokenType.MacroOpen, "if"),
+        (TokenType.NumberLiteral, "1"),
+        (TokenType.Operator, "is in"),
+        (TokenType.Variable, "xs"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void IsA_FusedAsSingleOperator()
+    {
+      AssertSequence(Tokenize("(if: $a is a number)"),
+        (TokenType.MacroOpen, "if"),
+        (TokenType.Variable, "a"),
+        (TokenType.Operator, "is a"),
+        (TokenType.Identifier, "number"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void IsNotIn_FusedAsThreeWordOperator()
+    {
+      AssertSequence(Tokenize("(if: 1 is not in $xs)"),
+        (TokenType.MacroOpen, "if"),
+        (TokenType.NumberLiteral, "1"),
+        (TokenType.Operator, "is not in"),
+        (TokenType.Variable, "xs"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void IsNotA_FusedAsThreeWordOperator()
+    {
+      AssertSequence(Tokenize("(if: $a is not a number)"),
+        (TokenType.MacroOpen, "if"),
+        (TokenType.Variable, "a"),
+        (TokenType.Operator, "is not a"),
+        (TokenType.Identifier, "number"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void DoesNotContain_FusedAsThreeWordOperator()
+    {
+      AssertSequence(Tokenize("(if: $xs does not contain 1)"),
+        (TokenType.MacroOpen, "if"),
+        (TokenType.Variable, "xs"),
+        (TokenType.Operator, "does not contain"),
+        (TokenType.NumberLiteral, "1"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void DoesNotMatch_FusedAsThreeWordOperator()
+    {
+      AssertSequence(Tokenize("(if: $a does not match 1)"),
+        (TokenType.MacroOpen, "if"),
+        (TokenType.Variable, "a"),
+        (TokenType.Operator, "does not match"),
+        (TokenType.NumberLiteral, "1"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void IsFollowedByValue_StaysAsBareIs()
+    {
+      AssertSequence(Tokenize("(if: $a is 1)"),
+        (TokenType.MacroOpen, "if"),
+        (TokenType.Variable, "a"),
+        (TokenType.Operator, "is"),
+        (TokenType.NumberLiteral, "1"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void IsNotFollowedByNonExtender_StaysAsTwoWordIsNot()
+    {
+      // "is not 5" should fuse as "is not", not greedily try to consume "5".
+      AssertSequence(Tokenize("(if: $a is not 5)"),
+        (TokenType.MacroOpen, "if"),
+        (TokenType.Variable, "a"),
+        (TokenType.Operator, "is not"),
+        (TokenType.NumberLiteral, "5"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void DoesAlone_FallsBackToIdentifier()
+    {
+      // `does` is not a valid operator on its own; only `does not contain` and
+      // `does not match` exist.
+      AssertSequence(Tokenize("(print: does)"),
+        (TokenType.MacroOpen, "print"),
+        (TokenType.Identifier, "does"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void DoesNotFollowedByUnknown_FallsBackToSeparateTokens()
+    {
+      // "does not equal" isn't a real operator; should not fuse partially.
+      AssertSequence(Tokenize("(print: does not equal)"),
+        (TokenType.MacroOpen, "print"),
+        (TokenType.Identifier, "does"),
+        (TokenType.Operator, "not"),
+        (TokenType.Identifier, "equal"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void MultiWordOperator_FusesAcrossNewlines()
+    {
+      AssertSequence(Tokenize("(if: $a is\n  not\n  1)"),
+        (TokenType.MacroOpen, "if"),
+        (TokenType.Variable, "a"),
+        (TokenType.Operator, "is not"),
+        (TokenType.NumberLiteral, "1"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void Possessive_AfterVariable_TokenizedAsApostropheS()
+    {
+      AssertSequence(Tokenize("(print: $a's name)"),
+        (TokenType.MacroOpen, "print"),
+        (TokenType.Variable, "a"),
+        (TokenType.Operator, "'s"),
+        (TokenType.Identifier, "name"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void Possessive_AfterClosingParen_TokenizedAsApostropheS()
+    {
+      AssertSequence(Tokenize("(print: (foo: 1)'s bar)"),
+        (TokenType.MacroOpen, "print"),
+        (TokenType.MacroOpen, "foo"),
+        (TokenType.NumberLiteral, "1"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.Operator, "'s"),
+        (TokenType.Identifier, "bar"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void Possessive_RequiresNoLeadingWhitespace()
+    {
+      // `$a 's name'` has whitespace before `'`, so the `'` opens a string
+      // literal rather than fusing with the `s`.
+      AssertSequence(Tokenize("(print: $a 's name')"),
+        (TokenType.MacroOpen, "print"),
+        (TokenType.Variable, "a"),
+        (TokenType.StringLiteral, "s name"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void StringLiteralAtStartOfExpression_StillTokenized()
+    {
+      // Right after the `(name:` macro opener, `'foo'` should be a string
+      // literal — there's no preceding value-like token to attach `'s` to.
+      AssertSequence(Tokenize("(print: 'hello')"),
+        (TokenType.MacroOpen, "print"),
+        (TokenType.StringLiteral, "hello"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void TwoBind_TokenizedAsSingleOperator()
+    {
+      AssertSequence(Tokenize("(dialog: 2bind $x)"),
+        (TokenType.MacroOpen, "dialog"),
+        (TokenType.Operator, "2bind"),
+        (TokenType.Variable, "x"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void BareTwo_StillTokenizedAsNumberLiteral()
+    {
+      // Make sure the `2bind` shortcut doesn't swallow a plain `2`.
+      AssertSequence(Tokenize("(print: 2)"),
+        (TokenType.MacroOpen, "print"),
+        (TokenType.NumberLiteral, "2"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void TypeSuffix_TokenizedAsSingleOperator()
+    {
+      AssertSequence(Tokenize("(set: num-type $x to 1)"),
+        (TokenType.MacroOpen, "set"),
+        (TokenType.Identifier, "num"),
+        (TokenType.Operator, "-type"),
+        (TokenType.Variable, "x"),
+        (TokenType.Operator, "to"),
+        (TokenType.NumberLiteral, "1"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void BareMinus_StillTokenizedAsOperator()
+    {
+      // Make sure the `-type` shortcut doesn't break ordinary subtraction.
+      AssertSequence(Tokenize("(print: 5 - 2)"),
+        (TokenType.MacroOpen, "print"),
+        (TokenType.NumberLiteral, "5"),
+        (TokenType.Operator, "-"),
+        (TokenType.NumberLiteral, "2"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
   }
 }

@@ -41,10 +41,17 @@ A C# library that parses Twine/Harlowe interactive fiction stories exported as H
 
 ## Roadmap
 The remaining pipeline, in dependency order:
-1. **Body parser** — token stream → `PassageBody` (tree of `IBodyNode`s). First pass can swallow macro arg tokens into a flat `RawArgs` list on `MacroNode` so the body AST ships without the expression parser.
-2. **Expression parser** — token stream → `IExpressionNode`. Replaces the flat `RawArgs` with proper `MacroCallNode` / `BinaryOpNode` / etc. Called from the body parser at every `MacroOpen`.
-3. **Wire AST into `Harlowe`** — invoke parsers per passage; derive `Branches` from `LinkNode`s so the existing public API and its tests keep passing. Then retire the legacy `ParseBranches` and the `&#39;`-only `ParseBody`.
-4. **Variable store + evaluator** — only after 1–3. This is what unblocks engine integration (`(set:)`, `(if:)`, `(print:)` actually doing something).
+1. **Tokenizer extension** — cover the full Harlowe operator surface so the expression parser has every token it needs. All fusion happens at lex time so the parser sees one token per logical operator. Specifically:
+   - Drop `%` from the symbol scanner — Harlowe has no modulo operator (it's the macro `(modulo:)`).
+   - Add `...` (spread, precedence 6).
+   - Add the missing single-word operators to `WordOperators`: `in`, `a`, `matches`, `where`, `when`, `via`, `making`, `each`, `its`, `bind`, `2bind`.
+   - **Multi-word operator fusion in the lexer** via lookahead, emitting one `Operator` token per logical operator: `is not`, `is in`, `is not in`, `is a`, `is not a`, `does not contain`, `does not match`. Lookahead is bounded (max 3 words for `does not contain`) and skips intervening whitespace; if the suffix doesn't match, fall back to the shorter operator (e.g. `is $x` stays as `Operator("is")`).
+   - **`'s` (precedence 3) as a lex-time operator** with the "no whitespace allowed before it" rule. Only fuse when `'` is immediately preceded by an identifier/variable/`)`/`]` with no intervening whitespace; otherwise `'` falls through to string-literal scanning. This means `'` is no longer unconditionally a string-literal opener — the scanner inspects the prior token first.
+   - **`-type` (TypedVar suffix, precedence 14) as a lex-time operator** via lookahead: when `-` is immediately followed by the literal word `type`, emit a single `Operator("-type")` token. Otherwise `-` stays as binary subtraction or unary minus.
+2. **Expression parser** — token stream → `IExpressionNode`. Precedence-climbing using the official Harlowe precedence table from the manual's "Operators and order-of-operations" appendix (lower order number = tighter binding). Notable quirks: `and` and `or` share precedence 13 (left-associative at the same level); `( )` grouping is precedence 1; unary `not`/`+`/`-` and `...`/`bind` are at 5–6.
+3. **Body parser** — token stream → `PassageBody` (tree of `IBodyNode`s). Built standalone with its own unit tests (not wired into `Harlowe.cs` yet). On `MacroOpen`, delegates to the expression parser to fill `MacroNode.Arguments` directly — no transitional `RawArgs` shim. Hook attachment: a `HookOpen` immediately following a `MacroNode` becomes `MacroNode.AttachedHook` rather than a sibling.
+4. **Wire AST into `Harlowe`** — invoke parsers per passage; derive `Branches` from `LinkNode`s so the existing public API and its tests keep passing. Then retire the legacy `ParseBranches` and the `&#39;`-only `ParseBody`.
+5. **Variable store + evaluator** — only after 1–4. This is what unblocks engine integration (`(set:)`, `(if:)`, `(print:)` actually doing something).
 
 ## Known TODOs
 - The legacy `Harlowe.ParseBody` / `Harlowe.ParseBranches` are still the active body/branch parsers. They will be replaced by the AST pipeline above; keep `Branches` populated for backward compatibility — derive it from `LinkNode`s once the body parser lands.
@@ -52,3 +59,5 @@ The remaining pipeline, in dependency order:
 - `ParseBody` only decodes `&#39;` → `'`; other HTML entities are not handled.
 - Metadata fields (`_storyName`, `_creator`, `_creatorVersion`) are private with no public accessors.
 - Tokenizer string literals do not handle escape sequences (`\"`, `\\`); Harlowe doesn't appear to define them, but if a corpus needs them this is where to add support.
+- Tokenizer currently emits `Operator("%")` but Harlowe has no `%` operator — to be removed in step 1 of the Roadmap.
+- `WordOperators` set is incomplete relative to the Harlowe precedence table — to be expanded in step 1 of the Roadmap.
