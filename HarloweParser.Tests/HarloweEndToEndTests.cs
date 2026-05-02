@@ -1,4 +1,5 @@
 using System;
+using Harlowe.Ast.Body;
 using Xunit;
 
 namespace Harlowe.Tests
@@ -142,5 +143,55 @@ namespace Harlowe.Tests
       Assert.DoesNotContain("[[", body);
       Assert.DoesNotContain("]]", body);
     }
+
+    [Fact]
+    public void Passage_AstIsPopulatedByNewPipeline()
+    {
+      var story = TestFixture.LoadTestFile();
+      var passage = story.GetPassage("Disclaimer");
+
+      Assert.NotNull(passage.Ast);
+      Assert.NotNull(passage.Ast.Children);
+      Assert.NotEmpty(passage.Ast.Children);
+    }
+
+    [Fact]
+    public void Passage_AstContainsLinkNode_DerivedAsBranch()
+    {
+      // The Disclaimer passage has a single [[Continue->FirstPassage]] link;
+      // the AST should expose it as a LinkNode and the derived Branches list
+      // should mirror it.
+      var story = TestFixture.LoadTestFile();
+      var passage = story.GetPassage("Disclaimer");
+
+      LinkNode link = null;
+      foreach (var n in passage.Ast.Children)
+      {
+        if (n is LinkNode found) { link = found; break; }
+      }
+      Assert.NotNull(link);
+      Assert.Equal("Continue", link.Text);
+      Assert.Equal("FirstPassage", link.Target);
+
+      Assert.Single(passage.Branches);
+      Assert.Equal("Continue", passage.Branches[0].Text);
+      Assert.Equal("FirstPassage", passage.Branches[0].Name);
+    }
+
+    [Fact]
+    public void Passage_BodyRenderedFromAst_DecodesNonApostropheEntities()
+    {
+      // FirstPassage has &quot; (HTML quote) entities in its source. The new
+      // pipeline runs InnerHtml through HtmlEntity.DeEntitize before tokenizing,
+      // so these should be decoded to actual " characters rather than left
+      // verbatim like the old &#39;-only ParseBody did.
+      var story = TestFixture.LoadTestFile();
+      var body = story.GetPassageBody("FirstPassage");
+
+      Assert.DoesNotContain("&quot;", body);
+      Assert.DoesNotContain("&#39;", body);
+      Assert.DoesNotContain("&gt;", body);
+    }
   }
+
 }

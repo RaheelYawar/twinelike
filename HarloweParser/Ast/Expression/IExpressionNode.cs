@@ -19,6 +19,7 @@ namespace Harlowe.Ast.Expression
   public interface IExpressionVisitor
   {
     void Visit(LiteralNode node);
+    void Visit(IdentifierNode node);
     void Visit(VariableRefNode node);
     void Visit(BinaryOpNode node);
     void Visit(UnaryOpNode node);
