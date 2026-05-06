@@ -68,6 +68,20 @@ namespace Harlowe
     }
 
     /// <summary>
+    /// Returns the passage whose <see cref="HarlowePassage.Pid"/> matches
+    /// <see cref="StartNode"/>. Returns null if the story has no passages or
+    /// the start node pid does not match any passage. Used by
+    /// <c>StorySession</c> to find the initial passage by pid without exposing
+    /// the internal pid-indexed structure.
+    /// </summary>
+    public HarlowePassage GetStartPassage()
+    {
+      foreach (var p in _passages.Values)
+        if (p.Pid == StartNode) return p;
+      return null;
+    }
+
+    /// <summary>
     /// Returns the body text of the named passage with branch links stripped.
     /// Returns <see cref="string.Empty"/> for unknown names.
     /// </summary>
