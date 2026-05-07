@@ -75,5 +75,13 @@ The pipeline was built in five passes, in dependency order:
 - `BodyTextRenderer` in `Harlowe.cs` drops `MacroNode` content entirely from the rendered body string. The legacy parser left raw macro source in the body. Acceptable for current consumers (tests only check absence of link markup and entities), but if a downstream needs macros in the rendered prose, add a printer that round-trips macros via the AST.
 - v1 `BodyRenderer` renders `MacroNode.AttachedHook` unconditionally for non-conditional macros — no changer/styling semantics. v2 changer macros (`(text-style:)`, `(font:)`, etc.) will need to intercept at this point.
 
-## v2 Horizon
-Not yet planned in detail; see `memory/project_runtime_state.md` for a sketch. Foundational items (likely first slices): `'s`/`of`/`its` property access (unblocks `passage's tags`, datamap reads, array indexing), then changer macros and lambda operators.
+## Roadmap
+
+**v1.1 — usable for a real story.** Plan at `docs/v1.1-slice-a.md`.
+- Slice A: `'s`/`of`/`its` property access (unblocks `passage's tags`, datamap reads, array indexing). Pure evaluator work; ~1 day.
+- Slice B: multi-step undo (stack instead of single snapshot in `StorySession`).
+- Slice C: `(history:)` macro (visit-name array, depends on slice B's snapshot stack).
+
+**v1.2 — ordinal indexing.** `1st`, `2nd`, `last`, `2ndlast`, etc. on arrays and strings. Tokenizer adds `TryScanOrdinal`; resolver gets a few more identifier-accessor entries. Split off from v1.1 to isolate the tokenizer change. Detailed sketch at the bottom of `docs/v1.1-slice-a.md`.
+
+**v2 — richer Harlowe.** Not yet planned in detail. Foundational items: changer macros (`(text-style:)`, `(font:)`, `(hook:)`), lambda operators (`where`/`when`/`via`/`making`/`each`), `(live:)`/`(event:)`/`(trigger:)`, custom `(macro:)`, storylets, dataset evaluation, property assignment (`(set: $person's name to "Bob")`).
