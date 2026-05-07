@@ -45,7 +45,7 @@ namespace Harlowe
       HapHtmlNode storyNode = htmlDoc.DocumentNode.SelectSingleNode("//tw-storydata");
       if (storyNode == null)
       {
-        throw new FormatException("Invalid Harlowe HTML file: <tw-storydata> not found.");
+        throw new HarloweParseException("Invalid Harlowe HTML file: <tw-storydata> not found.");
       }
 
       ParseStoryData(ref storyNode);
@@ -127,14 +127,27 @@ namespace Harlowe
 
       foreach (var passageNode in passageNodes)
       {
+        string passageName = passageNode.Attributes["name"].Value;
         string raw = HtmlEntity.DeEntitize(passageNode.InnerHtml ?? string.Empty);
-        var tokens = tokenizer.Tokenize(raw);
-        var ast = bodyParser.Parse(tokens);
+
+        Ast.Body.PassageBody ast;
+        try
+        {
+          var tokens = tokenizer.Tokenize(raw);
+          ast = bodyParser.Parse(tokens);
+        }
+        catch (HarloweParseException ex) when (ex.PassageName == null)
+        {
+          // Inner parsers don't know which passage they're inside. Re-throw
+          // with the passage name attached so the caller's error message
+          // points at the right place.
+          throw new HarloweParseException(ex.RawMessage, ex.Line, ex.Column, passageName, ex);
+        }
 
         var passage = new HarlowePassage
         {
           Pid = passageNode.Attributes["pid"].Value,
-          Name = passageNode.Attributes["name"].Value,
+          Name = passageName,
           Tags = ParseTags(passageNode.GetAttributeValue("tags", string.Empty)),
           Ast = ast,
           Branches = ExtractBranches(ast),

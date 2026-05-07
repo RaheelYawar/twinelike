@@ -16,8 +16,37 @@ namespace Harlowe.Tests
     [Fact]
     public void Constructor_ThrowsOnHtmlMissingTwStorydata()
     {
-      var ex = Assert.Throws<FormatException>(() => new Harlowe("<html><body>no story here</body></html>"));
+      var ex = Assert.Throws<HarloweParseException>(() => new Harlowe("<html><body>no story here</body></html>"));
       Assert.Contains("tw-storydata", ex.Message);
+    }
+
+    [Fact]
+    public void Constructor_TopLevelError_HasNoLocationFields()
+    {
+      // Errors that fire before any passage is entered leave Line/Column at -1
+      // and PassageName null.
+      var ex = Assert.Throws<HarloweParseException>(() => new Harlowe("<html><body>nope</body></html>"));
+      Assert.Equal(-1, ex.Line);
+      Assert.Equal(-1, ex.Column);
+      Assert.Null(ex.PassageName);
+    }
+
+    [Fact]
+    public void Constructor_PassageParseError_PopulatesLocationFields()
+    {
+      // (set: $x to ) leaves the right-hand side of `to` empty; the expression
+      // parser hits a MacroClose where it expected an operand and throws.
+      const string html = "<html><body><tw-storydata name=\"T\" startnode=\"1\">"
+        + "<tw-passagedata pid=\"1\" name=\"Bad\">(set: $x to )</tw-passagedata>"
+        + "</tw-storydata></body></html>";
+      var ex = Assert.Throws<HarloweParseException>(() => new Harlowe(html));
+
+      Assert.Equal("Bad", ex.PassageName);
+      Assert.True(ex.Line >= 1, "expected populated line number");
+      Assert.True(ex.Column >= 1, "expected populated column number");
+      // The formatted message should mention the passage so a default
+      // ToString()/log line is informative on its own.
+      Assert.Contains("Bad", ex.Message);
     }
 
     [Fact]

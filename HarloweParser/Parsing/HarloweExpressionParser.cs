@@ -226,7 +226,7 @@ namespace Harlowe.Parsing
           return inner;
       }
 
-      throw new FormatException($"Unexpected token in expression: {t.Type}({t.Value}) at line {t.Line}, col {t.Column}");
+      throw new HarloweParseException($"Unexpected token in expression: {t.Type}({t.Value})", t.Line, t.Column);
     }
   }
 }
