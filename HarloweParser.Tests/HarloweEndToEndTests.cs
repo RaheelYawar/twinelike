@@ -16,7 +16,7 @@ namespace Harlowe.Tests
     [Fact]
     public void Constructor_ThrowsOnHtmlMissingTwStorydata()
     {
-      var ex = Assert.Throws<Exception>(() => new Harlowe("<html><body>no story here</body></html>"));
+      var ex = Assert.Throws<FormatException>(() => new Harlowe("<html><body>no story here</body></html>"));
       Assert.Contains("tw-storydata", ex.Message);
     }
 
@@ -191,6 +191,47 @@ namespace Harlowe.Tests
       Assert.DoesNotContain("&quot;", body);
       Assert.DoesNotContain("&#39;", body);
       Assert.DoesNotContain("&gt;", body);
+    }
+
+    [Fact]
+    public void Passage_Tags_EmptyForFixturePassages()
+    {
+      // The bundled testFile.html declares tags="" on every passage. Each
+      // passage should report an empty (non-null) tag list.
+      var story = TestFixture.LoadTestFile();
+      var passage = story.GetPassage("Disclaimer");
+
+      Assert.NotNull(passage.Tags);
+      Assert.Empty(passage.Tags);
+    }
+
+    [Fact]
+    public void Passage_Tags_ParsedFromWhitespaceSeparatedAttribute()
+    {
+      // The fixture has no real tags, so use a synthetic story to check the
+      // splitter: multi-space and tab separators should both produce clean
+      // tokens with no empty entries.
+      const string html = "<html><body><tw-storydata name=\"T\" startnode=\"1\">"
+        + "<tw-passagedata pid=\"1\" name=\"P\" tags=\"alpha  beta\tgamma\">body</tw-passagedata>"
+        + "</tw-storydata></body></html>";
+      var story = new Harlowe(html);
+      var passage = story.GetPassage("P");
+
+      Assert.NotNull(passage.Tags);
+      Assert.Equal(new[] { "alpha", "beta", "gamma" }, passage.Tags);
+    }
+
+    [Fact]
+    public void Passage_Tags_EmptyWhenAttributeMissing()
+    {
+      const string html = "<html><body><tw-storydata name=\"T\" startnode=\"1\">"
+        + "<tw-passagedata pid=\"1\" name=\"P\">body</tw-passagedata>"
+        + "</tw-storydata></body></html>";
+      var story = new Harlowe(html);
+      var passage = story.GetPassage("P");
+
+      Assert.NotNull(passage.Tags);
+      Assert.Empty(passage.Tags);
     }
   }
 

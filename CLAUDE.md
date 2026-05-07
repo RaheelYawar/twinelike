@@ -71,8 +71,6 @@ The pipeline was built in five passes, in dependency order:
    **Error policy: in-prose errors, never exceptions.** Mirrors Harlowe's authoring model: a single bad expression renders an inline error message at the spot it happened and the rest of the passage continues. Mechanism: `HarloweValue.Error` propagates through the evaluator (every operator short-circuits on it); when an `Error` value reaches the renderer it goes through `IRenderOutput.Error(message)` instead of being printed. No exceptions on the runtime hot path — engine integrations don't want `try/catch` around every render call.
 
 ## Known TODOs
-- Passage tag parsing is stubbed out (`Tags = null`). `IEvaluationContext.Passage` datamap is missing the `tags` field as a consequence.
-- Metadata fields (`_storyName`, `_creator`, `_creatorVersion`) are private with no public accessors.
 - Tokenizer string literals do not handle escape sequences (`\"`, `\\`); Harlowe doesn't appear to define them, but if a corpus needs them this is where to add support.
 - `BodyTextRenderer` in `Harlowe.cs` drops `MacroNode` content entirely from the rendered body string. The legacy parser left raw macro source in the body. Acceptable for current consumers (tests only check absence of link markup and entities), but if a downstream needs macros in the rendered prose, add a printer that round-trips macros via the AST.
 - v1 `BodyRenderer` renders `MacroNode.AttachedHook` unconditionally for non-conditional macros — no changer/styling semantics. v2 changer macros (`(text-style:)`, `(font:)`, etc.) will need to intercept at this point.

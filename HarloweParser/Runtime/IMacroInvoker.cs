@@ -6,8 +6,9 @@ namespace Harlowe.Runtime
   /// Callback the evaluator uses when it encounters a value-returning
   /// <see cref="Ast.Expression.MacroCallNode"/> nested inside an expression
   /// (e.g. the inner <c>(random: 1, 6)</c> in <c>(set: $r to (random: 1, 6))</c>).
-  /// Implemented by <c>MacroRegistry</c> in sub-step 4 — defined here so the
-  /// evaluator can be built and unit-tested in isolation.
+  /// Implemented by <see cref="MacroRegistry"/>; the interface is kept narrow
+  /// so the evaluator can be built and unit-tested without depending on the
+  /// registry's full surface.
   /// </summary>
   public interface IMacroInvoker
   {

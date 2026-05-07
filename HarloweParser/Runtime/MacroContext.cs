@@ -24,7 +24,7 @@ namespace Harlowe.Runtime
     /// <summary>Read-only session view used for built-in identifiers. Optional.</summary>
     public IEvaluationContext EvaluationContext;
 
-    /// <summary>Used by macros that nest macro calls (none in v1, but reserved). Optional.</summary>
+    /// <summary>Macro dispatcher used by the evaluator when a value-returning macro call is nested inside an expression (e.g. <c>(set: $r to (random: 1, 6))</c>). Optional.</summary>
     public IMacroInvoker Invoker;
 
     /// <summary>RNG used by <c>random</c>/<c>either</c>. Initialised with a system seed; tests may overwrite with a seeded instance.</summary>
@@ -32,9 +32,10 @@ namespace Harlowe.Runtime
 
     /// <summary>
     /// Renders another passage by name and returns its visible text as a
-    /// <see cref="HarloweValueKind.String"/>. Wired up by the body renderer
-    /// (sub-step 6); null until then. <c>(display:)</c> falls back to an error
-    /// when this is missing.
+    /// <see cref="HarloweValueKind.String"/>. Set by <see cref="StorySession"/>
+    /// before each render; null in standalone evaluator/renderer tests, in
+    /// which case <c>(display:)</c> emits an in-prose error rather than
+    /// crashing.
     /// </summary>
     public Func<string, HarloweValue> RenderPassage;
 

@@ -4,8 +4,8 @@ namespace Harlowe.Runtime
   /// Read-only view of session-level state that the evaluator needs to resolve
   /// the built-in identifiers <c>time</c>, <c>visit</c>, <c>visits</c>, and
   /// <c>passage</c>. Kept as a separate interface so the evaluator does not
-  /// take a hard dependency on the (still unbuilt) <c>StorySession</c>; tests
-  /// can provide a static stub.
+  /// take a hard dependency on <see cref="StorySession"/>; tests can provide a
+  /// static stub.
   /// </summary>
   public interface IEvaluationContext
   {

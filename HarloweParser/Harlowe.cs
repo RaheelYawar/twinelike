@@ -12,12 +12,19 @@ namespace Harlowe
 {
   public class Harlowe
   {
-    private string _storyName;
-    private string _creator;
-    private string _creatorVersion;
     private Dictionary<string, HarlowePassage> _passages;
 
+    /// <summary>The story's author-facing name from <c>&lt;tw-storydata name="…"&gt;</c>. Empty string if absent.</summary>
+    public string StoryName { get; private set; }
+
+    /// <summary>The pid of the start passage from <c>&lt;tw-storydata startnode="…"&gt;</c>. Defaults to "0" if absent.</summary>
     public string StartNode { get; private set; }
+
+    /// <summary>The authoring tool that produced the story from <c>&lt;tw-storydata creator="…"&gt;</c> (typically "Twine"). Empty string if absent.</summary>
+    public string Creator { get; private set; }
+
+    /// <summary>The version of the authoring tool from <c>&lt;tw-storydata creator-version="…"&gt;</c>. Empty string if absent.</summary>
+    public string CreatorVersion { get; private set; }
 
     public int PassageCount => _passages.Count;
 
@@ -38,7 +45,7 @@ namespace Harlowe
       HapHtmlNode storyNode = htmlDoc.DocumentNode.SelectSingleNode("//tw-storydata");
       if (storyNode == null)
       {
-        throw new Exception("Invalid Harlowe HTML file: <tw-storydata> not found.");
+        throw new FormatException("Invalid Harlowe HTML file: <tw-storydata> not found.");
       }
 
       ParseStoryData(ref storyNode);
@@ -52,10 +59,10 @@ namespace Harlowe
     /// </summary>
     private void ParseStoryData(ref HapHtmlNode storyNode)
     {
-      _storyName = storyNode.GetAttributeValue("name", "");
+      StoryName = storyNode.GetAttributeValue("name", "");
       StartNode = storyNode.GetAttributeValue("startnode", "0");
-      _creator = storyNode.GetAttributeValue("creator", "");
-      _creatorVersion = storyNode.GetAttributeValue("creator-version", "");
+      Creator = storyNode.GetAttributeValue("creator", "");
+      CreatorVersion = storyNode.GetAttributeValue("creator-version", "");
     }
 
     /// <summary>
@@ -128,7 +135,7 @@ namespace Harlowe
         {
           Pid = passageNode.Attributes["pid"].Value,
           Name = passageNode.Attributes["name"].Value,
-          Tags = null,  // TODO: Parse tags
+          Tags = ParseTags(passageNode.GetAttributeValue("tags", string.Empty)),
           Ast = ast,
           Branches = ExtractBranches(ast),
           Body = RenderBody(ast),
@@ -136,6 +143,21 @@ namespace Harlowe
 
         _passages.Add(passage.Name, passage);
       }
+    }
+
+    /// <summary>
+    /// Splits a Twine <c>tags="…"</c> attribute on whitespace into a list of
+    /// tag names. Empty / whitespace-only / missing attributes return an empty
+    /// list, matching the rest of the API's "empty list, not null, for present
+    /// passages" pattern.
+    /// </summary>
+    private static List<string> ParseTags(string raw)
+    {
+      var result = new List<string>();
+      if (string.IsNullOrWhiteSpace(raw)) return result;
+      var parts = raw.Split(new[] { ' ', '\t', '\n', '\r' }, System.StringSplitOptions.RemoveEmptyEntries);
+      for (int i = 0; i < parts.Length; i++) result.Add(parts[i]);
+      return result;
     }
 
     /// <summary>

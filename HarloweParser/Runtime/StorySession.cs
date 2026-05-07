@@ -87,15 +87,26 @@ namespace Harlowe.Runtime
       }
     }
 
-    /// <summary>Datamap describing the current passage. Contains at least <c>name</c>.</summary>
+    /// <summary>Datamap describing the current passage. Contains <c>name</c> (String) and <c>tags</c> (Array of String).</summary>
     public HarloweValue Passage
     {
       get
       {
         var map = new Dictionary<string, HarloweValue>();
         map["name"] = HarloweValue.OfString(_currentPassage ?? string.Empty);
+        map["tags"] = HarloweValue.OfArray(BuildTags());
         return HarloweValue.OfDatamap(map);
       }
+    }
+
+    private List<HarloweValue> BuildTags()
+    {
+      var list = new List<HarloweValue>();
+      if (string.IsNullOrEmpty(_currentPassage)) return list;
+      var passage = _story.GetPassage(_currentPassage);
+      if (passage == null || passage.Tags == null) return list;
+      for (int i = 0; i < passage.Tags.Count; i++) list.Add(HarloweValue.OfString(passage.Tags[i]));
+      return list;
     }
 
     // Public API -----------------------------------------------------------

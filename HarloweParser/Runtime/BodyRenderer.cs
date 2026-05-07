@@ -46,10 +46,6 @@ namespace Harlowe.Runtime
       _registry = registry;
       _context = context;
       _evaluator = new ExpressionEvaluator(context.Store, context.EvaluationContext, registry);
-      // Wire RenderPassage so (display:) can recursively render another passage
-      // through this same renderer pipeline. The session may overwrite this
-      // with a passage-name-aware lookup; until then, an unwired callback
-      // means (display:) emits an error.
     }
 
     /// <summary>

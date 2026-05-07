@@ -195,6 +195,34 @@ namespace Harlowe.Tests.Runtime
       Assert.Equal("P1", name.AsString);
     }
 
+    [Fact]
+    public void PassageIdentifier_TagsField_EmptyWhenAttributeAbsent()
+    {
+      var session = new StorySession(OnePassage("text"));
+      session.Render();
+      var pv = ((IEvaluationContext)session).Passage;
+      Assert.True(pv.AsDatamap.TryGetValue("tags", out var tags));
+      Assert.Equal(HarloweValueKind.Array, tags.Kind);
+      Assert.Empty(tags.AsArray);
+    }
+
+    [Fact]
+    public void PassageIdentifier_TagsField_ContainsParsedTags()
+    {
+      // Build a story where the start passage carries two tags.
+      var html = "<html><body><tw-storydata name=\"T\" startnode=\"1\">"
+        + "<tw-passagedata pid=\"1\" name=\"P1\" tags=\"intro  hidden\">text</tw-passagedata>"
+        + "</tw-storydata></body></html>";
+      var session = new StorySession(new Harlowe(html));
+      session.Render();
+      var pv = ((IEvaluationContext)session).Passage;
+      Assert.True(pv.AsDatamap.TryGetValue("tags", out var tags));
+      Assert.Equal(HarloweValueKind.Array, tags.Kind);
+      Assert.Equal(2, tags.AsArray.Count);
+      Assert.Equal("intro", tags.AsArray[0].AsString);
+      Assert.Equal("hidden", tags.AsArray[1].AsString);
+    }
+
     // -----------------------------------------------------------------------
     // Automatic (goto:) following
     // -----------------------------------------------------------------------

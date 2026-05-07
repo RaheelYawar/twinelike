@@ -5,8 +5,9 @@ namespace Harlowe.Runtime.Macros
   /// <summary>
   /// <c>(display: "Other Passage")</c>. Renders another passage's body inline
   /// at this point. Delegates to <see cref="MacroContext.RenderPassage"/>,
-  /// wired up by the body renderer in sub-step 6. If the callback is missing,
-  /// returns an in-prose error rather than crashing.
+  /// which the <see cref="StorySession"/> wires before each render. If the
+  /// callback is missing (e.g. running the renderer outside a session in a
+  /// test), returns an in-prose error rather than crashing.
   /// </summary>
   public class DisplayMacro : IMacro
   {
