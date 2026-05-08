@@ -78,7 +78,7 @@ The pipeline was built in five passes, in dependency order:
 ## Roadmap
 
 **v1.1 — usable for a real story.** Plan at `docs/v1.1-slice-a.md`.
-- Slice A: `'s`/`of`/`its` property access (unblocks `passage's tags`, datamap reads, array indexing). Pure evaluator work; ~1 day.
+- ~~Slice A: `'s`/`of`/`its` property access~~ — **DONE.** `ExpressionEvaluator` now resolves identifier accessors (`'s name`, `length`) syntactically and value accessors (`'s 1`, `'s "name"`) by evaluation. `'s`/`of` dispatch ahead of universal evaluation in `Visit(BinaryOpNode)` so an `IdentifierNode` accessor isn't pre-evaluated to "unknown identifier" error. `Visit(UnaryOpNode)` restructured to dispatch first so `its` keeps its operand AST. New helpers: `ResolveProperty`, `ResolveIdentifierAccessor`, `ResolveValueAccessor`, `IndexArray`, `IndexString`. 18 new tests.
 - Slice B: multi-step undo (stack instead of single snapshot in `StorySession`).
 - Slice C: `(history:)` macro (visit-name array, depends on slice B's snapshot stack).
 

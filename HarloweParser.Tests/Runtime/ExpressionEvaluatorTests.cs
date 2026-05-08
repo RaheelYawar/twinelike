@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Harlowe.Ast.Expression;
 using Harlowe.Parsing;
 using Harlowe.Runtime;
+using Harlowe.Runtime.Macros;
 using Harlowe.Tokens;
 using Xunit;
 
@@ -370,5 +371,118 @@ namespace Harlowe.Tests.Runtime
       Assert.True(v.IsError);
       Assert.False(called);
     }
+
+    // Property access ('s, of, its) -----------------------------------------
+    //
+    // The (a:) and (dm:) constructions in these tests need a real macro
+    // invoker, so this region uses StandardMacros instead of the StubInvoker.
+
+    private static HarloweValue EvalP(string source, IVariableStore store = null)
+    {
+      store = store ?? new HarloweVariableStore();
+      var registry = new MacroRegistry();
+      StandardMacros.RegisterAll(registry);
+      registry.Context = new MacroContext { Store = store, Invoker = registry };
+      return Eval(source, store, null, registry);
+    }
+
+    // Datamap
+
+    [Fact]
+    public void Property_Datamap_IdentifierAccessor()
+      => Assert.Equal("Bob", EvalP("(dm: \"name\", \"Bob\")'s name").AsString);
+
+    [Fact]
+    public void Property_Datamap_StringAccessor()
+      => Assert.Equal("Bob", EvalP("(dm: \"name\", \"Bob\")'s \"name\"").AsString);
+
+    [Fact]
+    public void Property_Datamap_MissingKey_Errors()
+    {
+      var v = EvalP("(dm: \"name\", \"Bob\")'s missing");
+      Assert.True(v.IsError);
+      Assert.Contains("key", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void Property_Datamap_NumericKey_Errors()
+    {
+      var v = EvalP("(dm: \"n\", \"B\")'s 5");
+      Assert.True(v.IsError);
+      Assert.Contains("String", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void Property_Of_DatamapReversed()
+      => Assert.Equal("Bob", EvalP("name of (dm: \"name\", \"Bob\")").AsString);
+
+    [Fact]
+    public void Property_Datamap_Chained()
+      => Assert.Equal(10, EvalP("(dm: \"p\", (dm: \"hp\", 10))'s p's hp").AsNumber);
+
+    // Array
+
+    [Fact]
+    public void Property_Array_Length()
+      => Assert.Equal(3, EvalP("(a: 10, 20, 30)'s length").AsNumber);
+
+    [Fact]
+    public void Property_Array_FirstIndex()
+      => Assert.Equal(10, EvalP("(a: 10, 20, 30)'s 1").AsNumber);
+
+    [Fact]
+    public void Property_Array_LastIndex()
+      => Assert.Equal(30, EvalP("(a: 10, 20, 30)'s 3").AsNumber);
+
+    [Fact]
+    public void Property_Array_OutOfRange_Errors()
+    {
+      var v = EvalP("(a: 10, 20, 30)'s 4");
+      Assert.True(v.IsError);
+      Assert.Contains("range", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void Property_Array_StringIndex_Errors()
+      => Assert.True(EvalP("(a: 10)'s \"x\"").IsError);
+
+    [Fact]
+    public void Property_Of_Array_LengthReversed()
+      => Assert.Equal(2, EvalP("length of (a: 1, 2)").AsNumber);
+
+    // String
+
+    [Fact]
+    public void Property_String_Length()
+      => Assert.Equal(5, EvalP("\"hello\"'s length").AsNumber);
+
+    [Fact]
+    public void Property_String_FirstChar()
+      => Assert.Equal("h", EvalP("\"hello\"'s 1").AsString);
+
+    [Fact]
+    public void Property_String_OutOfRange_Errors()
+      => Assert.True(EvalP("\"hello\"'s 6").IsError);
+
+    [Fact]
+    public void Property_String_UnknownIdentifier_Errors()
+      => Assert.True(EvalP("\"hello\"'s notalength").IsError);
+
+    // its shorthand — `its` reads from the store's `it` slot, which is
+    // updated by every Set. Seeding via `to` confirms the integration end-to-end.
+
+    [Fact]
+    public void Property_Its_AfterTo()
+    {
+      var store = new HarloweVariableStore();
+      EvalP("$x to (dm: \"name\", \"Bob\")", store);
+      Assert.Equal("Bob", EvalP("its name", store).AsString);
+    }
+
+    // Number/Bool — no properties
+
+    [Fact]
+    public void Property_OnNumber_Errors()
+      => Assert.True(EvalP("5's length").IsError);
   }
 }

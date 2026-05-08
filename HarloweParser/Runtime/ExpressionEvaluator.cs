@@ -20,11 +20,11 @@ namespace Harlowe.Runtime
   ///
   /// <para>v1 operator coverage:
   /// <list type="bullet">
-  /// <item>Binary: <c>+ - * /</c>, <c>&lt; &lt;= &gt; &gt;=</c>, <c>is</c>, <c>is not</c>, <c>and</c>, <c>or</c>, <c>to</c>, <c>into</c>, <c>contains</c>, <c>is in</c>.</item>
-  /// <item>Unary: <c>not</c>, unary <c>-</c>, unary <c>+</c>.</item>
+  /// <item>Binary: <c>+ - * /</c>, <c>&lt; &lt;= &gt; &gt;=</c>, <c>is</c>, <c>is not</c>, <c>and</c>, <c>or</c>, <c>to</c>, <c>into</c>, <c>contains</c>, <c>is in</c>, <c>'s</c>, <c>of</c>.</item>
+  /// <item>Unary: <c>not</c>, unary <c>-</c>, unary <c>+</c>, <c>its</c>.</item>
   /// <item>Identifiers: <c>it</c>, <c>time</c>, <c>visit</c>, <c>visits</c>, <c>passage</c>.</item>
   /// </list>
-  /// Lambda operators (<c>where/when/via/making/each</c>), <c>'s</c>/<c>of</c>/<c>its</c>,
+  /// Lambda operators (<c>where/when/via/making/each</c>),
   /// <c>...</c>/<c>bind</c>/<c>2bind</c>, and pattern operators (<c>matches</c>, <c>is a</c>, etc.)
   /// are deferred to v2.
   /// </para>
@@ -99,25 +99,43 @@ namespace Harlowe.Runtime
 
     public void Visit(UnaryOpNode node)
     {
-      // 'to'/'into' are not unary; only assignment forms are. Everything here
-      // is a value-returning prefix.
-      var operand = Evaluate(node.Operand);
-      if (operand.IsError) { _result = operand; return; }
-
+      // Dispatch on operator first so `its` can hold onto the operand's AST
+      // shape — `its name` needs to see IdentifierNode("name") as a key, not
+      // evaluate it into an "unknown identifier" error.
       switch (node.Operator)
       {
+        case "its":
+        {
+          var it = _store.It;
+          if (it == null) { _result = HarloweValue.OfError("'it' is not yet set"); return; }
+          // Property access does not rebind `it`; `'s`/`of`/`its` are pure reads.
+          _result = ResolveProperty(it, node.Operand);
+          return;
+        }
         case "not":
+        {
+          var operand = Evaluate(node.Operand);
+          if (operand.IsError) { _result = operand; return; }
           if (operand.Kind != HarloweValueKind.Bool) { _result = TypeError("not", operand); return; }
           _result = HarloweValue.OfBool(!operand.AsBool);
           return;
+        }
         case "-":
+        {
+          var operand = Evaluate(node.Operand);
+          if (operand.IsError) { _result = operand; return; }
           if (operand.Kind != HarloweValueKind.Number) { _result = TypeError("unary -", operand); return; }
           _result = HarloweValue.OfNumber(-operand.AsNumber);
           return;
+        }
         case "+":
+        {
+          var operand = Evaluate(node.Operand);
+          if (operand.IsError) { _result = operand; return; }
           if (operand.Kind != HarloweValueKind.Number) { _result = TypeError("unary +", operand); return; }
           _result = operand;
           return;
+        }
         default:
           _result = HarloweValue.OfError($"unsupported unary operator '{node.Operator}'");
           return;
@@ -131,6 +149,22 @@ namespace Harlowe.Runtime
       // side is evaluated.
       if (node.Operator == "to") { AssignTo(node.Left, node.Right); return; }
       if (node.Operator == "into") { AssignTo(node.Right, node.Left); return; }
+
+      // Property access keeps the accessor side as a node so an IdentifierNode
+      // is treated as a key/property name rather than evaluated as an unknown
+      // identifier. Dispatched before the universal evaluation below.
+      if (node.Operator == "'s")
+      {
+        var container = Evaluate(node.Left);
+        _result = ResolveProperty(container, node.Right);
+        return;
+      }
+      if (node.Operator == "of")
+      {
+        var container = Evaluate(node.Right);
+        _result = ResolveProperty(container, node.Left);
+        return;
+      }
 
       var left = Evaluate(node.Left);
       if (left.IsError) { _result = left; return; }
@@ -250,5 +284,85 @@ namespace Harlowe.Runtime
 
     private static HarloweValue TypeError(string op, HarloweValue offender)
       => HarloweValue.OfError($"{op} does not apply to a {offender.Kind}");
+
+    /// <summary>
+    /// Resolve a property/key/index off <paramref name="container"/>. The
+    /// accessor's AST shape matters: an <see cref="IdentifierNode"/> is treated
+    /// as a name (datamap key, or reserved property like <c>length</c> on
+    /// arrays/strings); anything else is evaluated as a value and dispatched by
+    /// container kind. Errors on the container short-circuit unchanged.
+    /// </summary>
+    private HarloweValue ResolveProperty(HarloweValue container, IExpressionNode accessor)
+    {
+      if (container.IsError) return container;
+
+      if (accessor is IdentifierNode id)
+        return ResolveIdentifierAccessor(container, id.Name);
+
+      var key = Evaluate(accessor);
+      if (key.IsError) return key;
+      return ResolveValueAccessor(container, key);
+    }
+
+    private static HarloweValue ResolveIdentifierAccessor(HarloweValue container, string name)
+    {
+      switch (container.Kind)
+      {
+        case HarloweValueKind.Datamap:
+          if (container.AsDatamap.TryGetValue(name, out var v)) return v;
+          return HarloweValue.OfError($"datamap has no key '{name}'");
+        case HarloweValueKind.Array:
+          if (name == "length") return HarloweValue.OfNumber(container.AsArray.Count);
+          return HarloweValue.OfError($"array has no property '{name}'");
+        case HarloweValueKind.String:
+          if (name == "length") return HarloweValue.OfNumber(container.AsString.Length);
+          return HarloweValue.OfError($"string has no property '{name}'");
+        default:
+          return HarloweValue.OfError($"a {container.Kind} has no properties");
+      }
+    }
+
+    private static HarloweValue ResolveValueAccessor(HarloweValue container, HarloweValue key)
+    {
+      switch (container.Kind)
+      {
+        case HarloweValueKind.Datamap:
+          if (key.Kind != HarloweValueKind.String)
+            return HarloweValue.OfError($"datamap key must be a String, not a {key.Kind}");
+          if (container.AsDatamap.TryGetValue(key.AsString, out var v)) return v;
+          return HarloweValue.OfError($"datamap has no key '{key.AsString}'");
+        case HarloweValueKind.Array:
+          if (key.Kind != HarloweValueKind.Number)
+            return HarloweValue.OfError($"array index must be a Number, not a {key.Kind}");
+          return IndexArray(container.AsArray, key.AsNumber);
+        case HarloweValueKind.String:
+          if (key.Kind != HarloweValueKind.Number)
+            return HarloweValue.OfError($"string index must be a Number, not a {key.Kind}");
+          return IndexString(container.AsString, key.AsNumber);
+        default:
+          return HarloweValue.OfError($"a {container.Kind} has no properties");
+      }
+    }
+
+    // Harlowe arrays/strings are 1-based; non-integer or out-of-range indices error.
+    private static HarloweValue IndexArray(List<HarloweValue> arr, double idx)
+    {
+      if (idx != System.Math.Floor(idx))
+        return HarloweValue.OfError($"array index must be a whole number; got {idx}");
+      int i = (int)idx;
+      if (i < 1 || i > arr.Count)
+        return HarloweValue.OfError($"array index {i} is out of range (1..{arr.Count})");
+      return arr[i - 1];
+    }
+
+    private static HarloweValue IndexString(string s, double idx)
+    {
+      if (idx != System.Math.Floor(idx))
+        return HarloweValue.OfError($"string index must be a whole number; got {idx}");
+      int i = (int)idx;
+      if (i < 1 || i > s.Length)
+        return HarloweValue.OfError($"string index {i} is out of range (1..{s.Length})");
+      return HarloweValue.OfString(s[i - 1].ToString());
+    }
   }
 }
