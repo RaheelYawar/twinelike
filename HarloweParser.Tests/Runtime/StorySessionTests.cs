@@ -351,14 +351,101 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void Goto_AfterUndo_NewSnapshotReplacesPrior()
     {
-      // Undo goes back to P1; then Goto to P3 creates a fresh snapshot.
-      // Undo from P3 should go back to P1, not P2.
+      // Undo goes back to P1 (popping the prior snapshot); then Goto to P3
+      // pushes a fresh snapshot. Undo from P3 should go back to P1, not P2.
       var session = new StorySession(ThreePassages("p1", "p2", "p3"));
       session.Goto("P2");
-      session.Undo();               // back to P1
-      session.Goto("P3");           // snapshot: P1 → P3
+      session.Undo();               // back to P1, stack now empty
+      session.Goto("P3");           // pushes P1
       session.Undo();
       Assert.Equal("P1", session.CurrentPassage);
+    }
+
+    // -----------------------------------------------------------------------
+    // Multi-step undo (slice B)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Undo_WalksBackThroughMultipleGotos()
+    {
+      var session = new StorySession(ThreePassages("p1", "p2", "p3"));
+      session.Goto("P2");
+      session.Goto("P3");
+      Assert.True(session.Undo());
+      Assert.Equal("P2", session.CurrentPassage);
+      Assert.True(session.Undo());
+      Assert.Equal("P1", session.CurrentPassage);
+    }
+
+    [Fact]
+    public void Undo_AllStepsThenStackEmpty()
+    {
+      var session = new StorySession(ThreePassages("p1", "p2", "p3"));
+      session.Goto("P2");
+      session.Goto("P3");
+      session.Undo();
+      session.Undo();
+      Assert.False(session.Undo());
+      Assert.Equal("P1", session.CurrentPassage);
+    }
+
+    [Fact]
+    public void Undo_RestoresStoryVariablesAcrossMultipleSteps()
+    {
+      // P1 reads $x; P2 sets $x=1; P3 sets $x=2. Step back to recover prior
+      // values: undo from P3 → $x=1; undo again → $x unset.
+      var html = "<html><body><tw-storydata name=\"T\" startnode=\"1\">"
+        + "<tw-passagedata pid=\"1\" name=\"P1\" tags=\"\">$x</tw-passagedata>"
+        + "<tw-passagedata pid=\"2\" name=\"P2\" tags=\"\">(set: $x to 1)$x</tw-passagedata>"
+        + "<tw-passagedata pid=\"3\" name=\"P3\" tags=\"\">(set: $x to 2)$x</tw-passagedata>"
+        + "</tw-storydata></body></html>";
+      var session = new StorySession(new Harlowe(html));
+      session.Render();             // P1 — error (unset), but we don't care
+      session.Goto("P2");           // $x = 1
+      session.Goto("P3");           // $x = 2
+
+      session.Undo();               // pop snapshot taken before entering P3 — $x = 1
+      var r1 = session.Render();
+      Assert.Equal("1", r1.Text);
+
+      session.Undo();               // pop snapshot taken before entering P2 — $x unset
+      var r2 = session.Render();
+      Assert.Equal(1, CountKind(r2, BufferedRenderOutput.Kind.Error));
+    }
+
+    [Fact]
+    public void Undo_RestoresVisitCountsAcrossMultipleSteps()
+    {
+      // Visit P2, P3, P2 — visits[P2]=2. Undo three times, then revisit P2 fresh.
+      var session = new StorySession(ThreePassages("p1", "(print: visits)", "p3"));
+      session.Goto("P2");           // visits[P2] = 1
+      session.Goto("P3");
+      session.Goto("P2");           // visits[P2] = 2
+
+      session.Undo();               // back to P3; visits[P2] = 1
+      session.Undo();               // back to P2; visits[P2] = 1
+      session.Undo();               // back to P1; visits cleared for P2
+
+      var r = session.Goto("P2");
+      Assert.Equal("1", r.Text);
+    }
+
+    [Fact]
+    public void Undo_InterleavedWithGoto()
+    {
+      // Goto P2, Goto P3, Undo (back to P2), Goto P3 again, Undo (back to P2),
+      // Undo (back to P1). Verifies stack push/pop semantics under mixed use.
+      var session = new StorySession(ThreePassages("p1", "p2", "p3"));
+      session.Goto("P2");
+      session.Goto("P3");
+      session.Undo();
+      Assert.Equal("P2", session.CurrentPassage);
+      session.Goto("P3");
+      session.Undo();
+      Assert.Equal("P2", session.CurrentPassage);
+      session.Undo();
+      Assert.Equal("P1", session.CurrentPassage);
+      Assert.False(session.Undo());
     }
 
     // -----------------------------------------------------------------------

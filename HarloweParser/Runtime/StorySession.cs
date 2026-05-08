@@ -24,11 +24,13 @@ namespace Harlowe.Runtime
   /// </para>
   ///
   /// <para>
-  /// <b>Undo.</b> Single-step in v1: only the state immediately before the
-  /// most recent <see cref="Goto"/> call can be restored. After
+  /// <b>Undo.</b> Multi-step: every <see cref="Goto"/> pushes a snapshot onto
+  /// the undo stack; <see cref="Undo"/> pops the most recent snapshot and
+  /// restores its passage, variable store, and visit counts. After
   /// <see cref="Undo"/> returns <c>true</c>, call <see cref="Render"/> to
-  /// redisplay the restored passage. A second <see cref="Undo"/> call (with no
-  /// intervening <see cref="Goto"/>) returns <c>false</c>.
+  /// redisplay the restored passage. <see cref="Undo"/> returns <c>false</c>
+  /// only when the stack is empty (no <see cref="Goto"/> has happened, or
+  /// every prior step has already been undone). The stack is unbounded.
   /// </para>
   ///
   /// <para>
@@ -45,7 +47,7 @@ namespace Harlowe.Runtime
     private readonly HarloweVariableStore _store;
     private string _currentPassage;
     private Dictionary<string, int> _visitCounts;
-    private SessionSnapshot _undoSnapshot;
+    private readonly Stack<SessionSnapshot> _undoStack;
     private readonly Stopwatch _passageTimer;
 
     private const int MaxGotoDepth = 20;
@@ -65,6 +67,7 @@ namespace Harlowe.Runtime
       StandardMacros.RegisterAll(_registry);
       _store = new HarloweVariableStore();
       _visitCounts = new Dictionary<string, int>();
+      _undoStack = new Stack<SessionSnapshot>();
       _passageTimer = Stopwatch.StartNew();
 
       var startPassage = story.GetStartPassage();
@@ -121,39 +124,39 @@ namespace Harlowe.Runtime
     public RenderResult Render() => RenderInternal(0);
 
     /// <summary>
-    /// Navigates to <paramref name="passageName"/>, snapshots the current
-    /// state for <see cref="Undo"/>, increments the target's visit count,
-    /// clears passage-scoped variables, and returns the rendered result.
-    /// Overwrites the previous undo snapshot (v1 is single-step). Any
-    /// <c>(goto:)</c> macros in the target passage are followed automatically.
+    /// Navigates to <paramref name="passageName"/>, pushes a snapshot of the
+    /// current state onto the undo stack, increments the target's visit
+    /// count, clears passage-scoped variables, and returns the rendered
+    /// result. Any <c>(goto:)</c> macros in the target passage are followed
+    /// automatically.
     /// </summary>
     public RenderResult Goto(string passageName)
     {
-      _undoSnapshot = new SessionSnapshot
+      _undoStack.Push(new SessionSnapshot
       {
         PassageName = _currentPassage,
         StoreSnapshot = _store.Snapshot(),
         VisitCounts = CopyVisitCounts()
-      };
+      });
       EnterPassage(passageName);
       return RenderInternal(0);
     }
 
     /// <summary>
-    /// Restores the state captured immediately before the most recent
-    /// <see cref="Goto"/> call: passage name, variable store, and visit counts.
-    /// Returns <c>true</c> if the snapshot was available and applied;
-    /// <c>false</c> if there is nothing to undo (no prior <see cref="Goto"/>,
-    /// or already undone once). After returning <c>true</c>, call
-    /// <see cref="Render"/> to display the restored passage.
+    /// Pops the most recent snapshot from the undo stack and restores its
+    /// passage name, variable store, and visit counts. Returns <c>true</c> if
+    /// a snapshot was available and applied; <c>false</c> if the stack is
+    /// empty. After returning <c>true</c>, call <see cref="Render"/> to
+    /// display the restored passage. May be called repeatedly to walk back
+    /// through every <see cref="Goto"/> the session has performed.
     /// </summary>
     public bool Undo()
     {
-      if (_undoSnapshot == null) return false;
-      _currentPassage = _undoSnapshot.PassageName;
-      _store.Restore(_undoSnapshot.StoreSnapshot);
-      _visitCounts = _undoSnapshot.VisitCounts;
-      _undoSnapshot = null;
+      if (_undoStack.Count == 0) return false;
+      var snap = _undoStack.Pop();
+      _currentPassage = snap.PassageName;
+      _store.Restore(snap.StoreSnapshot);
+      _visitCounts = snap.VisitCounts;
       _passageTimer.Restart();
       return true;
     }
