@@ -17,5 +17,13 @@ namespace Harlowe.Runtime
 
     /// <summary>A datamap describing the current passage (name, tags, etc.).</summary>
     HarloweValue Passage { get; }
+
+    /// <summary>
+    /// Array of past passage names in visit order (oldest first), excluding
+    /// the current passage. May contain duplicates if the player revisited a
+    /// passage. Empty before the first <c>Goto</c>. Backs the
+    /// <c>(history:)</c> macro.
+    /// </summary>
+    HarloweValue History { get; }
   }
 }

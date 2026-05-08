@@ -90,6 +90,25 @@ namespace Harlowe.Runtime
       }
     }
 
+    /// <summary>
+    /// Past passage names in visit order, oldest first, excluding the
+    /// current passage. Backs the <c>(history:)</c> macro. The undo stack
+    /// stores each snapshot's prior passage name, so iterating it
+    /// bottom-to-top yields the visit order; <see cref="System.Collections.Generic.Stack{T}.ToArray"/>
+    /// returns top-first (LIFO), hence the reverse loop.
+    /// </summary>
+    public HarloweValue History
+    {
+      get
+      {
+        var snaps = _undoStack.ToArray();
+        var list = new List<HarloweValue>(snaps.Length);
+        for (int i = snaps.Length - 1; i >= 0; i--)
+          list.Add(HarloweValue.OfString(snaps[i].PassageName ?? string.Empty));
+        return HarloweValue.OfArray(list);
+      }
+    }
+
     /// <summary>Datamap describing the current passage. Contains <c>name</c> (String) and <c>tags</c> (Array of String).</summary>
     public HarloweValue Passage
     {

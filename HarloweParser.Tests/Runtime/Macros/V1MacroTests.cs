@@ -343,5 +343,52 @@ namespace Harlowe.Tests.Runtime.Macros
       }, ctx);
       Assert.True(v.IsError);
     }
+
+    // history ---------------------------------------------------------------
+
+    private class StubHistoryContext : IEvaluationContext
+    {
+      public HarloweValue Time => HarloweValue.OfNumber(0);
+      public HarloweValue Visits => HarloweValue.OfNumber(0);
+      public HarloweValue Passage => HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>());
+      public HarloweValue History { get; set; }
+    }
+
+    [Fact]
+    public void History_NoEvaluationContext_Errors()
+    {
+      var (reg, ctx) = Setup();
+      // Setup() does not wire EvaluationContext; macro should error.
+      var v = Call(reg, ctx, "history");
+      Assert.True(v.IsError);
+    }
+
+    [Fact]
+    public void History_PullsArrayFromContext()
+    {
+      var (reg, ctx) = Setup();
+      var stub = new StubHistoryContext
+      {
+        History = HarloweValue.OfArray(new List<HarloweValue>
+        {
+          HarloweValue.OfString("Start"),
+          HarloweValue.OfString("Middle")
+        })
+      };
+      ctx.EvaluationContext = stub;
+      var v = Call(reg, ctx, "history");
+      Assert.Equal(HarloweValueKind.Array, v.Kind);
+      Assert.Equal(2, v.AsArray.Count);
+      Assert.Equal("Start", v.AsArray[0].AsString);
+      Assert.Equal("Middle", v.AsArray[1].AsString);
+    }
+
+    [Fact]
+    public void History_OneArg_ArityError()
+    {
+      var (reg, ctx) = Setup();
+      var v = reg.Invoke("history", new List<HarloweValue> { HarloweValue.OfNumber(1) }, ctx);
+      Assert.True(v.IsError);
+    }
   }
 }

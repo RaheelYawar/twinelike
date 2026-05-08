@@ -30,6 +30,7 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new ModuloMacro());
       registry.Register(new TextMacro());
       registry.Register(new NumMacro());
+      registry.Register(new HistoryMacro());
     }
   }
 }

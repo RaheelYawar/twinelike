@@ -449,6 +449,89 @@ namespace Harlowe.Tests.Runtime
     }
 
     // -----------------------------------------------------------------------
+    // (history:) (slice C)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void History_EmptyOnInitialRender()
+    {
+      var session = new StorySession(OnePassage("text"));
+      session.Render();
+      var h = ((IEvaluationContext)session).History;
+      Assert.Equal(HarloweValueKind.Array, h.Kind);
+      Assert.Empty(h.AsArray);
+    }
+
+    [Fact]
+    public void History_AfterGoto_ContainsPriorPassage()
+    {
+      var session = new StorySession(TwoPassages("p1", "p2"));
+      session.Goto("P2");
+      var h = ((IEvaluationContext)session).History;
+      Assert.Single(h.AsArray);
+      Assert.Equal("P1", h.AsArray[0].AsString);
+    }
+
+    [Fact]
+    public void History_ExcludesCurrentPassage()
+    {
+      var session = new StorySession(TwoPassages("p1", "p2"));
+      session.Goto("P2");
+      var h = ((IEvaluationContext)session).History;
+      for (int i = 0; i < h.AsArray.Count; i++)
+        Assert.NotEqual("P2", h.AsArray[i].AsString);
+    }
+
+    [Fact]
+    public void History_OldestFirstAcrossMultipleGotos()
+    {
+      var session = new StorySession(ThreePassages("p1", "p2", "p3"));
+      session.Goto("P2");
+      session.Goto("P3");
+      var h = ((IEvaluationContext)session).History;
+      Assert.Equal(2, h.AsArray.Count);
+      Assert.Equal("P1", h.AsArray[0].AsString);
+      Assert.Equal("P2", h.AsArray[1].AsString);
+    }
+
+    [Fact]
+    public void History_AllowsDuplicatesOnRevisit()
+    {
+      var session = new StorySession(TwoPassages("p1", "p2"));
+      session.Goto("P2");
+      session.Goto("P1");
+      session.Goto("P2");
+      var h = ((IEvaluationContext)session).History;
+      Assert.Equal(3, h.AsArray.Count);
+      Assert.Equal("P1", h.AsArray[0].AsString);
+      Assert.Equal("P2", h.AsArray[1].AsString);
+      Assert.Equal("P1", h.AsArray[2].AsString);
+    }
+
+    [Fact]
+    public void History_ShrinksOnUndo()
+    {
+      var session = new StorySession(ThreePassages("p1", "p2", "p3"));
+      session.Goto("P2");
+      session.Goto("P3");
+      session.Undo();  // back to P2; history should shrink to ["P1"]
+      var h = ((IEvaluationContext)session).History;
+      Assert.Single(h.AsArray);
+      Assert.Equal("P1", h.AsArray[0].AsString);
+    }
+
+    [Fact]
+    public void History_MacroRendersAsCommaJoinedList()
+    {
+      // (print: (history:)) round-trips through the array's ToHarloweString,
+      // which joins with commas. End-to-end check that the macro is wired.
+      var session = new StorySession(ThreePassages("p1", "p2", "(print: (history:))"));
+      session.Goto("P2");
+      var r = session.Goto("P3");
+      Assert.Equal("P1,P2", r.Text);
+    }
+
+    // -----------------------------------------------------------------------
     // Integration test against real test fixture
     // -----------------------------------------------------------------------
 
