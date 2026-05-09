@@ -223,6 +223,7 @@ namespace Harlowe.Tokens
       if (char.IsDigit(c))
       {
         if (c == '2' && TryScanTwoBind(startPos, startLine, startCol)) return;
+        if (TryScanOrdinal(startPos, startLine, startCol)) return;
         ScanNumberLiteral(startPos, startLine, startCol);
         return;
       }
@@ -603,6 +604,36 @@ namespace Harlowe.Tokens
       }
 
       return false;
+    }
+
+    /// <summary>
+    /// Tries to consume an ordinal accessor of the form <c>\d+(st|nd|rd|th)</c>
+    /// optionally followed by <c>last</c> (e.g. <c>1st</c>, <c>2nd</c>,
+    /// <c>2ndlast</c>). Required because ordinals begin with a digit and would
+    /// otherwise tokenize as <see cref="TokenType.NumberLiteral"/> followed by
+    /// a separate identifier. Matches only when the full ordinal text is not
+    /// followed by another identifier-continuation char, so <c>1stnope</c>
+    /// falls through to the number-literal path. The bare keyword <c>last</c>
+    /// is not handled here — it's letter-led and tokenizes as a normal
+    /// <see cref="TokenType.Identifier"/> through
+    /// <see cref="ScanIdentifierOrKeyword"/>.
+    /// </summary>
+    private bool TryScanOrdinal(int startPos, int startLine, int startCol)
+    {
+      int look = _pos;
+      while (look < _src.Length && char.IsDigit(_src[look])) look++;
+      if (look == _pos) return false;
+      if (look + 1 >= _src.Length) return false;
+      string suffix = _src.Substring(look, 2);
+      if (suffix != "st" && suffix != "nd" && suffix != "rd" && suffix != "th") return false;
+      int end = look + 2;
+      if (end + 4 <= _src.Length && _src.Substring(end, 4) == "last")
+        end += 4;
+      if (end < _src.Length && IsIdContinue(_src[end])) return false;
+      string text = _src.Substring(_pos, end - _pos);
+      AdvanceN(end - _pos);
+      Emit(TokenType.Identifier, text, startPos, startLine, startCol);
+      return true;
     }
 
     /// <summary>

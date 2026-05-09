@@ -710,5 +710,126 @@ namespace Harlowe.Tests
         (TokenType.MacroClose, ")"),
         (TokenType.EndOfFile, ""));
     }
+
+    [Fact]
+    public void Ordinal_FirstSecondThirdFourth_TokenizedAsIdentifier()
+    {
+      // The four ordinal suffixes all collapse into a single Identifier token
+      // (digit-led) so the evaluator can dispatch them through the property
+      // accessor path.
+      AssertSequence(Tokenize("(print: $arr's 1st)"),
+        (TokenType.MacroOpen, "print"),
+        (TokenType.Variable, "arr"),
+        (TokenType.Operator, "'s"),
+        (TokenType.Identifier, "1st"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+
+      AssertSequence(Tokenize("(print: $arr's 2nd)"),
+        (TokenType.MacroOpen, "print"),
+        (TokenType.Variable, "arr"),
+        (TokenType.Operator, "'s"),
+        (TokenType.Identifier, "2nd"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+
+      AssertSequence(Tokenize("(print: $arr's 3rd)"),
+        (TokenType.MacroOpen, "print"),
+        (TokenType.Variable, "arr"),
+        (TokenType.Operator, "'s"),
+        (TokenType.Identifier, "3rd"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+
+      AssertSequence(Tokenize("(print: $arr's 4th)"),
+        (TokenType.MacroOpen, "print"),
+        (TokenType.Variable, "arr"),
+        (TokenType.Operator, "'s"),
+        (TokenType.Identifier, "4th"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void Ordinal_MultiDigit_TokenizedAsSingleIdentifier()
+    {
+      AssertSequence(Tokenize("(print: $arr's 100th)"),
+        (TokenType.MacroOpen, "print"),
+        (TokenType.Variable, "arr"),
+        (TokenType.Operator, "'s"),
+        (TokenType.Identifier, "100th"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void Ordinal_NthLast_TokenizedAsSingleIdentifier()
+    {
+      // `2ndlast` has to be one token, not `2nd` + `last`, so that the
+      // evaluator's identifier accessor sees the full back-anchored ordinal.
+      AssertSequence(Tokenize("(print: $arr's 2ndlast)"),
+        (TokenType.MacroOpen, "print"),
+        (TokenType.Variable, "arr"),
+        (TokenType.Operator, "'s"),
+        (TokenType.Identifier, "2ndlast"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void Ordinal_BareLast_TokenizedAsIdentifier()
+    {
+      // `last` is letter-led — the normal identifier path handles it without
+      // any special casing. This test locks the behaviour the resolver relies
+      // on.
+      AssertSequence(Tokenize("(print: $arr's last)"),
+        (TokenType.MacroOpen, "print"),
+        (TokenType.Variable, "arr"),
+        (TokenType.Operator, "'s"),
+        (TokenType.Identifier, "last"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void Ordinal_TrailingLetters_NotFused()
+    {
+      // `1stnope` is not an ordinal — the trailing identifier-continuation
+      // chars disqualify it. The tokenizer falls back to the number-literal
+      // path so the result is `1` + `stnope`.
+      AssertSequence(Tokenize("(print: 1stnope)"),
+        (TokenType.MacroOpen, "print"),
+        (TokenType.NumberLiteral, "1"),
+        (TokenType.Identifier, "stnope"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void Ordinal_BareDigit_StillTokenizedAsNumberLiteral()
+    {
+      // The ordinal shortcut must not swallow plain numeric indexing.
+      AssertSequence(Tokenize("(print: $arr's 1)"),
+        (TokenType.MacroOpen, "print"),
+        (TokenType.Variable, "arr"),
+        (TokenType.Operator, "'s"),
+        (TokenType.NumberLiteral, "1"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void Ordinal_OfForm_TokenizedAsIdentifier()
+    {
+      // `1st of $arr` — same Identifier token, just on the other side of the
+      // accessor operator.
+      AssertSequence(Tokenize("(print: 1st of $arr)"),
+        (TokenType.MacroOpen, "print"),
+        (TokenType.Identifier, "1st"),
+        (TokenType.Operator, "of"),
+        (TokenType.Variable, "arr"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
   }
 }

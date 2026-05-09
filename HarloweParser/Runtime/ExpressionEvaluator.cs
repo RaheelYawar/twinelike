@@ -313,13 +313,52 @@ namespace Harlowe.Runtime
           return HarloweValue.OfError($"datamap has no key '{name}'");
         case HarloweValueKind.Array:
           if (name == "length") return HarloweValue.OfNumber(container.AsArray.Count);
+          if (TryParseOrdinal(name, out int aIdx, out bool aFromEnd))
+          {
+            int target = aFromEnd ? container.AsArray.Count - aIdx + 1 : aIdx;
+            return IndexArray(container.AsArray, target);
+          }
           return HarloweValue.OfError($"array has no property '{name}'");
         case HarloweValueKind.String:
           if (name == "length") return HarloweValue.OfNumber(container.AsString.Length);
+          if (TryParseOrdinal(name, out int sIdx, out bool sFromEnd))
+          {
+            int target = sFromEnd ? container.AsString.Length - sIdx + 1 : sIdx;
+            return IndexString(container.AsString, target);
+          }
           return HarloweValue.OfError($"string has no property '{name}'");
         default:
           return HarloweValue.OfError($"a {container.Kind} has no properties");
       }
+    }
+
+    /// <summary>
+    /// Parses an ordinal accessor name into a 1-based index and a direction
+    /// flag. Recognised forms: <c>last</c> (idx=1, fromEnd=true), <c>Nth</c>
+    /// where the suffix is <c>st</c>/<c>nd</c>/<c>rd</c>/<c>th</c> (forward
+    /// indexing), and <c>Nthlast</c> (back-anchored). Returns false for any
+    /// other identifier so the caller can report an unknown property. The
+    /// suffix is decorative — <c>2st</c> and <c>1nd</c> still parse — matching
+    /// Harlowe's permissive author-facing behaviour.
+    /// </summary>
+    private static bool TryParseOrdinal(string name, out int index, out bool fromEnd)
+    {
+      index = 0;
+      fromEnd = false;
+      if (string.IsNullOrEmpty(name)) return false;
+      if (name == "last") { index = 1; fromEnd = true; return true; }
+      int p = 0;
+      while (p < name.Length && char.IsDigit(name[p])) p++;
+      if (p == 0) return false;
+      if (p + 2 > name.Length) return false;
+      string suffix = name.Substring(p, 2);
+      if (suffix != "st" && suffix != "nd" && suffix != "rd" && suffix != "th") return false;
+      int after = p + 2;
+      if (!int.TryParse(name.Substring(0, p), out int n)) return false;
+      if (after == name.Length) { index = n; fromEnd = false; return true; }
+      if (after + 4 == name.Length && name.Substring(after, 4) == "last")
+      { index = n; fromEnd = true; return true; }
+      return false;
     }
 
     private static HarloweValue ResolveValueAccessor(HarloweValue container, HarloweValue key)

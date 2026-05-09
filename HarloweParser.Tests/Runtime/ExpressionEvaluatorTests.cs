@@ -485,5 +485,103 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void Property_OnNumber_Errors()
       => Assert.True(EvalP("5's length").IsError);
+
+    // Ordinal accessors (1st, 2nd, last, 2ndlast) ---------------------------
+
+    // Array — forward ordinals
+
+    [Fact]
+    public void Ordinal_Array_FirstOrdinal()
+      => Assert.Equal(10, EvalP("(a: 10, 20, 30)'s 1st").AsNumber);
+
+    [Fact]
+    public void Ordinal_Array_SecondOrdinal()
+      => Assert.Equal(20, EvalP("(a: 10, 20, 30)'s 2nd").AsNumber);
+
+    [Fact]
+    public void Ordinal_Array_ThirdOrdinal()
+      => Assert.Equal(30, EvalP("(a: 10, 20, 30)'s 3rd").AsNumber);
+
+    [Fact]
+    public void Ordinal_Array_FourthOrdinal()
+      => Assert.Equal(40, EvalP("(a: 10, 20, 30, 40)'s 4th").AsNumber);
+
+    [Fact]
+    public void Ordinal_Array_OutOfRange_Errors()
+    {
+      var v = EvalP("(a: 10, 20)'s 5th");
+      Assert.True(v.IsError);
+      Assert.Contains("range", v.ErrorMessage);
+    }
+
+    // Array — back-anchored ordinals
+
+    [Fact]
+    public void Ordinal_Array_Last()
+      => Assert.Equal(30, EvalP("(a: 10, 20, 30)'s last").AsNumber);
+
+    [Fact]
+    public void Ordinal_Array_SecondLast()
+      => Assert.Equal(20, EvalP("(a: 10, 20, 30)'s 2ndlast").AsNumber);
+
+    [Fact]
+    public void Ordinal_Array_ThirdLast()
+      => Assert.Equal(10, EvalP("(a: 10, 20, 30)'s 3rdlast").AsNumber);
+
+    [Fact]
+    public void Ordinal_Array_LastOnSingleton()
+      => Assert.Equal(10, EvalP("(a: 10)'s last").AsNumber);
+
+    [Fact]
+    public void Ordinal_Array_NthLastOutOfRange_Errors()
+      => Assert.True(EvalP("(a: 10, 20)'s 5thlast").IsError);
+
+    // String — forward and back ordinals
+
+    [Fact]
+    public void Ordinal_String_First()
+      => Assert.Equal("h", EvalP("\"hello\"'s 1st").AsString);
+
+    [Fact]
+    public void Ordinal_String_Last()
+      => Assert.Equal("o", EvalP("\"hello\"'s last").AsString);
+
+    [Fact]
+    public void Ordinal_String_SecondLast()
+      => Assert.Equal("l", EvalP("\"hello\"'s 2ndlast").AsString);
+
+    [Fact]
+    public void Ordinal_String_OutOfRange_Errors()
+      => Assert.True(EvalP("\"hi\"'s 5th").IsError);
+
+    // `of` form — same dispatch path, opposite operand order
+
+    [Fact]
+    public void Ordinal_OfForm_Array()
+      => Assert.Equal(10, EvalP("1st of (a: 10, 20)").AsNumber);
+
+    [Fact]
+    public void Ordinal_OfForm_LastOnString()
+      => Assert.Equal("o", EvalP("last of \"hello\"").AsString);
+
+    // Datamap — ordinals are not keys; the existing "no key" message stands
+
+    [Fact]
+    public void Ordinal_Datamap_Errors()
+    {
+      var v = EvalP("(dm: \"name\", \"Bob\")'s 1st");
+      Assert.True(v.IsError);
+      Assert.Contains("key", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void Ordinal_Datamap_LastErrors()
+      => Assert.True(EvalP("(dm: \"name\", \"Bob\")'s last").IsError);
+
+    // Primitives — ordinals don't apply
+
+    [Fact]
+    public void Ordinal_OnNumber_Errors()
+      => Assert.True(EvalP("5's last").IsError);
   }
 }
