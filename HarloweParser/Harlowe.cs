@@ -35,6 +35,18 @@ namespace Harlowe
     /// <summary>The story format version from <c>&lt;tw-storydata format-version="…"&gt;</c> or StoryData JSON (<c>format-version</c>). Empty string if absent.</summary>
     public string FormatVersion { get; internal set; }
 
+    /// <summary>
+    /// The full <c>:: StoryData</c> JSON object as parsed by
+    /// <see cref="Twee.JsonReader"/>, kept verbatim for round-trip preservation.
+    /// Holds every key the source carried, including ones we don't surface as
+    /// typed properties (<c>tag-colors</c>, <c>zoom</c>, anything Twine adds
+    /// later). On emit, <see cref="Twee.TweeWriter"/> overlays the typed
+    /// fields onto a copy of this dictionary so future Twine-introduced fields
+    /// pass through automatically. <c>null</c> for HTML-loaded stories — the
+    /// Twee 3 StoryData object only exists in the Twee front-end.
+    /// </summary>
+    public Dictionary<string, object> StoryDataExtras { get; internal set; }
+
     public int PassageCount => _passages.Count;
 
     /// <summary>
@@ -92,6 +104,14 @@ namespace Harlowe
     {
       _passages.Add(passage.Name, passage);
     }
+
+    /// <summary>
+    /// Enumerates passages in load order — the order they were added to the
+    /// story. Used by <see cref="Twee.TweeWriter"/> to produce stable output.
+    /// Internal for now; if a public enumeration API is wanted, lift to a
+    /// public IEnumerable property.
+    /// </summary>
+    internal IEnumerable<HarlowePassage> Passages => _passages.Values;
 
     /// <summary>
     /// Pulls story-level attributes off the <c>&lt;tw-storydata&gt;</c> node:

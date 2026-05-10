@@ -212,10 +212,13 @@ namespace Harlowe.Twee
 
     /// <summary>
     /// Reads the JSON body of a <c>:: StoryData</c> passage and copies the
-    /// recognised fields onto <paramref name="story"/>. Returns the value of
-    /// the <c>start</c> field so the caller can resolve it to a pid once all
-    /// passages are loaded. Unknown JSON keys are ignored — Twee evolves
-    /// occasionally and a strict reader would reject otherwise valid stories.
+    /// recognised fields onto <paramref name="story"/>. The full parsed
+    /// dictionary is also stashed on <see cref="Harlowe.StoryDataExtras"/> so
+    /// keys we don't surface as typed properties (<c>tag-colors</c>,
+    /// <c>zoom</c>, anything Twine adds later) round-trip through the writer
+    /// without code changes. Returns the value of the <c>start</c> field so
+    /// the caller can resolve it to a synthesized pid once all passages are
+    /// loaded.
     /// </summary>
     private static string ApplyStoryData(Harlowe story, string json)
     {
@@ -224,6 +227,7 @@ namespace Harlowe.Twee
       if (!(parsed is Dictionary<string, object> dict))
         throw new HarloweParseException("StoryData must be a JSON object", -1, -1, "StoryData");
 
+      story.StoryDataExtras = dict;
       story.Ifid = AsString(dict, "ifid", string.Empty);
       story.Format = AsString(dict, "format", string.Empty);
       story.FormatVersion = AsString(dict, "format-version", string.Empty);
