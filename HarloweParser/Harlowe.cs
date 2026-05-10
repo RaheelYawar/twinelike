@@ -14,17 +14,26 @@ namespace Harlowe
   {
     private Dictionary<string, HarlowePassage> _passages;
 
-    /// <summary>The story's author-facing name from <c>&lt;tw-storydata name="…"&gt;</c>. Empty string if absent.</summary>
-    public string StoryName { get; private set; }
+    /// <summary>The story's author-facing name from <c>&lt;tw-storydata name="…"&gt;</c> or the body of <c>:: StoryTitle</c>. Empty string if absent.</summary>
+    public string StoryName { get; internal set; }
 
-    /// <summary>The pid of the start passage from <c>&lt;tw-storydata startnode="…"&gt;</c>. Defaults to "0" if absent.</summary>
-    public string StartNode { get; private set; }
+    /// <summary>The pid of the start passage. From <c>&lt;tw-storydata startnode="…"&gt;</c> for HTML; for Twee-loaded stories it is the synthesized pid corresponding to the StoryData JSON's <c>start</c> field. Defaults to "0" if absent.</summary>
+    public string StartNode { get; internal set; }
 
-    /// <summary>The authoring tool that produced the story from <c>&lt;tw-storydata creator="…"&gt;</c> (typically "Twine"). Empty string if absent.</summary>
-    public string Creator { get; private set; }
+    /// <summary>The authoring tool that produced the story from <c>&lt;tw-storydata creator="…"&gt;</c> (typically "Twine"). Empty string if absent. Twee 3 source does not carry this field, so Twee-loaded stories leave it empty.</summary>
+    public string Creator { get; internal set; }
 
-    /// <summary>The version of the authoring tool from <c>&lt;tw-storydata creator-version="…"&gt;</c>. Empty string if absent.</summary>
-    public string CreatorVersion { get; private set; }
+    /// <summary>The version of the authoring tool from <c>&lt;tw-storydata creator-version="…"&gt;</c>. Empty string if absent. Twee 3 source does not carry this field, so Twee-loaded stories leave it empty.</summary>
+    public string CreatorVersion { get; internal set; }
+
+    /// <summary>The story's IFID (Interactive Fiction Identifier) from <c>&lt;tw-storydata ifid="…"&gt;</c> or the StoryData JSON's <c>ifid</c> key. Empty string if absent.</summary>
+    public string Ifid { get; internal set; }
+
+    /// <summary>The story format name from <c>&lt;tw-storydata format="…"&gt;</c> or StoryData JSON (<c>format</c>). Typically <c>"Harlowe"</c>. Empty string if absent.</summary>
+    public string Format { get; internal set; }
+
+    /// <summary>The story format version from <c>&lt;tw-storydata format-version="…"&gt;</c> or StoryData JSON (<c>format-version</c>). Empty string if absent.</summary>
+    public string FormatVersion { get; internal set; }
 
     public int PassageCount => _passages.Count;
 
@@ -53,9 +62,42 @@ namespace Harlowe
     }
 
     /// <summary>
+    /// Internal constructor for alternate loaders (currently
+    /// <see cref="Twee.TweeReader"/>) to populate the story incrementally
+    /// rather than from an HTML document. Initializes the passage dictionary
+    /// and metadata defaults; the caller is responsible for setting story-level
+    /// fields and calling <see cref="AddPassage"/> for each passage. Not
+    /// exposed publicly to keep the construction surface narrow.
+    /// </summary>
+    internal Harlowe()
+    {
+      _passages = new Dictionary<string, HarlowePassage>();
+      StoryName = string.Empty;
+      StartNode = "0";
+      Creator = string.Empty;
+      CreatorVersion = string.Empty;
+      Ifid = string.Empty;
+      Format = string.Empty;
+      FormatVersion = string.Empty;
+    }
+
+    /// <summary>
+    /// Adds a fully-populated <see cref="HarlowePassage"/> to the story,
+    /// indexed by name. Used by alternate loaders (e.g.
+    /// <see cref="Twee.TweeReader"/>) that build passages outside the HTML
+    /// path. Throws on duplicate names because Harlowe passage names are
+    /// unique by spec.
+    /// </summary>
+    internal void AddPassage(HarlowePassage passage)
+    {
+      _passages.Add(passage.Name, passage);
+    }
+
+    /// <summary>
     /// Pulls story-level attributes off the <c>&lt;tw-storydata&gt;</c> node:
-    /// name, start-passage pid, creator tool, and creator version. Missing
-    /// attributes default to empty/zero rather than throwing.
+    /// name, start-passage pid, creator tool/version, and the format
+    /// attributes (<c>ifid</c>, <c>format</c>, <c>format-version</c>). Missing
+    /// attributes default to empty rather than throwing.
     /// </summary>
     private void ParseStoryData(ref HapHtmlNode storyNode)
     {
@@ -63,6 +105,9 @@ namespace Harlowe
       StartNode = storyNode.GetAttributeValue("startnode", "0");
       Creator = storyNode.GetAttributeValue("creator", "");
       CreatorVersion = storyNode.GetAttributeValue("creator-version", "");
+      Ifid = storyNode.GetAttributeValue("ifid", "");
+      Format = storyNode.GetAttributeValue("format", "");
+      FormatVersion = storyNode.GetAttributeValue("format-version", "");
     }
 
     /// <summary>
@@ -152,6 +197,7 @@ namespace Harlowe
           Ast = ast,
           Branches = ExtractBranches(ast),
           Body = RenderBody(ast),
+          RawBody = raw,
         };
 
         _passages.Add(passage.Name, passage);

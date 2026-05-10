@@ -1,0 +1,240 @@
+using Harlowe.Twee;
+using Xunit;
+
+namespace Harlowe.Tests.Twee
+{
+  public class TweeReaderTests
+  {
+    private static Harlowe Read(string source) => new TweeReader().Read(source);
+
+    [Fact]
+    public void Empty_ReturnsEmptyStory()
+    {
+      var story = Read("");
+      Assert.Equal(0, story.PassageCount);
+      Assert.Equal("", story.StoryName);
+      Assert.Equal("", story.Format);
+    }
+
+    [Fact]
+    public void Null_ReturnsEmptyStory()
+    {
+      var story = Read(null);
+      Assert.Equal(0, story.PassageCount);
+    }
+
+    [Fact]
+    public void SinglePassage_ParsesNameAndBody()
+    {
+      var story = Read(":: First\nHello world.");
+      Assert.Equal(1, story.PassageCount);
+      var p = story.GetPassage("First");
+      Assert.NotNull(p);
+      Assert.Equal("First", p.Name);
+      Assert.Equal("Hello world.", p.RawBody);
+      Assert.Equal("Hello world.", p.Body);
+      Assert.Empty(p.Tags);
+      Assert.Null(p.Position);
+    }
+
+    [Fact]
+    public void MultiplePassages_PreserveOrder()
+    {
+      var story = Read(":: First\nA\n\n:: Second\nB\n\n:: Third\nC");
+      Assert.Equal(3, story.PassageCount);
+      Assert.Equal("1", story.GetPassage("First").Pid);
+      Assert.Equal("2", story.GetPassage("Second").Pid);
+      Assert.Equal("3", story.GetPassage("Third").Pid);
+    }
+
+    [Fact]
+    public void BlankLineBetweenPassages_NotIncludedInBody()
+    {
+      var story = Read(":: First\nA\n\n:: Second\nB");
+      Assert.Equal("A", story.GetPassage("First").RawBody);
+      Assert.Equal("B", story.GetPassage("Second").RawBody);
+    }
+
+    [Fact]
+    public void MultiLineBody_PreservesInternalNewlines()
+    {
+      var story = Read(":: First\nLine 1\nLine 2\nLine 3");
+      Assert.Equal("Line 1\nLine 2\nLine 3", story.GetPassage("First").RawBody);
+    }
+
+    [Fact]
+    public void Tags_ParsedFromHeader()
+    {
+      var story = Read(":: First [foo bar]\nbody");
+      var tags = story.GetPassage("First").Tags;
+      Assert.Equal(2, tags.Count);
+      Assert.Equal("foo", tags[0]);
+      Assert.Equal("bar", tags[1]);
+    }
+
+    [Fact]
+    public void EmptyTagBracket_ProducesEmptyList()
+    {
+      var story = Read(":: First []\nbody");
+      Assert.Empty(story.GetPassage("First").Tags);
+    }
+
+    [Fact]
+    public void Position_PreservedFromHeader()
+    {
+      var story = Read(":: First {\"position\":\"640,229\"}\nbody");
+      Assert.Equal("{\"position\":\"640,229\"}", story.GetPassage("First").Position);
+    }
+
+    [Fact]
+    public void TagsAndPosition_BothPresent()
+    {
+      var story = Read(":: First [foo] {\"position\":\"1,2\"}\nbody");
+      var p = story.GetPassage("First");
+      Assert.Equal("foo", p.Tags[0]);
+      Assert.Equal("{\"position\":\"1,2\"}", p.Position);
+    }
+
+    [Fact]
+    public void NameWithSpaces_ParsedCorrectly()
+    {
+      var story = Read(":: My Long Name\nbody");
+      Assert.NotNull(story.GetPassage("My Long Name"));
+    }
+
+    [Fact]
+    public void NameTrimmed_OfTrailingSpacesBeforeBracket()
+    {
+      var story = Read(":: First [tag]\nbody");
+      Assert.NotNull(story.GetPassage("First"));
+    }
+
+    [Fact]
+    public void StoryTitle_PopulatesStoryName()
+    {
+      var story = Read(":: StoryTitle\nDeathTrip\n\n:: First\nbody");
+      Assert.Equal("DeathTrip", story.StoryName);
+      // StoryTitle itself is not exposed as a regular passage.
+      Assert.Equal(1, story.PassageCount);
+      Assert.Null(story.GetPassage("StoryTitle"));
+    }
+
+    [Fact]
+    public void StoryData_PopulatesMetadata()
+    {
+      string src = ":: StoryData\n{\n  \"ifid\": \"D674C58C-DEFA-4F70-B7A2-27742230C0FC\",\n  \"format\": \"Harlowe\",\n  \"format-version\": \"3.3.9\",\n  \"start\": \"First\"\n}\n\n:: First\nbody";
+      var story = Read(src);
+      Assert.Equal("D674C58C-DEFA-4F70-B7A2-27742230C0FC", story.Ifid);
+      Assert.Equal("Harlowe", story.Format);
+      Assert.Equal("3.3.9", story.FormatVersion);
+      Assert.Equal(story.GetPassage("First").Pid, story.StartNode);
+    }
+
+    [Fact]
+    public void StoryData_ResolvesStart_RegardlessOfOrder()
+    {
+      // StoryData appears before First but its `start: "First"` still resolves.
+      string src = ":: StoryData\n{\"start\":\"First\"}\n\n:: First\nA\n\n:: Second\nB";
+      var story = Read(src);
+      Assert.Equal(story.GetPassage("First").Pid, story.StartNode);
+    }
+
+    [Fact]
+    public void StoryData_StartAfterStoryDataBlock_AlsoResolves()
+    {
+      // start name resolves even when the named passage is declared after StoryData.
+      string src = ":: First\nA\n\n:: StoryData\n{\"start\":\"Second\"}\n\n:: Second\nB";
+      var story = Read(src);
+      Assert.Equal(story.GetPassage("Second").Pid, story.StartNode);
+    }
+
+    [Fact]
+    public void StoryData_NotPassage_DoesNotShowInPassageCount()
+    {
+      var story = Read(":: StoryData\n{\"format\":\"Harlowe\"}\n\n:: First\nA");
+      Assert.Equal(1, story.PassageCount);
+      Assert.Null(story.GetPassage("StoryData"));
+    }
+
+    [Fact]
+    public void StoryData_MissingStart_LeavesDefaultStartNode()
+    {
+      var story = Read(":: StoryData\n{\"format\":\"Harlowe\"}\n\n:: First\nbody");
+      Assert.Equal("0", story.StartNode);
+    }
+
+    [Fact]
+    public void Body_RoutesThroughBodyParser_AstPopulated()
+    {
+      var story = Read(":: First\nGo to [[Second->Second]].");
+      var p = story.GetPassage("First");
+      Assert.NotNull(p.Ast);
+      Assert.Single(p.Branches);
+      Assert.Equal("Second", p.Branches[0].Name);
+    }
+
+    [Fact]
+    public void Body_DerivedBodyStringStripsLinks()
+    {
+      var story = Read(":: First\nClick [[here->Other]] now.");
+      // BodyTextRenderer drops link markup the same way the HTML loader does.
+      Assert.Equal("Click  now.", story.GetPassage("First").Body);
+    }
+
+    [Fact]
+    public void EscapedColonColon_StaysInBody()
+    {
+      // A line beginning with `\::` is body content; the leading backslash is
+      // stripped per Twee 3 escape rules, so the body sees a literal `::`.
+      var story = Read(":: First\n\\:: Not a header\nstill First");
+      Assert.Equal(1, story.PassageCount);
+      Assert.Equal(":: Not a header\nstill First", story.GetPassage("First").RawBody);
+    }
+
+    [Fact]
+    public void PreambleBeforeFirstHeader_Discarded()
+    {
+      var story = Read("Some preamble\n\n:: First\nbody");
+      Assert.Equal(1, story.PassageCount);
+      Assert.NotNull(story.GetPassage("First"));
+    }
+
+    [Fact]
+    public void CrlfLineEndings_HandledIdentically()
+    {
+      var story = Read(":: First\r\nA\r\n\r\n:: Second\r\nB");
+      Assert.Equal(2, story.PassageCount);
+      Assert.Equal("A", story.GetPassage("First").RawBody);
+      Assert.Equal("B", story.GetPassage("Second").RawBody);
+    }
+
+    [Fact]
+    public void EmptyBody_ParsesAsEmpty()
+    {
+      var story = Read(":: Empty\n\n:: Next\nbody");
+      var p = story.GetPassage("Empty");
+      Assert.Equal("", p.RawBody);
+      Assert.NotNull(p.Ast);
+    }
+
+    [Fact]
+    public void InvalidStoryDataJson_Throws()
+      => Assert.Throws<HarloweParseException>(() => Read(":: StoryData\n{ bad json"));
+
+    [Fact]
+    public void IsDirty_DefaultsFalse()
+    {
+      var story = Read(":: First\nbody");
+      Assert.False(story.GetPassage("First").IsDirty);
+    }
+
+    [Fact]
+    public void Pid_IsSequentialAcrossRegularPassagesOnly()
+    {
+      // StoryTitle/StoryData consume sequential slots? They do not — synthetic pids only count regular passages.
+      var story = Read(":: StoryTitle\nT\n\n:: First\nA\n\n:: StoryData\n{}\n\n:: Second\nB");
+      Assert.Equal("1", story.GetPassage("First").Pid);
+      Assert.Equal("2", story.GetPassage("Second").Pid);
+    }
+  }
+}
