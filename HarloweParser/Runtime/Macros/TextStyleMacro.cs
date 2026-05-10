@@ -4,12 +4,15 @@ namespace Harlowe.Runtime.Macros
 {
   /// <summary>
   /// <c>(text-style: "name")[hook]</c>. Returns a <see cref="Changer"/> that
-  /// wraps an attached hook in the HTML element for the named style.
-  /// Recognised style names in 2.1A: <c>"bold"</c>, <c>"italic"</c>,
-  /// <c>"underline"</c>. The 2.1B slice will broaden the set
-  /// (<c>strike</c>/<c>mark</c>/<c>superscript</c>/<c>subscript</c>) and add
-  /// the other styling changers (<c>(text-color:)</c>, <c>(font:)</c>, etc.).
-  /// Unknown style names return an in-prose error.
+  /// emits one semantic styling layer around an attached hook. Recognised
+  /// style names: <c>"bold"</c>, <c>"italic"</c>, <c>"underline"</c>. The
+  /// broader styling set (<c>strike</c>/<c>mark</c>/etc.) lands with the next
+  /// styling slice. Unknown style names return an in-prose error.
+  ///
+  /// <para>The macro emits a <see cref="StyleSpec"/> with the relevant flag
+  /// set rather than baking in HTML — engine integrations decide how to
+  /// render it. <see cref="HtmlRenderOutput"/> maps the named flags back to
+  /// the canonical HTML tags (<c>&lt;b&gt;</c>/<c>&lt;i&gt;</c>/<c>&lt;u&gt;</c>).</para>
   /// </summary>
   public class TextStyleMacro : IMacro
   {
@@ -26,9 +29,9 @@ namespace Harlowe.Runtime.Macros
 
       switch (arg.AsString)
       {
-        case "bold": return HarloweValue.OfChanger(Changer.FromHtml("<b>", "</b>"));
-        case "italic": return HarloweValue.OfChanger(Changer.FromHtml("<i>", "</i>"));
-        case "underline": return HarloweValue.OfChanger(Changer.FromHtml("<u>", "</u>"));
+        case "bold": return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { Bold = true }));
+        case "italic": return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { Italic = true }));
+        case "underline": return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { Underline = true }));
         default: return HarloweValue.OfError($"(text-style:) does not recognise style '{arg.AsString}'");
       }
     }

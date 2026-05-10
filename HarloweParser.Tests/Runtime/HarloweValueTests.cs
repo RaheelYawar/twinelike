@@ -250,7 +250,7 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void OfChanger_StoresKindAndPayload()
     {
-      var c = Changer.FromHtml("<b>", "</b>");
+      var c = Changer.FromStyle(new StyleSpec { Bold = true });
       var v = HarloweValue.OfChanger(c);
       Assert.Equal(HarloweValueKind.Changer, v.Kind);
       Assert.Same(c, v.AsChanger);
@@ -265,15 +265,15 @@ namespace Harlowe.Tests.Runtime
     {
       // Harlowe truthiness: only Bool(true) is truthy. Changers are values
       // but never act as conditions.
-      var v = HarloweValue.OfChanger(Changer.FromHtml("<b>", "</b>"));
+      var v = HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { Bold = true }));
       Assert.False(v.IsTruthy);
     }
 
     [Fact]
     public void Changer_EqualsStructurally()
     {
-      var x = HarloweValue.OfChanger(Changer.FromHtml("<b>", "</b>"));
-      var y = HarloweValue.OfChanger(Changer.FromHtml("<b>", "</b>"));
+      var x = HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { Bold = true }));
+      var y = HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { Bold = true }));
       Assert.Equal(x, y);
       Assert.Equal(x.GetHashCode(), y.GetHashCode());
     }
@@ -282,8 +282,8 @@ namespace Harlowe.Tests.Runtime
     public void Changer_DifferentWrappers_NotEqual()
     {
       Assert.NotEqual(
-        HarloweValue.OfChanger(Changer.FromHtml("<b>", "</b>")),
-        HarloweValue.OfChanger(Changer.FromHtml("<i>", "</i>")));
+        HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { Bold = true })),
+        HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { Italic = true })));
     }
 
     [Fact]
@@ -292,7 +292,7 @@ namespace Harlowe.Tests.Runtime
       // A changer alone has no visible text — its job is to wrap a hook.
       // `(print: (text-style: ...))` should emit nothing rather than dump
       // internal state.
-      var v = HarloweValue.OfChanger(Changer.FromHtml("<b>", "</b>"));
+      var v = HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { Bold = true }));
       Assert.Equal(string.Empty, v.ToHarloweString());
     }
   }

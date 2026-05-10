@@ -138,11 +138,12 @@ namespace Harlowe.Tests.Runtime
     public void Addition_ChangerPlusChanger_Composes()
     {
       // Goes through StandardMacros so (text-style:) is available; the result
-      // should be a Changer whose wrappers stack outer-to-inner.
+      // should be a Changer whose layers stack outer-to-inner.
       var v = EvalP("(text-style: \"bold\") + (text-style: \"italic\")");
       Assert.Equal(HarloweValueKind.Changer, v.Kind);
       Assert.Equal(
-        Changer.FromHtml("<b>", "</b>").Compose(Changer.FromHtml("<i>", "</i>")),
+        Changer.FromStyle(new StyleSpec { Bold = true }).Compose(
+          Changer.FromStyle(new StyleSpec { Italic = true })),
         v.AsChanger);
     }
 

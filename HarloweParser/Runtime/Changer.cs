@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Text;
 
 namespace Harlowe.Runtime
 {
@@ -9,12 +8,19 @@ namespace Harlowe.Runtime
   /// <c>+</c> operator joins two changers; applied by <see cref="BodyRenderer"/>
   /// when the changer sits in front of an attached hook.
   ///
-  /// <para>Internally a Changer is a flat list of <c>(open, close)</c> HTML
-  /// snippet pairs. <see cref="Apply"/> emits opens in list order, then asks
-  /// the caller to render the hook contents, then emits closes in reverse —
-  /// so the first wrapper in the list is the *outermost* layer in the rendered
-  /// HTML. This matches the reading order of <c>A + B</c>: A wraps B wraps
-  /// content. Composition is therefore concatenation of the wrapper lists.</para>
+  /// <para>Internally a Changer is a flat list of <see cref="StyleSpec"/>
+  /// layers. <see cref="Apply"/> emits a <see cref="IRenderOutput.PushStyle"/>
+  /// for each layer in list order, then asks the caller to render the hook
+  /// contents, then emits a matching <see cref="IRenderOutput.PopStyle"/> per
+  /// layer (no order argument needed — engines pop a stack). The first layer
+  /// is the *outermost* in the rendered output, matching the reading order
+  /// of <c>A + B</c>: A wraps B wraps content. Composition is concatenation
+  /// of the layer lists.</para>
+  ///
+  /// <para>The shape is engine-agnostic: a layer is described by a
+  /// <see cref="StyleSpec"/>, not an HTML snippet. Engine integrations
+  /// translate one spec to whatever their text renderer accepts. Use
+  /// <see cref="HtmlRenderOutput"/> for the HTML mapping.</para>
   ///
   /// <para>Changers stay opaque values — they don't render visibly on their
   /// own. <see cref="HarloweValue.ToHarloweString"/> returns an empty string
@@ -23,104 +29,80 @@ namespace Harlowe.Runtime
   /// </summary>
   public class Changer
   {
-    private readonly List<(string Open, string Close)> _wrappers;
+    private readonly List<StyleSpec> _layers;
 
-    private Changer(List<(string, string)> wrappers)
+    private Changer(List<StyleSpec> layers)
     {
-      _wrappers = wrappers;
+      _layers = layers;
     }
 
     /// <summary>
-    /// Construct a changer with a single open/close wrapper pair. Most
-    /// changer macros call this once with the HTML they want around the
-    /// hook content (e.g. <c>("&lt;b&gt;", "&lt;/b&gt;")</c>).
+    /// Construct a changer with a single styling layer. Most changer macros
+    /// call this once with the spec describing what they want around the
+    /// hook content (e.g. <c>new StyleSpec { Bold = true }</c>).
     /// </summary>
-    public static Changer FromHtml(string open, string close)
-      => new Changer(new List<(string, string)> { (open ?? string.Empty, close ?? string.Empty) });
+    public static Changer FromStyle(StyleSpec style)
+      => new Changer(new List<StyleSpec> { style ?? new StyleSpec() });
 
     /// <summary>
     /// Compose this changer with <paramref name="other"/>, producing a new
-    /// changer whose wrapper list is <c>this</c>'s followed by
+    /// changer whose layer list is <c>this</c>'s followed by
     /// <paramref name="other"/>'s. Reading order: <c>A + B</c> means A wraps
     /// B wraps content — matches the left-to-right authoring order in source.
     /// </summary>
     public Changer Compose(Changer other)
     {
       if (other == null) return this;
-      var combined = new List<(string, string)>(_wrappers.Count + other._wrappers.Count);
-      combined.AddRange(_wrappers);
-      combined.AddRange(other._wrappers);
+      var combined = new List<StyleSpec>(_layers.Count + other._layers.Count);
+      combined.AddRange(_layers);
+      combined.AddRange(other._layers);
       return new Changer(combined);
     }
 
     /// <summary>
-    /// Apply this changer to a hook: emit all open snippets in order through
-    /// <paramref name="output"/>, invoke <paramref name="renderHook"/> to emit
-    /// the hook's contents, then emit all close snippets in reverse order so
-    /// the wrapping nests correctly.
+    /// Apply this changer to a hook: emit one <see cref="IRenderOutput.PushStyle"/>
+    /// per layer in order, invoke <paramref name="renderHook"/> to emit the hook's
+    /// contents, then emit the matching <see cref="IRenderOutput.PopStyle"/> calls
+    /// in reverse so the wrapping nests correctly.
     /// </summary>
     public void Apply(IRenderOutput output, System.Action renderHook)
     {
-      for (int i = 0; i < _wrappers.Count; i++)
-        output.Html(_wrappers[i].Open);
+      for (int i = 0; i < _layers.Count; i++)
+        output.PushStyle(_layers[i]);
       renderHook?.Invoke();
-      for (int i = _wrappers.Count - 1; i >= 0; i--)
-        output.Html(_wrappers[i].Close);
+      for (int i = _layers.Count - 1; i >= 0; i--)
+        output.PopStyle();
     }
 
     /// <summary>
-    /// Structural equality: two changers are equal iff their wrapper lists
-    /// are equal pair-wise. Lets <see cref="HarloweValue.Equals"/> recurse
-    /// into Changer values without special-casing.
+    /// Read-only view of the styling layers, outermost first. Engine
+    /// integrations rarely need this — prefer <see cref="Apply"/>. Exposed
+    /// for adapter authors and diagnostics.
+    /// </summary>
+    public IReadOnlyList<StyleSpec> Layers => _layers;
+
+    /// <summary>
+    /// Structural equality: two changers are equal iff their layer lists are
+    /// equal pair-wise. Lets <see cref="HarloweValue.Equals"/> recurse into
+    /// Changer values without special-casing.
     /// </summary>
     public override bool Equals(object obj)
     {
       if (!(obj is Changer other)) return false;
-      if (_wrappers.Count != other._wrappers.Count) return false;
-      for (int i = 0; i < _wrappers.Count; i++)
+      if (_layers.Count != other._layers.Count) return false;
+      for (int i = 0; i < _layers.Count; i++)
       {
-        if (_wrappers[i].Open != other._wrappers[i].Open) return false;
-        if (_wrappers[i].Close != other._wrappers[i].Close) return false;
+        if (!Equals(_layers[i], other._layers[i])) return false;
       }
       return true;
     }
 
     public override int GetHashCode()
     {
-      int h = _wrappers.Count;
-      for (int i = 0; i < _wrappers.Count; i++)
-      {
-        h = (h * 397) ^ (_wrappers[i].Open?.GetHashCode() ?? 0);
-        h = (h * 397) ^ (_wrappers[i].Close?.GetHashCode() ?? 0);
-      }
+      int h = _layers.Count;
+      for (int i = 0; i < _layers.Count; i++)
+        h = (h * 397) ^ (_layers[i]?.GetHashCode() ?? 0);
       return h;
-    }
-
-    /// <summary>
-    /// HTML-escape a user-supplied attribute value before embedding it in a
-    /// <c>style="..."</c> attribute. Defensive against accidental injection
-    /// when an author passes a story variable into a styling macro
-    /// (<c>(text-color: $userInput)</c>). Escapes the five characters HTML
-    /// recognises in attribute context.
-    /// </summary>
-    public static string EscapeAttribute(string value)
-    {
-      if (string.IsNullOrEmpty(value)) return string.Empty;
-      var sb = new StringBuilder(value.Length);
-      for (int i = 0; i < value.Length; i++)
-      {
-        char c = value[i];
-        switch (c)
-        {
-          case '&': sb.Append("&amp;"); break;
-          case '<': sb.Append("&lt;"); break;
-          case '>': sb.Append("&gt;"); break;
-          case '"': sb.Append("&quot;"); break;
-          case '\'': sb.Append("&#39;"); break;
-          default: sb.Append(c); break;
-        }
-      }
-      return sb.ToString();
     }
   }
 }

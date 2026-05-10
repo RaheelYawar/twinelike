@@ -25,6 +25,27 @@ namespace Harlowe.Tests.Runtime.Macros
       var ctx = new MacroContext { Store = store, Invoker = registry };
       registry.Context = ctx;
 
+      // Run through HtmlRenderOutput so PushStyle/PopStyle events get
+      // translated to HTML — preserves the buf.Text assertions below as a
+      // direct check that the full pipeline produces correct HTML for web
+      // consumers. Engine consumers swap this adapter for their own.
+      var buf = new BufferedRenderOutput();
+      var output = new HtmlRenderOutput(buf);
+      new BodyRenderer(output, registry, ctx).Render(ast);
+      return buf;
+    }
+
+    private static BufferedRenderOutput RenderRaw(string source)
+    {
+      // Variant that skips the adapter — assertions can inspect PushStyle /
+      // PopStyle events directly.
+      var ast = new HarloweBodyParser().Parse(new HarloweTokenizer().Tokenize(source));
+      var registry = new MacroRegistry();
+      StandardMacros.RegisterAll(registry);
+      var store = new HarloweVariableStore();
+      var ctx = new MacroContext { Store = store, Invoker = registry };
+      registry.Context = ctx;
+
       var buf = new BufferedRenderOutput();
       new BodyRenderer(buf, registry, ctx).Render(ast);
       return buf;
@@ -137,6 +158,34 @@ namespace Harlowe.Tests.Runtime.Macros
       // inline form.
       var buf = Render("(set: $bold to (text-style: \"bold\"))$bold[hi]");
       Assert.Equal("<b>hi</b>", buf.Text);
+    }
+
+    [Fact]
+    public void Bold_EmitsSemanticPushStyleEvent()
+    {
+      // The macro is engine-agnostic: it emits a StyleSpec event, not HTML.
+      // This test verifies that path directly without the HTML adapter.
+      var buf = RenderRaw("(text-style: \"bold\")[hi]");
+      var push = buf.Entries.Find(e => e.Kind == BufferedRenderOutput.Kind.PushStyle);
+      Assert.NotNull(push);
+      Assert.True(push.Style.Bold);
+      Assert.False(push.Style.Italic);
+      Assert.Contains(buf.Entries, e => e.Kind == BufferedRenderOutput.Kind.PopStyle);
+    }
+
+    [Fact]
+    public void Composed_EmitsTwoPushAndTwoPopEvents()
+    {
+      // (m1)+(m2)[hook] should result in two semantic layers around the hook.
+      var buf = RenderRaw("(text-style: \"bold\") + (text-style: \"italic\") [hi]");
+      int pushes = 0, pops = 0;
+      foreach (var e in buf.Entries)
+      {
+        if (e.Kind == BufferedRenderOutput.Kind.PushStyle) pushes++;
+        else if (e.Kind == BufferedRenderOutput.Kind.PopStyle) pops++;
+      }
+      Assert.Equal(2, pushes);
+      Assert.Equal(2, pops);
     }
   }
 }

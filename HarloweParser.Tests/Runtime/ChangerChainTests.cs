@@ -30,8 +30,11 @@ namespace Harlowe.Tests.Runtime
       var store = new HarloweVariableStore();
       var ctx = new MacroContext { Store = store, Invoker = registry };
       registry.Context = ctx;
+      // Wrap in HtmlRenderOutput so the prose-level HTML assertions below
+      // exercise the full pipeline (semantic events → HTML mapping).
       var buf = new BufferedRenderOutput();
-      new BodyRenderer(buf, registry, ctx).Render(ast);
+      var output = new HtmlRenderOutput(buf);
+      new BodyRenderer(output, registry, ctx).Render(ast);
       return buf;
     }
 
