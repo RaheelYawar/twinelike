@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Harlowe.Ast.Body;
+using Harlowe.Ast.Expression;
 using Harlowe.Tokens;
 
 namespace Harlowe.Parsing
@@ -77,12 +78,10 @@ namespace Harlowe.Parsing
           return new NewlineNode();
 
         case TokenType.Variable:
-          cursor.Advance();
-          return new VariableNode { Name = t.Value, IsTemporary = false };
+          return ParseVariable(cursor, isTemporary: false);
 
         case TokenType.TempVariable:
-          cursor.Advance();
-          return new VariableNode { Name = t.Value, IsTemporary = true };
+          return ParseVariable(cursor, isTemporary: true);
 
         case TokenType.HtmlTag:
           cursor.Advance();
@@ -111,29 +110,150 @@ namespace Harlowe.Parsing
     }
 
     /// <summary>
-    /// Cursor is at <see cref="TokenType.MacroOpen"/>. Builds a <see cref="MacroNode"/>
-    /// whose <see cref="MacroNode.Arguments"/> is populated by the expression
-    /// parser (which consumes through the matching <see cref="TokenType.MacroClose"/>).
-    /// Then peeks past any whitespace-only text and newlines: if a
-    /// <see cref="TokenType.HookOpen"/> follows, it is parsed and attached as
-    /// <see cref="MacroNode.AttachedHook"/>; otherwise the hook stays a
-    /// sibling.
+    /// Cursor is at <see cref="TokenType.MacroOpen"/>. Parses a body macro,
+    /// then handles two follow-up shapes:
+    ///
+    /// <list type="number">
+    /// <item><b>Changer chain</b>: <c>(m1)+(m2)+...[hook]</c>. After the macro,
+    /// the parser peeks for a <c>+</c> followed by another macro and folds the
+    /// run into a <see cref="ChangerChainNode"/> whose
+    /// <see cref="ChangerChainNode.Expression"/> is a <see cref="BinaryOpNode"/>
+    /// chain over <see cref="MacroCallNode"/>s.</item>
+    /// <item><b>Plain body macro</b>: a <see cref="MacroNode"/> with an
+    /// optional <see cref="MacroNode.AttachedHook"/>, the v1 path.</item>
+    /// </list>
+    ///
+    /// The two paths are mutually exclusive: a <c>+</c> after the first macro
+    /// commits to the chain shape; otherwise the parser falls through to the
+    /// macro-with-hook lookahead.
     /// </summary>
-    private MacroNode ParseMacro(TokenCursor cursor)
+    private IBodyNode ParseMacro(TokenCursor cursor)
     {
       string name = cursor.Current.Value;
       cursor.Advance();
       var args = _expressionParser.ParseArgumentList(cursor);
+
+      // Try changer chain first — committing as soon as we see `+ (macro)`.
+      if (LooksLikeChainContinuation(cursor))
+      {
+        IExpressionNode expr = new MacroCallNode { Name = name, Arguments = args };
+        while (TryAdvanceToChainContinuation(cursor))
+        {
+          // Cursor is now at the next MacroOpen. Parse one macro call.
+          string nextName = cursor.Current.Value;
+          cursor.Advance();
+          var nextArgs = _expressionParser.ParseArgumentList(cursor);
+          expr = new BinaryOpNode
+          {
+            Operator = "+",
+            Left = expr,
+            Right = new MacroCallNode { Name = nextName, Arguments = nextArgs },
+          };
+        }
+
+        var chain = new ChangerChainNode { Expression = expr };
+        AttachOptionalHook(cursor, h => chain.AttachedHook = h);
+        return chain;
+      }
+
+      // Plain body macro path
       var macro = new MacroNode { Name = name, Arguments = args };
+      AttachOptionalHook(cursor, h => macro.AttachedHook = h);
+      return macro;
+    }
+
+    /// <summary>
+    /// Cursor is at <see cref="TokenType.Variable"/> or
+    /// <see cref="TokenType.TempVariable"/>. Consumes the variable, then
+    /// peeks past optional whitespace for an attached hook. If a hook
+    /// follows, returns a <see cref="ChangerChainNode"/> wrapping a
+    /// <see cref="VariableRefNode"/> (the stored-changer-then-hook pattern);
+    /// otherwise returns the existing <see cref="VariableNode"/> shape so
+    /// plain interpolation (<c>Hello $name.</c>) is unchanged.
+    /// </summary>
+    private IBodyNode ParseVariable(TokenCursor cursor, bool isTemporary)
+    {
+      var t = cursor.Current;
+      cursor.Advance();
 
       int offset = SkipBodyWhitespace(cursor);
       if (cursor.Peek(offset).Type == TokenType.HookOpen)
       {
         for (int i = 0; i <= offset; i++) cursor.Advance();
-        macro.AttachedHook = ParseHookContents(cursor, HookAnchor.None, name: null);
+        var hook = ParseHookContents(cursor, HookAnchor.None, name: null);
+        return new ChangerChainNode
+        {
+          Expression = new VariableRefNode { Name = t.Value, IsTemporary = isTemporary },
+          AttachedHook = hook,
+        };
       }
 
-      return macro;
+      return new VariableNode { Name = t.Value, IsTemporary = isTemporary };
+    }
+
+    /// <summary>
+    /// Skips whitespace from the current cursor position; if a
+    /// <see cref="TokenType.HookOpen"/> follows, consumes through the open and
+    /// passes the parsed hook to <paramref name="setHook"/>. No-ops when no
+    /// hook is present.
+    /// </summary>
+    private void AttachOptionalHook(TokenCursor cursor, System.Action<HookNode> setHook)
+    {
+      int offset = SkipBodyWhitespace(cursor);
+      if (cursor.Peek(offset).Type != TokenType.HookOpen) return;
+      for (int i = 0; i <= offset; i++) cursor.Advance();
+      setHook(ParseHookContents(cursor, HookAnchor.None, name: null));
+    }
+
+    /// <summary>
+    /// Pure-lookahead: returns true iff the cursor position is followed (after
+    /// optional whitespace) by a <c>+</c>-marker Text token whose trimmed
+    /// content is exactly <c>+</c>, then more whitespace, then a
+    /// <see cref="TokenType.MacroOpen"/>. Does not advance the cursor.
+    ///
+    /// <para>The <c>+</c> marker is a <see cref="TokenType.Text"/> token
+    /// because <c>+</c> is not body-special at the tokenizer level — it falls
+    /// into <c>ScanText</c> just like any other character. We peek into the
+    /// Text content to recognise the marker.</para>
+    /// </summary>
+    private static bool LooksLikeChainContinuation(TokenCursor cursor)
+    {
+      int offset = SkipBodyWhitespace(cursor);
+      var marker = cursor.Peek(offset);
+      if (marker.Type != TokenType.Text || marker.Value.Trim() != "+") return false;
+
+      int after = offset + 1;
+      while (true)
+      {
+        var t = cursor.Peek(after);
+        if (t.Type == TokenType.Newline) { after++; continue; }
+        if (t.Type == TokenType.Text && string.IsNullOrWhiteSpace(t.Value)) { after++; continue; }
+        break;
+      }
+      return cursor.Peek(after).Type == TokenType.MacroOpen;
+    }
+
+    /// <summary>
+    /// If the cursor is at a chain continuation (per
+    /// <see cref="LooksLikeChainContinuation"/>), advances past the
+    /// whitespace/<c>+</c>/whitespace tokens to position the cursor at the
+    /// next <see cref="TokenType.MacroOpen"/>. Returns true on success, false
+    /// (cursor untouched) when the pattern does not match.
+    /// </summary>
+    private static bool TryAdvanceToChainContinuation(TokenCursor cursor)
+    {
+      if (!LooksLikeChainContinuation(cursor)) return false;
+      int offset = SkipBodyWhitespace(cursor);
+      int after = offset + 1;
+      while (true)
+      {
+        var t = cursor.Peek(after);
+        if (t.Type == TokenType.Newline) { after++; continue; }
+        if (t.Type == TokenType.Text && string.IsNullOrWhiteSpace(t.Value)) { after++; continue; }
+        break;
+      }
+      for (int i = 0; i < after; i++) cursor.Advance();
+      return true;
     }
 
     /// <summary>

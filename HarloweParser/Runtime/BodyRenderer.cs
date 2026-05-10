@@ -103,6 +103,35 @@ namespace Harlowe.Runtime
       RenderChildren(node.Children);
     }
 
+    /// <summary>
+    /// Render a changer-chain node: evaluate the expression, apply if it
+    /// resolves to a <see cref="HarloweValueKind.Changer"/>, and fall back to
+    /// "emit value text + render hook" for any other value so non-Changer
+    /// variables still render predictably (the body parser builds these for
+    /// any <c>$var[hook]</c> shape regardless of what the runtime value
+    /// turns out to be).
+    /// </summary>
+    public void Visit(ChangerChainNode node)
+    {
+      var result = _evaluator.Evaluate(node.Expression);
+      if (result == null) return;
+      if (result.IsError) { _output.Error(result.ErrorMessage); return; }
+
+      if (result.Kind == HarloweValueKind.Changer)
+      {
+        if (node.AttachedHook != null)
+          result.AsChanger.Apply(_output, () => node.AttachedHook.Accept(this));
+        return;
+      }
+
+      // Non-Changer: emit the value's text form (matching the existing
+      // VariableNode behaviour), then render the hook contents — preserves
+      // backward compat for stories using `$var[content]` to mean "value
+      // followed by anonymous hook".
+      EmitMacroResult(result);
+      if (node.AttachedHook != null) node.AttachedHook.Accept(this);
+    }
+
     public void Visit(MacroNode node)
     {
       var args = new List<HarloweValue>(node.Arguments != null ? node.Arguments.Count : 0);

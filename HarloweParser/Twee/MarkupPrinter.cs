@@ -168,6 +168,19 @@ namespace Harlowe.Twee
       if (node.AttachedHook != null) node.AttachedHook.Accept(this);
     }
 
+    /// <summary>
+    /// Emits a changer-chain node: the expression in canonical form (which
+    /// already produces <c>(m1)+(m2)</c> or <c>$var</c> via the existing
+    /// expression visitors), immediately followed by the hook. Re-parses to
+    /// the same shape — the body parser detects the chain pattern from the
+    /// expression's leading token.
+    /// </summary>
+    public void Visit(ChangerChainNode node)
+    {
+      node.Expression.Accept((IExpressionVisitor)this);
+      if (node.AttachedHook != null) node.AttachedHook.Accept(this);
+    }
+
     // ----- IExpressionVisitor -----
 
     public void Visit(LiteralNode node)

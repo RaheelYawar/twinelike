@@ -336,6 +336,13 @@ namespace Harlowe
       {
         Branches.Add(new Branch { Text = node.Text, Name = node.Target });
       }
+
+      public void Visit(ChangerChainNode node)
+      {
+        // Hook contents may contain links, so recurse — even though the changer
+        // expression itself is structural and never holds links.
+        if (node.AttachedHook != null) node.AttachedHook.Accept(this);
+      }
     }
 
     /// <summary>
@@ -356,6 +363,12 @@ namespace Harlowe
       public void Visit(VariableNode node) => _sb.Append(node.IsTemporary ? '_' : '$').Append(node.Name);
       public void Visit(HtmlNode node) => _sb.Append(node.RawHtml);
       public void Visit(LinkNode node) { }
+      public void Visit(ChangerChainNode node)
+      {
+        // Skip the changer expression (it's structural); render the hook's
+        // visible prose just as the legacy renderer would for plain hooks.
+        if (node.AttachedHook != null) node.AttachedHook.Accept(this);
+      }
 
       public void Visit(MacroNode node) { }
 

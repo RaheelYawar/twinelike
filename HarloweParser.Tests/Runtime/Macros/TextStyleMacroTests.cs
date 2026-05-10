@@ -106,17 +106,14 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
-    public void Composed_InBodyPosition_DoesNotCompose_v2_1A()
+    public void Composed_InBodyPosition_AppliesBothLayers()
     {
-      // 2.1A scope-locking: Harlowe's `(m1)+(m2)[hook]` body syntax requires
-      // either body-parser support for a `+`-chain between macros, or
-      // stored-changer-then-hook — both deferred. In 2.1A the body parser
-      // sees `(m1)`, a literal `+` text run, and `(m2)[hook]`; only the second
-      // changer applies. This test pins the current behaviour so the next
-      // slice can flip it intentionally.
+      // 2.1A.1: body parser now folds `(m1)+(m2)[hook]` into a single
+      // ChangerChainNode whose expression is BinaryOp(+, m1, m2). Bold wraps
+      // italic wraps content because `+` is left-associative and the left
+      // operand is the outermost wrapper.
       var buf = Render("(text-style: \"bold\") + (text-style: \"italic\") [hi]");
-      Assert.Contains("<i>hi</i>", buf.Text);
-      Assert.DoesNotContain("<b>", buf.Text);
+      Assert.Equal("<b><i>hi</i></b>", buf.Text);
     }
 
     [Fact]
@@ -132,14 +129,14 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
-    public void StoredInVariable_ThenAppliedToHook_DoesNotApply_v2_1A()
+    public void StoredInVariable_ThenAppliedToHook_AppliesChanger()
     {
-      // 2.1A scope: stored-changer-then-hook is deferred. A bare $variable
-      // followed by a hook does NOT apply the stored changer in 2.1A — the
-      // hook just renders normally. This locks the current behaviour so any
-      // future stored-changer slice can flip it intentionally.
+      // 2.1A.1: $var followed by a hook (with or without intervening
+      // whitespace) parses as ChangerChainNode. The renderer evaluates the
+      // variable, finds a Changer, and applies it. Same Apply path as the
+      // inline form.
       var buf = Render("(set: $bold to (text-style: \"bold\"))$bold[hi]");
-      Assert.DoesNotContain("<b>", buf.Text);
+      Assert.Equal("<b>hi</b>", buf.Text);
     }
   }
 }

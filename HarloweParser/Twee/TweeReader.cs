@@ -287,6 +287,7 @@ namespace Harlowe.Twee
         foreach (var child in node.Children) child.Accept(this);
       }
       public void Visit(LinkNode node) => Branches.Add(new Branch { Text = node.Text, Name = node.Target });
+      public void Visit(ChangerChainNode node) { if (node.AttachedHook != null) node.AttachedHook.Accept(this); }
     }
 
     private class BodyTextRenderer : IBodyVisitor
@@ -299,6 +300,7 @@ namespace Harlowe.Twee
       public void Visit(Ast.Body.HtmlNode node) => _sb.Append(node.RawHtml);
       public void Visit(LinkNode node) { }
       public void Visit(MacroNode node) { }
+      public void Visit(ChangerChainNode node) { if (node.AttachedHook != null) node.AttachedHook.Accept(this); }
       public void Visit(HookNode node)
       {
         if (node.Children == null) return;
