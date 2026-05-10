@@ -1,0 +1,352 @@
+using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
+using Harlowe.Ast.Body;
+using Harlowe.Ast.Expression;
+
+namespace Harlowe.Twee
+{
+  /// <summary>
+  /// Walks a body or expression AST and emits Harlowe markup text. Used by
+  /// <see cref="TweeWriter"/> to canonicalize dirty passages on save;
+  /// also useful as a debugging aid for inspecting an AST in source form.
+  ///
+  /// <para><b>Round-trip property.</b> For any AST produced by
+  /// <see cref="HarloweParser.Parsing.HarloweBodyParser"/> /
+  /// <see cref="HarloweParser.Parsing.HarloweExpressionParser"/>, the output
+  /// of this printer parses back to an equivalent AST. The output is
+  /// canonical (no insignificant whitespace, no original formatting), not
+  /// byte-identical to the source — that's what
+  /// <see cref="HarlowePassage.RawBody"/> is for.</para>
+  ///
+  /// <para><b>Operator parenthesization.</b> Driven by the same precedence
+  /// tables the parser uses (lower order = tighter binding; left-associative).
+  /// Parens go around a child <see cref="BinaryOpNode"/> when its order is
+  /// looser than the parent — strictly looser on the left, equal-or-looser on
+  /// the right (because left-associativity already groups equal-precedence
+  /// runs leftward). Around a <see cref="BinaryOpNode"/> operand of a
+  /// <see cref="UnaryOpNode"/>, parens go on equal-or-looser order.</para>
+  ///
+  /// <para><b>String literal limitation.</b> Harlowe's tokenizer doesn't honor
+  /// escape sequences (see Known TODOs), so a string containing both
+  /// <c>"</c> and <c>'</c> is genuinely unprintable. The smart-quoting logic
+  /// picks the available delimiter; if neither is safe, the printer throws
+  /// <see cref="HarloweParseException"/>. Once tokenizer escape support
+  /// lands, the printer can switch to always-double-quote with backslash
+  /// escapes.</para>
+  /// </summary>
+  public class MarkupPrinter : IBodyVisitor, IExpressionVisitor
+  {
+    /// <summary>
+    /// Binary operator → precedence order. Mirrors
+    /// <c>HarloweExpressionParser.BinaryOps</c>; kept here as a private copy
+    /// so the parser doesn't need to expose its internals. Lower order =
+    /// tighter binding.
+    /// </summary>
+    private static readonly Dictionary<string, int> BinaryOps = new Dictionary<string, int>
+    {
+      { "to", 16 }, { "into", 16 },
+      { "where", 15 }, { "when", 15 }, { "via", 15 }, { "making", 15 }, { "each", 15 },
+      { "-type", 14 },
+      { "and", 13 }, { "or", 13 },
+      { "is", 12 }, { "is not", 12 },
+      { "contains", 11 }, { "does not contain", 11 }, { "is in", 11 }, { "is not in", 11 },
+      { "is a", 10 }, { "is not a", 10 }, { "matches", 10 }, { "does not match", 10 },
+      { "<", 9 }, { "<=", 9 }, { ">=", 9 }, { ">", 9 },
+      { "+", 8 }, { "-", 8 },
+      { "*", 7 }, { "/", 7 },
+      { "of", 4 },
+      { "'s", 3 },
+    };
+
+    private static readonly Dictionary<string, int> UnaryPrefixOps = new Dictionary<string, int>
+    {
+      { "...", 6 }, { "bind", 6 }, { "2bind", 6 },
+      { "not", 5 }, { "+", 5 }, { "-", 5 },
+      { "its", 3 },
+    };
+
+    private StringBuilder _sb;
+
+    /// <summary>
+    /// Print a full passage body. Walks every child of
+    /// <paramref name="body"/> in order; a <c>null</c> input yields an empty
+    /// string for symmetry with the renderer.
+    /// </summary>
+    public string Print(PassageBody body)
+    {
+      _sb = new StringBuilder();
+      if (body?.Children != null)
+        foreach (var child in body.Children) child.Accept(this);
+      return _sb.ToString();
+    }
+
+    /// <summary>Print a single body node (e.g. a hook or macro in isolation).</summary>
+    public string Print(IBodyNode node)
+    {
+      _sb = new StringBuilder();
+      node?.Accept(this);
+      return _sb.ToString();
+    }
+
+    /// <summary>Print a single expression node — useful for diagnostics and tests.</summary>
+    public string Print(IExpressionNode node)
+    {
+      _sb = new StringBuilder();
+      node?.Accept(this);
+      return _sb.ToString();
+    }
+
+    // ----- IBodyVisitor -----
+
+    public void Visit(TextNode node) => _sb.Append(node.Content);
+
+    public void Visit(NewlineNode node) => _sb.Append('\n');
+
+    public void Visit(VariableNode node)
+    {
+      _sb.Append(node.IsTemporary ? '_' : '$');
+      _sb.Append(node.Name);
+    }
+
+    public void Visit(Ast.Body.HtmlNode node) => _sb.Append(node.RawHtml);
+
+    /// <summary>
+    /// Emits the canonical link form. <c>[[name]]</c> when <c>Text == Target</c>
+    /// (or the parser populated <c>Text</c> from <c>Target</c>); otherwise
+    /// <c>[[text-&gt;target]]</c>. The <c>&lt;-</c> form is never emitted —
+    /// the parser folds both arrow directions into the same AST shape so the
+    /// canonical output picks one direction.
+    /// </summary>
+    public void Visit(LinkNode node)
+    {
+      _sb.Append("[[");
+      if (node.Text == node.Target || string.IsNullOrEmpty(node.Text))
+      {
+        _sb.Append(node.Target ?? string.Empty);
+      }
+      else
+      {
+        _sb.Append(node.Text);
+        _sb.Append("->");
+        _sb.Append(node.Target);
+      }
+      _sb.Append("]]");
+    }
+
+    /// <summary>
+    /// Emits a hook with its anchor in the canonical position:
+    /// <c>|name&gt;[content]</c> for right-anchored, <c>[content]&lt;name|</c>
+    /// for left-anchored, <c>[content]</c> for anonymous.
+    /// </summary>
+    public void Visit(HookNode node)
+    {
+      if (node.Anchor == HookAnchor.Right)
+      {
+        _sb.Append('|').Append(node.Name).Append('>');
+      }
+      _sb.Append('[');
+      if (node.Children != null)
+        foreach (var child in node.Children) child.Accept(this);
+      _sb.Append(']');
+      if (node.Anchor == HookAnchor.Left)
+      {
+        _sb.Append('<').Append(node.Name).Append('|');
+      }
+    }
+
+    /// <summary>
+    /// Emits a body-position macro: <c>(name: args)</c>, immediately followed
+    /// by an attached hook (no whitespace) when present. The body parser's
+    /// whitespace-skipping lookahead means the spacing here is purely
+    /// canonical — the original may have had any amount of whitespace before
+    /// the hook.
+    /// </summary>
+    public void Visit(MacroNode node)
+    {
+      EmitMacroCall(node.Name, node.Arguments);
+      if (node.AttachedHook != null) node.AttachedHook.Accept(this);
+    }
+
+    // ----- IExpressionVisitor -----
+
+    public void Visit(LiteralNode node)
+    {
+      switch (node.Kind)
+      {
+        case LiteralKind.Number:
+          _sb.Append(((double)node.Value).ToString(CultureInfo.InvariantCulture));
+          break;
+        case LiteralKind.String:
+          AppendStringLiteral((string)node.Value);
+          break;
+        case LiteralKind.Bool:
+          _sb.Append((bool)node.Value ? "true" : "false");
+          break;
+      }
+    }
+
+    public void Visit(IdentifierNode node) => _sb.Append(node.Name);
+
+    public void Visit(VariableRefNode node)
+    {
+      _sb.Append(node.IsTemporary ? '_' : '$');
+      _sb.Append(node.Name);
+    }
+
+    /// <summary>
+    /// Emits <c>Left OP Right</c> with precedence-driven parens around the
+    /// children when needed. <c>'s</c> is the only operator that is
+    /// close-bound on the left (no leading space); every other operator —
+    /// including the word-operators <c>of</c>, <c>is</c>, etc. — gets a
+    /// single space on each side.
+    /// </summary>
+    public void Visit(BinaryOpNode node)
+    {
+      int ourOrder = BinaryOps[node.Operator];
+      EmitBinaryChild(node.Left, ourOrder, isRight: false);
+      if (node.Operator == "'s")
+      {
+        _sb.Append("'s ");
+      }
+      else
+      {
+        _sb.Append(' ').Append(node.Operator).Append(' ');
+      }
+      EmitBinaryChild(node.Right, ourOrder, isRight: true);
+    }
+
+    /// <summary>
+    /// Emits <c>OP operand</c>. Sign and spread operators (<c>+</c>,
+    /// <c>-</c>, <c>...</c>) are close-bound to the operand; word operators
+    /// (<c>not</c>, <c>its</c>, <c>bind</c>, <c>2bind</c>) get a trailing
+    /// space.
+    /// </summary>
+    public void Visit(UnaryOpNode node)
+    {
+      int ourOrder = UnaryPrefixOps[node.Operator];
+      string op = node.Operator;
+      if (op == "+" || op == "-" || op == "...")
+        _sb.Append(op);
+      else
+        _sb.Append(op).Append(' ');
+      EmitUnaryChild(node.Operand, ourOrder);
+    }
+
+    public void Visit(MacroCallNode node) => EmitMacroCall(node.Name, node.Arguments);
+
+    public void Visit(ArrayNode node)
+    {
+      _sb.Append("(a:");
+      EmitArgList(node.Items);
+      _sb.Append(')');
+    }
+
+    public void Visit(DatamapNode node)
+    {
+      _sb.Append("(dm:");
+      if (node.Keys != null && node.Keys.Count > 0)
+      {
+        _sb.Append(' ');
+        for (int i = 0; i < node.Keys.Count; i++)
+        {
+          if (i > 0) _sb.Append(", ");
+          node.Keys[i].Accept(this);
+          _sb.Append(", ");
+          node.Values[i].Accept(this);
+        }
+      }
+      _sb.Append(')');
+    }
+
+    public void Visit(DatasetNode node)
+    {
+      _sb.Append("(ds:");
+      EmitArgList(node.Items);
+      _sb.Append(')');
+    }
+
+    // ----- helpers -----
+
+    private void EmitMacroCall(string name, List<IExpressionNode> args)
+    {
+      _sb.Append('(').Append(name).Append(':');
+      EmitArgList(args);
+      _sb.Append(')');
+    }
+
+    private void EmitArgList(List<IExpressionNode> args)
+    {
+      if (args == null || args.Count == 0) return;
+      _sb.Append(' ');
+      for (int i = 0; i < args.Count; i++)
+      {
+        if (i > 0) _sb.Append(", ");
+        args[i].Accept(this);
+      }
+    }
+
+    /// <summary>
+    /// Wraps a binary child in parens if dropping them would change how the
+    /// printed form re-parses. Left-side: child needs parens iff its operator
+    /// is strictly looser-binding (greater order) than the parent. Right-side:
+    /// equal-order needs parens too because left-associativity would otherwise
+    /// re-group it.
+    /// </summary>
+    private void EmitBinaryChild(IExpressionNode child, int ourOrder, bool isRight)
+    {
+      if (child is BinaryOpNode bin && BinaryOps.TryGetValue(bin.Operator, out int childOrder))
+      {
+        bool needsParens = isRight ? childOrder >= ourOrder : childOrder > ourOrder;
+        if (needsParens)
+        {
+          _sb.Append('(');
+          child.Accept(this);
+          _sb.Append(')');
+          return;
+        }
+      }
+      child.Accept(this);
+    }
+
+    /// <summary>
+    /// Wraps a unary's operand in parens when the operand is a binary whose
+    /// order is equal-or-looser than the unary's. The parser parses a unary's
+    /// operand at <c>order - 1</c>, so equal-order would re-bind to the outer
+    /// context without parens.
+    /// </summary>
+    private void EmitUnaryChild(IExpressionNode operand, int ourOrder)
+    {
+      if (operand is BinaryOpNode bin
+          && BinaryOps.TryGetValue(bin.Operator, out int childOrder)
+          && childOrder >= ourOrder)
+      {
+        _sb.Append('(');
+        operand.Accept(this);
+        _sb.Append(')');
+        return;
+      }
+      operand.Accept(this);
+    }
+
+    /// <summary>
+    /// Emits a string literal, picking <c>"</c> or <c>'</c> based on the
+    /// content. Throws when the string contains both quote types — the
+    /// tokenizer doesn't yet honor escape sequences, so neither delimiter
+    /// would round-trip. The thrown error points at this limitation so the
+    /// caller doesn't get silently-broken output.
+    /// </summary>
+    private void AppendStringLiteral(string s)
+    {
+      bool hasDouble = s != null && s.IndexOf('"') >= 0;
+      bool hasSingle = s != null && s.IndexOf('\'') >= 0;
+      if (hasDouble && hasSingle)
+      {
+        throw new HarloweParseException(
+          "string literal contains both \" and ' — cannot emit a round-trippable form until tokenizer string escapes are implemented");
+      }
+      char quote = hasDouble ? '\'' : '"';
+      _sb.Append(quote).Append(s ?? string.Empty).Append(quote);
+    }
+  }
+}
