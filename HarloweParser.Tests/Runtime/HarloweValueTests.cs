@@ -244,5 +244,56 @@ namespace Harlowe.Tests.Runtime
       Assert.Equal(HarloweValueKind.Number, v.Kind);
       Assert.Equal(42.0, v.AsNumber);
     }
+
+    // Changer kind ----------------------------------------------------------
+
+    [Fact]
+    public void OfChanger_StoresKindAndPayload()
+    {
+      var c = Changer.FromHtml("<b>", "</b>");
+      var v = HarloweValue.OfChanger(c);
+      Assert.Equal(HarloweValueKind.Changer, v.Kind);
+      Assert.Same(c, v.AsChanger);
+    }
+
+    [Fact]
+    public void OfChanger_NullThrows()
+      => Assert.Throws<System.ArgumentNullException>(() => HarloweValue.OfChanger(null));
+
+    [Fact]
+    public void Changer_IsNotTruthy()
+    {
+      // Harlowe truthiness: only Bool(true) is truthy. Changers are values
+      // but never act as conditions.
+      var v = HarloweValue.OfChanger(Changer.FromHtml("<b>", "</b>"));
+      Assert.False(v.IsTruthy);
+    }
+
+    [Fact]
+    public void Changer_EqualsStructurally()
+    {
+      var x = HarloweValue.OfChanger(Changer.FromHtml("<b>", "</b>"));
+      var y = HarloweValue.OfChanger(Changer.FromHtml("<b>", "</b>"));
+      Assert.Equal(x, y);
+      Assert.Equal(x.GetHashCode(), y.GetHashCode());
+    }
+
+    [Fact]
+    public void Changer_DifferentWrappers_NotEqual()
+    {
+      Assert.NotEqual(
+        HarloweValue.OfChanger(Changer.FromHtml("<b>", "</b>")),
+        HarloweValue.OfChanger(Changer.FromHtml("<i>", "</i>")));
+    }
+
+    [Fact]
+    public void ToHarloweString_ChangerReturnsEmpty()
+    {
+      // A changer alone has no visible text — its job is to wrap a hook.
+      // `(print: (text-style: ...))` should emit nothing rather than dump
+      // internal state.
+      var v = HarloweValue.OfChanger(Changer.FromHtml("<b>", "</b>"));
+      Assert.Equal(string.Empty, v.ToHarloweString());
+    }
   }
 }

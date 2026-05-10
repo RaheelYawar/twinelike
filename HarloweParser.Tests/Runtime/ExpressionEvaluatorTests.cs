@@ -135,6 +135,25 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
+    public void Addition_ChangerPlusChanger_Composes()
+    {
+      // Goes through StandardMacros so (text-style:) is available; the result
+      // should be a Changer whose wrappers stack outer-to-inner.
+      var v = EvalP("(text-style: \"bold\") + (text-style: \"italic\")");
+      Assert.Equal(HarloweValueKind.Changer, v.Kind);
+      Assert.Equal(
+        Changer.FromHtml("<b>", "</b>").Compose(Changer.FromHtml("<i>", "</i>")),
+        v.AsChanger);
+    }
+
+    [Fact]
+    public void Addition_ChangerPlusNumber_Errors()
+    {
+      var v = EvalP("(text-style: \"bold\") + 5");
+      Assert.True(v.IsError);
+    }
+
+    [Fact]
     public void Subtraction() => Assert.Equal(1, Eval("3 - 2").AsNumber);
 
     [Fact]

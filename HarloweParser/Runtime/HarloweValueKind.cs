@@ -30,6 +30,15 @@ namespace Harlowe.Runtime
     /// emitted via <see cref="IRenderOutput.Error"/> rather than thrown. This is
     /// how Harlowe surfaces in-prose errors to the author.
     /// </summary>
-    Error
+    Error,
+
+    /// <summary>
+    /// A Harlowe "changer" — a value that, when attached to a hook, modifies
+    /// how the hook is rendered (e.g. <c>(text-style: "bold")</c> wraps the
+    /// hook's content in <c>&lt;b&gt;</c>...<c>&lt;/b&gt;</c>). Changers compose
+    /// with the <c>+</c> operator. Stored as a <see cref="Changer"/> object on
+    /// <see cref="HarloweValue.Raw"/>.
+    /// </summary>
+    Changer
   }
 }

@@ -246,6 +246,8 @@ namespace Harlowe.Runtime
         return HarloweValue.OfNumber(left.AsNumber + right.AsNumber);
       if (left.Kind == HarloweValueKind.String && right.Kind == HarloweValueKind.String)
         return HarloweValue.OfString(left.AsString + right.AsString);
+      if (left.Kind == HarloweValueKind.Changer && right.Kind == HarloweValueKind.Changer)
+        return HarloweValue.OfChanger(left.AsChanger.Compose(right.AsChanger));
       return HarloweValue.OfError($"+ does not apply to {left.Kind} and {right.Kind}");
     }
 

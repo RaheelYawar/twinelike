@@ -51,6 +51,7 @@ namespace Harlowe.Runtime
     public static HarloweValue OfArray(List<HarloweValue> items) => new HarloweValue(HarloweValueKind.Array, items ?? new List<HarloweValue>());
     public static HarloweValue OfDatamap(Dictionary<string, HarloweValue> map) => new HarloweValue(HarloweValueKind.Datamap, map ?? new Dictionary<string, HarloweValue>());
     public static HarloweValue OfError(string message) => new HarloweValue(HarloweValueKind.Error, message ?? string.Empty);
+    public static HarloweValue OfChanger(Changer changer) => new HarloweValue(HarloweValueKind.Changer, changer ?? throw new ArgumentNullException(nameof(changer)));
 
     public bool IsError => Kind == HarloweValueKind.Error;
 
@@ -60,6 +61,7 @@ namespace Harlowe.Runtime
     public List<HarloweValue> AsArray => (List<HarloweValue>)Raw;
     public Dictionary<string, HarloweValue> AsDatamap => (Dictionary<string, HarloweValue>)Raw;
     public string ErrorMessage => (string)Raw;
+    public Changer AsChanger => (Changer)Raw;
 
     /// <summary>
     /// Harlowe truthiness: only <c>true</c> for a <see cref="HarloweValueKind.Bool"/>
@@ -97,6 +99,8 @@ namespace Harlowe.Runtime
           return DatamapsEqual((Dictionary<string, HarloweValue>)Raw, (Dictionary<string, HarloweValue>)other.Raw);
         case HarloweValueKind.Error:
           return (string)Raw == (string)other.Raw;
+        case HarloweValueKind.Changer:
+          return ((Changer)Raw).Equals((Changer)other.Raw);
       }
       return false;
     }
@@ -124,6 +128,7 @@ namespace Harlowe.Runtime
           h = (h * 397) ^ ((Dictionary<string, HarloweValue>)Raw).Count;
           break;
         case HarloweValueKind.Error: h = (h * 397) ^ ((string)Raw).GetHashCode(); break;
+        case HarloweValueKind.Changer: h = (h * 397) ^ ((Changer)Raw).GetHashCode(); break;
       }
       return h;
     }
@@ -175,6 +180,11 @@ namespace Harlowe.Runtime
           return JoinDatamap((Dictionary<string, HarloweValue>)Raw);
         case HarloweValueKind.Error:
           return (string)Raw;
+        case HarloweValueKind.Changer:
+          // A changer alone has no visible text — its effect is to wrap a
+          // hook's content. Returning empty keeps `(print: (text-style: ...))`
+          // and similar interpolations from dumping internal state into prose.
+          return string.Empty;
       }
       return string.Empty;
     }

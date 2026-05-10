@@ -11,12 +11,20 @@ namespace Harlowe.Runtime
   /// <para>
   /// <b>Conditional rendering.</b> <c>(if:)</c>, <c>(unless:)</c>, and
   /// <c>(else:)</c> return a Boolean that decides whether the macro's
-  /// <see cref="MacroNode.AttachedHook"/> renders. Any other macro renders
-  /// its attached hook unconditionally — changer/styling semantics are a v2
-  /// concern. Non-conditional macros also reset
-  /// <see cref="MacroContext.LastConditional"/> so an <c>(else:)</c> only
-  /// pairs with the <em>immediately preceding</em> conditional macro and not
-  /// across an intervening <c>(set:)</c> or similar.
+  /// <see cref="MacroNode.AttachedHook"/> renders. Non-conditional macros
+  /// also reset <see cref="MacroContext.LastConditional"/> so an
+  /// <c>(else:)</c> only pairs with the <em>immediately preceding</em>
+  /// conditional macro and not across an intervening <c>(set:)</c> or similar.
+  /// </para>
+  ///
+  /// <para>
+  /// <b>Changer rendering.</b> When a macro returns a
+  /// <see cref="HarloweValueKind.Changer"/> and has an
+  /// <see cref="MacroNode.AttachedHook"/>, the changer's open HTML is emitted,
+  /// the hook contents are rendered, and the close HTML follows — see
+  /// <see cref="Changer.Apply"/>. Without an attached hook the changer is a
+  /// pure value (no visible output), which lets authors store changers in
+  /// variables for later application via composition.
   /// </para>
   ///
   /// <para>
@@ -129,9 +137,18 @@ namespace Harlowe.Runtime
         return;
       }
 
-      // Non-conditional: emit any visible value, then render the hook (if any)
-      // unconditionally. v1 has no changer macros, so attached hooks are not
-      // styled — they just render.
+      // Changer + attached hook: open / render contents / close. Without an
+      // attached hook the changer is a pure value — we drop it (storing it in
+      // a variable would have happened during evaluation, not here).
+      if (result != null && result.Kind == HarloweValueKind.Changer)
+      {
+        if (node.AttachedHook != null)
+          result.AsChanger.Apply(_output, () => node.AttachedHook.Accept(this));
+        return;
+      }
+
+      // Non-changer non-conditional: emit any visible value, then render the
+      // hook (if any) unconditionally.
       if (result != null && !result.IsError)
       {
         EmitMacroResult(result);
