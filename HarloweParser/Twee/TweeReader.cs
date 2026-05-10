@@ -86,8 +86,8 @@ namespace Harlowe.Twee
           Tags = block.Tags,
           Position = block.Position,
           Ast = ast,
-          Branches = ExtractBranches(ast),
-          Body = RenderBody(ast),
+          Branches = BranchCollector.Collect(ast),
+          Body = BodyTextRenderer.Render(ast),
           RawBody = block.Body,
         };
         story.AddPassage(passage);
@@ -240,72 +240,12 @@ namespace Harlowe.Twee
       return v as string ?? fallback;
     }
 
-    /// <summary>
-    /// Walks the body AST and collects every <see cref="LinkNode"/> into a
-    /// flat list of <see cref="Branch"/>es, preserving source order. Mirrors
-    /// the HTML loader's BranchCollector.
-    /// </summary>
-    private static List<Branch> ExtractBranches(PassageBody ast)
-    {
-      var visitor = new BranchCollector();
-      foreach (var child in ast.Children) child.Accept(visitor);
-      return visitor.Branches;
-    }
-
-    /// <summary>
-    /// Renders the body AST to a plain-prose string with link markup stripped
-    /// and macros omitted. Matches the HTML loader's BodyTextRenderer so
-    /// <see cref="HarlowePassage.Body"/> has consistent shape regardless of
-    /// source format.
-    /// </summary>
-    private static string RenderBody(PassageBody ast)
-    {
-      var visitor = new BodyTextRenderer();
-      foreach (var child in ast.Children) child.Accept(visitor);
-      return visitor.Result;
-    }
-
     private class PassageBlock
     {
       public string Name;
       public List<string> Tags = new List<string>();
       public string Position;
       public string Body;
-    }
-
-    private class BranchCollector : IBodyVisitor
-    {
-      public readonly List<Branch> Branches = new List<Branch>();
-      public void Visit(TextNode node) { }
-      public void Visit(NewlineNode node) { }
-      public void Visit(VariableNode node) { }
-      public void Visit(Ast.Body.HtmlNode node) { }
-      public void Visit(MacroNode node) { if (node.AttachedHook != null) node.AttachedHook.Accept(this); }
-      public void Visit(HookNode node)
-      {
-        if (node.Children == null) return;
-        foreach (var child in node.Children) child.Accept(this);
-      }
-      public void Visit(LinkNode node) => Branches.Add(new Branch { Text = node.Text, Name = node.Target });
-      public void Visit(ChangerChainNode node) { if (node.AttachedHook != null) node.AttachedHook.Accept(this); }
-    }
-
-    private class BodyTextRenderer : IBodyVisitor
-    {
-      private readonly StringBuilder _sb = new StringBuilder();
-      public string Result => _sb.ToString();
-      public void Visit(TextNode node) => _sb.Append(node.Content);
-      public void Visit(NewlineNode node) => _sb.Append('\n');
-      public void Visit(VariableNode node) => _sb.Append(node.IsTemporary ? '_' : '$').Append(node.Name);
-      public void Visit(Ast.Body.HtmlNode node) => _sb.Append(node.RawHtml);
-      public void Visit(LinkNode node) { }
-      public void Visit(MacroNode node) { }
-      public void Visit(ChangerChainNode node) { if (node.AttachedHook != null) node.AttachedHook.Accept(this); }
-      public void Visit(HookNode node)
-      {
-        if (node.Children == null) return;
-        foreach (var child in node.Children) child.Accept(this);
-      }
     }
   }
 }
