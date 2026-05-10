@@ -15,25 +15,25 @@ namespace Harlowe
     private Dictionary<string, HarlowePassage> _passages;
 
     /// <summary>The story's author-facing name from <c>&lt;tw-storydata name="…"&gt;</c> or the body of <c>:: StoryTitle</c>. Empty string if absent.</summary>
-    public string StoryName { get; internal set; }
+    public string StoryName { get; set; }
 
     /// <summary>The pid of the start passage. From <c>&lt;tw-storydata startnode="…"&gt;</c> for HTML; for Twee-loaded stories it is the synthesized pid corresponding to the StoryData JSON's <c>start</c> field. Defaults to "0" if absent.</summary>
-    public string StartNode { get; internal set; }
+    public string StartNode { get; set; }
 
     /// <summary>The authoring tool that produced the story from <c>&lt;tw-storydata creator="…"&gt;</c> (typically "Twine"). Empty string if absent. Twee 3 source does not carry this field, so Twee-loaded stories leave it empty.</summary>
-    public string Creator { get; internal set; }
+    public string Creator { get; set; }
 
     /// <summary>The version of the authoring tool from <c>&lt;tw-storydata creator-version="…"&gt;</c>. Empty string if absent. Twee 3 source does not carry this field, so Twee-loaded stories leave it empty.</summary>
-    public string CreatorVersion { get; internal set; }
+    public string CreatorVersion { get; set; }
 
     /// <summary>The story's IFID (Interactive Fiction Identifier) from <c>&lt;tw-storydata ifid="…"&gt;</c> or the StoryData JSON's <c>ifid</c> key. Empty string if absent.</summary>
-    public string Ifid { get; internal set; }
+    public string Ifid { get; set; }
 
     /// <summary>The story format name from <c>&lt;tw-storydata format="…"&gt;</c> or StoryData JSON (<c>format</c>). Typically <c>"Harlowe"</c>. Empty string if absent.</summary>
-    public string Format { get; internal set; }
+    public string Format { get; set; }
 
     /// <summary>The story format version from <c>&lt;tw-storydata format-version="…"&gt;</c> or StoryData JSON (<c>format-version</c>). Empty string if absent.</summary>
-    public string FormatVersion { get; internal set; }
+    public string FormatVersion { get; set; }
 
     /// <summary>
     /// The full <c>:: StoryData</c> JSON object as parsed by
@@ -43,9 +43,11 @@ namespace Harlowe
     /// later). On emit, <see cref="Twee.TweeWriter"/> overlays the typed
     /// fields onto a copy of this dictionary so future Twine-introduced fields
     /// pass through automatically. <c>null</c> for HTML-loaded stories — the
-    /// Twee 3 StoryData object only exists in the Twee front-end.
+    /// Twee 3 StoryData object only exists in the Twee front-end. Editing
+    /// consumers may write through this dictionary directly to set
+    /// <c>tag-colors</c>, <c>zoom</c>, or other extras.
     /// </summary>
-    public Dictionary<string, object> StoryDataExtras { get; internal set; }
+    public Dictionary<string, object> StoryDataExtras { get; set; }
 
     public int PassageCount => _passages.Count;
 
@@ -74,14 +76,13 @@ namespace Harlowe
     }
 
     /// <summary>
-    /// Internal constructor for alternate loaders (currently
-    /// <see cref="Twee.TweeReader"/>) to populate the story incrementally
-    /// rather than from an HTML document. Initializes the passage dictionary
-    /// and metadata defaults; the caller is responsible for setting story-level
-    /// fields and calling <see cref="AddPassage"/> for each passage. Not
-    /// exposed publicly to keep the construction surface narrow.
+    /// Builds an empty story. Used by alternate loaders (e.g.
+    /// <see cref="Twee.TweeReader"/>) and by editing consumers constructing
+    /// a story from scratch. Initializes the passage dictionary and metadata
+    /// defaults; populate the story by setting fields and calling
+    /// <see cref="AddPassage"/>.
     /// </summary>
-    internal Harlowe()
+    public Harlowe()
     {
       _passages = new Dictionary<string, HarlowePassage>();
       StoryName = string.Empty;
@@ -95,23 +96,62 @@ namespace Harlowe
 
     /// <summary>
     /// Adds a fully-populated <see cref="HarlowePassage"/> to the story,
-    /// indexed by name. Used by alternate loaders (e.g.
-    /// <see cref="Twee.TweeReader"/>) that build passages outside the HTML
-    /// path. Throws on duplicate names because Harlowe passage names are
-    /// unique by spec.
+    /// indexed by name. Throws on duplicate names because Harlowe passage
+    /// names are unique by spec. If <see cref="HarlowePassage.Pid"/> is
+    /// null/empty the next sequential pid is synthesized so editing
+    /// consumers don't need to track pid assignment manually.
     /// </summary>
-    internal void AddPassage(HarlowePassage passage)
+    public void AddPassage(HarlowePassage passage)
     {
+      if (passage == null) throw new ArgumentNullException(nameof(passage));
+      if (string.IsNullOrEmpty(passage.Pid))
+        passage.Pid = (_passages.Count + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
       _passages.Add(passage.Name, passage);
     }
 
     /// <summary>
-    /// Enumerates passages in load order — the order they were added to the
-    /// story. Used by <see cref="Twee.TweeWriter"/> to produce stable output.
-    /// Internal for now; if a public enumeration API is wanted, lift to a
-    /// public IEnumerable property.
+    /// Removes the passage with <paramref name="name"/>. Returns true when a
+    /// passage was removed, false when no passage with that name existed —
+    /// matches the <see cref="Dictionary{TKey, TValue}.Remove(TKey)"/>
+    /// contract callers will expect. Removing the start passage leaves
+    /// <see cref="StartNode"/> dangling; <see cref="GetStartPassage"/>
+    /// returns null in that case, the same as for any other unresolvable
+    /// pid. Pids of remaining passages are not renumbered.
     /// </summary>
-    internal IEnumerable<HarlowePassage> Passages => _passages.Values;
+    public bool RemovePassage(string name)
+    {
+      if (name == null) return false;
+      return _passages.Remove(name);
+    }
+
+    /// <summary>
+    /// Renames the passage <paramref name="oldName"/> to
+    /// <paramref name="newName"/>, re-keying the internal lookup so
+    /// <see cref="GetPassage"/> still works after the rename. Returns false
+    /// if no passage with <paramref name="oldName"/> exists or if a
+    /// different passage already uses <paramref name="newName"/>; in that
+    /// case nothing is mutated. Mutating <see cref="HarlowePassage.Name"/>
+    /// directly silently corrupts the lookup, so always go through this
+    /// method.
+    /// </summary>
+    public bool RenamePassage(string oldName, string newName)
+    {
+      if (string.IsNullOrEmpty(oldName) || string.IsNullOrEmpty(newName)) return false;
+      if (oldName == newName) return _passages.ContainsKey(oldName);
+      if (!_passages.TryGetValue(oldName, out var passage)) return false;
+      if (_passages.ContainsKey(newName)) return false;
+      _passages.Remove(oldName);
+      passage.Name = newName;
+      _passages.Add(newName, passage);
+      return true;
+    }
+
+    /// <summary>
+    /// Enumerates passages in load order — the order they were added to the
+    /// story. Used by <see cref="Twee.TweeWriter"/> to produce stable output;
+    /// also useful to editing consumers iterating the story.
+    /// </summary>
+    public IEnumerable<HarlowePassage> Passages => _passages.Values;
 
     /// <summary>
     /// Pulls story-level attributes off the <c>&lt;tw-storydata&gt;</c> node:
