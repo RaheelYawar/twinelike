@@ -4,8 +4,8 @@ namespace Harlowe.Runtime.Macros
 {
   /// <summary>
   /// <c>(a: 1, 2, 3)</c>. Constructs an array from its arguments. Empty
-  /// argument list produces an empty array. (<c>(array:)</c> is an alias in
-  /// stock Harlowe; v1 only registers the short name.)
+  /// argument list produces an empty array. Stock Harlowe also exposes this
+  /// as <c>(array:)</c>; only the short name is registered here.
   /// </summary>
   public class AMacro : IMacro
   {

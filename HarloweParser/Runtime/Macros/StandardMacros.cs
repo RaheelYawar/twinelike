@@ -1,7 +1,7 @@
 namespace Harlowe.Runtime.Macros
 {
   /// <summary>
-  /// Convenience entry point for wiring the v1 macro set onto a fresh
+  /// Convenience entry point for wiring the standard macro set onto a fresh
   /// <see cref="MacroRegistry"/>. The session calls <see cref="RegisterAll"/>
   /// once at construction; tests that want the full set use the same call.
   /// Tests that want only a subset register macros directly.
@@ -9,9 +9,9 @@ namespace Harlowe.Runtime.Macros
   public static class StandardMacros
   {
     /// <summary>
-    /// Register every v1 macro on <paramref name="registry"/>. Order does not
-    /// matter; the registry is a flat name lookup. Re-registering replaces
-    /// the prior implementation, so this is idempotent.
+    /// Register every standard macro on <paramref name="registry"/>. Order
+    /// does not matter; the registry is a flat name lookup. Re-registering
+    /// replaces the prior implementation, so this is idempotent.
     /// </summary>
     public static void RegisterAll(MacroRegistry registry)
     {

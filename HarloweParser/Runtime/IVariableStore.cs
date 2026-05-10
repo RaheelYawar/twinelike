@@ -51,8 +51,8 @@ namespace Harlowe.Runtime
     /// <summary>
     /// Captures a snapshot of every namespace plus the <c>it</c> slot. The
     /// returned token is opaque to the caller; pass it back to
-    /// <see cref="Restore"/> to rewind. Used by undo and by the navigation
-    /// layer to support single-step rewind in v1.
+    /// <see cref="Restore"/> to rewind. Used by the navigation layer to
+    /// implement undo (one snapshot per <c>Goto</c>, popped by <c>Undo</c>).
     /// </summary>
     object Snapshot();
 

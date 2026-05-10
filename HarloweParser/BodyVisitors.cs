@@ -56,9 +56,9 @@ namespace Harlowe
   /// <summary>
   /// Renders a body AST back to a plain-prose string with link markup stripped
   /// and macros omitted. Variables are re-emitted with their sigil so prose
-  /// like "Hello $name." round-trips. Used by both loaders to derive
-  /// <see cref="HarlowePassage.Body"/> from the AST so the legacy string API
-  /// keeps working alongside <see cref="HarlowePassage.Ast"/>.
+  /// like "Hello $name." round-trips. Used by both loaders to populate
+  /// <see cref="HarlowePassage.Body"/> as a flat-prose convenience view of
+  /// <see cref="HarlowePassage.Ast"/>.
   ///
   /// <para>Internal for the same reason as
   /// <see cref="BranchCollector"/> — implementation detail of populating the

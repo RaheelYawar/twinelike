@@ -12,7 +12,7 @@ namespace Harlowe.Runtime
     /// <summary>Milliseconds the current passage has been on screen, as a Number value.</summary>
     HarloweValue Time { get; }
 
-    /// <summary>How many times the current passage has been entered, as a Number value. v1 treats <c>visit</c> and <c>visits</c> as the same source.</summary>
+    /// <summary>How many times the current passage has been entered, as a Number value. Backs both <c>visit</c> and <c>visits</c> identifiers (Harlowe treats them as synonyms).</summary>
     HarloweValue Visits { get; }
 
     /// <summary>A datamap describing the current passage (name, tags, etc.).</summary>

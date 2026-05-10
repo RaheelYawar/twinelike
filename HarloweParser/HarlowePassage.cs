@@ -13,10 +13,10 @@ namespace Harlowe
 
     /// <summary>
     /// The parsed Harlowe body as a tree of <see cref="IBodyNode"/>s. Produced
-    /// by the new tokenizer + body-parser pipeline. Consumers that need
-    /// structural access (rendering with macro effects, evaluation, static
-    /// analysis) should walk this tree rather than the legacy <see cref="Body"/>
-    /// string.
+    /// by the tokenizer + body-parser pipeline. Consumers that need structural
+    /// access (rendering with macro effects, evaluation, static analysis)
+    /// should walk this tree; <see cref="Body"/> is a flattened-prose
+    /// convenience derived from the same AST.
     /// </summary>
     public PassageBody Ast;
 

@@ -17,17 +17,6 @@ namespace Harlowe.Runtime
   /// broken expression renders an inline error at the spot it happened, the
   /// rest of the passage continues.
   /// </para>
-  ///
-  /// <para>v1 operator coverage:
-  /// <list type="bullet">
-  /// <item>Binary: <c>+ - * /</c>, <c>&lt; &lt;= &gt; &gt;=</c>, <c>is</c>, <c>is not</c>, <c>and</c>, <c>or</c>, <c>to</c>, <c>into</c>, <c>contains</c>, <c>is in</c>, <c>'s</c>, <c>of</c>.</item>
-  /// <item>Unary: <c>not</c>, unary <c>-</c>, unary <c>+</c>, <c>its</c>.</item>
-  /// <item>Identifiers: <c>it</c>, <c>time</c>, <c>visit</c>, <c>visits</c>, <c>passage</c>.</item>
-  /// </list>
-  /// Lambda operators (<c>where/when/via/making/each</c>),
-  /// <c>...</c>/<c>bind</c>/<c>2bind</c>, and pattern operators (<c>matches</c>, <c>is a</c>, etc.)
-  /// are deferred to v2.
-  /// </para>
   /// </summary>
   public class ExpressionEvaluator : IExpressionVisitor
   {
@@ -236,9 +225,9 @@ namespace Harlowe.Runtime
       _result = _macros.Invoke(node.Name, args) ?? HarloweValue.OfError($"macro '{node.Name}' returned no value");
     }
 
-    public void Visit(ArrayNode node) => _result = HarloweValue.OfError("array literal not supported in v1");
-    public void Visit(DatamapNode node) => _result = HarloweValue.OfError("datamap literal not supported in v1");
-    public void Visit(DatasetNode node) => _result = HarloweValue.OfError("dataset literal not supported in v1");
+    public void Visit(ArrayNode node) => _result = HarloweValue.OfError("array literal not supported");
+    public void Visit(DatamapNode node) => _result = HarloweValue.OfError("datamap literal not supported");
+    public void Visit(DatasetNode node) => _result = HarloweValue.OfError("dataset literal not supported");
 
     private static HarloweValue OpAdd(HarloweValue left, HarloweValue right)
     {

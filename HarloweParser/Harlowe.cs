@@ -54,8 +54,7 @@ namespace Harlowe
     /// per <c>&lt;tw-passagedata&gt;</c> element. Each passage's body is
     /// HTML-entity-decoded, tokenized, and parsed into an
     /// <see cref="HarlowePassage.Ast"/> tree; <see cref="HarlowePassage.Body"/>
-    /// and <see cref="HarlowePassage.Branches"/> are derived from the AST so
-    /// the legacy public API keeps working.
+    /// and <see cref="HarlowePassage.Branches"/> are derived views over the AST.
     /// </summary>
     public Harlowe(string htmlText)
     {

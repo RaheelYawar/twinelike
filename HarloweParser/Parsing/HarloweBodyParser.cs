@@ -11,13 +11,6 @@ namespace Harlowe.Parsing
   /// off to an <see cref="IExpressionParser"/> so they come back as proper
   /// expression trees. Hooks contain body content, so the parser recurses
   /// into them via <see cref="ParseHookContents"/>.
-  ///
-  /// <para>
-  /// This parser is built standalone — it does not yet replace the legacy
-  /// <c>Harlowe.ParseBody</c>/<c>Harlowe.ParseBranches</c>. Wiring it into the
-  /// public API (and deriving <c>HarlowePassage.Branches</c> from
-  /// <see cref="LinkNode"/>s) is step 4 of the roadmap.
-  /// </para>
   /// </summary>
   public class HarloweBodyParser : IBodyParser
   {
