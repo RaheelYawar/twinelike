@@ -134,6 +134,19 @@ namespace Harlowe.Runtime
 
     public void Visit(MacroNode node)
     {
+      // Pre-check the macro name before evaluating arguments. `to` and `into`
+      // mutate the store during argument evaluation (see
+      // ExpressionEvaluator.AssignTo), so an unknown macro that happens to
+      // wrap an assignment-shaped expression would otherwise leak the
+      // assignment side-effect before the unknown-macro error is reported.
+      // TODO: the broader fix is to forbid `to`/`into` outside `(set:)`/`(put:)`
+      // entirely; until then this guard catches the common typo case.
+      if (!_registry.Contains(node.Name))
+      {
+        _output.Error($"unknown macro '{node.Name}'");
+        return;
+      }
+
       var args = new List<HarloweValue>(node.Arguments != null ? node.Arguments.Count : 0);
       if (node.Arguments != null)
       {
@@ -147,7 +160,17 @@ namespace Harlowe.Runtime
 
       bool isConditional = node.Name == "if" || node.Name == "unless" || node.Name == "else";
 
-      var result = _registry.Invoke(node.Name, args, _context);
+      // Expose the active sink for command macros (e.g. (display:)) that want
+      // to render structured output directly into the parent output rather
+      // than capture it as a string. Cleared on the way out so a subsequent
+      // arg-eval pass (which goes through ExpressionEvaluator with no
+      // surrounding BodyRenderer) sees a null sink and routes through the
+      // buffered-snapshot path instead.
+      var priorOutput = _context.Output;
+      _context.Output = _output;
+      HarloweValue result;
+      try { result = _registry.Invoke(node.Name, args, _context); }
+      finally { _context.Output = priorOutput; }
 
       // Reset the conditional pairing only after non-conditional macros, so
       // intervening prose between (if:) and (else:) does not break the pair

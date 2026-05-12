@@ -69,10 +69,14 @@ namespace Harlowe.Twee
 
     /// <summary>
     /// Builds the <c>:: StoryData</c> block by overlaying typed fields onto a
-    /// shallow copy of <see cref="Harlowe.StoryDataExtras"/>. Returns
-    /// <c>null</c> when there is genuinely nothing to emit (no extras, no
-    /// typed fields, no resolvable start passage) so the writer can skip the
-    /// block entirely.
+    /// shallow copy of <see cref="Harlowe.StoryDataExtras"/>. Typed fields are
+    /// authoritative: assigning to a key in place preserves its original
+    /// position in the dictionary, while an empty/null typed value
+    /// <em>removes</em> the key from the emitted JSON — so clearing
+    /// <see cref="Harlowe.Ifid"/> or removing the start passage actually
+    /// drops the stale value from output instead of letting the original
+    /// stashed-extras copy survive. Returns <c>null</c> when there is
+    /// genuinely nothing to emit so the writer can skip the block entirely.
     /// </summary>
     private static string BuildStoryDataBlock(Harlowe story)
     {
@@ -80,17 +84,29 @@ namespace Harlowe.Twee
         ? new Dictionary<string, object>(story.StoryDataExtras)
         : new Dictionary<string, object>();
 
-      if (!string.IsNullOrEmpty(story.Ifid)) dict["ifid"] = story.Ifid;
-      if (!string.IsNullOrEmpty(story.Format)) dict["format"] = story.Format;
-      if (!string.IsNullOrEmpty(story.FormatVersion)) dict["format-version"] = story.FormatVersion;
+      ApplyTypedField(dict, "ifid", story.Ifid);
+      ApplyTypedField(dict, "format", story.Format);
+      ApplyTypedField(dict, "format-version", story.FormatVersion);
 
       var startPassage = story.GetStartPassage();
-      if (startPassage != null) dict["start"] = startPassage.Name;
+      ApplyTypedField(dict, "start", startPassage != null ? startPassage.Name : null);
 
       if (dict.Count == 0) return null;
 
       string json = new JsonWriter().Write(dict);
       return ":: StoryData\n" + json;
+    }
+
+    /// <summary>
+    /// Indexer-assign when <paramref name="value"/> is set (preserves enumeration
+    /// position for keys that originally came from <see cref="Harlowe.StoryDataExtras"/>);
+    /// <see cref="Dictionary{TKey, TValue}.Remove(TKey)"/> when it's empty so a
+    /// cleared typed field actually disappears from the JSON.
+    /// </summary>
+    private static void ApplyTypedField(Dictionary<string, object> dict, string key, string value)
+    {
+      if (string.IsNullOrEmpty(value)) dict.Remove(key);
+      else dict[key] = value;
     }
 
     private static string BuildPassageBlock(HarlowePassage passage)

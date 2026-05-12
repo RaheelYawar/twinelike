@@ -194,8 +194,15 @@ namespace Harlowe.Tests.Runtime.Macros
     [Fact]
     public void Display_DelegatesToRenderPassageCallback()
     {
+      // No BodyRenderer is active here, so ctx.Output is null and DisplayMacro
+      // routes through the buffered-snapshot path — the callback writes into
+      // a fresh buffer and DisplayMacro returns that buffer's text.
       var (reg, ctx) = Setup();
-      ctx.RenderPassage = name => HarloweValue.OfString($"[{name}]");
+      ctx.RenderPassage = (name, output) =>
+      {
+        output.Text($"[{name}]");
+        return HarloweValue.OfString(string.Empty);
+      };
       var v = Call(reg, ctx, "display", HarloweValue.OfString("Some"));
       Assert.Equal("[Some]", v.AsString);
     }

@@ -261,8 +261,15 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void Display_DelegatesToRenderPassageCallback()
     {
+      // In body position the renderer hands its own output to the callback —
+      // the callback writes into it and returns an empty string; DisplayMacro
+      // emits no further text on top.
       var h = Render("(display: \"Other\")",
-        ctx => ctx.RenderPassage = name => HarloweValue.OfString($"<<{name}>>"));
+        ctx => ctx.RenderPassage = (name, output) =>
+        {
+          output.Text($"<<{name}>>");
+          return HarloweValue.OfString(string.Empty);
+        });
       Assert.Equal("<<Other>>", h.Buf.Text);
     }
 
@@ -290,6 +297,17 @@ namespace Harlowe.Tests.Runtime
     {
       var h = Render("(notamacro: 1)");
       Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+    }
+
+    [Fact]
+    public void UnknownMacro_DoesNotEvaluateAssignmentArg()
+    {
+      // `to` mutates the store during argument evaluation. An unknown macro
+      // wrapping `$x to 5` must report the unknown-macro error WITHOUT having
+      // assigned to $x first — otherwise the typo silently bakes state.
+      var h = Render("(notamacro: $x to 5)");
+      Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+      Assert.Null(h.Store.Get("x", false));
     }
 
     [Fact]

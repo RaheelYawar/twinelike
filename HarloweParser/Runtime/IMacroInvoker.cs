@@ -20,5 +20,13 @@ namespace Harlowe.Runtime
     /// exception.
     /// </summary>
     HarloweValue Invoke(string name, List<HarloweValue> args);
+
+    /// <summary>
+    /// True if a macro with this name is registered. The evaluator uses this
+    /// to short-circuit before evaluating arguments — a `to`/`into`
+    /// assignment inside an unknown macro's arg list would otherwise leak
+    /// its mutation before the unknown-macro error is reported.
+    /// </summary>
+    bool Contains(string name);
   }
 }

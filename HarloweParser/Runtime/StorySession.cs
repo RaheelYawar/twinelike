@@ -35,9 +35,12 @@ namespace Harlowe.Runtime
   ///
   /// <para>
   /// <b>Display.</b> <c>(display:)</c> macros inline-render another passage
-  /// using the current variable store and macro context. The inlined passage's
-  /// text is returned as a string value; it does not affect navigation state
-  /// or visit counts.
+  /// using the current variable store and macro context. In body position
+  /// (the common case) the passage renders directly into the active output
+  /// so Link/Error/Style events propagate; in expression position
+  /// (e.g. <c>(set: $x to (display: "P"))</c>) the rendered text is captured
+  /// and returned as a String value. (display:) does not affect navigation
+  /// state or visit counts.
   /// </para>
   /// </summary>
   public class StorySession : IEvaluationContext
@@ -209,7 +212,7 @@ namespace Harlowe.Runtime
         EvaluationContext = this,
         Invoker = _registry
       };
-      ctx.RenderPassage = name => InlineDisplayPassage(name, ctx);
+      ctx.RenderPassage = (name, output) => InlineDisplayPassage(name, output, ctx);
       _registry.Context = ctx;
 
       var buf = new BufferedRenderOutput();
@@ -239,14 +242,21 @@ namespace Harlowe.Runtime
       };
     }
 
-    private HarloweValue InlineDisplayPassage(string name, MacroContext ctx)
+    /// <summary>
+    /// Renders the named passage into <paramref name="output"/>, which the
+    /// caller picked: <see cref="DisplayMacro"/> hands in the active body
+    /// render sink for in-prose use (so Link/Error/Style events propagate),
+    /// or a private buffer for expression-position use (so the rendered text
+    /// can be returned as a String). Returns an Error value if the passage
+    /// isn't found; otherwise returns an empty String — the work is the
+    /// side-effect on <paramref name="output"/>.
+    /// </summary>
+    private HarloweValue InlineDisplayPassage(string name, IRenderOutput output, MacroContext ctx)
     {
       var passage = _story.GetPassage(name);
       if (passage == null) return HarloweValue.OfError($"passage '{name}' not found");
-
-      var buf = new BufferedRenderOutput();
-      new BodyRenderer(buf, _registry, ctx).Render(passage.Ast);
-      return HarloweValue.OfString(buf.Text);
+      new BodyRenderer(output, _registry, ctx).Render(passage.Ast);
+      return HarloweValue.OfString(string.Empty);
     }
 
     private static RenderResult EmptyResult(string passageName)

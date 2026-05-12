@@ -40,6 +40,7 @@ namespace Harlowe.Tests.Runtime
     {
       public System.Func<string, List<HarloweValue>, HarloweValue> Handler;
       public HarloweValue Invoke(string name, List<HarloweValue> args) => Handler(name, args);
+      public bool Contains(string name) => true; // stub assumes every name is known
     }
 
     // Literals ---------------------------------------------------------------
@@ -315,6 +316,46 @@ namespace Harlowe.Tests.Runtime
 
     [Fact]
     public void Contains_OnNumber_Errors() => Assert.True(Eval("5 contains 1").IsError);
+
+    [Fact]
+    public void DoesNotContain_String_True() => Assert.True(Eval("\"hello\" does not contain \"xyz\"").AsBool);
+
+    [Fact]
+    public void DoesNotContain_String_False() => Assert.False(Eval("\"hello\" does not contain \"ell\"").AsBool);
+
+    [Fact]
+    public void IsNotIn_IsDoesNotContainReversed() => Assert.True(Eval("\"xyz\" is not in \"hello\"").AsBool);
+
+    [Fact]
+    public void IsNotIn_False() => Assert.False(Eval("\"ell\" is not in \"hello\"").AsBool);
+
+    [Fact]
+    public void DoesNotContain_OnNumber_PropagatesError()
+    {
+      // OpContains errors must not be flipped to true by the negation wrapper.
+      var v = Eval("5 does not contain 1");
+      Assert.True(v.IsError);
+    }
+
+    [Fact]
+    public void IsNotIn_OnNumber_PropagatesError()
+    {
+      var v = Eval("1 is not in 5");
+      Assert.True(v.IsError);
+    }
+
+    [Fact]
+    public void UnknownMacroCall_DoesNotEvaluateAssignmentArg()
+    {
+      // Expression-position counterpart to BodyRendererTests.UnknownMacro_DoesNotEvaluateAssignmentArg.
+      // The pre-existence check must fire before arg evaluation so `$x to 5`
+      // doesn't leak its mutation when wrapped in an unknown macro.
+      var store = new HarloweVariableStore();
+      var v = Eval("(notamacro: $x to 5)", store, macros: new MacroRegistry());
+      Assert.True(v.IsError);
+      Assert.Contains("notamacro", v.ErrorMessage);
+      Assert.Null(store.Get("x", false));
+    }
 
     // Error propagation ------------------------------------------------------
 

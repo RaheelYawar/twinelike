@@ -189,6 +189,8 @@ namespace Harlowe.Runtime
 
         case "contains": _result = OpContains(left, right); return;
         case "is in": _result = OpContains(right, left); return;
+        case "does not contain": _result = OpNegateContains(OpContains(left, right)); return;
+        case "is not in": _result = OpNegateContains(OpContains(right, left)); return;
 
         default:
           _result = HarloweValue.OfError($"unsupported binary operator '{node.Operator}'"); return;
@@ -213,6 +215,16 @@ namespace Harlowe.Runtime
       if (_macros == null)
       {
         _result = HarloweValue.OfError($"macro '{node.Name}' cannot be called: no macro registry configured");
+        return;
+      }
+      // Pre-check the macro name before evaluating arguments, so a `to`/`into`
+      // assignment inside an unknown macro's arg list can't leak its
+      // side-effect before the unknown-macro error is reported. Matches
+      // BodyRenderer.Visit(MacroNode). TODO: replace with full restriction of
+      // `to`/`into` to (set:)/(put:) argument position.
+      if (!_macros.Contains(node.Name))
+      {
+        _result = HarloweValue.OfError($"unknown macro '{node.Name}'");
         return;
       }
       var args = new List<HarloweValue>(node.Arguments.Count);
@@ -272,6 +284,12 @@ namespace Harlowe.Runtime
           return HarloweValue.OfError($"contains does not apply to {container.Kind}");
       }
     }
+
+    // Negation wrapper for `does not contain` / `is not in`: preserves the
+    // error from OpContains (e.g. "a String cannot contain a Number") rather
+    // than flipping it to true.
+    private static HarloweValue OpNegateContains(HarloweValue v)
+      => v.IsError ? v : HarloweValue.OfBool(!v.AsBool);
 
     private static HarloweValue TypeError(string op, HarloweValue offender)
       => HarloweValue.OfError($"{op} does not apply to a {offender.Kind}");

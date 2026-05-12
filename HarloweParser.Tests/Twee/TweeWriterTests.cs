@@ -85,6 +85,46 @@ namespace Harlowe.Tests.Twee
     }
 
     [Fact]
+    public void StoryData_ClearedIfid_DropsFieldFromOutput()
+    {
+      // Loading a story with ifid stashes it onto StoryDataExtras as well as
+      // the typed Ifid property. Clearing Ifid must remove it from output —
+      // the original stashed copy on extras must not leak through.
+      string src = ":: StoryData\n{\"ifid\":\"OLD-IFID\",\"format\":\"Harlowe\"}\n\n:: First\nbody";
+      var story = Read(src);
+      story.Ifid = string.Empty;
+      string output = Write(story);
+      Assert.DoesNotContain("OLD-IFID", output);
+      Assert.DoesNotContain("\"ifid\"", output);
+      Assert.Contains("\"format\": \"Harlowe\"", output);
+    }
+
+    [Fact]
+    public void StoryData_ClearedFormatVersion_DropsFieldFromOutput()
+    {
+      string src = ":: StoryData\n{\"format\":\"Harlowe\",\"format-version\":\"3.3.9\"}\n\n:: First\nbody";
+      var story = Read(src);
+      story.FormatVersion = string.Empty;
+      string output = Write(story);
+      Assert.DoesNotContain("3.3.9", output);
+      Assert.DoesNotContain("\"format-version\"", output);
+    }
+
+    [Fact]
+    public void StoryData_RemovedStartPassage_DropsStartFromOutput()
+    {
+      // After removing the passage that `start` named, GetStartPassage returns
+      // null. The stale start key from the originally-parsed JSON must not
+      // survive on output.
+      string src = ":: StoryData\n{\"format\":\"Harlowe\",\"start\":\"First\"}\n\n:: First\nbody\n\n:: Second\nB";
+      var story = Read(src);
+      story.RemovePassage("First");
+      string output = Write(story);
+      Assert.DoesNotContain("\"start\"", output);
+      Assert.DoesNotContain("\"First\"", output);
+    }
+
+    [Fact]
     public void StoryData_PreservesUnknownFields()
     {
       // tag-colors and zoom are not surfaced as typed fields; they should

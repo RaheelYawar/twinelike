@@ -31,13 +31,25 @@ namespace Harlowe.Runtime
     public Random Rng = new Random();
 
     /// <summary>
-    /// Renders another passage by name and returns its visible text as a
-    /// <see cref="HarloweValueKind.String"/>. Set by <see cref="StorySession"/>
-    /// before each render; null in standalone evaluator/renderer tests, in
-    /// which case <c>(display:)</c> emits an in-prose error rather than
-    /// crashing.
+    /// Renders the named passage into <paramref name="output"/>. Returns
+    /// <see cref="HarloweValue.OfString(string)"/> with an empty payload on
+    /// success, or an <see cref="HarloweValueKind.Error"/> value if the
+    /// passage doesn't exist. Set by <see cref="StorySession"/> before each
+    /// render; null in standalone evaluator/renderer tests, in which case
+    /// <c>(display:)</c> emits an in-prose error rather than crashing.
     /// </summary>
-    public Func<string, HarloweValue> RenderPassage;
+    public Func<string, IRenderOutput, HarloweValue> RenderPassage;
+
+    /// <summary>
+    /// The active body-position render sink. <see cref="BodyRenderer"/> sets
+    /// this around each macro dispatch and clears it on the way out; the
+    /// expression evaluator never sets it. Command macros like
+    /// <c>(display:)</c> consult it to decide whether to render directly into
+    /// the parent output (preserving Link/Error/Style events) or to capture
+    /// into a private buffer and return the rendered text as a String value
+    /// (for expression-position use such as <c>(set: $x to (display: "P"))</c>).
+    /// </summary>
+    public IRenderOutput Output;
 
     /// <summary>
     /// Set by <c>(goto:)</c>. The body renderer reads this after each macro to

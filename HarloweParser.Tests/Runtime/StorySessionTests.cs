@@ -276,6 +276,34 @@ namespace Harlowe.Tests.Runtime
       Assert.Equal(1, CountKind(r, BufferedRenderOutput.Kind.Error));
     }
 
+    [Fact]
+    public void Display_PropagatesLinksFromDisplayedPassage()
+    {
+      // Regression: previously (display:) flattened the inlined passage to its
+      // .Text and dropped structured entries. A [[Next]] inside the displayed
+      // passage must surface as a Link entry on the parent render result.
+      var session = new StorySession(TwoPassages("before (display: \"P2\") after", "[[Next->P1]]"));
+      var r = session.Render();
+      bool foundLink = false;
+      for (int i = 0; i < r.Entries.Count; i++)
+      {
+        var e = r.Entries[i];
+        if (e.Kind == BufferedRenderOutput.Kind.Link && e.Target == "P1" && e.Content == "Next")
+        { foundLink = true; break; }
+      }
+      Assert.True(foundLink, "expected Link entry from the displayed passage to reach the parent output");
+    }
+
+    [Fact]
+    public void Display_PropagatesErrorsFromDisplayedPassage()
+    {
+      // A runtime error inside the displayed passage must surface as an Error
+      // entry on the parent output, not be swallowed by the buffer flattening.
+      var session = new StorySession(TwoPassages("(display: \"P2\")", "$missing"));
+      var r = session.Render();
+      Assert.True(CountKind(r, BufferedRenderOutput.Kind.Error) >= 1);
+    }
+
     // -----------------------------------------------------------------------
     // Undo
     // -----------------------------------------------------------------------
