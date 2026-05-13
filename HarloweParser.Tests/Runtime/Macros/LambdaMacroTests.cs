@@ -218,5 +218,133 @@ namespace Harlowe.Tests.Runtime.Macros
       Assert.True(v.AsBool);
       Assert.Equal(-1, ctx.Store.Get("x", true).AsNumber); // surrounding _x untouched
     }
+
+    // --- LambdaInvoker.EvalTransform ---
+
+    [Fact]
+    public void EvalTransform_BindsParamAndComputesResult()
+    {
+      var (reg, ctx) = Setup();
+      var lambda = ParseLambda("_x via _x * 2");
+      var v = LambdaInvoker.EvalTransform(lambda, HarloweValue.OfNumber(7), ctx);
+      Assert.Equal(14, v.AsNumber);
+    }
+
+    [Fact]
+    public void EvalTransform_MissingViaClause_Errors()
+    {
+      var (reg, ctx) = Setup();
+      var lambda = ParseLambda("_x where _x > 5"); // no via clause
+      var v = LambdaInvoker.EvalTransform(lambda, HarloweValue.OfNumber(7), ctx);
+      Assert.True(v.IsError);
+      Assert.Contains("via", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void EvalTransform_AnyKindAllowed_UnlikePredicate()
+    {
+      var (reg, ctx) = Setup();
+      var lambda = ParseLambda("_x via _x + 1"); // produces Number, not Bool
+      var v = LambdaInvoker.EvalTransform(lambda, HarloweValue.OfNumber(7), ctx);
+      Assert.Equal(HarloweValueKind.Number, v.Kind);
+    }
+
+    // --- (altered:) ---
+
+    [Fact]
+    public void Altered_MapsInlineItems()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(altered: _x via _x * 2, 1, 2, 3)");
+      Assert.Equal(2, v.AsArray[0].AsNumber);
+      Assert.Equal(4, v.AsArray[1].AsNumber);
+      Assert.Equal(6, v.AsArray[2].AsNumber);
+    }
+
+    [Fact]
+    public void Altered_MapsSingleArrayArg()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(altered: _x via _x * 2, (a: 1, 2, 3))");
+      Assert.Equal(3, v.AsArray.Count);
+    }
+
+    [Fact]
+    public void Altered_ImplicitItForm()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(altered: via it * 10, 1, 2, 3)");
+      Assert.Equal(10, v.AsArray[0].AsNumber);
+      Assert.Equal(30, v.AsArray[2].AsNumber);
+    }
+
+    [Fact]
+    public void Altered_RejectsWhereOnlyLambda()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(altered: _x where _x > 5, 1, 2, 3)");
+      Assert.True(v.IsError);
+    }
+
+    [Fact]
+    public void Altered_PropagatesTransformError()
+    {
+      var (reg, ctx) = Setup();
+      // Division by zero inside the transform — error surfaces from the macro.
+      var v = Eval(reg, ctx, "(altered: _x via _x / 0, 1, 2)");
+      Assert.True(v.IsError);
+    }
+
+    // --- (some-pass:) ---
+
+    [Fact]
+    public void SomePass_OneMatch_TrueAndShortCircuits()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(some-pass: _x where _x > 5, 1, 6, 3)");
+      Assert.True(v.AsBool);
+    }
+
+    [Fact]
+    public void SomePass_NoMatch_False()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(some-pass: _x where _x > 100, 1, 2, 3)");
+      Assert.False(v.AsBool);
+    }
+
+    [Fact]
+    public void SomePass_Empty_False()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(some-pass: _x where _x > 5, (a:))");
+      Assert.False(v.AsBool);
+    }
+
+    // --- (none-pass:) ---
+
+    [Fact]
+    public void NonePass_NoMatch_True()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(none-pass: _x where _x > 100, 1, 2, 3)");
+      Assert.True(v.AsBool);
+    }
+
+    [Fact]
+    public void NonePass_OneMatch_FalseAndShortCircuits()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(none-pass: _x where _x > 5, 1, 6, 3)");
+      Assert.False(v.AsBool);
+    }
+
+    [Fact]
+    public void NonePass_Empty_True()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(none-pass: _x where _x > 5, (a:))");
+      Assert.True(v.AsBool);
+    }
   }
 }

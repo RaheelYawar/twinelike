@@ -446,9 +446,38 @@ namespace Harlowe.Tests
     [Fact]
     public void Lambda_UnsupportedClauseKeyword_GivesForwardCompatibleError()
     {
-      // v2.3A ships `where` only; `via` should produce a clear error.
-      var ex = Assert.Throws<HarloweParseException>(() => ParseExpr("_x via _x * 2"));
-      Assert.Contains("via", ex.Message);
+      // v2.3B ships `where` and `via`; `making` is still deferred and should
+      // produce a clear error so the cursor doesn't run away.
+      var ex = Assert.Throws<HarloweParseException>(() => ParseExpr("_x making _r via _r + _x"));
+      Assert.Contains("making", ex.Message);
+    }
+
+    // --- v2.3B: via clause ---
+
+    [Fact]
+    public void Lambda_ViaClause_Alone()
+    {
+      var l = Assert.IsType<LambdaNode>(ParseExpr("_x via _x * 2"));
+      Assert.Equal("x", l.ParameterName);
+      Assert.Null(l.WhereClause);
+      var body = Assert.IsType<BinaryOpNode>(l.ViaClause);
+      Assert.Equal("*", body.Operator);
+    }
+
+    [Fact]
+    public void Lambda_WhereThenVia_BothClausesPopulated()
+    {
+      var l = Assert.IsType<LambdaNode>(ParseExpr("_x where _x > 5 via _x * 2"));
+      Assert.NotNull(l.WhereClause);
+      Assert.NotNull(l.ViaClause);
+    }
+
+    [Fact]
+    public void Lambda_ImplicitItVia_ParameterNameNull()
+    {
+      var l = Assert.IsType<LambdaNode>(ParseExpr("via it * 2"));
+      Assert.Null(l.ParameterName);
+      Assert.NotNull(l.ViaClause);
     }
   }
 }

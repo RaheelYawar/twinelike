@@ -143,6 +143,10 @@ namespace Harlowe.Tests.Twee
     [Fact] public void Expr_Lambda_ImplicitIt() => AssertExprRoundTripStable("where it > 5");
     [Fact] public void Expr_Lambda_BodyHasAnd() => AssertExprRoundTripStable("_x where _x > 5 and _x < 10");
     [Fact] public void Expr_Lambda_AsMacroArg() => AssertExprRoundTripStable("(find: _x where _x > 5, 1, 6, 3, 7)");
+    [Fact] public void Expr_Lambda_ViaAlone() => AssertExprRoundTripStable("_x via _x * 2");
+    [Fact] public void Expr_Lambda_ImplicitItVia() => AssertExprRoundTripStable("via it * 2");
+    [Fact] public void Expr_Lambda_WhereThenVia() => AssertExprRoundTripStable("_x where _x > 5 via _x * 2");
+    [Fact] public void Expr_Lambda_AlteredCall() => AssertExprRoundTripStable("(altered: _x via _x * 2, 1, 2, 3)");
 
     // ----- testFile.html corpus round-trip -----
 

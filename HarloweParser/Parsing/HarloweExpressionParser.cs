@@ -193,9 +193,9 @@ namespace Harlowe.Parsing
     /// <c>null</c> for the implicit-<c>it</c> form.
     ///
     /// <para>
-    /// v2.3A scope: only the <c>where</c> clause is supported. Other clause
-    /// keywords (<c>via</c>, <c>making</c>, <c>when</c>) produce a parse error
-    /// so the cursor doesn't run away. Each will land in a later sub-slice.
+    /// Accepts <c>where</c> alone, <c>via</c> alone, or the chained
+    /// <c>where ... via ...</c> form. <c>making</c> and <c>when</c> remain
+    /// unsupported and produce a forward-compatible error.
     /// </para>
     /// </summary>
     private LambdaNode ParseLambdaTail(TokenCursor cursor, IExpressionNode leftAsParam)
@@ -214,14 +214,26 @@ namespace Harlowe.Parsing
       }
 
       var t = cursor.Current;
-      if (t.Type != TokenType.Operator || t.Value != "where")
-        throw new HarloweParseException($"'{t.Value}' lambda clause is not yet supported (v2.3A ships `where` only)", t.Line, t.Column);
+      if (t.Type != TokenType.Operator || (t.Value != "where" && t.Value != "via"))
+        throw new HarloweParseException($"'{t.Value}' lambda clause is not yet supported (v2.3 ships `where` and `via`)", t.Line, t.Column);
 
-      cursor.Advance();
-      // Parse the clause body at order 14 — one tighter than the lambda level
-      // itself — so a nested `where`/`via`/`making` belongs to an outer
-      // construct rather than getting swallowed here.
-      node.WhereClause = ParseBinary(cursor, 14);
+      // `where` may be followed by `via` to filter-then-transform; `via` alone
+      // is the pure transform form. Both clause bodies parse at order 14 —
+      // one tighter than the lambda level itself — so a stray clause keyword
+      // belongs to an outer construct rather than getting swallowed here.
+      if (t.Value == "where")
+      {
+        cursor.Advance();
+        node.WhereClause = ParseBinary(cursor, 14);
+        t = cursor.Current;
+      }
+
+      if (t.Type == TokenType.Operator && t.Value == "via")
+      {
+        cursor.Advance();
+        node.ViaClause = ParseBinary(cursor, 14);
+      }
+
       return node;
     }
 

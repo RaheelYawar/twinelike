@@ -1,3 +1,5 @@
+using Harlowe.Ast.Expression;
+
 namespace Harlowe.Runtime
 {
   /// <summary>
@@ -10,10 +12,11 @@ namespace Harlowe.Runtime
   /// capture is needed.
   ///
   /// <para>
-  /// v2.3A ships <see cref="EvalPredicate"/> for <c>where</c>-clause lambdas
-  /// (used by <c>(find:)</c>, <c>(all-pass:)</c>, etc.). Later slices add
-  /// <c>EvalTransform</c> (via clause), <c>EvalFold</c> (making+via), and
-  /// <c>BindEach</c> (body-position iteration for <c>(for:)</c>).
+  /// Shipped: <see cref="EvalPredicate"/> for <c>where</c>-clause lambdas
+  /// (<c>(find:)</c>, <c>(all-pass:)</c>, <c>(some-pass:)</c>,
+  /// <c>(none-pass:)</c>) and <see cref="EvalTransform"/> for <c>via</c>-clause
+  /// lambdas (<c>(altered:)</c>). Later slices add <c>EvalFold</c> (making+via)
+  /// and <c>BindEach</c> (body-position iteration for <c>(for:)</c>).
   /// </para>
   /// </summary>
   public static class LambdaInvoker
@@ -30,36 +33,50 @@ namespace Harlowe.Runtime
     {
       if (item.IsError) return item;
       if (lambda == null || lambda.Node == null) return HarloweValue.OfError("missing lambda");
-      var node = lambda.Node;
-      if (node.WhereClause == null) return HarloweValue.OfError("lambda has no 'where' clause");
+      if (lambda.Node.WhereClause == null) return HarloweValue.OfError("lambda has no 'where' clause");
 
-      var evaluator = new ExpressionEvaluator(ctx.Store, ctx.EvaluationContext, ctx.Invoker);
-
-      // Always bind `it` to the item — the Harlowe spec says `it` is
-      // interchangeable with the lambda parameter inside the clause body
-      // (`_x where it > 5` works equivalently to `_x where _x > 5`). The
-      // implicit-parameter form (`where it > 5`) is just the named form with
-      // the name elided. The named binding is layered on top so the explicit
-      // sigil also resolves.
-      HarloweValue result;
-      using (ctx.Store.PushItBinding(item))
-      {
-        if (node.ParameterName == null)
-        {
-          result = evaluator.Evaluate(node.WhereClause);
-        }
-        else
-        {
-          using (ctx.Store.PushBinding(node.ParameterName, node.ParameterIsTemporary, item))
-            result = evaluator.Evaluate(node.WhereClause);
-        }
-      }
-
+      var result = EvaluateClause(lambda, item, ctx, lambda.Node.WhereClause);
       if (result.IsError) return result;
       if (result.Kind != HarloweValueKind.Bool)
         return HarloweValue.OfError($"lambda 'where' clause must produce a Bool; got {result.Kind}");
       return result;
     }
 
+    /// <summary>
+    /// Bind <paramref name="item"/> to the lambda's parameter (or to the
+    /// <c>it</c> slot), evaluate the <c>via</c> clause, and return its
+    /// result. Used by transform-flavoured macros (<c>(altered:)</c>, etc.).
+    /// Unlike <see cref="EvalPredicate"/>, the result kind is unconstrained
+    /// — a transform can produce any value.
+    /// </summary>
+    public static HarloweValue EvalTransform(LambdaValue lambda, HarloweValue item, MacroContext ctx)
+    {
+      if (item.IsError) return item;
+      if (lambda == null || lambda.Node == null) return HarloweValue.OfError("missing lambda");
+      if (lambda.Node.ViaClause == null) return HarloweValue.OfError("lambda has no 'via' clause");
+      return EvaluateClause(lambda, item, ctx, lambda.Node.ViaClause);
+    }
+
+    /// <summary>
+    /// Shared binding-and-evaluation core for predicate and transform
+    /// clauses. Always push-binds <c>it</c> to the item per Harlowe spec
+    /// (<c>it</c> is interchangeable with the explicit parameter inside the
+    /// clause body); layers the named binding on top when the lambda has a
+    /// parameter. Errors propagate as-is — the caller layer adds clause-kind
+    /// validation.
+    /// </summary>
+    private static HarloweValue EvaluateClause(LambdaValue lambda, HarloweValue item, MacroContext ctx, IExpressionNode clause)
+    {
+      var node = lambda.Node;
+      var evaluator = new ExpressionEvaluator(ctx.Store, ctx.EvaluationContext, ctx.Invoker);
+
+      using (ctx.Store.PushItBinding(item))
+      {
+        if (node.ParameterName == null)
+          return evaluator.Evaluate(clause);
+        using (ctx.Store.PushBinding(node.ParameterName, node.ParameterIsTemporary, item))
+          return evaluator.Evaluate(clause);
+      }
+    }
   }
 }
