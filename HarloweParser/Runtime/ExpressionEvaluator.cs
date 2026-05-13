@@ -241,6 +241,13 @@ namespace Harlowe.Runtime
     public void Visit(DatamapNode node) => _result = HarloweValue.OfError("datamap literal not supported");
     public void Visit(DatasetNode node) => _result = HarloweValue.OfError("dataset literal not supported");
 
+    /// <summary>
+    /// Lambdas are opaque at construction time — no scope work happens here.
+    /// The runtime wrapper just pins the AST so <see cref="LambdaInvoker"/> can
+    /// bind parameters and re-enter the evaluator when a consuming macro fires.
+    /// </summary>
+    public void Visit(LambdaNode node) => _result = HarloweValue.OfLambda(new LambdaValue { Node = node });
+
     private static HarloweValue OpAdd(HarloweValue left, HarloweValue right)
     {
       if (left.Kind == HarloweValueKind.Number && right.Kind == HarloweValueKind.Number)

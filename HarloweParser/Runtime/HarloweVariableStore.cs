@@ -90,6 +90,66 @@ namespace Harlowe.Runtime
       }
     }
 
+    public IDisposable PushBinding(string name, bool isTemporary, HarloweValue value)
+    {
+      var bucket = isTemporary ? _temp : _story;
+      bool hadPrior = bucket.TryGetValue(name, out var prior);
+      bucket[name] = value;
+      return new BucketBindingScope(bucket, name, hadPrior, prior);
+    }
+
+    public IDisposable PushItBinding(HarloweValue value)
+    {
+      var prior = _it;
+      _it = value;
+      return new ItBindingScope(this, prior);
+    }
+
+    private class ItBindingScope : IDisposable
+    {
+      private readonly HarloweVariableStore _store;
+      private readonly HarloweValue _prior;
+      private bool _disposed;
+
+      public ItBindingScope(HarloweVariableStore store, HarloweValue prior)
+      {
+        _store = store;
+        _prior = prior;
+      }
+
+      public void Dispose()
+      {
+        if (_disposed) return;
+        _disposed = true;
+        _store._it = _prior;
+      }
+    }
+
+    private class BucketBindingScope : IDisposable
+    {
+      private readonly Dictionary<string, HarloweValue> _bucket;
+      private readonly string _name;
+      private readonly bool _hadPrior;
+      private readonly HarloweValue _prior;
+      private bool _disposed;
+
+      public BucketBindingScope(Dictionary<string, HarloweValue> bucket, string name, bool hadPrior, HarloweValue prior)
+      {
+        _bucket = bucket;
+        _name = name;
+        _hadPrior = hadPrior;
+        _prior = prior;
+      }
+
+      public void Dispose()
+      {
+        if (_disposed) return;
+        _disposed = true;
+        if (_hadPrior) _bucket[_name] = _prior;
+        else _bucket.Remove(_name);
+      }
+    }
+
     private class Snap
     {
       public Dictionary<string, HarloweValue> Story;

@@ -136,6 +136,14 @@ namespace Harlowe.Tests.Twee
       AssertExprRoundTripStable("$arr's ($other's name)");
     }
 
+    // ----- v2.3A lambdas -----
+
+    [Fact] public void Expr_Lambda_TempParam() => AssertExprRoundTripStable("_x where _x > 5");
+    [Fact] public void Expr_Lambda_StoryParam() => AssertExprRoundTripStable("$item where $item is \"target\"");
+    [Fact] public void Expr_Lambda_ImplicitIt() => AssertExprRoundTripStable("where it > 5");
+    [Fact] public void Expr_Lambda_BodyHasAnd() => AssertExprRoundTripStable("_x where _x > 5 and _x < 10");
+    [Fact] public void Expr_Lambda_AsMacroArg() => AssertExprRoundTripStable("(find: _x where _x > 5, 1, 6, 3, 7)");
+
     // ----- testFile.html corpus round-trip -----
 
     [Fact]

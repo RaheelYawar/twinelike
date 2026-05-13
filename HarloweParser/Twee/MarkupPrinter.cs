@@ -279,6 +279,44 @@ namespace Harlowe.Twee
       _sb.Append(')');
     }
 
+    /// <summary>
+    /// Emits canonical lambda shapes: <c>_x where _x &gt; 5</c>,
+    /// <c>where it &gt; 5</c> (implicit-it), <c>_x via _x * 2</c>,
+    /// <c>_running making _x via _running + _x</c>, and <c>each _x</c>. Lambda
+    /// children are written at the loosest binary level — Harlowe doesn't have
+    /// a lambda-vs-binary ambiguity inside a clause body.
+    /// </summary>
+    public void Visit(LambdaNode node)
+    {
+      if (node.IsEach)
+      {
+        _sb.Append("each ").Append(node.ParameterIsTemporary ? '_' : '$').Append(node.ParameterName);
+        return;
+      }
+
+      if (node.ParameterName != null)
+      {
+        _sb.Append(node.ParameterIsTemporary ? '_' : '$').Append(node.ParameterName);
+        if (node.MakingName != null)
+        {
+          _sb.Append(" making ").Append(node.MakingIsTemporary ? '_' : '$').Append(node.MakingName);
+        }
+        _sb.Append(' ');
+      }
+
+      if (node.WhereClause != null)
+      {
+        _sb.Append("where ");
+        node.WhereClause.Accept(this);
+      }
+      if (node.ViaClause != null)
+      {
+        if (node.WhereClause != null) _sb.Append(' ');
+        _sb.Append("via ");
+        node.ViaClause.Accept(this);
+      }
+    }
+
     // ----- helpers -----
 
     private void EmitMacroCall(string name, List<IExpressionNode> args)

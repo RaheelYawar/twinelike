@@ -1,3 +1,5 @@
+using System;
+
 namespace Harlowe.Runtime
 {
   /// <summary>
@@ -63,5 +65,32 @@ namespace Harlowe.Runtime
     /// at snapshot time so a restored value is not shared with a mutated one.
     /// </summary>
     void Restore(object snapshot);
+
+    /// <summary>
+    /// Bind <paramref name="name"/> to <paramref name="value"/> in the
+    /// namespace selected by <paramref name="isTemporary"/>, returning a token
+    /// that restores the prior state on dispose. Used by
+    /// <see cref="LambdaInvoker"/> to bind a lambda's parameter for the
+    /// duration of a single clause evaluation. Lambdas commonly use temporary
+    /// parameters (<c>_x where ...</c>); the story-sigil form (<c>$x where ...</c>)
+    /// binds the story namespace and is restored on the way out, so the inner
+    /// clause sees the local value without permanently mutating story state.
+    ///
+    /// <para>
+    /// Unlike <see cref="Set"/>, this does <em>not</em> rebind the
+    /// <c>it</c> slot — Harlowe lambda parameters are local; the caller's
+    /// <c>it</c> survives the inner clause.
+    /// </para>
+    /// </summary>
+    IDisposable PushBinding(string name, bool isTemporary, HarloweValue value);
+
+    /// <summary>
+    /// Bind the implicit <c>it</c> slot to <paramref name="value"/> and
+    /// return a token that restores the prior <c>it</c> on dispose. Used by
+    /// <see cref="LambdaInvoker"/> for the implicit-parameter lambda form
+    /// (<c>where it &gt; 5</c>), where the clause body references <c>it</c>
+    /// rather than a named parameter.
+    /// </summary>
+    IDisposable PushItBinding(HarloweValue value);
   }
 }

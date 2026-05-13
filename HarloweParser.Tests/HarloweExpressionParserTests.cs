@@ -394,5 +394,61 @@ namespace Harlowe.Tests
       new HarloweExpressionParser().ParseArgumentList(cursor);
       Assert.Equal(TokenType.EndOfFile, cursor.Current.Type);
     }
+
+    // --- lambdas (v2.3A: where clause only) ---
+
+    [Fact]
+    public void Lambda_WithTempParameter_ParsedAsLambdaNode()
+    {
+      var l = Assert.IsType<LambdaNode>(ParseExpr("_x where _x > 5"));
+      Assert.Equal("x", l.ParameterName);
+      Assert.True(l.ParameterIsTemporary);
+      var body = Assert.IsType<BinaryOpNode>(l.WhereClause);
+      Assert.Equal(">", body.Operator);
+    }
+
+    [Fact]
+    public void Lambda_WithStoryParameter_HonoursSigil()
+    {
+      var l = Assert.IsType<LambdaNode>(ParseExpr("$item where $item is \"target\""));
+      Assert.Equal("item", l.ParameterName);
+      Assert.False(l.ParameterIsTemporary);
+      Assert.IsType<BinaryOpNode>(l.WhereClause);
+    }
+
+    [Fact]
+    public void Lambda_ImplicitIt_ParameterNameIsNull()
+    {
+      var l = Assert.IsType<LambdaNode>(ParseExpr("where it > 5"));
+      Assert.Null(l.ParameterName);
+      var body = Assert.IsType<BinaryOpNode>(l.WhereClause);
+      Assert.Equal(">", body.Operator);
+      Assert.IsType<IdentifierNode>(body.Left);
+    }
+
+    [Fact]
+    public void Lambda_ClauseBody_BindsAtOrder14()
+    {
+      // `and` is order 13, looser than the order-14 floor of the clause body —
+      // so the body should consume the whole `_x > 5 and _x < 10` expression.
+      var l = Assert.IsType<LambdaNode>(ParseExpr("_x where _x > 5 and _x < 10"));
+      var body = Assert.IsType<BinaryOpNode>(l.WhereClause);
+      Assert.Equal("and", body.Operator);
+    }
+
+    [Fact]
+    public void Lambda_NonVariableParameter_Throws()
+    {
+      var ex = Assert.Throws<HarloweParseException>(() => ParseExpr("(1 + 2) where it > 0"));
+      Assert.Contains("must be a variable", ex.Message);
+    }
+
+    [Fact]
+    public void Lambda_UnsupportedClauseKeyword_GivesForwardCompatibleError()
+    {
+      // v2.3A ships `where` only; `via` should produce a clear error.
+      var ex = Assert.Throws<HarloweParseException>(() => ParseExpr("_x via _x * 2"));
+      Assert.Contains("via", ex.Message);
+    }
   }
 }

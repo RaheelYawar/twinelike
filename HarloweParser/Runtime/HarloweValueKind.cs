@@ -39,6 +39,15 @@ namespace Harlowe.Runtime
     /// with the <c>+</c> operator. Stored as a <see cref="Changer"/> object on
     /// <see cref="HarloweValue.Raw"/>.
     /// </summary>
-    Changer
+    Changer,
+
+    /// <summary>
+    /// A Harlowe lambda — a parameter + clause expression carried as a value
+    /// until a consuming macro (e.g. <c>(find:)</c>, <c>(altered:)</c>) fires
+    /// it once per item. Lambdas don't close over scope; they re-evaluate
+    /// against the caller's variable store when invoked. Stored as a
+    /// <see cref="LambdaValue"/> on <see cref="HarloweValue.Raw"/>.
+    /// </summary>
+    Lambda
   }
 }

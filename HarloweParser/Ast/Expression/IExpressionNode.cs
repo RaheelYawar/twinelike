@@ -27,5 +27,6 @@ namespace Harlowe.Ast.Expression
     void Visit(ArrayNode node);
     void Visit(DatamapNode node);
     void Visit(DatasetNode node);
+    void Visit(LambdaNode node);
   }
 }

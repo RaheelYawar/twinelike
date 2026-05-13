@@ -32,8 +32,9 @@ namespace Harlowe.Parsing
     {
       // Order 16
       { "to", 16 }, { "into", 16 },
-      // Order 15 (lambda construction)
-      { "where", 15 }, { "when", 15 }, { "via", 15 }, { "making", 15 }, { "each", 15 },
+      // Order 15 (lambda construction) — `where` / `when` / `via` / `making` /
+      // `each` aren't real binary ops; they introduce a LambdaNode. ParseBinary
+      // detects them via LambdaClauseKeywords and switches into ParseLambdaTail.
       // Order 14 (TypedVar)
       { "-type", 14 },
       // Order 13 (logical — same level intentionally)
@@ -57,6 +58,19 @@ namespace Harlowe.Parsing
     };
 
     /// <summary>
+    /// Clause keywords that turn the surrounding expression into a lambda. Live
+    /// at precedence 15 (between <c>to</c>/<c>into</c> and <c>-type</c>) but are
+    /// not modeled as binary operators because the construct has up to three
+    /// parts (parameter + <c>making</c> accumulator + <c>via</c> body) and a
+    /// dedicated <see cref="LambdaNode"/>. <c>each</c> is the unary-prefix form
+    /// (<c>each _x</c>) and handled separately.
+    /// </summary>
+    private static readonly HashSet<string> LambdaClauseKeywords = new HashSet<string>
+    {
+      "where", "when", "via", "making"
+    };
+
+    /// <summary>
     /// Unary prefix operator → precedence order. <c>+</c> and <c>-</c> appear
     /// here too; whether they are unary or binary is decided contextually by
     /// <see cref="ParseUnary"/> (unary at the start of an operand position).
@@ -76,9 +90,19 @@ namespace Harlowe.Parsing
     /// cursor stops at the first token that does not extend the expression —
     /// typically a <c>,</c>, <c>)</c>, or end-of-file — and is left pointing
     /// at it.
+    ///
+    /// <para>
+    /// Detects the implicit-<c>it</c> lambda shape (<c>where it &gt; 5</c>) at
+    /// the entry: when the first token is a lambda clause keyword, build a
+    /// <see cref="LambdaNode"/> with a null parameter — the evaluator binds
+    /// <c>it</c> at invocation time.
+    /// </para>
     /// </summary>
     public IExpressionNode ParseExpression(TokenCursor cursor)
     {
+      var t = cursor.Current;
+      if (t.Type == TokenType.Operator && LambdaClauseKeywords.Contains(t.Value))
+        return ParseLambdaTail(cursor, leftAsParam: null);
       return ParseBinary(cursor, 16);
     }
 
@@ -143,6 +167,14 @@ namespace Harlowe.Parsing
       {
         var t = cursor.Current;
         if (t.Type != TokenType.Operator) break;
+        if (LambdaClauseKeywords.Contains(t.Value))
+        {
+          // Lambda construction lives at precedence 15. If the surrounding
+          // context is tighter (e.g. parsing the RHS of `is`), let the outer
+          // level claim the keyword.
+          if (maxOrder < 15) break;
+          return ParseLambdaTail(cursor, leftAsParam: left);
+        }
         if (!BinaryOps.TryGetValue(t.Value, out int order)) break;
         if (order > maxOrder) break;
 
@@ -152,6 +184,45 @@ namespace Harlowe.Parsing
       }
 
       return left;
+    }
+
+    /// <summary>
+    /// Consumes a lambda's clause tail and returns a <see cref="LambdaNode"/>.
+    /// <paramref name="leftAsParam"/> is the already-parsed parameter
+    /// expression (which must be a bare <see cref="VariableRefNode"/>) or
+    /// <c>null</c> for the implicit-<c>it</c> form.
+    ///
+    /// <para>
+    /// v2.3A scope: only the <c>where</c> clause is supported. Other clause
+    /// keywords (<c>via</c>, <c>making</c>, <c>when</c>) produce a parse error
+    /// so the cursor doesn't run away. Each will land in a later sub-slice.
+    /// </para>
+    /// </summary>
+    private LambdaNode ParseLambdaTail(TokenCursor cursor, IExpressionNode leftAsParam)
+    {
+      var node = new LambdaNode();
+
+      if (leftAsParam != null)
+      {
+        if (!(leftAsParam is VariableRefNode vref))
+        {
+          var bad = cursor.Current;
+          throw new HarloweParseException("lambda parameter must be a variable", bad.Line, bad.Column);
+        }
+        node.ParameterName = vref.Name;
+        node.ParameterIsTemporary = vref.IsTemporary;
+      }
+
+      var t = cursor.Current;
+      if (t.Type != TokenType.Operator || t.Value != "where")
+        throw new HarloweParseException($"'{t.Value}' lambda clause is not yet supported (v2.3A ships `where` only)", t.Line, t.Column);
+
+      cursor.Advance();
+      // Parse the clause body at order 14 — one tighter than the lambda level
+      // itself — so a nested `where`/`via`/`making` belongs to an outer
+      // construct rather than getting swallowed here.
+      node.WhereClause = ParseBinary(cursor, 14);
+      return node;
     }
 
     /// <summary>
