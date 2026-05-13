@@ -37,6 +37,7 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new AlteredMacro());
       registry.Register(new SomePassMacro());
       registry.Register(new NonePassMacro());
+      registry.Register(new ForMacro());
     }
   }
 }

@@ -147,6 +147,9 @@ namespace Harlowe.Tests.Twee
     [Fact] public void Expr_Lambda_ImplicitItVia() => AssertExprRoundTripStable("via it * 2");
     [Fact] public void Expr_Lambda_WhereThenVia() => AssertExprRoundTripStable("_x where _x > 5 via _x * 2");
     [Fact] public void Expr_Lambda_AlteredCall() => AssertExprRoundTripStable("(altered: _x via _x * 2, 1, 2, 3)");
+    [Fact] public void Expr_Lambda_EachTemp() => AssertExprRoundTripStable("each _x");
+    [Fact] public void Expr_Lambda_EachStory() => AssertExprRoundTripStable("each $item");
+    [Fact] public void Expr_Lambda_ForCall() => AssertExprRoundTripStable("(for: each _x, 1, 2, 3)");
 
     // ----- testFile.html corpus round-trip -----
 

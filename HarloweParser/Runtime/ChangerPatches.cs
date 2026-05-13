@@ -1,0 +1,70 @@
+using System.Collections.Generic;
+
+namespace Harlowe.Runtime
+{
+  /// <summary>
+  /// One mutation step a <see cref="Changer"/> applies to a
+  /// <see cref="HookDescriptor"/> during composition. Concrete patch types
+  /// must implement structural <see cref="object.Equals(object)"/> so two
+  /// changers composed from equivalent patches compare equal.
+  /// </summary>
+  public interface IChangerPatch
+  {
+    void Apply(HookDescriptor descriptor);
+  }
+
+  /// <summary>
+  /// Patch produced by style changers like <c>(text-style:)</c>. Appends one
+  /// <see cref="StyleSpec"/> layer to the descriptor's style list.
+  /// </summary>
+  public class StylePatch : IChangerPatch
+  {
+    public StyleSpec Style;
+
+    public void Apply(HookDescriptor descriptor) => descriptor.Styles.Add(Style ?? new StyleSpec());
+
+    public override bool Equals(object obj)
+      => obj is StylePatch other && object.Equals(Style, other.Style);
+
+    public override int GetHashCode() => Style?.GetHashCode() ?? 0;
+  }
+
+  /// <summary>
+  /// Patch produced by <c>(for:)</c>. Sets the descriptor's iteration spec.
+  /// If a prior iteration patch already wrote one, the later one wins — a
+  /// chained <c>(for:) + (for:)</c> composition is rejected at apply time by
+  /// the renderer rather than here.
+  /// </summary>
+  public class IterationPatch : IChangerPatch
+  {
+    public IterationSpec Iteration;
+
+    public void Apply(HookDescriptor descriptor) => descriptor.Iteration = Iteration;
+
+    public override bool Equals(object obj)
+    {
+      if (!(obj is IterationPatch other)) return false;
+      if (Iteration == null || other.Iteration == null) return Iteration == other.Iteration;
+      // Lambda identity (reference) + items list equality — matches
+      // LambdaValue's equality discipline.
+      if (!ReferenceEquals(Iteration.Lambda, other.Iteration.Lambda)) return false;
+      if (Iteration.ParamName != other.Iteration.ParamName) return false;
+      if (Iteration.ParamIsTemporary != other.Iteration.ParamIsTemporary) return false;
+      var a = Iteration.Items;
+      var b = other.Iteration.Items;
+      if (a == null || b == null) return a == b;
+      if (a.Count != b.Count) return false;
+      for (int i = 0; i < a.Count; i++) if (!a[i].Equals(b[i])) return false;
+      return true;
+    }
+
+    public override int GetHashCode()
+    {
+      int h = 17;
+      if (Iteration?.Lambda != null) h = (h * 397) ^ Iteration.Lambda.GetHashCode();
+      if (Iteration?.ParamName != null) h = (h * 397) ^ Iteration.ParamName.GetHashCode();
+      h = (h * 397) ^ (Iteration?.Items?.Count ?? 0);
+      return h;
+    }
+  }
+}

@@ -120,7 +120,7 @@ namespace Harlowe.Runtime
       if (result.Kind == HarloweValueKind.Changer)
       {
         if (node.AttachedHook != null)
-          result.AsChanger.Apply(_output, () => node.AttachedHook.Accept(this));
+          result.AsChanger.Apply(_output, () => node.AttachedHook.Accept(this), _context);
         return;
       }
 
@@ -195,7 +195,7 @@ namespace Harlowe.Runtime
       if (result != null && result.Kind == HarloweValueKind.Changer)
       {
         if (node.AttachedHook != null)
-          result.AsChanger.Apply(_output, () => node.AttachedHook.Accept(this));
+          result.AsChanger.Apply(_output, () => node.AttachedHook.Accept(this), _context);
         return;
       }
 

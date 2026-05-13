@@ -479,5 +479,34 @@ namespace Harlowe.Tests
       Assert.Null(l.ParameterName);
       Assert.NotNull(l.ViaClause);
     }
+
+    // --- v2.3D: each clause ---
+
+    [Fact]
+    public void Lambda_EachTempParam_ParsedAsIsEach()
+    {
+      var l = Assert.IsType<LambdaNode>(ParseExpr("each _enemy"));
+      Assert.True(l.IsEach);
+      Assert.Equal("enemy", l.ParameterName);
+      Assert.True(l.ParameterIsTemporary);
+      Assert.Null(l.WhereClause);
+      Assert.Null(l.ViaClause);
+    }
+
+    [Fact]
+    public void Lambda_EachStoryParam_HonoursSigil()
+    {
+      var l = Assert.IsType<LambdaNode>(ParseExpr("each $item"));
+      Assert.True(l.IsEach);
+      Assert.Equal("item", l.ParameterName);
+      Assert.False(l.ParameterIsTemporary);
+    }
+
+    [Fact]
+    public void Lambda_EachWithoutVariable_Throws()
+    {
+      var ex = Assert.Throws<HarloweParseException>(() => ParseExpr("each 5"));
+      Assert.Contains("must be followed by a variable", ex.Message);
+    }
   }
 }

@@ -101,9 +101,35 @@ namespace Harlowe.Parsing
     public IExpressionNode ParseExpression(TokenCursor cursor)
     {
       var t = cursor.Current;
+      // `each _x` is the body-iteration form for (for:). Parameter follows
+      // the keyword rather than preceding it, so it's its own entry path.
+      if (t.Type == TokenType.Operator && t.Value == "each")
+        return ParseEachLambda(cursor);
       if (t.Type == TokenType.Operator && LambdaClauseKeywords.Contains(t.Value))
         return ParseLambdaTail(cursor, leftAsParam: null);
       return ParseBinary(cursor, 16);
+    }
+
+    /// <summary>
+    /// Parse the <c>each _x</c> lambda form. Consumes <c>each</c>, expects a
+    /// variable token, and produces a <see cref="LambdaNode"/> with
+    /// <see cref="LambdaNode.IsEach"/> true. No clause body — <c>(for:)</c>
+    /// uses this shape directly.
+    /// </summary>
+    private LambdaNode ParseEachLambda(TokenCursor cursor)
+    {
+      cursor.Advance(); // consume `each`
+      var t = cursor.Current;
+      if (t.Type != TokenType.Variable && t.Type != TokenType.TempVariable)
+        throw new HarloweParseException("'each' must be followed by a variable", t.Line, t.Column);
+      var node = new LambdaNode
+      {
+        ParameterName = t.Value,
+        ParameterIsTemporary = t.Type == TokenType.TempVariable,
+        IsEach = true
+      };
+      cursor.Advance();
+      return node;
     }
 
     /// <summary>
