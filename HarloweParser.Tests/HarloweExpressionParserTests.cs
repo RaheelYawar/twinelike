@@ -446,10 +446,55 @@ namespace Harlowe.Tests
     [Fact]
     public void Lambda_UnsupportedClauseKeyword_GivesForwardCompatibleError()
     {
-      // v2.3B ships `where` and `via`; `making` is still deferred and should
-      // produce a clear error so the cursor doesn't run away.
-      var ex = Assert.Throws<HarloweParseException>(() => ParseExpr("_x making _r via _r + _x"));
-      Assert.Contains("making", ex.Message);
+      // v2.3 ships `where`, `via`, `making`; `when` is still deferred and
+      // should produce a clear error so the cursor doesn't run away.
+      var ex = Assert.Throws<HarloweParseException>(() => ParseExpr("_x when _x > 5"));
+      Assert.Contains("when", ex.Message);
+    }
+
+    // --- v2.3C: making clause (fold lambdas) ---
+
+    [Fact]
+    public void Lambda_MakingClause_PopulatesBothParameters()
+    {
+      var l = Assert.IsType<LambdaNode>(ParseExpr("_item making _acc via _acc + _item"));
+      Assert.Equal("item", l.ParameterName);
+      Assert.True(l.ParameterIsTemporary);
+      Assert.Equal("acc", l.MakingName);
+      Assert.True(l.MakingIsTemporary);
+      Assert.NotNull(l.ViaClause);
+      Assert.Null(l.WhereClause);
+    }
+
+    [Fact]
+    public void Lambda_MakingClause_HonoursStorySigil()
+    {
+      var l = Assert.IsType<LambdaNode>(ParseExpr("$item making $acc via $acc + $item"));
+      Assert.Equal("item", l.ParameterName);
+      Assert.False(l.ParameterIsTemporary);
+      Assert.Equal("acc", l.MakingName);
+      Assert.False(l.MakingIsTemporary);
+    }
+
+    [Fact]
+    public void Lambda_MakingWithoutVariable_Throws()
+    {
+      var ex = Assert.Throws<HarloweParseException>(() => ParseExpr("_x making via _x"));
+      Assert.Contains("accumulator", ex.Message);
+    }
+
+    [Fact]
+    public void Lambda_MakingWithoutVia_Throws()
+    {
+      var ex = Assert.Throws<HarloweParseException>(() => ParseExpr("_x making _acc where _x > 0"));
+      Assert.Contains("via", ex.Message);
+    }
+
+    [Fact]
+    public void Lambda_MakingWithoutItemParameter_Throws()
+    {
+      var ex = Assert.Throws<HarloweParseException>(() => ParseExpr("making _acc via _acc"));
+      Assert.Contains("item parameter", ex.Message);
     }
 
     // --- v2.3B: via clause ---

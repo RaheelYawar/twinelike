@@ -346,5 +346,273 @@ namespace Harlowe.Tests.Runtime.Macros
       var v = Eval(reg, ctx, "(none-pass: _x where _x > 5, (a:))");
       Assert.True(v.AsBool);
     }
+
+    // --- LambdaInvoker.EvalFold (v2.3C) ---
+
+    [Fact]
+    public void EvalFold_BindsAccumulatorAndItem()
+    {
+      var (reg, ctx) = Setup();
+      var lambda = ParseLambda("_item making _acc via _acc + _item");
+      var v = LambdaInvoker.EvalFold(lambda, HarloweValue.OfNumber(10), HarloweValue.OfNumber(3), ctx);
+      Assert.Equal(13, v.AsNumber);
+    }
+
+    [Fact]
+    public void EvalFold_BindsBothNamesAndRestores()
+    {
+      var (reg, ctx) = Setup();
+      // Surrounding scope has temps that collide with both lambda params; the
+      // clause must see the bound values, and both must be restored after.
+      ctx.Store.Set("item", true, HarloweValue.OfNumber(111));
+      ctx.Store.Set("acc", true, HarloweValue.OfNumber(222));
+      var lambda = ParseLambda("_item making _acc via _acc + _item");
+
+      var v = LambdaInvoker.EvalFold(lambda, HarloweValue.OfNumber(10), HarloweValue.OfNumber(3), ctx);
+
+      Assert.Equal(13, v.AsNumber);
+      Assert.Equal(111, ctx.Store.Get("item", true).AsNumber);
+      Assert.Equal(222, ctx.Store.Get("acc", true).AsNumber);
+    }
+
+    [Fact]
+    public void EvalFold_MissingMakingClause_Errors()
+    {
+      var (reg, ctx) = Setup();
+      var lambda = ParseLambda("_x via _x * 2"); // no making clause
+      var v = LambdaInvoker.EvalFold(lambda, HarloweValue.OfNumber(1), HarloweValue.OfNumber(2), ctx);
+      Assert.True(v.IsError);
+      Assert.Contains("making", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void EvalFold_PropagatesAccumulatorError()
+    {
+      var (reg, ctx) = Setup();
+      var lambda = ParseLambda("_item making _acc via _acc + _item");
+      var v = LambdaInvoker.EvalFold(lambda, HarloweValue.OfError("upstream"), HarloweValue.OfNumber(2), ctx);
+      Assert.True(v.IsError);
+    }
+
+    // --- (folded:) ---
+
+    [Fact]
+    public void Folded_SumsInlineItems()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(folded: _item making _acc via _acc + _item, 1, 2, 3, 4)");
+      Assert.Equal(10, v.AsNumber);
+    }
+
+    [Fact]
+    public void Folded_SingleArrayArg()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(folded: _item making _acc via _acc + _item, (a: 5, 6, 7))");
+      Assert.Equal(18, v.AsNumber);
+    }
+
+    [Fact]
+    public void Folded_SingleItem_ReturnsItself()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(folded: _item making _acc via _acc + _item, 42)");
+      Assert.Equal(42, v.AsNumber);
+    }
+
+    [Fact]
+    public void Folded_EmptyArray_Errors()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(folded: _item making _acc via _acc + _item, (a:))");
+      Assert.True(v.IsError);
+      Assert.Contains("at least one", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void Folded_NonLambdaFirstArg_Errors()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(folded: 5, 1, 2, 3)");
+      Assert.True(v.IsError);
+      Assert.Contains("lambda", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void Folded_RejectsWhereOnlyLambda()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(folded: _x where _x > 0, 1, 2, 3)");
+      Assert.True(v.IsError);
+      Assert.Contains("making", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void Folded_PropagatesFoldBodyError()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(folded: _item making _acc via _acc / 0, 1, 2, 3)");
+      Assert.True(v.IsError);
+    }
+
+    [Fact]
+    public void Folded_AccumulatorShadowsSurroundingTemp()
+    {
+      var (reg, ctx) = Setup();
+      ctx.Store.Set("acc", true, HarloweValue.OfNumber(999));
+      var v = Eval(reg, ctx, "(folded: _item making _acc via _acc + _item, 1, 2, 3)");
+      Assert.Equal(6, v.AsNumber);
+      Assert.Equal(999, ctx.Store.Get("acc", true).AsNumber); // restored
+    }
+
+    // --- (rotated-to:) ---
+
+    [Fact]
+    public void RotatedTo_PivotInMiddle_RotatesMatchToFront()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(rotated-to: _x where _x is 3, 1, 2, 3, 4, 5)");
+      var arr = v.AsArray;
+      Assert.Equal(new double[] { 3, 4, 5, 1, 2 },
+        new[] { arr[0].AsNumber, arr[1].AsNumber, arr[2].AsNumber, arr[3].AsNumber, arr[4].AsNumber });
+    }
+
+    [Fact]
+    public void RotatedTo_PivotAlreadyFirst_Unchanged()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(rotated-to: _x where _x is 1, 1, 2, 3)");
+      var arr = v.AsArray;
+      Assert.Equal(1, arr[0].AsNumber);
+      Assert.Equal(3, arr[2].AsNumber);
+    }
+
+    [Fact]
+    public void RotatedTo_NoMatch_Unchanged()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(rotated-to: _x where _x > 100, 1, 2, 3)");
+      var arr = v.AsArray;
+      Assert.Equal(3, arr.Count);
+      Assert.Equal(1, arr[0].AsNumber);
+    }
+
+    [Fact]
+    public void RotatedTo_SingleArrayArg()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(rotated-to: _x where _x is 4, (a: 2, 4, 6))");
+      Assert.Equal(4, v.AsArray[0].AsNumber);
+      Assert.Equal(6, v.AsArray[1].AsNumber);
+      Assert.Equal(2, v.AsArray[2].AsNumber);
+    }
+
+    [Fact]
+    public void RotatedTo_ImplicitItForm()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(rotated-to: where it is 3, 1, 2, 3)");
+      Assert.Equal(3, v.AsArray[0].AsNumber);
+    }
+
+    [Fact]
+    public void RotatedTo_NonLambdaFirstArg_Errors()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(rotated-to: 3, 1, 2, 3)");
+      Assert.True(v.IsError);
+      Assert.Contains("lambda", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void RotatedTo_RejectsViaOnlyLambda()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(rotated-to: _x via _x * 2, 1, 2, 3)");
+      Assert.True(v.IsError);
+    }
+
+    // --- (sorted:) ---
+
+    [Fact]
+    public void Sorted_Numbers_Ascending()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(sorted: 3, 1, 4, 1, 5, 9, 2, 6)");
+      var arr = v.AsArray;
+      Assert.Equal(new double[] { 1, 1, 2, 3, 4, 5, 6, 9 },
+        new[] { arr[0].AsNumber, arr[1].AsNumber, arr[2].AsNumber, arr[3].AsNumber,
+                arr[4].AsNumber, arr[5].AsNumber, arr[6].AsNumber, arr[7].AsNumber });
+    }
+
+    [Fact]
+    public void Sorted_Strings_Ordinal()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(sorted: \"cherry\", \"apple\", \"banana\")");
+      var arr = v.AsArray;
+      Assert.Equal("apple", arr[0].AsString);
+      Assert.Equal("banana", arr[1].AsString);
+      Assert.Equal("cherry", arr[2].AsString);
+    }
+
+    [Fact]
+    public void Sorted_SingleArrayArg()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(sorted: (a: 3, 1, 2))");
+      Assert.Equal(1, v.AsArray[0].AsNumber);
+      Assert.Equal(3, v.AsArray[2].AsNumber);
+    }
+
+    [Fact]
+    public void Sorted_SingleItem_Identity()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(sorted: 42)");
+      Assert.Single(v.AsArray);
+      Assert.Equal(42, v.AsArray[0].AsNumber);
+    }
+
+    [Fact]
+    public void Sorted_EmptyArray_ReturnsEmpty()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(sorted: (a:))");
+      Assert.Equal(HarloweValueKind.Array, v.Kind);
+      Assert.Empty(v.AsArray);
+    }
+
+    [Fact]
+    public void Sorted_MixedKinds_Errors()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(sorted: 1, \"two\", 3)");
+      Assert.True(v.IsError);
+      Assert.Contains("different types", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void Sorted_NonOrderableKind_Errors()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(sorted: true, false)");
+      Assert.True(v.IsError);
+    }
+
+    [Fact]
+    public void Sorted_DoesNotMutateInputArray()
+    {
+      var (reg, ctx) = Setup();
+      ctx.Store.Set("nums", false, HarloweValue.OfArray(new List<HarloweValue>
+      {
+        HarloweValue.OfNumber(3), HarloweValue.OfNumber(1), HarloweValue.OfNumber(2)
+      }));
+      var v = Eval(reg, ctx, "(sorted: $nums)");
+      Assert.Equal(1, v.AsArray[0].AsNumber);
+      // original array order untouched
+      var original = ctx.Store.Get("nums", false).AsArray;
+      Assert.Equal(3, original[0].AsNumber);
+    }
   }
 }

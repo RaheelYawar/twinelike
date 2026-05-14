@@ -219,9 +219,10 @@ namespace Harlowe.Parsing
     /// <c>null</c> for the implicit-<c>it</c> form.
     ///
     /// <para>
-    /// Accepts <c>where</c> alone, <c>via</c> alone, or the chained
-    /// <c>where ... via ...</c> form. <c>making</c> and <c>when</c> remain
-    /// unsupported and produce a forward-compatible error.
+    /// Accepts <c>where</c> alone, <c>via</c> alone, the chained
+    /// <c>where ... via ...</c> filter-then-transform, and the fold shape
+    /// <c>_item making _acc via ...</c> (item parameter first, accumulator
+    /// after <c>making</c>, body required). <c>when</c> remains unsupported.
     /// </para>
     /// </summary>
     private LambdaNode ParseLambdaTail(TokenCursor cursor, IExpressionNode leftAsParam)
@@ -240,13 +241,35 @@ namespace Harlowe.Parsing
       }
 
       var t = cursor.Current;
+
+      // `making` introduces a fold lambda's accumulator. Per Harlowe spec the
+      // shape is `_item making _acc via <body>` — the leading param binds
+      // each item, the post-`making` variable holds the running total, and
+      // `via` is required to give the fold body.
+      if (t.Type == TokenType.Operator && t.Value == "making")
+      {
+        if (leftAsParam == null)
+          throw new HarloweParseException("'making' requires an item parameter before it (e.g. `_item making _acc via ...`)", t.Line, t.Column);
+        cursor.Advance();
+        var accTok = cursor.Current;
+        if (accTok.Type != TokenType.Variable && accTok.Type != TokenType.TempVariable)
+          throw new HarloweParseException("'making' must be followed by a variable for the accumulator", accTok.Line, accTok.Column);
+        node.MakingName = accTok.Value;
+        node.MakingIsTemporary = accTok.Type == TokenType.TempVariable;
+        cursor.Advance();
+        t = cursor.Current;
+        if (t.Type != TokenType.Operator || t.Value != "via")
+          throw new HarloweParseException("'making' must be followed by 'via' giving the fold body", t.Line, t.Column);
+      }
+
       if (t.Type != TokenType.Operator || (t.Value != "where" && t.Value != "via"))
-        throw new HarloweParseException($"'{t.Value}' lambda clause is not yet supported (v2.3 ships `where` and `via`)", t.Line, t.Column);
+        throw new HarloweParseException($"'{t.Value}' lambda clause is not yet supported (v2.3 ships `where`, `via`, `making`)", t.Line, t.Column);
 
       // `where` may be followed by `via` to filter-then-transform; `via` alone
-      // is the pure transform form. Both clause bodies parse at order 14 —
-      // one tighter than the lambda level itself — so a stray clause keyword
-      // belongs to an outer construct rather than getting swallowed here.
+      // is the pure transform or fold body. Both clause bodies parse at order
+      // 14 — one tighter than the lambda level itself — so a stray clause
+      // keyword belongs to an outer construct rather than getting swallowed
+      // here.
       if (t.Value == "where")
       {
         cursor.Advance();

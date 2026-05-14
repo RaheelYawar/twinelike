@@ -38,6 +38,9 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new SomePassMacro());
       registry.Register(new NonePassMacro());
       registry.Register(new ForMacro());
+      registry.Register(new FoldedMacro());
+      registry.Register(new RotatedToMacro());
+      registry.Register(new SortedMacro());
     }
   }
 }

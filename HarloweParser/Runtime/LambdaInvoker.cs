@@ -14,9 +14,11 @@ namespace Harlowe.Runtime
   /// <para>
   /// Shipped: <see cref="EvalPredicate"/> for <c>where</c>-clause lambdas
   /// (<c>(find:)</c>, <c>(all-pass:)</c>, <c>(some-pass:)</c>,
-  /// <c>(none-pass:)</c>) and <see cref="EvalTransform"/> for <c>via</c>-clause
-  /// lambdas (<c>(altered:)</c>). Later slices add <c>EvalFold</c> (making+via)
-  /// and <c>BindEach</c> (body-position iteration for <c>(for:)</c>).
+  /// <c>(none-pass:)</c>), <see cref="EvalTransform"/> for <c>via</c>-clause
+  /// lambdas (<c>(altered:)</c>), and <see cref="EvalFold"/> for
+  /// <c>making</c>+<c>via</c> fold lambdas (<c>(folded:)</c>). Body-position
+  /// iteration for <c>(for:)</c> binds inline in <c>Changer.Apply</c> rather
+  /// than routing here.
   /// </para>
   /// </summary>
   public static class LambdaInvoker
@@ -55,6 +57,37 @@ namespace Harlowe.Runtime
       if (lambda == null || lambda.Node == null) return HarloweValue.OfError("missing lambda");
       if (lambda.Node.ViaClause == null) return HarloweValue.OfError("lambda has no 'via' clause");
       return EvaluateClause(lambda, item, ctx, lambda.Node.ViaClause);
+    }
+
+    /// <summary>
+    /// Bind <paramref name="item"/> to the lambda's item parameter and
+    /// <paramref name="accumulator"/> to its <c>making</c> parameter, evaluate
+    /// the <c>via</c> clause, and return the result — the new accumulator
+    /// value. Used by <c>(folded:)</c>. The lambda must carry both a
+    /// <c>making</c> name and a <c>via</c> clause; anything else surfaces as
+    /// an in-prose error. <c>it</c> is bound to the item alongside the named
+    /// parameter, matching the predicate/transform discipline.
+    /// </summary>
+    public static HarloweValue EvalFold(LambdaValue lambda, HarloweValue accumulator, HarloweValue item, MacroContext ctx)
+    {
+      if (accumulator.IsError) return accumulator;
+      if (item.IsError) return item;
+      if (lambda == null || lambda.Node == null) return HarloweValue.OfError("missing lambda");
+
+      var node = lambda.Node;
+      if (node.MakingName == null) return HarloweValue.OfError("(folded:) lambda must have a 'making' clause");
+      if (node.ViaClause == null) return HarloweValue.OfError("(folded:) lambda must have a 'via' clause");
+
+      var evaluator = new ExpressionEvaluator(ctx.Store, ctx.EvaluationContext, ctx.Invoker);
+
+      using (ctx.Store.PushItBinding(item))
+      using (ctx.Store.PushBinding(node.MakingName, node.MakingIsTemporary, accumulator))
+      {
+        if (node.ParameterName == null)
+          return evaluator.Evaluate(node.ViaClause);
+        using (ctx.Store.PushBinding(node.ParameterName, node.ParameterIsTemporary, item))
+          return evaluator.Evaluate(node.ViaClause);
+      }
     }
 
     /// <summary>

@@ -393,7 +393,7 @@ The visitor pattern's compile-time exhaustiveness is the safety net — adding a
 | **Link** | `[[display->target]]` — a passage-to-passage navigation. Three forms: `[[name]]` (self-targeting), `[[text->target]]`, `[[target<-text]]` (right-pointing canonical). |
 | **Macro** | `(name: args...)` — Harlowe's function-call syntax. Acts as a command (`(set:)`, `(goto:)`), value producer (`(random:)`, `(a:)`), or changer (`(text-style:)`). |
 | **Changer** | A value that wraps an attached hook in styling or behavior. Composes via `+`. Engine consumes as semantic events; built-in `HtmlRenderOutput` translates to HTML for the web. |
-| **Lambda** | `_x where _x > 5` — a parameter binding with optional clauses (`where`/`via`/`making`/`each`). Consumed by collection macros. *Not yet implemented; see `v2.3-lambdas-plan.md`.* |
+| **Lambda** | `_x where _x > 5` — a parameter binding with optional clauses (`where`/`via`/`making`/`each`; `when` deferred). Consumed by collection macros (`(find:)`, `(altered:)`, `(folded:)`, `(for:)`, etc.). |
 | **TypedVar** | `num-type _x` — a typed parameter binding. The `-type` suffix is recognized at lex time. |
 | **Story variable** | `$foo` — persists across passages, snapshotted by `Goto` for undo. |
 | **Temp variable** | `_foo` — cleared at every `Goto`. |

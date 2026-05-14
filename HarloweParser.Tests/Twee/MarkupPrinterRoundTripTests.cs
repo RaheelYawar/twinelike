@@ -150,6 +150,10 @@ namespace Harlowe.Tests.Twee
     [Fact] public void Expr_Lambda_EachTemp() => AssertExprRoundTripStable("each _x");
     [Fact] public void Expr_Lambda_EachStory() => AssertExprRoundTripStable("each $item");
     [Fact] public void Expr_Lambda_ForCall() => AssertExprRoundTripStable("(for: each _x, 1, 2, 3)");
+    [Fact] public void Expr_Lambda_MakingFold() => AssertExprRoundTripStable("_item making _acc via _acc + _item");
+    [Fact] public void Expr_Lambda_FoldedCall() => AssertExprRoundTripStable("(folded: _item making _acc via _acc + _item, 1, 2, 3)");
+    [Fact] public void Expr_Lambda_RotatedToCall() => AssertExprRoundTripStable("(rotated-to: _x where _x is 3, 1, 2, 3)");
+    [Fact] public void Expr_SortedCall() => AssertExprRoundTripStable("(sorted: 3, 1, 2)");
 
     // ----- testFile.html corpus round-trip -----
 
