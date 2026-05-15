@@ -118,31 +118,23 @@ stays the test double; tests can also assert against the tree directly.
 > `RenderHookInto` helper; `RenderNode.Clone` was added so multi-target
 > splices stay a tree, not a DAG. 941 tests passing.
 
-### 3C — `(change:)` / `(enchant:)` + the enchantment re-scan pass
-
-**Lands:**
-
-- **`(change:)`** — `(change: ?target, changer)`: applies `changer` to every
-  current match of `?target`. One-shot, at the point it runs.
-- **`(enchant:)`** — same surface, but **persistent**: the enchantment is
-  registered and re-applied after every render pass within the passage, so it
-  catches hooks rendered later and survives revision-driven re-renders.
-- **Enchantment registry** — `MacroContext.Enchantments` (a `List<Enchantment>`),
-  plus an `UpdateEnchantments(RenderRoot)` pass invoked by the flusher driver
-  after the main render and after any revision mutation — the analogue of
-  Harlowe's `updateEnchantments()`. Each `Enchantment { HookNameValue Target;
-  Changer Changer }` re-resolves its target fresh each pass (re-query, not a
-  cached node list).
-- **`?page` built-in** — resolves to the `RenderRoot`; `(enchant: ?page, …)` is
-  the documented whole-passage styling idiom.
-- **Out of scope here:** story-wide `(enchant:)` via `header`/`footer`-tagged
-  passages (needs `StorySession` to know tagged passages and thread
-  enchantments across passage boundaries) — note as a follow-up.
-
-**Tests:** `(change:)` restyles all matches once; `(enchant:)` catches a hook
-declared after the macro; `(enchant:)` re-applies after a `(replace:)` mutates
-the tree; `(enchant: ?page, …)` wraps the whole passage; enchant + revision
-interaction order; changer-arg type errors surface in-prose.
+> **3C — `(change:)` / `(enchant:)` + the enchantment pass — SHIPPED.**
+> Summary folded into `CLAUDE.md` (Architecture, Key Files, Roadmap → v3C).
+> New `Changer.ApplyTo(IRenderContainer)` wraps an already-rendered node's
+> children in the changer's style layers. `(change:)` resolves and `ApplyTo`s
+> immediately; `(enchant:)` registers an `Enchantment` on
+> `MacroContext.Enchantments`, and `StorySession` runs `EnchantmentPass.Update`
+> over the finished tree once, post-render. `?page` now resolves to the render
+> root.
+>
+> One simplification vs. the plan: a **single** post-render enchantment pass
+> suffices — the plan said "after every render pass and after any revision
+> mutation", but revision mutations happen synchronously *during* render and
+> every later-declared hook is in the tree by post-render time, so one pass
+> catches both. Multi-pass re-scan only matters once 3D's click-dispatch
+> re-renders exist. Scoped to hook-name targets (string-target `(enchant:)`
+> deferred); story-wide `header`/`footer` enchantment remains a follow-up.
+> 960 tests passing.
 
 ### 3D — `(click:)` family + event-dispatch contract
 
@@ -221,7 +213,6 @@ revisit point only if profiling on a large story shows it.
 
 ## Sequencing
 
-3A → 3B → 3C → 3D, in order. **3A and 3B are shipped.** 3C is the next
-independently shippable author-visible increment. 3D is gated on the
-`IRenderOutput` interactive-channel decision and is the largest single
-sub-slice.
+3A → 3B → 3C → 3D, in order. **3A, 3B, and 3C are shipped.** 3D is the last
+sub-slice — gated on the `IRenderOutput` interactive-channel decision, and the
+largest single one.

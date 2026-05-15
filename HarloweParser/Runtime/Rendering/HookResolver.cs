@@ -13,11 +13,12 @@ namespace Harlowe.Runtime.Rendering
   /// <para>
   /// A named reference matches every <see cref="RenderHookNode"/> whose name
   /// matches case-insensitively, in document order. Built-ins: <c>?passage</c>
-  /// selects the passage root; <c>?link</c> selects every
-  /// <see cref="RenderLinkNode"/>. <c>?page</c> is reserved but resolves to
-  /// nothing here — it is a session-level scope wired in a later sub-slice.
-  /// Ordinal <see cref="HookRefStep"/>s then narrow the match list left to
-  /// right; an out-of-range step narrows to empty.
+  /// and <c>?page</c> both select the passage root (<c>?page</c> is the
+  /// documented whole-passage styling idiom — cross-passage <c>?page</c> scope
+  /// is a later concern); <c>?link</c> selects every
+  /// <see cref="RenderLinkNode"/>. Ordinal <see cref="HookRefStep"/>s then
+  /// narrow the match list left to right; an out-of-range step narrows to
+  /// empty.
   /// </para>
   ///
   /// <para>
@@ -39,17 +40,16 @@ namespace Harlowe.Runtime.Rendering
       if (tree == null || name == null) return matches;
 
       string n = name.Name ?? string.Empty;
-      if (string.Equals(n, "passage", StringComparison.OrdinalIgnoreCase))
+      if (string.Equals(n, "passage", StringComparison.OrdinalIgnoreCase)
+          || string.Equals(n, "page", StringComparison.OrdinalIgnoreCase))
       {
+        // ?passage and ?page both select the passage root. A cross-passage
+        // ?page scope (header/footer enchantment) is a later concern.
         matches.Add(tree);
       }
       else if (string.Equals(n, "link", StringComparison.OrdinalIgnoreCase))
       {
         Collect(tree, node => node is RenderLinkNode, matches);
-      }
-      else if (string.Equals(n, "page", StringComparison.OrdinalIgnoreCase))
-      {
-        // ?page is a session-level scope — wired in a later sub-slice.
       }
       else
       {

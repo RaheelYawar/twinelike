@@ -225,6 +225,41 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
+    /// Apply this changer's effect to an <em>already-rendered</em> container in
+    /// place — the mechanism behind <c>(change:)</c> and <c>(enchant:)</c>,
+    /// which target existing render-tree nodes rather than an attached hook.
+    /// The target's children are wrapped in nested <see cref="RenderStyleNode"/>s
+    /// (outermost = first composed layer), matching the nesting
+    /// <see cref="Apply"/> produces for a hook.
+    ///
+    /// <para>
+    /// Only the changer's style layers are meaningful here: iteration and
+    /// revision patches describe how to <em>produce</em> content, not how to
+    /// restyle existing content, so they are ignored. A changer with no style
+    /// layers is a no-op.
+    /// </para>
+    /// </summary>
+    public void ApplyTo(IRenderContainer target)
+    {
+      if (target == null) return;
+
+      var descriptor = new HookDescriptor();
+      for (int i = 0; i < _patches.Count; i++) _patches[i].Apply(descriptor);
+      var styles = descriptor.Styles;
+      if (styles.Count == 0) return;
+
+      var content = new List<RenderNode>(target.Children);
+      for (int i = styles.Count - 1; i >= 0; i--)
+      {
+        var styleNode = new RenderStyleNode { Style = styles[i] };
+        styleNode.Children.AddRange(content);
+        content = new List<RenderNode> { styleNode };
+      }
+      target.Children.Clear();
+      target.Children.AddRange(content);
+    }
+
+    /// <summary>
     /// Read-only view of the styling layers this changer contributes — built
     /// on demand by running the patches against a fresh descriptor. Engine
     /// integrations rarely need this; prefer <see cref="Apply"/>. Exposed for

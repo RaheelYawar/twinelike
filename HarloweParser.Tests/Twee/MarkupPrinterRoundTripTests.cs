@@ -66,6 +66,8 @@ namespace Harlowe.Tests.Twee
     [Fact] public void Body_ReplaceHookRef() => AssertBodyRoundTripStable("(replace: ?cake)[new]");
     [Fact] public void Body_AppendStringTarget() => AssertBodyRoundTripStable("(append: \"old\")[ more]");
     [Fact] public void Body_PrependOrdinalTarget() => AssertBodyRoundTripStable("(prepend: ?item's last)[first ]");
+    [Fact] public void Body_ChangeMacro() => AssertBodyRoundTripStable("(change: ?cake, (text-style: \"bold\"))");
+    [Fact] public void Body_EnchantPage() => AssertBodyRoundTripStable("(enchant: ?page, (text-style: \"italic\"))");
     [Fact] public void Body_NestedHook() => AssertBodyRoundTripStable("(if: $x)[outer (if: $y)[inner]]");
     [Fact] public void Body_HtmlPassthrough() => AssertBodyRoundTripStable("Hello <b>world</b>!");
     [Fact] public void Body_MixedShape()

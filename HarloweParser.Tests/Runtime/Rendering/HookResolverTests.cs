@@ -113,11 +113,13 @@ namespace Harlowe.Tests.Runtime.Rendering
     }
 
     [Fact]
-    public void Resolve_Page_DeferredToLaterSlice_ResolvesEmpty()
+    public void Resolve_Page_SelectsTheRoot()
     {
+      // ?page resolves to the passage root, same as ?passage — the documented
+      // whole-passage styling target for (enchant:).
       var root = new RenderRoot();
       root.Children.Add(Hook("cake"));
-      Assert.Empty(HookResolver.Resolve(root, Name("page")));
+      Assert.Same(root, Assert.Single(HookResolver.Resolve(root, Name("page"))));
     }
 
     // --- Ordinal steps ---

@@ -44,6 +44,8 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new ReplaceMacro());
       registry.Register(new AppendMacro());
       registry.Register(new PrependMacro());
+      registry.Register(new ChangeMacro());
+      registry.Register(new EnchantMacro());
     }
   }
 }

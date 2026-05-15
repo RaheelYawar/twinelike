@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Harlowe.Runtime
 {
@@ -65,6 +66,16 @@ namespace Harlowe.Runtime
     /// pairs with the immediately preceding if/unless.
     /// </summary>
     public bool? LastConditional;
+
+    /// <summary>
+    /// Persistent restylings registered by <c>(enchant:)</c>. The session runs
+    /// <see cref="EnchantmentPass.Update"/> over the finished render tree once
+    /// the passage's main render completes, so an enchantment catches hooks
+    /// declared after the macro and content rewritten by revision macros.
+    /// Fresh per render — each <see cref="StorySession"/> render pass starts
+    /// with an empty list.
+    /// </summary>
+    public List<Enchantment> Enchantments = new List<Enchantment>();
 
     /// <summary>Convenience setter for <see cref="PendingGoto"/>; equivalent to <c>ctx.PendingGoto = name</c> but reads better in macro implementations.</summary>
     public void RequestGoto(string passageName) => PendingGoto = passageName;

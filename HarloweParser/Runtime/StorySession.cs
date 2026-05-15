@@ -239,6 +239,11 @@ namespace Harlowe.Runtime
         return RenderInternal(depth + 1);
       }
 
+      // Run registered (enchant:) enchantments over the finished tree. By now
+      // every later-declared hook is in the tree and every revision mutation
+      // has happened, so a single post-render pass catches everything.
+      EnchantmentPass.Update(builder.Root, ctx.Enchantments);
+
       var buf = new BufferedRenderOutput();
       Rendering.RenderTreeFlusher.Flush(builder.Root, buf);
 
