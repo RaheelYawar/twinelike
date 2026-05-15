@@ -644,5 +644,39 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void Ordinal_OnNumber_Errors()
       => Assert.True(EvalP("5's last").IsError);
+
+    // Hook references --------------------------------------------------------
+
+    [Fact]
+    public void HookRef_EvaluatesToHookNameValue()
+    {
+      var v = Eval("?cake");
+      Assert.Equal(HarloweValueKind.HookName, v.Kind);
+      Assert.Equal("cake", v.AsHookName.Name);
+      Assert.Empty(v.AsHookName.Steps);
+    }
+
+    [Fact]
+    public void HookRef_CarriesOrdinalSteps()
+    {
+      var v = Eval("?cake's last");
+      Assert.Equal(HarloweValueKind.HookName, v.Kind);
+      var step = Assert.Single(v.AsHookName.Steps);
+      Assert.Equal(1, step.Index);
+      Assert.True(step.FromEnd);
+    }
+
+    [Fact]
+    public void HookName_Equality_StructuralAndCaseInsensitive()
+    {
+      Assert.Equal(Eval("?cake"), Eval("?CAKE"));
+      Assert.NotEqual(Eval("?cake"), Eval("?pie"));
+      Assert.Equal(Eval("?cake's 1st"), Eval("?cake's 1st"));
+      Assert.NotEqual(Eval("?cake's 1st"), Eval("?cake's last"));
+    }
+
+    [Fact]
+    public void HookName_HasNoVisibleText()
+      => Assert.Equal(string.Empty, Eval("?cake").ToHarloweString());
   }
 }

@@ -218,6 +218,9 @@ namespace Harlowe.Tokens
           if (TryScanPossessive(startPos, startLine, startCol)) return;
           ScanStringLiteral(c, startPos, startLine, startCol);
           return;
+        case '?':
+          if (TryScanHookRef(startPos, startLine, startCol)) return;
+          break;
       }
 
       if (char.IsDigit(c))
@@ -537,10 +540,30 @@ namespace Harlowe.Tokens
       var prev = _tokens[_tokens.Count - 1].Type;
       if (prev != TokenType.Variable && prev != TokenType.TempVariable && prev != TokenType.Identifier
           && prev != TokenType.ParenClose && prev != TokenType.BracketClose && prev != TokenType.MacroClose
-          && prev != TokenType.StringLiteral && prev != TokenType.NumberLiteral && prev != TokenType.BoolLiteral)
+          && prev != TokenType.StringLiteral && prev != TokenType.NumberLiteral && prev != TokenType.BoolLiteral
+          && prev != TokenType.HookRef)
         return false;
       AdvanceN(2);
       Emit(TokenType.Operator, "'s", startPos, startLine, startCol);
+      return true;
+    }
+
+    /// <summary>
+    /// Tries to consume a hook reference of the form <c>?name</c> — a value used
+    /// inside an expression to target a named hook (or a built-in like
+    /// <c>?passage</c>/<c>?link</c>). The leading <c>?</c> is dropped from the
+    /// emitted token's <see cref="Token.Value"/>. Requires a letter immediately
+    /// after the <c>?</c>; a bare <c>?</c> returns false so the caller skips it.
+    /// Only reached in expression context — in body prose a <c>?</c> is plain
+    /// text.
+    /// </summary>
+    private bool TryScanHookRef(int startPos, int startLine, int startCol)
+    {
+      if (_pos + 1 >= _src.Length || !char.IsLetter(_src[_pos + 1])) return false;
+      Advance(); // consume '?'
+      int nameStart = _pos;
+      while (_pos < _src.Length && IsIdContinue(_src[_pos])) Advance();
+      Emit(TokenType.HookRef, _src.Substring(nameStart, _pos - nameStart), startPos, startLine, startCol);
       return true;
     }
 

@@ -48,6 +48,15 @@ namespace Harlowe.Runtime
     /// against the caller's variable store when invoked. Stored as a
     /// <see cref="LambdaValue"/> on <see cref="HarloweValue.Raw"/>.
     /// </summary>
-    Lambda
+    Lambda,
+
+    /// <summary>
+    /// A Harlowe hook name — the <c>?name</c> reference value that targets a
+    /// named hook (or a built-in like <c>?passage</c>/<c>?link</c>). It is a
+    /// lazily-resolved query, not a captured node: revision and enchantment
+    /// macros re-resolve it against the live render tree each time. Stored as a
+    /// <see cref="HookNameValue"/> on <see cref="HarloweValue.Raw"/>.
+    /// </summary>
+    HookName
   }
 }

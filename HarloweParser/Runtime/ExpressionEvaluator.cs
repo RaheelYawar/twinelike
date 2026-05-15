@@ -248,6 +248,16 @@ namespace Harlowe.Runtime
     /// </summary>
     public void Visit(LambdaNode node) => _result = HarloweValue.OfLambda(new LambdaValue { Node = node });
 
+    /// <summary>
+    /// A hook reference (<c>?name</c>) evaluates to an opaque
+    /// <see cref="HarloweValueKind.HookName"/> value — a selector spec, not a
+    /// resolved node. Resolution against the render tree happens lazily inside
+    /// the consuming revision/enchantment macros. The AST's ordinal
+    /// <see cref="HookRefStep"/> list is carried straight through.
+    /// </summary>
+    public void Visit(HookRefNode node)
+      => _result = HarloweValue.OfHookName(new HookNameValue { Name = node.Name, Steps = node.Steps });
+
     private static HarloweValue OpAdd(HarloweValue left, HarloweValue right)
     {
       if (left.Kind == HarloweValueKind.Number && right.Kind == HarloweValueKind.Number)

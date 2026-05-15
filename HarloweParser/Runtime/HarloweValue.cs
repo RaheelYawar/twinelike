@@ -53,6 +53,7 @@ namespace Harlowe.Runtime
     public static HarloweValue OfError(string message) => new HarloweValue(HarloweValueKind.Error, message ?? string.Empty);
     public static HarloweValue OfChanger(Changer changer) => new HarloweValue(HarloweValueKind.Changer, changer ?? throw new ArgumentNullException(nameof(changer)));
     public static HarloweValue OfLambda(LambdaValue lambda) => new HarloweValue(HarloweValueKind.Lambda, lambda ?? throw new ArgumentNullException(nameof(lambda)));
+    public static HarloweValue OfHookName(HookNameValue hookName) => new HarloweValue(HarloweValueKind.HookName, hookName ?? throw new ArgumentNullException(nameof(hookName)));
 
     public bool IsError => Kind == HarloweValueKind.Error;
 
@@ -64,6 +65,7 @@ namespace Harlowe.Runtime
     public string ErrorMessage => (string)Raw;
     public Changer AsChanger => (Changer)Raw;
     public LambdaValue AsLambda => (LambdaValue)Raw;
+    public HookNameValue AsHookName => (HookNameValue)Raw;
 
     /// <summary>
     /// Harlowe truthiness: only <c>true</c> for a <see cref="HarloweValueKind.Bool"/>
@@ -105,6 +107,8 @@ namespace Harlowe.Runtime
           return ((Changer)Raw).Equals((Changer)other.Raw);
         case HarloweValueKind.Lambda:
           return ((LambdaValue)Raw).Equals((LambdaValue)other.Raw);
+        case HarloweValueKind.HookName:
+          return ((HookNameValue)Raw).Equals((HookNameValue)other.Raw);
       }
       return false;
     }
@@ -134,6 +138,7 @@ namespace Harlowe.Runtime
         case HarloweValueKind.Error: h = (h * 397) ^ ((string)Raw).GetHashCode(); break;
         case HarloweValueKind.Changer: h = (h * 397) ^ ((Changer)Raw).GetHashCode(); break;
         case HarloweValueKind.Lambda: h = (h * 397) ^ ((LambdaValue)Raw).GetHashCode(); break;
+        case HarloweValueKind.HookName: h = (h * 397) ^ ((HookNameValue)Raw).GetHashCode(); break;
       }
       return h;
     }
@@ -191,6 +196,10 @@ namespace Harlowe.Runtime
           // and similar interpolations from dumping internal state into prose.
           return string.Empty;
         case HarloweValueKind.Lambda:
+          return string.Empty;
+        case HarloweValueKind.HookName:
+          // A hook name alone has no visible text — it is a selector consumed
+          // by revision/enchantment macros, not printed prose.
           return string.Empty;
       }
       return string.Empty;

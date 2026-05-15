@@ -97,10 +97,22 @@ namespace Harlowe.Runtime
 
     public void Visit(LinkNode node) => _output.Link(node.Text, node.Target);
 
+    /// <summary>
+    /// Render a hook's contents. When the output is a
+    /// <see cref="Rendering.RenderTreeBuilder"/>, the contents are bracketed as
+    /// a <see cref="Rendering.RenderHookNode"/> — the addressable unit revision
+    /// and enchantment macros target. Anonymous hooks still produce a node
+    /// (with a null name) so position/string targeting can find them. When the
+    /// output is a plain sink (a unit-test buffer, an expression-position
+    /// <c>(display:)</c> capture) there is no tree to build into, so the hook
+    /// renders flat — exactly the pre-render-tree behaviour.
+    /// </summary>
     public void Visit(HookNode node)
     {
-      if (node.Children == null) return;
-      RenderChildren(node.Children);
+      var builder = _output as Rendering.RenderTreeBuilder;
+      builder?.BeginHook(node.Name, node.Anchor);
+      if (node.Children != null) RenderChildren(node.Children);
+      builder?.EndHook();
     }
 
     /// <summary>

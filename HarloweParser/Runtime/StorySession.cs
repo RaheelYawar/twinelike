@@ -215,8 +215,13 @@ namespace Harlowe.Runtime
       ctx.RenderPassage = (name, output) => InlineDisplayPassage(name, output, ctx);
       _registry.Context = ctx;
 
-      var buf = new BufferedRenderOutput();
-      new BodyRenderer(buf, _registry, ctx).Render(passage.Ast);
+      // Render into a tree, then flush the finished tree to the buffer the
+      // RenderResult is built from. In this slice the tree is flushed verbatim
+      // — the flushed entry stream is byte-identical to what the renderer used
+      // to push straight at the buffer — but it is the addressable structure
+      // revision/enchantment macros mutate in later sub-slices.
+      var builder = new Rendering.RenderTreeBuilder();
+      new BodyRenderer(builder, _registry, ctx).Render(passage.Ast);
 
       if (ctx.PendingGoto != null)
       {
@@ -233,6 +238,9 @@ namespace Harlowe.Runtime
         EnterPassage(ctx.PendingGoto);
         return RenderInternal(depth + 1);
       }
+
+      var buf = new BufferedRenderOutput();
+      Rendering.RenderTreeFlusher.Flush(builder.Root, buf);
 
       return new RenderResult
       {

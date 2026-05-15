@@ -346,6 +346,24 @@ namespace Harlowe.Parsing
           cursor.Advance();
           return new IdentifierNode { Name = t.Value };
 
+        case TokenType.HookRef:
+          cursor.Advance();
+          var hookRef = new HookRefNode { Name = t.Value };
+          // Fold `'s <ordinal>` chains into ordinal narrowing steps right here,
+          // ahead of the precedence climber: `?cake's 1st` is one narrowed
+          // reference, not a `'s` BinaryOpNode. A `'s` followed by a
+          // non-ordinal name is left for ParseBinary to claim as ordinary
+          // property access (which the evaluator then rejects for a hook name).
+          while (cursor.Current.Type == TokenType.Operator && cursor.Current.Value == "'s"
+                 && cursor.Peek().Type == TokenType.Identifier
+                 && TryParseHookOrdinal(cursor.Peek().Value, out int ordIndex, out bool ordFromEnd))
+          {
+            cursor.Advance(); // 's
+            cursor.Advance(); // ordinal identifier
+            hookRef.Steps.Add(new HookRefStep { Index = ordIndex, FromEnd = ordFromEnd });
+          }
+          return hookRef;
+
         case TokenType.MacroOpen:
           string name = t.Value;
           cursor.Advance();
@@ -359,6 +377,35 @@ namespace Harlowe.Parsing
       }
 
       throw new HarloweParseException($"Unexpected token in expression: {t.Type}({t.Value})", t.Line, t.Column);
+    }
+
+    /// <summary>
+    /// Parses an ordinal accessor name (<c>last</c>, <c>1st</c>, <c>2nd</c>,
+    /// <c>2ndlast</c>, …) into a 1-based index and a from-the-end flag, for
+    /// folding a <c>?name's …</c> chain into <see cref="HookRefStep"/>s. Returns
+    /// false for any non-ordinal name so the caller leaves the <c>'s</c> for the
+    /// binary-operator path. Mirrors the permissive ordinal handling in
+    /// <c>ExpressionEvaluator</c> — the <c>st</c>/<c>nd</c>/<c>rd</c>/<c>th</c>
+    /// suffix is decorative.
+    /// </summary>
+    private static bool TryParseHookOrdinal(string name, out int index, out bool fromEnd)
+    {
+      index = 0;
+      fromEnd = false;
+      if (string.IsNullOrEmpty(name)) return false;
+      if (name == "last") { index = 1; fromEnd = true; return true; }
+      int p = 0;
+      while (p < name.Length && char.IsDigit(name[p])) p++;
+      if (p == 0) return false;
+      if (p + 2 > name.Length) return false;
+      string suffix = name.Substring(p, 2);
+      if (suffix != "st" && suffix != "nd" && suffix != "rd" && suffix != "th") return false;
+      int after = p + 2;
+      if (!int.TryParse(name.Substring(0, p), out int n)) return false;
+      if (after == name.Length) { index = n; fromEnd = false; return true; }
+      if (after + 4 == name.Length && name.Substring(after, 4) == "last")
+      { index = n; fromEnd = true; return true; }
+      return false;
     }
   }
 }

@@ -86,46 +86,20 @@ stays the test double; tests can also assert against the tree directly.
 
 ## Sub-slices
 
-### 3A — render tree + HookName foundation
-
-**De-risks the scary refactor in isolation: zero author-visible behaviour
-change, all 854 tests stay green.** No new macros land; this slice is the
-plumbing everything else builds on.
-
-**Lands:**
-
-- **Render tree** (`Runtime/Rendering/`) as above. `BodyRenderer` rewritten to
-  build a `RenderRoot`; `StorySession.RenderInternal` flushes it through the
-  existing `BufferedRenderOutput`. `Changer.Apply` builds `RenderStyleNode` /
-  iteration subtrees instead of calling `output.PushStyle` directly — the
-  descriptor-patch model is unchanged, only its *executor* retargets from
-  `IRenderOutput` to tree nodes.
-- **`?name` tokenization** — new `TokenType.HookRef`. The tokenizer scans `?`
-  followed by letters in **expression context only** (`?name` is a value used
-  in macro args: `(replace: ?cake)`, `(set: $x to ?cake)`). Distinct from the
-  existing `HookNameLeft`/`HookNameRight` tokens, which are hook *declarations*.
-- **`HookRefNode : IExpressionNode`** — `{ string Name; List<HookRefStep> Steps }`
-  where `Steps` carries `'s 1st` / `'s last` / `'s (N)` ordinal narrowing and
-  built-in sub-selectors. `IExpressionVisitor` gains `Visit(HookRefNode)`.
-  Parser: `ParseAtom` handles `TokenType.HookRef`; the existing `'s` operator
-  path produces the ordinal steps.
-- **`HarloweValueKind.HookName`** + `HookNameValue` — the runtime value: a
-  selector spec `{ string Name; IReadOnlyList<HookRefStep> Steps }`. Reference-
-  ish equality (authors rarely compare hooknames; matches `LambdaValue`
-  precedent). `ExpressionEvaluator.Visit(HookRefNode)` produces one.
-- **`selectHook` resolution** — `HookResolver.Resolve(RenderNode tree, HookNameValue)`
-  returns the matching `RenderHookNode`s, applying ordinal steps. Lives in
-  `Runtime/Rendering/`. Nothing consumes it yet except a couple of direct
-  tests — it is the primitive 3B/3C/3D call.
-- **Built-in hooks** — `?page`, `?passage`, `?link` recognised as reserved
-  names. 3A wires `?passage` (the passage root) and `?link` (all `RenderLinkNode`s);
-  `?page` is a session-level concept, deferred to 3C where enchant scope needs it.
-
-**Tests:** render-tree flush parity (a fixture corpus renders to the identical
-`BufferedRenderOutput` entry stream pre/post refactor); `?name` tokenizer cases;
-`HookRefNode` parsing incl. `?name's 1st`/`'s last`; `HookNameValue` evaluation;
-`HookResolver` over hand-built trees (named match, anonymous skip, ordinal
-narrowing, no-match → empty, `?link` built-in).
+> **3A — render tree + HookName foundation — SHIPPED.** Summary folded into
+> `CLAUDE.md` (Architecture, Key Files, Roadmap → v3A). Delivered the
+> `Runtime/Rendering/` render tree (`RenderNode`/`RenderTreeBuilder`/
+> `RenderTreeFlusher`/`HookResolver`), `?name` tokenization + `HookRefNode` +
+> `HookNameValue`, and `MarkupPrinter` round-trip — a pure refactor with
+> byte-identical flush parity, all prior tests green untouched.
+>
+> One realisation simplified the plan: because `RenderTreeBuilder` *is* an
+> `IRenderOutput`, `Changer.Apply` retargets onto the tree with **no
+> changer-code change** (a changer's `PushStyle` just lands as a
+> `RenderStyleNode`); `BodyRenderer`'s only change is `Visit(HookNode)`
+> bracketing via `BeginHook`/`EndHook`, and `StorySession` renders into a
+> builder then flushes. `?page` is recognised but resolves empty (deferred to
+> 3C). 916 tests passing.
 
 ### 3B — revision macros `(replace:)` / `(append:)` / `(prepend:)`
 
@@ -255,7 +229,7 @@ revisit point only if profiling on a large story shows it.
 
 ## Sequencing
 
-3A → 3B → 3C → 3D, in order. 3A is a pure refactor + primitive and must land
-green before anything builds on it. 3B and 3C are each independently shippable
-author-visible increments. 3D is gated on the `IRenderOutput` interactive-channel
-decision and is the largest single sub-slice.
+3A → 3B → 3C → 3D, in order. **3A is shipped.** 3B and 3C are each
+independently shippable author-visible increments. 3D is gated on the
+`IRenderOutput` interactive-channel decision and is the largest single
+sub-slice.

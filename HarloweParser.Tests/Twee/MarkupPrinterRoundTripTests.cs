@@ -96,6 +96,11 @@ namespace Harlowe.Tests.Twee
     [Fact] public void Expr_Variable() => AssertExprRoundTripStable("$hp");
     [Fact] public void Expr_TempVariable() => AssertExprRoundTripStable("_i");
     [Fact] public void Expr_Identifier() => AssertExprRoundTripStable("it");
+    [Fact] public void Expr_HookRef() => AssertExprRoundTripStable("?cake");
+    [Fact] public void Expr_HookRefForwardOrdinal() => AssertExprRoundTripStable("?cake's 1st");
+    [Fact] public void Expr_HookRefLast() => AssertExprRoundTripStable("?cake's last");
+    [Fact] public void Expr_HookRefNthLast() => AssertExprRoundTripStable("?cake's 2ndlast");
+    [Fact] public void Expr_HookRefChained() => AssertExprRoundTripStable("?cake's 1st's last");
     [Fact] public void Expr_Add() => AssertExprRoundTripStable("$a + $b");
     [Fact] public void Expr_Multiply() => AssertExprRoundTripStable("$a * $b");
     [Fact] public void Expr_PrecedenceMul() => AssertExprRoundTripStable("$a + $b * $c");

@@ -831,5 +831,60 @@ namespace Harlowe.Tests
         (TokenType.MacroClose, ")"),
         (TokenType.EndOfFile, ""));
     }
+
+    // --- Hook references (?name) ---
+
+    [Fact]
+    public void HookRef_InExpression_TokenizedWithoutSigil()
+    {
+      AssertSequence(Tokenize("(replace: ?cake)"),
+        (TokenType.MacroOpen, "replace"),
+        (TokenType.HookRef, "cake"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void HookRef_BuiltInName_TokenizedLikeAnyName()
+    {
+      AssertSequence(Tokenize("(enchant: ?passage)"),
+        (TokenType.MacroOpen, "enchant"),
+        (TokenType.HookRef, "passage"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void HookRef_WithOrdinalPossessive_KeepsApostropheSOperator()
+    {
+      // The `'s` must fuse as the possessive operator after a HookRef, not be
+      // mistaken for a string-literal opener.
+      AssertSequence(Tokenize("(replace: ?cake's 1st)"),
+        (TokenType.MacroOpen, "replace"),
+        (TokenType.HookRef, "cake"),
+        (TokenType.Operator, "'s"),
+        (TokenType.Identifier, "1st"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void HookRef_InBodyProse_StaysPlainText()
+    {
+      // `?` is expression-context markup only — in prose it is ordinary text.
+      AssertSequence(Tokenize("Really?"),
+        (TokenType.Text, "Really?"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void HookRef_BareQuestionMark_NotAHookRef()
+    {
+      // `?` not followed by a letter inside an expression produces no token.
+      AssertSequence(Tokenize("(print: ?)"),
+        (TokenType.MacroOpen, "print"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
   }
 }

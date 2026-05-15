@@ -248,6 +248,22 @@ namespace Harlowe.Twee
 
     public void Visit(MacroCallNode node) => EmitMacroCall(node.Name, node.Arguments);
 
+    /// <summary>
+    /// Emits a hook reference: <c>?name</c>, with each ordinal step appended as
+    /// a <c>'s</c> accessor (<c>?cake's 1st</c>, <c>?cake's last</c>,
+    /// <c>?cake's 2ndlast</c>). The parser folds exactly these forms back into
+    /// <see cref="HookRefNode.Steps"/>, so the output round-trips.
+    /// </summary>
+    public void Visit(HookRefNode node)
+    {
+      _sb.Append('?').Append(node.Name);
+      if (node.Steps == null) return;
+      for (int i = 0; i < node.Steps.Count; i++)
+      {
+        _sb.Append("'s ").Append(OrdinalText(node.Steps[i]));
+      }
+    }
+
     public void Visit(ArrayNode node)
     {
       _sb.Append("(a:");
@@ -318,6 +334,33 @@ namespace Harlowe.Twee
     }
 
     // ----- helpers -----
+
+    /// <summary>
+    /// Renders one hook-reference ordinal step in canonical Harlowe form:
+    /// <c>last</c> for the back-anchored first, <c>Nthlast</c> for other
+    /// back-anchored indices, <c>Nst</c>/<c>Nnd</c>/<c>Nrd</c>/<c>Nth</c>
+    /// forwards. The suffix is decorative to the tokenizer but kept correct so
+    /// the printed form reads naturally.
+    /// </summary>
+    private static string OrdinalText(Ast.Expression.HookRefStep step)
+    {
+      if (step.FromEnd && step.Index == 1) return "last";
+      string suffix = OrdinalSuffix(step.Index);
+      return step.Index + suffix + (step.FromEnd ? "last" : string.Empty);
+    }
+
+    private static string OrdinalSuffix(int n)
+    {
+      int mod100 = n % 100;
+      if (mod100 >= 11 && mod100 <= 13) return "th";
+      switch (n % 10)
+      {
+        case 1: return "st";
+        case 2: return "nd";
+        case 3: return "rd";
+        default: return "th";
+      }
+    }
 
     private void EmitMacroCall(string name, List<IExpressionNode> args)
     {

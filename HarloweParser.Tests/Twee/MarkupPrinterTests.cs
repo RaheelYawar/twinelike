@@ -447,6 +447,36 @@ namespace Harlowe.Tests.Twee
         }
       }));
 
+    // ----- Hook references -----
+
+    [Fact]
+    public void HookRef_Bare()
+      => Assert.Equal("?cake", Print(new HookRefNode { Name = "cake" }));
+
+    [Fact]
+    public void HookRef_ForwardOrdinalStep()
+      => Assert.Equal("?cake's 1st", Print(new HookRefNode
+      {
+        Name = "cake",
+        Steps = new List<HookRefStep> { new HookRefStep { Index = 1, FromEnd = false } }
+      }));
+
+    [Fact]
+    public void HookRef_LastStep()
+      => Assert.Equal("?cake's last", Print(new HookRefNode
+      {
+        Name = "cake",
+        Steps = new List<HookRefStep> { new HookRefStep { Index = 1, FromEnd = true } }
+      }));
+
+    [Fact]
+    public void HookRef_NthLastStep()
+      => Assert.Equal("?cake's 2ndlast", Print(new HookRefNode
+      {
+        Name = "cake",
+        Steps = new List<HookRefStep> { new HookRefStep { Index = 2, FromEnd = true } }
+      }));
+
     // ----- Empty / null inputs -----
 
     [Fact]

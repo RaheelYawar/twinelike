@@ -553,5 +553,66 @@ namespace Harlowe.Tests
       var ex = Assert.Throws<HarloweParseException>(() => ParseExpr("each 5"));
       Assert.Contains("must be followed by a variable", ex.Message);
     }
+
+    // --- Hook references ---
+
+    [Fact]
+    public void HookRef_Bare_ParsesAsHookRefNodeWithNoSteps()
+    {
+      var h = Assert.IsType<HookRefNode>(ParseExpr("?cake"));
+      Assert.Equal("cake", h.Name);
+      Assert.Empty(h.Steps);
+    }
+
+    [Fact]
+    public void HookRef_WithForwardOrdinal_FoldsIntoStep()
+    {
+      var h = Assert.IsType<HookRefNode>(ParseExpr("?cake's 1st"));
+      Assert.Equal("cake", h.Name);
+      var step = Assert.Single(h.Steps);
+      Assert.Equal(1, step.Index);
+      Assert.False(step.FromEnd);
+    }
+
+    [Fact]
+    public void HookRef_WithLast_FoldsIntoFromEndStep()
+    {
+      var h = Assert.IsType<HookRefNode>(ParseExpr("?cake's last"));
+      var step = Assert.Single(h.Steps);
+      Assert.Equal(1, step.Index);
+      Assert.True(step.FromEnd);
+    }
+
+    [Fact]
+    public void HookRef_WithNthLast_FoldsIntoFromEndStep()
+    {
+      var h = Assert.IsType<HookRefNode>(ParseExpr("?cake's 2ndlast"));
+      var step = Assert.Single(h.Steps);
+      Assert.Equal(2, step.Index);
+      Assert.True(step.FromEnd);
+    }
+
+    [Fact]
+    public void HookRef_ChainedOrdinals_FoldIntoMultipleSteps()
+    {
+      var h = Assert.IsType<HookRefNode>(ParseExpr("?cake's 1st's last"));
+      Assert.Equal(2, h.Steps.Count);
+      Assert.Equal(1, h.Steps[0].Index);
+      Assert.False(h.Steps[0].FromEnd);
+      Assert.True(h.Steps[1].FromEnd);
+    }
+
+    [Fact]
+    public void HookRef_PossessiveOfNonOrdinal_LeftAsBinaryOp()
+    {
+      // `?cake's name` is not an ordinal narrowing — it stays a `'s` BinaryOp
+      // over the hook ref (which the evaluator later rejects, but the parser
+      // shape is the ordinary possessive).
+      var bin = Assert.IsType<BinaryOpNode>(ParseExpr("?cake's name"));
+      Assert.Equal("'s", bin.Operator);
+      var h = Assert.IsType<HookRefNode>(bin.Left);
+      Assert.Equal("cake", h.Name);
+      Assert.Empty(h.Steps);
+    }
   }
 }

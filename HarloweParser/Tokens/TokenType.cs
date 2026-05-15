@@ -40,6 +40,9 @@ namespace Harlowe.Tokens
     /// <summary>A right-anchored hook name: <c>|name&gt;</c>. The name attaches to the hook on its right.</summary>
     HookNameRight,
 
+    /// <summary>A hook reference used as a value inside an expression: <c>?name</c>. The Value omits the leading <c>?</c>. Distinct from the <see cref="HookNameLeft"/>/<see cref="HookNameRight"/> hook <em>declarations</em> in body markup.</summary>
+    HookRef,
+
     /// <summary>The <c>[[</c> that opens a Twine link.</summary>
     LinkOpen,
 
