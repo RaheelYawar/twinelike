@@ -101,30 +101,22 @@ stays the test double; tests can also assert against the tree directly.
 > builder then flushes. `?page` is recognised but resolves empty (deferred to
 > 3C). 916 tests passing.
 
-### 3B — revision macros `(replace:)` / `(append:)` / `(prepend:)`
-
-**Lands:**
-
-- **`HookDescriptor` grows** `RevisionTarget` (a `HookNameValue` or a `string`
-  for text-occurrence targeting) + `RevisionMode` enum (`Replace`/`Append`/`Prepend`).
-- **New `IChangerPatch`: `RevisionPatch { Target, Mode }`** — drops in per the
-  v2.3D model, no change to `Changer.Apply`'s signature.
-- **`Changer.Apply` executor branch** — when the descriptor carries a
-  `RevisionTarget`: render the attached hook's content into a detached
-  subtree, resolve the target node(s) via `HookResolver`, and splice — replace
-  empties the target's children first; append/prepend add at the end/start.
-  Targeting operates on the **tree built so far** (current + above), matching
-  Harlowe's `selectHook` scope.
-- **String targeting** — `(replace: "old text")` finds `RenderTextNode`
-  occurrences of the substring and wraps/splits them as targets. Scoped to a
-  shared `TextOccurrenceFinder` helper so 3C/3D reuse it.
-- The three macros are thin: each produces a `Changer` with one `RevisionPatch`.
-  `(replace:)`/`(append:)`/`(prepend:)` register in `StandardMacros`.
-
-**Tests:** replace/append/prepend into a named hook; into an anonymous hook by
-string; target appears above vs. not-yet-rendered (latter → no-op, documented);
-multiple matches all updated; revision composed with a style changer; error
-when target arg isn't a hookname/string; round-trip through `MarkupPrinter`.
+> **3B — revision macros `(replace:)` / `(append:)` / `(prepend:)` —
+> SHIPPED.** Summary folded into `CLAUDE.md` (Architecture, Key Files,
+> Roadmap → v3B). `HookDescriptor` gained `RevisionSpec` (hook-name or
+> literal-string target + `RevisionMode`); new `RevisionPatch` +
+> `Changer.FromRevision`; `RunRevision` renders the hook into a detached
+> builder (composed styles wrapping it) and splices a `Clone` into every
+> resolved target — hook-name targets via `HookResolver`, string targets via
+> the new `TextOccurrenceFinder`. The three macros are thin wrappers over
+> `RevisionChangers.Build`.
+>
+> One signature change vs. the plan: `Changer.Apply`'s `renderHook` had to
+> become `Action<IRenderOutput>` (not the planned "no change to Apply's
+> signature") so the hook can be rendered into a *detached* builder rather
+> than the live output — that is the whole mechanism. `BodyRenderer` got a
+> `RenderHookInto` helper; `RenderNode.Clone` was added so multi-target
+> splices stay a tree, not a DAG. 941 tests passing.
 
 ### 3C — `(change:)` / `(enchant:)` + the enchantment re-scan pass
 
@@ -229,7 +221,7 @@ revisit point only if profiling on a large story shows it.
 
 ## Sequencing
 
-3A → 3B → 3C → 3D, in order. **3A is shipped.** 3B and 3C are each
-independently shippable author-visible increments. 3D is gated on the
+3A → 3B → 3C → 3D, in order. **3A and 3B are shipped.** 3C is the next
+independently shippable author-visible increment. 3D is gated on the
 `IRenderOutput` interactive-channel decision and is the largest single
 sub-slice.

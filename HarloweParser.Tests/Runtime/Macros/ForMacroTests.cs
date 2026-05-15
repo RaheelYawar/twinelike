@@ -201,7 +201,7 @@ namespace Harlowe.Tests.Runtime.Macros
       });
 
       var buf = new BufferedRenderOutput();
-      changer.Apply(buf, () => ((IRenderOutput)buf).Text("X"), ctx: null);
+      changer.Apply(buf, o => o.Text("X"), ctx: null);
 
       // No iterations happened — instead an error entry was emitted.
       var errors = CollectErrors(buf);

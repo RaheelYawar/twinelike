@@ -132,7 +132,7 @@ namespace Harlowe.Runtime
       if (result.Kind == HarloweValueKind.Changer)
       {
         if (node.AttachedHook != null)
-          result.AsChanger.Apply(_output, () => node.AttachedHook.Accept(this), _context);
+          result.AsChanger.Apply(_output, target => RenderHookInto(node.AttachedHook, target), _context);
         return;
       }
 
@@ -207,7 +207,7 @@ namespace Harlowe.Runtime
       if (result != null && result.Kind == HarloweValueKind.Changer)
       {
         if (node.AttachedHook != null)
-          result.AsChanger.Apply(_output, () => node.AttachedHook.Accept(this), _context);
+          result.AsChanger.Apply(_output, target => RenderHookInto(node.AttachedHook, target), _context);
         return;
       }
 
@@ -218,6 +218,20 @@ namespace Harlowe.Runtime
         EmitMacroResult(result);
       }
       if (node.AttachedHook != null) node.AttachedHook.Accept(this);
+    }
+
+    /// <summary>
+    /// Render <paramref name="hook"/> into <paramref name="target"/>. When the
+    /// target is this renderer's own output, reuse this renderer; otherwise
+    /// spin up a sub-renderer sharing the registry and context. The latter is
+    /// how a revision changer renders its hook into a detached tree — see
+    /// <see cref="Changer.Apply"/> — without touching the live output.
+    /// </summary>
+    private void RenderHookInto(IBodyNode hook, IRenderOutput target)
+    {
+      if (hook == null) return;
+      if (ReferenceEquals(target, _output)) { hook.Accept(this); return; }
+      hook.Accept(new BodyRenderer(target, _registry, _context));
     }
 
     private void EmitMacroResult(HarloweValue result)

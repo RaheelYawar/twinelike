@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Harlowe.Runtime.Rendering;
 
 namespace Harlowe.Runtime
 {
@@ -54,6 +55,15 @@ namespace Harlowe.Runtime
       => new Changer(new List<IChangerPatch> { new IterationPatch { Iteration = iteration } });
 
     /// <summary>
+    /// Construct a revision changer (<c>(replace:)</c> / <c>(append:)</c> /
+    /// <c>(prepend:)</c>). When applied, the changer renders its hook into a
+    /// detached subtree and splices that into the targeted nodes of the live
+    /// render tree instead of rendering inline — see <see cref="Apply"/>.
+    /// </summary>
+    public static Changer FromRevision(RevisionSpec revision)
+      => new Changer(new List<IChangerPatch> { new RevisionPatch { Revision = revision } });
+
+    /// <summary>
     /// Compose this changer with <paramref name="other"/>, producing a new
     /// changer whose patch list is <c>this</c>'s followed by
     /// <paramref name="other"/>'s. Reading order: <c>A + B</c> means A's
@@ -72,25 +82,40 @@ namespace Harlowe.Runtime
 
     /// <summary>
     /// Build the descriptor from this changer's patches and execute against
-    /// it. When the descriptor carries an <see cref="IterationSpec"/> the
-    /// renderer loops, binding parameter + <c>it</c> per item and emitting
-    /// the style wrappers around each iteration's hook render; otherwise
-    /// styles are emitted once around a single <paramref name="renderHook"/>
-    /// call.
+    /// it. <paramref name="renderHook"/> renders the attached hook's content
+    /// into whatever <see cref="IRenderOutput"/> it is handed — usually
+    /// <paramref name="output"/> itself, but for a revision changer a detached
+    /// builder, so the source can be spliced rather than shown inline.
+    ///
+    /// <list type="bullet">
+    /// <item><b>Revision</b> (<see cref="RevisionSpec"/>): render the hook into
+    /// a detached subtree, resolve the target against the live render tree, and
+    /// splice. Takes precedence over iteration/styles on the same descriptor.</item>
+    /// <item><b>Iteration</b> (<see cref="IterationSpec"/>): loop, binding
+    /// parameter + <c>it</c> per item and emitting the style wrappers around
+    /// each iteration's hook render.</item>
+    /// <item><b>Styles</b>: emitted once around a single
+    /// <paramref name="renderHook"/> call.</item>
+    /// </list>
     ///
     /// <para>
     /// <paramref name="ctx"/> is only required when iteration is in play —
-    /// pure style changers can pass null. The lambda binding routes through
-    /// <see cref="IVariableStore.PushBinding"/> / <see cref="IVariableStore.PushItBinding"/>,
-    /// so per-iteration scope is correctly restored even on early hook exit.
+    /// pure style and revision changers can pass null. The lambda binding
+    /// routes through <see cref="IVariableStore.PushBinding"/> /
+    /// <see cref="IVariableStore.PushItBinding"/>, so per-iteration scope is
+    /// correctly restored even on early hook exit.
     /// </para>
     /// </summary>
-    public void Apply(IRenderOutput output, System.Action renderHook, MacroContext ctx = null)
+    public void Apply(IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx = null)
     {
       var descriptor = new HookDescriptor();
       for (int i = 0; i < _patches.Count; i++) _patches[i].Apply(descriptor);
 
-      if (descriptor.Iteration != null)
+      if (descriptor.Revision != null)
+      {
+        RunRevision(descriptor, output, renderHook);
+      }
+      else if (descriptor.Iteration != null)
       {
         if (ctx == null)
         {
@@ -105,7 +130,7 @@ namespace Harlowe.Runtime
       }
     }
 
-    private static void RunIteration(HookDescriptor d, IRenderOutput output, System.Action renderHook, MacroContext ctx)
+    private static void RunIteration(HookDescriptor d, IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx)
     {
       var iter = d.Iteration;
       if (iter.Items == null) return;
@@ -121,11 +146,82 @@ namespace Harlowe.Runtime
       }
     }
 
-    private static void RunStyles(List<StyleSpec> styles, IRenderOutput output, System.Action renderHook)
+    private static void RunStyles(List<StyleSpec> styles, IRenderOutput output, System.Action<IRenderOutput> renderHook)
     {
       for (int i = 0; i < styles.Count; i++) output.PushStyle(styles[i]);
-      renderHook?.Invoke();
+      renderHook?.Invoke(output);
       for (int i = styles.Count - 1; i >= 0; i--) output.PopStyle();
+    }
+
+    /// <summary>
+    /// Execute a revision changer. The hook content is rendered into a detached
+    /// <see cref="RenderTreeBuilder"/> — with any composed style layers wrapped
+    /// around it — then spliced into every node the target resolves to in the
+    /// live render tree. Targeting sees the tree built so far (the content
+    /// above this macro), matching Harlowe's <c>selectHook</c> scope: a target
+    /// declared <em>after</em> this macro, or no render tree at all (a plain
+    /// buffer in a unit test), means no match and the source is simply not
+    /// shown — Harlowe no-ops the same way, since the DOM doesn't exist yet.
+    /// Each match gets its own deep clone of the source so the tree stays a
+    /// tree.
+    /// </summary>
+    private static void RunRevision(HookDescriptor d, IRenderOutput output, System.Action<IRenderOutput> renderHook)
+    {
+      // Render the source into a detached subtree, styles wrapping the content.
+      var detached = new RenderTreeBuilder();
+      for (int i = 0; i < d.Styles.Count; i++) detached.PushStyle(d.Styles[i]);
+      renderHook?.Invoke(detached);
+      for (int i = d.Styles.Count - 1; i >= 0; i--) detached.PopStyle();
+      var source = detached.Root.Children;
+
+      // Without a live render tree there is nothing to target — no-op.
+      if (!(output is RenderTreeBuilder builder)) return;
+
+      var rev = d.Revision;
+      IReadOnlyList<RenderNode> targets;
+      if (rev.HookTarget != null)
+      {
+        targets = HookResolver.Resolve(builder.Root, rev.HookTarget);
+      }
+      else if (rev.StringTarget != null)
+      {
+        var wraps = TextOccurrenceFinder.FindAndWrap(builder.Root, rev.StringTarget);
+        var list = new List<RenderNode>(wraps.Count);
+        for (int i = 0; i < wraps.Count; i++) list.Add(wraps[i]);
+        targets = list;
+      }
+      else
+      {
+        return;
+      }
+
+      for (int i = 0; i < targets.Count; i++)
+        Splice(targets[i], source, rev.Mode);
+    }
+
+    /// <summary>
+    /// Splice a deep clone of <paramref name="source"/> into
+    /// <paramref name="target"/>. Non-container targets are skipped — there is
+    /// nowhere to put content. <see cref="RevisionMode.Replace"/> clears the
+    /// target's children first; append/prepend add at the end/start.
+    /// </summary>
+    private static void Splice(RenderNode target, List<RenderNode> source, RevisionMode mode)
+    {
+      if (!(target is IRenderContainer container)) return;
+      var copy = RenderNodes.CloneAll(source);
+      switch (mode)
+      {
+        case RevisionMode.Replace:
+          container.Children.Clear();
+          container.Children.AddRange(copy);
+          break;
+        case RevisionMode.Append:
+          container.Children.AddRange(copy);
+          break;
+        case RevisionMode.Prepend:
+          container.Children.InsertRange(0, copy);
+          break;
+      }
     }
 
     /// <summary>

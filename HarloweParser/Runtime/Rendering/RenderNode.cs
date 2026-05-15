@@ -27,6 +27,12 @@ namespace Harlowe.Runtime.Rendering
   /// </summary>
   public abstract class RenderNode
   {
+    /// <summary>
+    /// Deep copy of this node (and, for containers, its whole subtree). Revision
+    /// macros splice a rendered source subtree into every match of a target;
+    /// each match gets its own copy so the tree stays a tree, never a DAG.
+    /// </summary>
+    public abstract RenderNode Clone();
   }
 
   /// <summary>A render node that holds ordered child nodes.</summary>
@@ -40,12 +46,16 @@ namespace Harlowe.Runtime.Rendering
   public class RenderTextNode : RenderNode
   {
     public string Content;
+
+    public override RenderNode Clone() => new RenderTextNode { Content = Content };
   }
 
   /// <summary>Raw author HTML pass-through. Flushes to <see cref="IRenderOutput.Html"/>.</summary>
   public class RenderHtmlNode : RenderNode
   {
     public string RawHtml;
+
+    public override RenderNode Clone() => new RenderHtmlNode { RawHtml = RawHtml };
   }
 
   /// <summary>A passage-to-passage navigation link. Flushes to <see cref="IRenderOutput.Link"/>.</summary>
@@ -53,12 +63,16 @@ namespace Harlowe.Runtime.Rendering
   {
     public string Text;
     public string Target;
+
+    public override RenderNode Clone() => new RenderLinkNode { Text = Text, Target = Target };
   }
 
   /// <summary>An in-prose error message. Flushes to <see cref="IRenderOutput.Error"/>.</summary>
   public class RenderErrorNode : RenderNode
   {
     public string Message;
+
+    public override RenderNode Clone() => new RenderErrorNode { Message = Message };
   }
 
   /// <summary>
@@ -68,8 +82,16 @@ namespace Harlowe.Runtime.Rendering
   /// </summary>
   public class RenderStyleNode : RenderNode, IRenderContainer
   {
+    /// <summary>The style layer. Treated as immutable, so clones share the reference.</summary>
     public StyleSpec Style;
     public List<RenderNode> Children { get; } = new List<RenderNode>();
+
+    public override RenderNode Clone()
+    {
+      var copy = new RenderStyleNode { Style = Style };
+      RenderNodes.CloneInto(Children, copy.Children);
+      return copy;
+    }
   }
 
   /// <summary>
@@ -89,11 +111,43 @@ namespace Harlowe.Runtime.Rendering
     public HookAnchor Anchor;
 
     public List<RenderNode> Children { get; } = new List<RenderNode>();
+
+    public override RenderNode Clone()
+    {
+      var copy = new RenderHookNode { Name = Name, Anchor = Anchor };
+      RenderNodes.CloneInto(Children, copy.Children);
+      return copy;
+    }
   }
 
   /// <summary>Top of a passage render. The tree a <see cref="RenderTreeBuilder"/> produces.</summary>
   public class RenderRoot : RenderNode, IRenderContainer
   {
     public List<RenderNode> Children { get; } = new List<RenderNode>();
+
+    public override RenderNode Clone()
+    {
+      var copy = new RenderRoot();
+      RenderNodes.CloneInto(Children, copy.Children);
+      return copy;
+    }
+  }
+
+  /// <summary>Shared helpers for working with lists of <see cref="RenderNode"/>.</summary>
+  public static class RenderNodes
+  {
+    /// <summary>Deep-clone every node in <paramref name="source"/> into <paramref name="destination"/>.</summary>
+    public static void CloneInto(List<RenderNode> source, List<RenderNode> destination)
+    {
+      for (int i = 0; i < source.Count; i++) destination.Add(source[i].Clone());
+    }
+
+    /// <summary>Return a fresh list holding deep clones of every node in <paramref name="source"/>.</summary>
+    public static List<RenderNode> CloneAll(List<RenderNode> source)
+    {
+      var copy = new List<RenderNode>(source.Count);
+      CloneInto(source, copy);
+      return copy;
+    }
   }
 }

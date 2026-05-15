@@ -28,6 +28,15 @@ namespace Harlowe.Runtime
     /// each item in turn. Null for non-loop changers.
     /// </summary>
     public IterationSpec Iteration;
+
+    /// <summary>
+    /// When set, the changer is a revision changer (<c>(replace:)</c> /
+    /// <c>(append:)</c> / <c>(prepend:)</c>): instead of rendering its hook
+    /// inline, the renderer renders it into a detached subtree and splices that
+    /// into the targeted nodes already present in the render tree. Null for
+    /// ordinary changers.
+    /// </summary>
+    public RevisionSpec Revision;
   }
 
   /// <summary>
@@ -40,5 +49,36 @@ namespace Harlowe.Runtime
     public List<HarloweValue> Items;
     public string ParamName;
     public bool ParamIsTemporary;
+  }
+
+  /// <summary>How a revision changer splices its rendered source into a target.</summary>
+  public enum RevisionMode
+  {
+    /// <summary>Clear the target's content and insert the source — <c>(replace:)</c>.</summary>
+    Replace,
+    /// <summary>Insert the source after the target's existing content — <c>(append:)</c>.</summary>
+    Append,
+    /// <summary>Insert the source before the target's existing content — <c>(prepend:)</c>.</summary>
+    Prepend
+  }
+
+  /// <summary>
+  /// The revision instruction a <c>(replace:)</c> / <c>(append:)</c> /
+  /// <c>(prepend:)</c> changer leaves on a descriptor. Exactly one of
+  /// <see cref="HookTarget"/> / <see cref="StringTarget"/> is set: a hook-name
+  /// query, or a literal substring to find among rendered text. The target is
+  /// re-resolved against the live render tree when the changer applies — it is
+  /// a query, not a captured node.
+  /// </summary>
+  public class RevisionSpec
+  {
+    /// <summary>Hook-name target (<c>(replace: ?cake)</c>). Null when targeting a string.</summary>
+    public HookNameValue HookTarget;
+
+    /// <summary>Literal substring target (<c>(replace: "old text")</c>). Null when targeting a hook name.</summary>
+    public string StringTarget;
+
+    /// <summary>Whether the source replaces, follows, or precedes the target's content.</summary>
+    public RevisionMode Mode;
   }
 }

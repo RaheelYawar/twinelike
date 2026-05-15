@@ -41,7 +41,7 @@ namespace Harlowe.Tests.Runtime
     public void Apply_PushesStyleRendersHookPopsStyle()
     {
       var output = new CapturedOutput();
-      Bold().Apply(output, () => output.Text("hi"));
+      Bold().Apply(output, o => o.Text("hi"));
       Assert.Equal(new[] { "P:bold", "T:hi", "/P" }, output.Calls);
     }
 
@@ -62,7 +62,7 @@ namespace Harlowe.Tests.Runtime
       // adapter is responsible for closing in reverse.
       var combined = Bold().Compose(Italic());
       var output = new CapturedOutput();
-      combined.Apply(output, () => output.Text("x"));
+      combined.Apply(output, o => o.Text("x"));
       Assert.Equal(new[] { "P:bold", "P:italic", "T:x", "/P", "/P" }, output.Calls);
     }
 
@@ -71,7 +71,7 @@ namespace Harlowe.Tests.Runtime
     {
       var combined = Bold().Compose(Italic()).Compose(Underline());
       var output = new CapturedOutput();
-      combined.Apply(output, () => output.Text("x"));
+      combined.Apply(output, o => o.Text("x"));
       Assert.Equal(
         new[] { "P:bold", "P:italic", "P:underline", "T:x", "/P", "/P", "/P" },
         output.Calls);
@@ -82,7 +82,7 @@ namespace Harlowe.Tests.Runtime
     {
       var combined = Bold().Compose(null);
       var output = new CapturedOutput();
-      combined.Apply(output, () => output.Text("x"));
+      combined.Apply(output, o => o.Text("x"));
       Assert.Equal(new[] { "P:bold", "T:x", "/P" }, output.Calls);
     }
 

@@ -67,4 +67,40 @@ namespace Harlowe.Runtime
       return h;
     }
   }
+
+  /// <summary>
+  /// Patch produced by the revision macros <c>(replace:)</c> / <c>(append:)</c>
+  /// / <c>(prepend:)</c>. Sets the descriptor's revision spec — the renderer
+  /// then splices the changer's rendered hook into the targeted tree nodes
+  /// instead of rendering it inline.
+  /// </summary>
+  public class RevisionPatch : IChangerPatch
+  {
+    public RevisionSpec Revision;
+
+    public void Apply(HookDescriptor descriptor) => descriptor.Revision = Revision;
+
+    public override bool Equals(object obj)
+    {
+      if (!(obj is RevisionPatch other)) return false;
+      if (Revision == null || other.Revision == null) return Revision == other.Revision;
+      if (Revision.Mode != other.Revision.Mode) return false;
+      if (Revision.StringTarget != other.Revision.StringTarget) return false;
+      if (Revision.HookTarget == null || other.Revision.HookTarget == null)
+        return Revision.HookTarget == other.Revision.HookTarget;
+      return Revision.HookTarget.Equals(other.Revision.HookTarget);
+    }
+
+    public override int GetHashCode()
+    {
+      int h = 31;
+      if (Revision != null)
+      {
+        h = (h * 397) ^ (int)Revision.Mode;
+        if (Revision.StringTarget != null) h = (h * 397) ^ Revision.StringTarget.GetHashCode();
+        if (Revision.HookTarget != null) h = (h * 397) ^ Revision.HookTarget.GetHashCode();
+      }
+      return h;
+    }
+  }
 }

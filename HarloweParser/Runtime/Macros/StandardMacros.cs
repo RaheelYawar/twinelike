@@ -41,6 +41,9 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new FoldedMacro());
       registry.Register(new RotatedToMacro());
       registry.Register(new SortedMacro());
+      registry.Register(new ReplaceMacro());
+      registry.Register(new AppendMacro());
+      registry.Register(new PrependMacro());
     }
   }
 }
