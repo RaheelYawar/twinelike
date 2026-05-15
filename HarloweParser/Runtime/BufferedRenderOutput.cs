@@ -20,15 +20,16 @@ namespace Harlowe.Runtime
   public class BufferedRenderOutput : IRenderOutput
   {
     /// <summary>Kind tag for an entry in <see cref="Entries"/>.</summary>
-    public enum Kind { Text, Html, Link, Error, PushStyle, PopStyle }
+    public enum Kind { Text, Html, Link, Error, PushStyle, PopStyle, BeginInteractive, EndInteractive }
 
-    /// <summary>One recorded callback. <see cref="Target"/> is non-null only for <see cref="Kind.Link"/>; <see cref="Style"/> is non-null only for <see cref="Kind.PushStyle"/>.</summary>
+    /// <summary>One recorded callback. <see cref="Target"/> is non-null only for <see cref="Kind.Link"/>; <see cref="Style"/> is non-null only for <see cref="Kind.PushStyle"/>; <see cref="Region"/> is non-null only for <see cref="Kind.BeginInteractive"/>.</summary>
     public class Entry
     {
       public Kind Kind;
       public string Content;
       public string Target;
       public StyleSpec Style;
+      public InteractiveRegion Region;
     }
 
     /// <summary>Ordered log of every render call.</summary>
@@ -69,6 +70,16 @@ namespace Harlowe.Runtime
     void IRenderOutput.PopStyle()
     {
       Entries.Add(new Entry { Kind = Kind.PopStyle });
+    }
+
+    void IRenderOutput.BeginInteractive(InteractiveRegion region)
+    {
+      Entries.Add(new Entry { Kind = Kind.BeginInteractive, Region = region });
+    }
+
+    void IRenderOutput.EndInteractive()
+    {
+      Entries.Add(new Entry { Kind = Kind.EndInteractive });
     }
   }
 }

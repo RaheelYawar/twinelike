@@ -23,6 +23,8 @@ namespace Harlowe.Tests.Runtime
       public void Error(string message) => Calls.Add("E:" + message);
       public void PushStyle(StyleSpec style) => Calls.Add("P:" + Describe(style));
       public void PopStyle() => Calls.Add("/P");
+      public void BeginInteractive(InteractiveRegion region) => Calls.Add("I:" + region?.Id);
+      public void EndInteractive() => Calls.Add("/I");
 
       private static string Describe(StyleSpec s)
       {

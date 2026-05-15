@@ -37,6 +37,15 @@ namespace Harlowe.Runtime
     /// ordinary changers.
     /// </summary>
     public RevisionSpec Revision;
+
+    /// <summary>
+    /// When set, the changer is an interaction changer (<c>(click:)</c>,
+    /// <c>(mouseover-append:)</c>, etc.): the renderer wraps the targeted
+    /// nodes' content in a <see cref="RenderInteractiveNode"/> and registers a
+    /// deferred handler that the session fires on
+    /// <see cref="StorySession.DispatchEvent"/>. Null for ordinary changers.
+    /// </summary>
+    public InteractionSpec Interaction;
   }
 
   /// <summary>
@@ -79,6 +88,28 @@ namespace Harlowe.Runtime
     public string StringTarget;
 
     /// <summary>Whether the source replaces, follows, or precedes the target's content.</summary>
+    public RevisionMode Mode;
+  }
+
+  /// <summary>
+  /// The interaction instruction a click/hover changer leaves on a descriptor.
+  /// Combines the targeting query with the kind of event to listen for and the
+  /// revision mode that decides what to do with the deferred hook on dispatch
+  /// — <c>(click: ?x)</c> ≡ <c>(click-replace: ?x)</c> = Click + Replace;
+  /// <c>(mouseover-append: ?x)</c> = MouseOver + Append; etc. The deferred
+  /// hook itself is held by the registered <see cref="ClickHandler"/>, not
+  /// here — this spec is the static description of what kind of interaction
+  /// the changer represents.
+  /// </summary>
+  public class InteractionSpec
+  {
+    /// <summary>Hook-name target (the targets of the wrap and the dispatch revision are the same).</summary>
+    public HookNameValue HookTarget;
+
+    /// <summary>Which interaction kind fires the dispatch handler.</summary>
+    public InteractionKind Kind;
+
+    /// <summary>Whether the dispatched deferred hook replaces, follows, or precedes the target's existing content.</summary>
     public RevisionMode Mode;
   }
 }

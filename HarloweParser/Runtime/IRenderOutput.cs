@@ -23,6 +23,15 @@ namespace Harlowe.Runtime
   /// red inline text, route them to a debug log, or silence them entirely.
   /// This is the visible-to-author face of the in-prose error policy.
   /// </para>
+  ///
+  /// <para>
+  /// <b>Interactive channel.</b> Click/hover macros wrap their target in a
+  /// <see cref="BeginInteractive"/> / <see cref="EndInteractive"/> bracket
+  /// carrying an <see cref="InteractiveRegion"/> id. Engines map this to their
+  /// native interactive UI — Unity TMP <c>&lt;link&gt;</c>, Godot BBCode
+  /// <c>[url]</c>, HTML <c>&lt;a&gt;</c> — and report user events back via
+  /// <see cref="StorySession.DispatchEvent"/>.
+  /// </para>
   /// </summary>
   public interface IRenderOutput
   {
@@ -43,5 +52,11 @@ namespace Harlowe.Runtime
 
     /// <summary>Close the most recently opened styling layer. Always paired with a prior <see cref="PushStyle"/> on the same render path.</summary>
     void PopStyle();
+
+    /// <summary>Open one interactive region. The renderer guarantees a matching <see cref="EndInteractive"/> after the wrapped content. Engines wire the region's id into whatever native event surface their UI uses; the engine reports user events back via <see cref="StorySession.DispatchEvent"/>.</summary>
+    void BeginInteractive(InteractiveRegion region);
+
+    /// <summary>Close the most recently opened interactive region. Always paired with a prior <see cref="BeginInteractive"/> on the same render path.</summary>
+    void EndInteractive();
   }
 }

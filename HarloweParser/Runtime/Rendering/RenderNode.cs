@@ -84,11 +84,21 @@ namespace Harlowe.Runtime.Rendering
   {
     /// <summary>The style layer. Treated as immutable, so clones share the reference.</summary>
     public StyleSpec Style;
+
+    /// <summary>
+    /// The enchantment that produced this node, or <c>null</c> for ordinary
+    /// style wraps (from <c>(text-style:)</c>, <c>(change:)</c>, etc.).
+    /// <see cref="EnchantmentPass.Update"/> uses this tag to disenchant —
+    /// unwrap nodes from a previous pass — before re-applying, so a dispatch
+    /// re-render doesn't double-wrap already-enchanted content.
+    /// </summary>
+    public Enchantment SourceEnchantment;
+
     public List<RenderNode> Children { get; } = new List<RenderNode>();
 
     public override RenderNode Clone()
     {
-      var copy = new RenderStyleNode { Style = Style };
+      var copy = new RenderStyleNode { Style = Style, SourceEnchantment = SourceEnchantment };
       RenderNodes.CloneInto(Children, copy.Children);
       return copy;
     }
@@ -115,6 +125,28 @@ namespace Harlowe.Runtime.Rendering
     public override RenderNode Clone()
     {
       var copy = new RenderHookNode { Name = Name, Anchor = Anchor };
+      RenderNodes.CloneInto(Children, copy.Children);
+      return copy;
+    }
+  }
+
+  /// <summary>
+  /// An interactive region — the wrap a click/hover changer places around the
+  /// targeted hook's content. The flusher emits a
+  /// <see cref="IRenderOutput.BeginInteractive"/> / <see cref="IRenderOutput.EndInteractive"/>
+  /// bracket around the children. <see cref="StorySession.DispatchEvent"/>
+  /// finds these nodes by region id and consumes them at event time, replacing
+  /// each with its children before splicing the deferred prose into the
+  /// underlying target.
+  /// </summary>
+  public class RenderInteractiveNode : RenderNode, IRenderContainer
+  {
+    public InteractiveRegion Region;
+    public List<RenderNode> Children { get; } = new List<RenderNode>();
+
+    public override RenderNode Clone()
+    {
+      var copy = new RenderInteractiveNode { Region = Region };
       RenderNodes.CloneInto(Children, copy.Children);
       return copy;
     }

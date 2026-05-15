@@ -103,4 +103,41 @@ namespace Harlowe.Runtime
       return h;
     }
   }
+
+  /// <summary>
+  /// Patch produced by the click/hover macros (<c>(click:)</c>,
+  /// <c>(mouseover-append:)</c>, …). Sets the descriptor's interaction spec —
+  /// the changer then wraps the targeted nodes in
+  /// <see cref="RenderInteractiveNode"/>s and registers a deferred handler
+  /// the session fires on <see cref="StorySession.DispatchEvent"/>.
+  /// </summary>
+  public class InteractionPatch : IChangerPatch
+  {
+    public InteractionSpec Interaction;
+
+    public void Apply(HookDescriptor descriptor) => descriptor.Interaction = Interaction;
+
+    public override bool Equals(object obj)
+    {
+      if (!(obj is InteractionPatch other)) return false;
+      if (Interaction == null || other.Interaction == null) return Interaction == other.Interaction;
+      if (Interaction.Kind != other.Interaction.Kind) return false;
+      if (Interaction.Mode != other.Interaction.Mode) return false;
+      if (Interaction.HookTarget == null || other.Interaction.HookTarget == null)
+        return Interaction.HookTarget == other.Interaction.HookTarget;
+      return Interaction.HookTarget.Equals(other.Interaction.HookTarget);
+    }
+
+    public override int GetHashCode()
+    {
+      int h = 41;
+      if (Interaction != null)
+      {
+        h = (h * 397) ^ (int)Interaction.Kind;
+        h = (h * 397) ^ (int)Interaction.Mode;
+        if (Interaction.HookTarget != null) h = (h * 397) ^ Interaction.HookTarget.GetHashCode();
+      }
+      return h;
+    }
+  }
 }

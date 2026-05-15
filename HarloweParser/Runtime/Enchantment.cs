@@ -24,10 +24,20 @@ namespace Harlowe.Runtime
 
   /// <summary>
   /// Runs the registered enchantments over a finished render tree — the
-  /// analogue of Harlowe's <c>updateEnchantments()</c>. Invoked once after a
-  /// passage's main render (by which point every later-declared hook is in the
-  /// tree and every revision mutation has already happened), so a single pass
-  /// catches everything.
+  /// analogue of Harlowe's <c>updateEnchantments()</c>. Invoked after a
+  /// passage's main render and again after every dispatch re-render, so an
+  /// enchantment catches hooks declared after the macro, revision-rewritten
+  /// content, and content spliced in by a click event.
+  ///
+  /// <para>
+  /// Idempotent by construction: <see cref="Update"/> first <em>disenchants</em>
+  /// — unwraps every <see cref="RenderStyleNode"/> tagged with a non-null
+  /// <see cref="RenderStyleNode.SourceEnchantment"/> — and then re-applies each
+  /// enchantment fresh. So running the pass N times on the same tree gives the
+  /// same result as running it once, no matter how the tree mutated between
+  /// passes. <c>(change:)</c>'s style wraps carry no source tag and are left
+  /// intact (one-shot semantics — survive across passes).
+  /// </para>
   /// </summary>
   public static class EnchantmentPass
   {
@@ -35,11 +45,15 @@ namespace Harlowe.Runtime
     /// Apply every enchantment in <paramref name="enchantments"/> to
     /// <paramref name="root"/>. Each enchantment's target is resolved fresh —
     /// it is a query, not a cached node list — and its changer wraps every
-    /// matching container's content. Null-safe; tolerates malformed entries.
+    /// matching container's content. A disenchant sweep runs first so prior
+    /// applications don't double up. Null-safe; tolerates malformed entries.
     /// </summary>
     public static void Update(RenderRoot root, IReadOnlyList<Enchantment> enchantments)
     {
       if (root == null || enchantments == null) return;
+
+      Disenchant(root);
+
       for (int i = 0; i < enchantments.Count; i++)
       {
         var enchantment = enchantments[i];
@@ -49,9 +63,38 @@ namespace Harlowe.Runtime
         for (int j = 0; j < targets.Count; j++)
         {
           if (targets[j] is IRenderContainer container)
-            enchantment.Changer.ApplyTo(container);
+            enchantment.Changer.ApplyTo(container, enchantment);
         }
       }
+    }
+
+    /// <summary>
+    /// Walk <paramref name="container"/> and unwrap every
+    /// <see cref="RenderStyleNode"/> whose <see cref="RenderStyleNode.SourceEnchantment"/>
+    /// is non-null — i.e. every style layer produced by a previous
+    /// <see cref="Update"/>. Style layers from <c>(text-style:)</c> /
+    /// <c>(change:)</c> have a null source tag and stay intact.
+    /// </summary>
+    public static void Disenchant(IRenderContainer container)
+    {
+      if (container == null) return;
+      var children = container.Children;
+
+      // Recurse first so descendants are processed before we rebuild this
+      // level's list — symmetric with TextOccurrenceFinder.
+      for (int i = 0; i < children.Count; i++)
+        if (children[i] is IRenderContainer c) Disenchant(c);
+
+      var rebuilt = new List<RenderNode>(children.Count);
+      for (int i = 0; i < children.Count; i++)
+      {
+        if (children[i] is RenderStyleNode style && style.SourceEnchantment != null)
+          rebuilt.AddRange(style.Children);
+        else
+          rebuilt.Add(children[i]);
+      }
+      children.Clear();
+      children.AddRange(rebuilt);
     }
   }
 }

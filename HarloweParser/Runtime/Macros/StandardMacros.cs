@@ -46,6 +46,18 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new PrependMacro());
       registry.Register(new ChangeMacro());
       registry.Register(new EnchantMacro());
+      registry.Register(new ClickMacro());
+      registry.Register(new ClickReplaceMacro());
+      registry.Register(new ClickAppendMacro());
+      registry.Register(new ClickPrependMacro());
+      registry.Register(new MouseOverMacro());
+      registry.Register(new MouseOverReplaceMacro());
+      registry.Register(new MouseOverAppendMacro());
+      registry.Register(new MouseOverPrependMacro());
+      registry.Register(new MouseOutMacro());
+      registry.Register(new MouseOutReplaceMacro());
+      registry.Register(new MouseOutAppendMacro());
+      registry.Register(new MouseOutPrependMacro());
     }
   }
 }

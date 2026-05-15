@@ -52,6 +52,11 @@ namespace Harlowe.Runtime.Rendering
           FlushChildren(s.Children, output);
           output.PopStyle();
           break;
+        case RenderInteractiveNode iv:
+          output.BeginInteractive(iv.Region);
+          FlushChildren(iv.Children, output);
+          output.EndInteractive();
+          break;
         case RenderHookNode hk:
           FlushChildren(hk.Children, output);
           break;

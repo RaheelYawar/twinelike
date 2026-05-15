@@ -79,5 +79,17 @@ namespace Harlowe.Runtime.Rendering
     {
       if (_stack.Count > 1) _stack.Pop();
     }
+
+    public void BeginInteractive(InteractiveRegion region)
+    {
+      var node = new RenderInteractiveNode { Region = region };
+      Current.Children.Add(node);
+      _stack.Push(node);
+    }
+
+    public void EndInteractive()
+    {
+      if (_stack.Count > 1) _stack.Pop();
+    }
   }
 }

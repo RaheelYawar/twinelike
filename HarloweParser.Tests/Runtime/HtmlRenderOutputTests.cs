@@ -196,5 +196,38 @@ namespace Harlowe.Tests.Runtime
       Assert.Equal(string.Empty, HtmlRenderOutput.EscapeAttribute(null));
       Assert.Equal(string.Empty, HtmlRenderOutput.EscapeAttribute(string.Empty));
     }
+
+    // --- Interactive regions ---
+
+    [Fact]
+    public void BeginInteractive_EmitsAnchorWithRegionIdAndKind()
+    {
+      var (buf, sink) = NewSink();
+      sink.BeginInteractive(new InteractiveRegion { Id = "r-3", Kind = InteractionKind.Click });
+      sink.Text("cake");
+      sink.EndInteractive();
+      Assert.Equal("<a href=\"#\" data-region-id=\"r-3\" data-interaction=\"Click\">cake</a>", buf.Text);
+    }
+
+    [Fact]
+    public void BeginInteractive_EscapesUserSuppliedAttributeValues()
+    {
+      // Defensive: a hostile region id can't break out of the attribute.
+      var (buf, sink) = NewSink();
+      sink.BeginInteractive(new InteractiveRegion { Id = "\"><script>", Kind = InteractionKind.MouseOver });
+      sink.Text("x");
+      sink.EndInteractive();
+      Assert.Contains("data-region-id=\"&quot;&gt;&lt;script&gt;\"", buf.Text);
+    }
+
+    [Fact]
+    public void BeginInteractive_NullRegion_EmitsBareAnchor()
+    {
+      var (buf, sink) = NewSink();
+      sink.BeginInteractive(null);
+      sink.Text("x");
+      sink.EndInteractive();
+      Assert.Equal("<a>x</a>", buf.Text);
+    }
   }
 }

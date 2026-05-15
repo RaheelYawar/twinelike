@@ -43,6 +43,23 @@ namespace Harlowe.Runtime
     public void Link(string text, string target) => _inner.Link(text, target);
     public void Error(string message) => _inner.Error(message);
 
+    /// <summary>
+    /// Map an interactive region to an HTML <c>&lt;a&gt;</c> anchor with the
+    /// region id stamped onto <c>data-region-id</c> and the interaction kind
+    /// on <c>data-interaction</c>. The kind is exposed verbatim so a script
+    /// can dispatch the right session event. The default <c>href</c> of
+    /// <c>"#"</c> keeps the anchor clickable without a configured target.
+    /// </summary>
+    public void BeginInteractive(InteractiveRegion region)
+    {
+      if (region == null) { _inner.Html("<a>"); return; }
+      var id = EscapeAttribute(region.Id ?? string.Empty);
+      var kind = EscapeAttribute(region.Kind.ToString());
+      _inner.Html("<a href=\"#\" data-region-id=\"" + id + "\" data-interaction=\"" + kind + "\">");
+    }
+
+    public void EndInteractive() => _inner.Html("</a>");
+
     public void PushStyle(StyleSpec style)
     {
       var tags = TagsFor(style);

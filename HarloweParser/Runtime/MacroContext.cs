@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Harlowe.Runtime.Rendering;
 
 namespace Harlowe.Runtime
 {
@@ -77,7 +78,38 @@ namespace Harlowe.Runtime
     /// </summary>
     public List<Enchantment> Enchantments = new List<Enchantment>();
 
+    /// <summary>
+    /// Registered interaction handlers keyed by <see cref="InteractiveRegion"/>
+    /// id. Populated by <c>(click:)</c>-family changers when they wrap a
+    /// target; consumed by <see cref="StorySession.DispatchEvent"/>. Shared
+    /// with the session — the same dictionary is reused across the main render
+    /// and any subsequent dispatch re-renders, so a deferred hook that itself
+    /// registers new clicks contributes them to the live registry.
+    /// </summary>
+    public Dictionary<string, ClickHandler> ClickHandlers = new Dictionary<string, ClickHandler>();
+
+    /// <summary>
+    /// The live render tree the session is building or has built. Macros that
+    /// target rendered content (<c>(replace:)</c>, <c>(change:)</c>,
+    /// <c>(click:)</c>, …) resolve against this rather than the current
+    /// renderer's output, so a deferred-hook render whose own
+    /// <see cref="IRenderOutput"/> is a detached builder still targets the
+    /// passage's live tree. Null when there is no render tree (a plain
+    /// <see cref="BufferedRenderOutput"/> in a standalone unit test).
+    /// </summary>
+    public RenderRoot LiveRoot;
+
+    /// <summary>
+    /// Counter for generating fresh <see cref="InteractiveRegion"/> ids
+    /// (rendered as <c>"r-N"</c>). Stays unique across the main render and any
+    /// dispatch re-renders within the same session render cycle.
+    /// </summary>
+    public int NextRegionIndex;
+
     /// <summary>Convenience setter for <see cref="PendingGoto"/>; equivalent to <c>ctx.PendingGoto = name</c> but reads better in macro implementations.</summary>
     public void RequestGoto(string passageName) => PendingGoto = passageName;
+
+    /// <summary>Pull and consume the next unique region id for an interactive wrap. Format <c>"r-N"</c>.</summary>
+    public string AllocateRegionId() => "r-" + NextRegionIndex++;
   }
 }

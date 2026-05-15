@@ -21,11 +21,14 @@ namespace Harlowe.Runtime.Macros
       var error = EnchantmentMacroSupport.Validate(args, "(change:)", out var target, out var changer);
       if (error != null) return error;
 
-      // Without a live render tree (a plain buffer in a unit test) there is
-      // nothing to target — no-op, matching the revision macros.
-      if (context.Output is RenderTreeBuilder builder)
+      // Resolve against the session's live tree rather than the current
+      // renderer's output, so a (change:) inside a deferred dispatch hook
+      // (whose output is a detached builder) still targets the live tree.
+      // Without a live tree (a plain buffer unit test) — no-op.
+      var liveRoot = context.LiveRoot ?? (context.Output as RenderTreeBuilder)?.Root;
+      if (liveRoot != null)
       {
-        var targets = HookResolver.Resolve(builder.Root, target);
+        var targets = HookResolver.Resolve(liveRoot, target);
         for (int i = 0; i < targets.Count; i++)
         {
           if (targets[i] is IRenderContainer container)

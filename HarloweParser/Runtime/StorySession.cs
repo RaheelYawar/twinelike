@@ -53,6 +53,13 @@ namespace Harlowe.Runtime
     private readonly Stack<SessionSnapshot> _undoStack;
     private readonly Stopwatch _passageTimer;
 
+    // The live render-tree state for the most recent main render. Kept alive
+    // across renders so DispatchEvent can mutate it, re-flush, and return an
+    // updated RenderResult without re-rendering the whole passage. Both reset
+    // at the start of each main render.
+    private Rendering.RenderRoot _liveRoot;
+    private MacroContext _liveContext;
+
     private const int MaxGotoDepth = 20;
 
     /// <summary>Name of the passage currently loaded into the session.</summary>
@@ -216,11 +223,11 @@ namespace Harlowe.Runtime
       _registry.Context = ctx;
 
       // Render into a tree, then flush the finished tree to the buffer the
-      // RenderResult is built from. In this slice the tree is flushed verbatim
-      // — the flushed entry stream is byte-identical to what the renderer used
-      // to push straight at the buffer — but it is the addressable structure
-      // revision/enchantment macros mutate in later sub-slices.
+      // RenderResult is built from. The tree is kept alive on the session so
+      // DispatchEvent can mutate it (splice click-deferred content, re-run
+      // enchantments) without re-rendering the whole passage.
       var builder = new Rendering.RenderTreeBuilder();
+      ctx.LiveRoot = builder.Root;
       new BodyRenderer(builder, _registry, ctx).Render(passage.Ast);
 
       if (ctx.PendingGoto != null)
@@ -241,18 +248,139 @@ namespace Harlowe.Runtime
 
       // Run registered (enchant:) enchantments over the finished tree. By now
       // every later-declared hook is in the tree and every revision mutation
-      // has happened, so a single post-render pass catches everything.
+      // has happened, so the first pass catches everything. The pass is
+      // idempotent (disenchant + re-enchant) so DispatchEvent can re-run it
+      // after click-driven mutations without double-wrapping.
       EnchantmentPass.Update(builder.Root, ctx.Enchantments);
 
-      var buf = new BufferedRenderOutput();
-      Rendering.RenderTreeFlusher.Flush(builder.Root, buf);
+      // Remember the live tree + context for DispatchEvent.
+      _liveRoot = builder.Root;
+      _liveContext = ctx;
 
+      return BuildResultFromLiveTree();
+    }
+
+    /// <summary>
+    /// Report a user interaction (click, hover-enter, hover-leave) reported
+    /// by the host engine for one of the regions the most recent
+    /// <see cref="RenderResult"/> exposed. The session fires the registered
+    /// handler — unwrapping the consumed interactive region, rendering the
+    /// deferred prose into the targeted nodes via the same revision machinery
+    /// <c>(replace:)</c> uses, and re-running the enchantment pass — and
+    /// returns a fresh <see cref="RenderResult"/> reflecting the updated live
+    /// tree. Single-use: the handler is removed from the registry on dispatch.
+    ///
+    /// <para>
+    /// An unknown <paramref name="regionId"/> (one the engine reports for a
+    /// region that has already fired, or that never existed) is a no-op —
+    /// the current view is returned unchanged. A deferred hook that runs
+    /// <c>(goto:)</c> transitions to the new passage via <see cref="Goto"/>.
+    /// </para>
+    /// </summary>
+    public RenderResult DispatchEvent(string regionId)
+    {
+      if (_liveRoot == null || _liveContext == null) return EmptyResult(_currentPassage);
+      if (regionId == null || !_liveContext.ClickHandlers.TryGetValue(regionId, out var handler))
+        return BuildResultFromLiveTree();
+
+      // Consume — single-use. Remove from the registry before running so a
+      // re-entrant dispatch can't double-fire.
+      _liveContext.ClickHandlers.Remove(regionId);
+
+      // Unwrap every interactive node with this id so the wrap stops being
+      // clickable (and so append/prepend don't leave a stale wrap behind).
+      UnwrapInteractive(_liveRoot, regionId);
+
+      // Render the deferred hook into a detached subtree using the live
+      // context — so inner (click:)/(enchant:)/(replace:) calls inside the
+      // deferred hook register against the live session state.
+      var detached = new Rendering.RenderTreeBuilder();
+      handler.RenderDeferredHook?.Invoke(detached);
+      var source = detached.Root.Children;
+
+      // Splice the source into every node the target re-resolves to right
+      // now — the query is fresh, matching Harlowe's "?name is a query" rule.
+      var targets = Rendering.HookResolver.Resolve(_liveRoot, handler.Target);
+      for (int i = 0; i < targets.Count; i++)
+      {
+        if (targets[i] is Rendering.IRenderContainer container)
+          SpliceInto(container, source, handler.Mode);
+      }
+
+      // Re-run the enchantment pass (disenchant + re-enchant — idempotent).
+      EnchantmentPass.Update(_liveRoot, _liveContext.Enchantments);
+
+      // A (goto:) inside the deferred hook navigates now.
+      if (_liveContext.PendingGoto != null)
+      {
+        var target = _liveContext.PendingGoto;
+        _liveContext.PendingGoto = null;
+        return Goto(target);
+      }
+
+      return BuildResultFromLiveTree();
+    }
+
+    /// <summary>Re-flush the live tree into a fresh <see cref="RenderResult"/>. Returns an empty result when there is no live tree yet (no render has run).</summary>
+    private RenderResult BuildResultFromLiveTree()
+    {
+      if (_liveRoot == null) return EmptyResult(_currentPassage);
+      var buf = new BufferedRenderOutput();
+      Rendering.RenderTreeFlusher.Flush(_liveRoot, buf);
       return new RenderResult
       {
         PassageName = _currentPassage,
         Text = buf.Text,
         Entries = buf.Entries
       };
+    }
+
+    /// <summary>
+    /// Walk <paramref name="container"/> and splice out every
+    /// <see cref="Rendering.RenderInteractiveNode"/> whose region matches
+    /// <paramref name="regionId"/>, replacing each with its children. Used by
+    /// <see cref="DispatchEvent"/> to consume the fired region so it can't be
+    /// re-clicked and so the post-splice tree doesn't carry a stale wrap.
+    /// </summary>
+    private static void UnwrapInteractive(Rendering.IRenderContainer container, string regionId)
+    {
+      if (container == null) return;
+      var children = container.Children;
+
+      // Recurse first, then rebuild this level — symmetric with the
+      // disenchant sweep and the text-occurrence finder.
+      for (int i = 0; i < children.Count; i++)
+        if (children[i] is Rendering.IRenderContainer c) UnwrapInteractive(c, regionId);
+
+      var rebuilt = new List<Rendering.RenderNode>(children.Count);
+      for (int i = 0; i < children.Count; i++)
+      {
+        if (children[i] is Rendering.RenderInteractiveNode iv && iv.Region?.Id == regionId)
+          rebuilt.AddRange(iv.Children);
+        else
+          rebuilt.Add(children[i]);
+      }
+      children.Clear();
+      children.AddRange(rebuilt);
+    }
+
+    /// <summary>Splice deep clones of <paramref name="source"/> into <paramref name="target"/>'s children according to <paramref name="mode"/>. Mirrors <c>Changer.Splice</c>; kept here so dispatch doesn't need internal access into the changer.</summary>
+    private static void SpliceInto(Rendering.IRenderContainer target, List<Rendering.RenderNode> source, RevisionMode mode)
+    {
+      var copy = Rendering.RenderNodes.CloneAll(source);
+      switch (mode)
+      {
+        case RevisionMode.Replace:
+          target.Children.Clear();
+          target.Children.AddRange(copy);
+          break;
+        case RevisionMode.Append:
+          target.Children.AddRange(copy);
+          break;
+        case RevisionMode.Prepend:
+          target.Children.InsertRange(0, copy);
+          break;
+      }
     }
 
     /// <summary>

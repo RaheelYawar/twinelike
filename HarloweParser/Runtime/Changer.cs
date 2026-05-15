@@ -64,6 +64,16 @@ namespace Harlowe.Runtime
       => new Changer(new List<IChangerPatch> { new RevisionPatch { Revision = revision } });
 
     /// <summary>
+    /// Construct an interaction changer (<c>(click:)</c>, <c>(mouseover-append:)</c>,
+    /// …). When applied, the changer wraps every match of the spec's target in
+    /// a <see cref="RenderInteractiveNode"/> and registers a deferred
+    /// <see cref="ClickHandler"/> on <see cref="MacroContext.ClickHandlers"/>
+    /// keyed by the wrap's region id — see <see cref="Apply"/>.
+    /// </summary>
+    public static Changer FromInteraction(InteractionSpec interaction)
+      => new Changer(new List<IChangerPatch> { new InteractionPatch { Interaction = interaction } });
+
+    /// <summary>
     /// Compose this changer with <paramref name="other"/>, producing a new
     /// changer whose patch list is <c>this</c>'s followed by
     /// <paramref name="other"/>'s. Reading order: <c>A + B</c> means A's
@@ -111,9 +121,13 @@ namespace Harlowe.Runtime
       var descriptor = new HookDescriptor();
       for (int i = 0; i < _patches.Count; i++) _patches[i].Apply(descriptor);
 
-      if (descriptor.Revision != null)
+      if (descriptor.Interaction != null)
       {
-        RunRevision(descriptor, output, renderHook);
+        RunInteraction(descriptor, output, renderHook, ctx);
+      }
+      else if (descriptor.Revision != null)
+      {
+        RunRevision(descriptor, output, renderHook, ctx);
       }
       else if (descriptor.Iteration != null)
       {
@@ -157,15 +171,16 @@ namespace Harlowe.Runtime
     /// Execute a revision changer. The hook content is rendered into a detached
     /// <see cref="RenderTreeBuilder"/> — with any composed style layers wrapped
     /// around it — then spliced into every node the target resolves to in the
-    /// live render tree. Targeting sees the tree built so far (the content
-    /// above this macro), matching Harlowe's <c>selectHook</c> scope: a target
-    /// declared <em>after</em> this macro, or no render tree at all (a plain
-    /// buffer in a unit test), means no match and the source is simply not
-    /// shown — Harlowe no-ops the same way, since the DOM doesn't exist yet.
-    /// Each match gets its own deep clone of the source so the tree stays a
-    /// tree.
+    /// live render tree. Targeting prefers <see cref="MacroContext.LiveRoot"/>
+    /// so a dispatch-time deferred render (whose own output is a detached
+    /// builder, not the live tree) still mutates the right tree; it falls back
+    /// to the output's root if no context is supplied. A target not in the
+    /// live tree (declared after this macro on the main render, or absent
+    /// entirely) means no match and the source is simply not shown —
+    /// Harlowe no-ops the same way. Each match gets its own deep clone of the
+    /// source so the tree stays a tree.
     /// </summary>
-    private static void RunRevision(HookDescriptor d, IRenderOutput output, System.Action<IRenderOutput> renderHook)
+    private static void RunRevision(HookDescriptor d, IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx)
     {
       // Render the source into a detached subtree, styles wrapping the content.
       var detached = new RenderTreeBuilder();
@@ -174,18 +189,18 @@ namespace Harlowe.Runtime
       for (int i = d.Styles.Count - 1; i >= 0; i--) detached.PopStyle();
       var source = detached.Root.Children;
 
-      // Without a live render tree there is nothing to target — no-op.
-      if (!(output is RenderTreeBuilder builder)) return;
+      var liveRoot = ctx?.LiveRoot ?? (output as RenderTreeBuilder)?.Root;
+      if (liveRoot == null) return;
 
       var rev = d.Revision;
       IReadOnlyList<RenderNode> targets;
       if (rev.HookTarget != null)
       {
-        targets = HookResolver.Resolve(builder.Root, rev.HookTarget);
+        targets = HookResolver.Resolve(liveRoot, rev.HookTarget);
       }
       else if (rev.StringTarget != null)
       {
-        var wraps = TextOccurrenceFinder.FindAndWrap(builder.Root, rev.StringTarget);
+        var wraps = TextOccurrenceFinder.FindAndWrap(liveRoot, rev.StringTarget);
         var list = new List<RenderNode>(wraps.Count);
         for (int i = 0; i < wraps.Count; i++) list.Add(wraps[i]);
         targets = list;
@@ -197,6 +212,69 @@ namespace Harlowe.Runtime
 
       for (int i = 0; i < targets.Count; i++)
         Splice(targets[i], source, rev.Mode);
+    }
+
+    /// <summary>
+    /// Execute an interaction changer. Resolves the target, wraps every match's
+    /// content in a <see cref="RenderInteractiveNode"/> (with any composed
+    /// style layers between the wrap and the original content), and registers
+    /// a single <see cref="ClickHandler"/> on
+    /// <see cref="MacroContext.ClickHandlers"/> keyed by the wrap's region id.
+    /// All matches share one region id so re-resolution at dispatch time hits
+    /// every current match — matching Harlowe's "hook name is a query" rule.
+    /// No-op without a live render tree.
+    /// </summary>
+    private static void RunInteraction(HookDescriptor d, IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx)
+    {
+      if (ctx == null) { output.Error("interaction changers require a render context"); return; }
+
+      var liveRoot = ctx.LiveRoot ?? (output as RenderTreeBuilder)?.Root;
+      if (liveRoot == null) return;
+
+      var spec = d.Interaction;
+      if (spec?.HookTarget == null) return;
+
+      var targets = HookResolver.Resolve(liveRoot, spec.HookTarget);
+
+      var regionId = ctx.AllocateRegionId();
+      var region = new InteractiveRegion { Id = regionId, Kind = spec.Kind };
+
+      bool wrappedAny = false;
+      for (int i = 0; i < targets.Count; i++)
+      {
+        if (!(targets[i] is IRenderContainer container)) continue;
+        wrappedAny = true;
+
+        var content = new List<RenderNode>(container.Children);
+        var interactiveNode = new RenderInteractiveNode { Region = region };
+        interactiveNode.Children.AddRange(content);
+
+        // Wrap any composed style layers around the interactive node,
+        // innermost = last layer. Styles are visible while the region is
+        // clickable and disappear with the wrap once the handler fires.
+        RenderNode wrapped = interactiveNode;
+        for (int s = d.Styles.Count - 1; s >= 0; s--)
+        {
+          var styleNode = new RenderStyleNode { Style = d.Styles[s] };
+          styleNode.Children.Add(wrapped);
+          wrapped = styleNode;
+        }
+
+        container.Children.Clear();
+        container.Children.Add(wrapped);
+      }
+
+      // No wrap → no event will ever fire, so don't register a stale handler.
+      if (wrappedAny)
+      {
+        ctx.ClickHandlers[regionId] = new ClickHandler
+        {
+          RenderDeferredHook = renderHook,
+          Target = spec.HookTarget,
+          Mode = spec.Mode,
+          Kind = spec.Kind
+        };
+      }
     }
 
     /// <summary>
@@ -238,8 +316,17 @@ namespace Harlowe.Runtime
     /// restyle existing content, so they are ignored. A changer with no style
     /// layers is a no-op.
     /// </para>
+    ///
+    /// <para>
+    /// <paramref name="source"/> tags every created <see cref="RenderStyleNode"/>
+    /// with the enchantment that produced it, so a future
+    /// <see cref="EnchantmentPass.Update"/> can unwrap the prior pass before
+    /// re-applying — necessary now that dispatch re-renders run the enchant
+    /// pass more than once. Pass <c>null</c> (the default) for one-shot
+    /// <c>(change:)</c> applications, whose wraps survive re-passes intact.
+    /// </para>
     /// </summary>
-    public void ApplyTo(IRenderContainer target)
+    public void ApplyTo(IRenderContainer target, Enchantment source = null)
     {
       if (target == null) return;
 
@@ -251,7 +338,7 @@ namespace Harlowe.Runtime
       var content = new List<RenderNode>(target.Children);
       for (int i = styles.Count - 1; i >= 0; i--)
       {
-        var styleNode = new RenderStyleNode { Style = styles[i] };
+        var styleNode = new RenderStyleNode { Style = styles[i], SourceEnchantment = source };
         styleNode.Children.AddRange(content);
         content = new List<RenderNode> { styleNode };
       }
