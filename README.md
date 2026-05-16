@@ -231,3 +231,7 @@ For implementation depth — file layout, the descriptor-patch changer model, de
 ## Errors are inline, not exceptional
 
 The runtime never throws on the render hot path. A bad expression renders an inline error message at the spot it happened (delivered through `IRenderOutput.Error`) and the rest of the passage keeps rendering — mirroring Harlowe's authoring model, where one broken macro doesn't take down the whole story. Engine integrations don't need `try`/`catch` around every render call.
+
+## License
+
+[MIT](./LICENSE). Use it in commercial games, open-source projects, anything — just keep the copyright notice with the source.
