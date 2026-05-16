@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Harlowe.Parsing;
 using Harlowe.Tokens;
 using HtmlAgilityPack;
@@ -10,6 +11,12 @@ namespace Harlowe
   public class Harlowe
   {
     private Dictionary<string, HarlowePassage> _passages;
+
+    // Canonical iteration order, kept independent of the dictionary so it
+    // survives renames (which rekey the dict and would otherwise reorder)
+    // and doesn't rely on Dictionary's insertion-order behaviour being a
+    // stable cross-runtime contract — it isn't.
+    private List<string> _passageOrder;
 
     /// <summary>The story's author-facing name from <c>&lt;tw-storydata name="…"&gt;</c> or the body of <c>:: StoryTitle</c>. Empty string if absent.</summary>
     public string StoryName { get; set; }
@@ -81,6 +88,7 @@ namespace Harlowe
     public Harlowe()
     {
       _passages = new Dictionary<string, HarlowePassage>();
+      _passageOrder = new List<string>();
       StoryName = string.Empty;
       StartNode = "0";
       Creator = string.Empty;
@@ -94,15 +102,35 @@ namespace Harlowe
     /// Adds a fully-populated <see cref="HarlowePassage"/> to the story,
     /// indexed by name. Throws on duplicate names because Harlowe passage
     /// names are unique by spec. If <see cref="HarlowePassage.Pid"/> is
-    /// null/empty the next sequential pid is synthesized so editing
-    /// consumers don't need to track pid assignment manually.
+    /// null/empty a fresh numeric pid is synthesized — the maximum existing
+    /// numeric pid plus one, so removals and explicit pid assignment can't
+    /// collide with the synthesizer.
     /// </summary>
     public void AddPassage(HarlowePassage passage)
     {
       if (passage == null) throw new ArgumentNullException(nameof(passage));
       if (string.IsNullOrEmpty(passage.Pid))
-        passage.Pid = (_passages.Count + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
-      _passages.Add(passage.Name, passage);
+        passage.Pid = NextAvailablePid().ToString(CultureInfo.InvariantCulture);
+      _passages.Add(passage.Name, passage); // throws on duplicate name; list stays clean
+      _passageOrder.Add(passage.Name);
+    }
+
+    /// <summary>
+    /// Compute the next free numeric pid: the maximum existing numeric pid
+    /// plus one, or 1 if no numeric pids exist yet. Skips non-numeric pids
+    /// rather than rejecting them — a story may legitimately carry pids the
+    /// reader was given verbatim. The synthesized value is always numeric so
+    /// it round-trips through Twine 2's <c>pid="…"</c> attribute.
+    /// </summary>
+    private int NextAvailablePid()
+    {
+      int max = 0;
+      foreach (var p in _passages.Values)
+      {
+        if (int.TryParse(p.Pid, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) && n > max)
+          max = n;
+      }
+      return max + 1;
     }
 
     /// <summary>
@@ -117,7 +145,9 @@ namespace Harlowe
     public bool RemovePassage(string name)
     {
       if (name == null) return false;
-      return _passages.Remove(name);
+      if (!_passages.Remove(name)) return false;
+      _passageOrder.Remove(name);
+      return true;
     }
 
     /// <summary>
@@ -139,15 +169,31 @@ namespace Harlowe
       _passages.Remove(oldName);
       passage.Name = newName;
       _passages.Add(newName, passage);
+      // Replace the entry in the order list in place so the rename keeps the
+      // passage's iteration position — important for the Twee writer, which
+      // emits in this order, and for any editing UI that displays it.
+      int idx = _passageOrder.IndexOf(oldName);
+      if (idx >= 0) _passageOrder[idx] = newName;
       return true;
     }
 
     /// <summary>
     /// Enumerates passages in load order — the order they were added to the
-    /// story. Used by <see cref="Twee.TweeWriter"/> to produce stable output;
-    /// also useful to editing consumers iterating the story.
+    /// story, preserved across renames and surviving removals. Backed by an
+    /// explicit list so the order is a real API contract and not a side
+    /// effect of <see cref="Dictionary{TKey, TValue}"/>'s insertion-order
+    /// behaviour (which isn't documented as stable across runtimes). Used by
+    /// <see cref="Twee.TweeWriter"/> to produce stable output; also useful
+    /// to editing consumers iterating the story.
     /// </summary>
-    public IEnumerable<HarlowePassage> Passages => _passages.Values;
+    public IEnumerable<HarlowePassage> Passages
+    {
+      get
+      {
+        for (int i = 0; i < _passageOrder.Count; i++)
+          yield return _passages[_passageOrder[i]];
+      }
+    }
 
     /// <summary>
     /// Pulls story-level attributes off the <c>&lt;tw-storydata&gt;</c> node:
@@ -223,6 +269,7 @@ namespace Harlowe
     private void Parse(HtmlNodeCollection passageNodes)
     {
       _passages = new Dictionary<string, HarlowePassage>();
+      _passageOrder = new List<string>();
       var tokenizer = new HarloweTokenizer();
       var bodyParser = new HarloweBodyParser();
 
@@ -257,6 +304,7 @@ namespace Harlowe
         };
 
         _passages.Add(passage.Name, passage);
+        _passageOrder.Add(passage.Name);
       }
     }
 

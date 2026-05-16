@@ -598,5 +598,62 @@ namespace Harlowe.Tests.Runtime
       Assert.True(session.Undo());
       Assert.Equal("Disclaimer", session.CurrentPassage);
     }
+
+    // -----------------------------------------------------------------------
+    // Live render state hygiene (H1) — every top-level render resets the live
+    // tree so a failed render can't leave DispatchEvent operating on the old
+    // passage's tree under the new passage name.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void GotoMissingPassage_ClearsLiveStateSoDispatchIsNoOp()
+    {
+      // Set up a session with a clickable region in the first passage.
+      var story = TwoPassages(
+        "|m>[cake](click: ?m)[surprise]",
+        "second");
+      var session = new StorySession(story);
+      var first = session.Render();
+
+      // Capture the region id from the first render.
+      string regionId = null;
+      for (int i = 0; i < first.Entries.Count; i++)
+        if (first.Entries[i].Kind == BufferedRenderOutput.Kind.BeginInteractive)
+          regionId = first.Entries[i].Region?.Id;
+      Assert.NotNull(regionId);
+
+      // Goto a passage that doesn't exist. The session moves to that name
+      // but no tree is produced for it.
+      var failed = session.Goto("DoesNotExist");
+      Assert.Equal("DoesNotExist", session.CurrentPassage);
+      Assert.Equal(string.Empty, failed.Text);
+
+      // DispatchEvent must NOT mutate the previous passage's tree (which it
+      // would, pre-fix, because _liveRoot still pointed at it). The result
+      // should be empty / inert.
+      var dispatched = session.DispatchEvent(regionId);
+      Assert.Equal(string.Empty, dispatched.Text);
+      Assert.Empty(dispatched.Entries);
+    }
+
+    [Fact]
+    public void RenderWithMissingPassage_ClearsLiveStateFromPriorRender()
+    {
+      // Same scenario but via direct EnterPassage state: render the first
+      // passage, then construct a fresh session pointed at a missing start.
+      var story = OnePassage("hello (click: ?passage)[wow]");
+      var session = new StorySession(story);
+      var initial = session.Render();
+      Assert.NotEmpty(initial.Entries);
+
+      // Now manually point at a missing passage and render again.
+      session.Goto("Phantom");
+      var blank = session.Render();
+      Assert.Equal(string.Empty, blank.Text);
+
+      // Dispatch (any id) is inert because there is no live tree.
+      var inert = session.DispatchEvent("r-0");
+      Assert.Equal(string.Empty, inert.Text);
+    }
   }
 }

@@ -206,6 +206,19 @@ namespace Harlowe.Runtime
 
     private RenderResult RenderInternal(int depth)
     {
+      // Reset live state at the start of each top-level render. If this
+      // render fails (missing passage, goto-depth exceeded), there is no
+      // tree for DispatchEvent to mutate — and dispatching into a stale
+      // tree from a previous passage under the new passage name would be a
+      // correctness bug. The success path sets _liveRoot/_liveContext
+      // again below. Recursive calls (goto chains) pass depth > 0 and skip
+      // the reset so the outer-most clear stays authoritative.
+      if (depth == 0)
+      {
+        _liveRoot = null;
+        _liveContext = null;
+      }
+
       if (string.IsNullOrEmpty(_currentPassage))
         return EmptyResult(_currentPassage);
 

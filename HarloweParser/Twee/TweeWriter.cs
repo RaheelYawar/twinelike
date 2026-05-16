@@ -13,7 +13,10 @@ namespace Harlowe.Twee
   /// <para><b>Lazy reserialization.</b> Each passage carries an
   /// <see cref="HarlowePassage.IsDirty"/> bit. Clean passages (the default)
   /// emit their <see cref="HarlowePassage.RawBody"/> verbatim — no
-  /// reformatting, byte-for-byte preservation of the source as it was read.
+  /// reformatting, passage-body content preserved as it was read. (Trailing
+  /// newlines on a body are normalised away by the reader so the writer can
+  /// own inter-passage separation consistently — see
+  /// <see cref="Twee.TweeReader"/>; the body proper is left unchanged.)
   /// Dirty passages run their AST through <see cref="MarkupPrinter"/> in
   /// canonical form. Mirrors Twine 2's approach (passage bodies are stored as
   /// opaque strings) so cross-tool diffs are scoped to actually-edited
@@ -149,9 +152,11 @@ namespace Harlowe.Twee
 
     /// <summary>
     /// Picks the body source for <paramref name="passage"/>: clean passages
-    /// reuse <see cref="HarlowePassage.RawBody"/> for byte-preserving output;
-    /// dirty (or RawBody-less) passages run through <see cref="MarkupPrinter"/>
-    /// in canonical form.
+    /// reuse <see cref="HarlowePassage.RawBody"/> (preserved verbatim except
+    /// for the trailing-newline normalisation the reader applies, so inter-
+    /// passage separation stays the writer's responsibility); dirty (or
+    /// RawBody-less) passages run through <see cref="MarkupPrinter"/> in
+    /// canonical form.
     /// </summary>
     private static string ResolveBody(HarlowePassage passage)
     {

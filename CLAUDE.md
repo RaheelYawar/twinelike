@@ -64,7 +64,7 @@ In-prose errors, never exceptions. Mirrors Harlowe's authoring model: a single b
 
 ## Status
 
-**v3 complete, 1000 tests passing, no active slice.** Full per-version implementation history is in `git log` — see commit messages tagged by slice. The current shape rests on three load-bearing architectural pivots; everything else in the codebase is built atop them and any future slice should respect them rather than work around them.
+**v3 complete, 1009 tests passing, no active slice.** Full per-version implementation history is in `git log` — see commit messages tagged by slice. The current shape rests on three load-bearing architectural pivots; everything else in the codebase is built atop them and any future slice should respect them rather than work around them.
 
 - **Descriptor-patch changer model** (introduced v2.3D, matches the reference Harlowe JS impl). A `Changer` is a flat `List<IChangerPatch>` over a `HookDescriptor`. New changer kinds drop in as new patch types + descriptor fields — `Apply` never grows a new top-level branch you can't isolate. Style/Iteration/Revision/Interaction all slot in this way.
 - **Render tree between `BodyRenderer` and `IRenderOutput`** (introduced v3A). An addressable, mutable representation of rendered content, so revision and enchantment macros have something concrete to target rather than a one-way event stream. `RenderTreeBuilder` *is* an `IRenderOutput`, which is why `Changer.Apply` retargets onto the tree for free.

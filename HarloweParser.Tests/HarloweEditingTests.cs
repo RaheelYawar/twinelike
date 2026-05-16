@@ -260,5 +260,117 @@ namespace Harlowe.Tests
       Assert.Contains(":: New", output);
       Assert.DoesNotContain(":: Old", output);
     }
+
+    // --- Pid synthesis (M3 — must not collide with explicit/post-remove pids) ---
+
+    [Fact]
+    public void AddPassage_AfterRemove_DoesNotReusePidOfRemainingPassage()
+    {
+      // Two synthesized pids ("1", "2"). Remove the first; the next
+      // AddPassage must NOT synthesize "2" (which would collide).
+      var story = new Harlowe();
+      story.AddPassage(MakePassage("A"));
+      story.AddPassage(MakePassage("B"));
+      Assert.Equal("1", story.GetPassage("A").Pid);
+      Assert.Equal("2", story.GetPassage("B").Pid);
+
+      story.RemovePassage("A");
+      story.AddPassage(MakePassage("C"));
+      // Max numeric pid was 2 → next is 3. Crucially not "2", which is B's.
+      Assert.Equal("3", story.GetPassage("C").Pid);
+    }
+
+    [Fact]
+    public void AddPassage_AfterExplicitHighPid_StartsAboveIt()
+    {
+      // An explicit pid > Count must still leave the synthesizer collision-
+      // free on the next AddPassage.
+      var story = new Harlowe();
+      story.AddPassage(new HarlowePassage
+      {
+        Name = "Manual", Pid = "10",
+        Ast = new PassageBody { Children = new List<IBodyNode>() },
+        Tags = new List<string>(), Branches = new List<Branch>()
+      });
+      story.AddPassage(MakePassage("Auto"));
+      Assert.Equal("11", story.GetPassage("Auto").Pid);
+    }
+
+    [Fact]
+    public void AddPassage_NonNumericPidsAreSkippedBySynthesizer()
+    {
+      // A non-numeric explicit pid shouldn't break the max-scan — it's just
+      // skipped; the synthesizer keeps producing numerics.
+      var story = new Harlowe();
+      story.AddPassage(new HarlowePassage
+      {
+        Name = "Weird", Pid = "abc",
+        Ast = new PassageBody { Children = new List<IBodyNode>() },
+        Tags = new List<string>(), Branches = new List<Branch>()
+      });
+      story.AddPassage(MakePassage("Auto"));
+      Assert.Equal("1", story.GetPassage("Auto").Pid);
+    }
+
+    // --- Passage ordering (M4 — rename must not move the entry) ---
+
+    [Fact]
+    public void Passages_EnumeratesInInsertionOrder()
+    {
+      var story = new Harlowe();
+      story.AddPassage(MakePassage("A"));
+      story.AddPassage(MakePassage("B"));
+      story.AddPassage(MakePassage("C"));
+
+      var names = new List<string>();
+      foreach (var p in story.Passages) names.Add(p.Name);
+      Assert.Equal(new[] { "A", "B", "C" }, names);
+    }
+
+    [Fact]
+    public void RenamePassage_PreservesPositionInPassagesEnumeration()
+    {
+      // Without an explicit order list, a rename = Remove+Add would push the
+      // renamed entry to the end. The order list keeps it in place.
+      var story = new Harlowe();
+      story.AddPassage(MakePassage("A"));
+      story.AddPassage(MakePassage("B"));
+      story.AddPassage(MakePassage("C"));
+      story.RenamePassage("B", "B2");
+
+      var names = new List<string>();
+      foreach (var p in story.Passages) names.Add(p.Name);
+      Assert.Equal(new[] { "A", "B2", "C" }, names);
+    }
+
+    [Fact]
+    public void RemovePassage_RemovesFromOrderList()
+    {
+      var story = new Harlowe();
+      story.AddPassage(MakePassage("A"));
+      story.AddPassage(MakePassage("B"));
+      story.AddPassage(MakePassage("C"));
+      story.RemovePassage("B");
+
+      var names = new List<string>();
+      foreach (var p in story.Passages) names.Add(p.Name);
+      Assert.Equal(new[] { "A", "C" }, names);
+    }
+
+    [Fact]
+    public void RoundTrip_RenameDoesNotReorderTweeOutput()
+    {
+      // Twee output emits passages in story.Passages order. Renaming the
+      // middle passage must keep it in the middle of the output, not move
+      // it to the end.
+      var story = new TweeReader().Read(":: A\nfirst\n\n:: B\nsecond\n\n:: C\nthird");
+      story.RenamePassage("B", "B2");
+      string output = new TweeWriter().Write(story);
+      int idxA = output.IndexOf(":: A", System.StringComparison.Ordinal);
+      int idxB2 = output.IndexOf(":: B2", System.StringComparison.Ordinal);
+      int idxC = output.IndexOf(":: C", System.StringComparison.Ordinal);
+      Assert.True(idxA >= 0 && idxB2 > idxA && idxC > idxB2,
+        $"expected A < B2 < C in output, got A={idxA} B2={idxB2} C={idxC}");
+    }
   }
 }
