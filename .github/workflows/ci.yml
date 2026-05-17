@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel superseded PR runs; let main-branch builds finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore Twinelike.sln
+
+      - name: Build (Release)
+        run: dotnet build Twinelike.sln -c Release --no-restore
+
+      # The test project multi-targets net48 + net8.0. CI runs the net8.0
+      # slice only — net48 requires the .NET Framework runtime, which is
+      # impractical on Linux runners. Humans on Windows still run net48
+      # locally through Rider / Visual Studio.
+      - name: Test (net8.0)
+        run: dotnet test Twinelike.sln -c Release --no-build --framework net8.0 --verbosity normal
+
+      # Smoke test the NuGet packaging — catches a broken PackageReadmeFile
+      # path, missing license expression, etc. before they hit a real release.
+      - name: Pack (smoke test)
+        run: dotnet pack Twinelike.csproj -c Release --no-build -o ./nupkg

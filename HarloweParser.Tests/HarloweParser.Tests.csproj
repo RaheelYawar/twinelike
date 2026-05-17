@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
-        <TargetFramework>net48</TargetFramework>
+        <TargetFrameworks>net48;net8.0</TargetFrameworks>
         <RootNamespace>Harlowe.Tests</RootNamespace>
         <AssemblyName>Harlowe.Tests</AssemblyName>
         <IsPackable>false</IsPackable>

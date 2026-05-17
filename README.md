@@ -1,5 +1,9 @@
 # Twinelike
 
+[![CI](https://github.com/RaheelYawar/twinelike/actions/workflows/ci.yml/badge.svg)](https://github.com/RaheelYawar/twinelike/actions/workflows/ci.yml)
+[![NuGet](https://img.shields.io/nuget/v/Twinelike.svg)](https://www.nuget.org/packages/Twinelike/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+
 A C# library for parsing and running [Twine/Harlowe](https://twinery.org/) interactive fiction, designed to embed inside game engines — Unity, Godot, anything that runs .NET, Mono, or IL2CPP.
 
 It accepts Twine 2 HTML exports and Twee 3 source, parses the full Harlowe markup language, evaluates author-written macros at runtime, and surfaces rendered content through an engine-agnostic `IRenderOutput` interface — plain text, navigation links, semantic styles, and interactive regions. Implement that interface against your engine's text renderer (TextMeshPro, RichTextLabel, raw HTML, plain console) and you have a working interactive story.
