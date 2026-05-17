@@ -170,3 +170,8 @@ _UpgradeReport_Files/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Distribution / packaging output (produced by dotnet publish / dotnet pack
+# into top-level folders for convenience — not source).
+dist/
+nupkg-test/

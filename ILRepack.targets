@@ -1,0 +1,42 @@
+<Project>
+    <!--
+      Override for ILRepack.Lib.MSBuild.Task. The package's ILRepack.Lib.MSBuild.Task.targets
+      auto-runs a default merge target on Release builds *unless* this file
+      exists in the project dir — see its source for the condition. Putting
+      the custom merge logic here gives us full control over flags
+      (Internalize), idempotency (Exists() guard so re-builds don't fail
+      after HAP is cleaned up), and which assemblies get pulled in.
+    -->
+
+    <Target Name="ILRepacker" AfterTargets="Build"
+            Condition="'$(Configuration)' == 'Release' AND Exists('$(OutputPath)HtmlAgilityPack.dll')">
+        <ItemGroup>
+            <InputAssemblies Include="$(OutputPath)Twinelike.dll" />
+            <InputAssemblies Include="$(OutputPath)HtmlAgilityPack.dll" />
+        </ItemGroup>
+        <ILRepack
+            Parallel="true"
+            Internalize="true"
+            InputAssemblies="@(InputAssemblies)"
+            OutputFile="$(OutputPath)Twinelike.dll"
+            TargetKind="Dll"
+            LibraryPath="$(OutputPath)"
+        />
+        <!-- Remove the source HAP DLL — the merged Twinelike.dll has everything
+             so consumers of bin/Release shouldn't think they need to ship it.
+             The Exists() guard above keeps re-builds (e.g. when the test
+             project rebuilds Twinelike transitively) from failing once HAP
+             is already cleaned up. -->
+        <Delete Files="$(OutputPath)HtmlAgilityPack.dll" />
+    </Target>
+
+    <!-- `dotnet publish` produces its own copy of Twinelike.dll from obj/, which
+         is the pre-merge artifact. Overlay the merged bin/Release version on
+         top so publish output also gets the self-contained DLL. -->
+    <Target Name="ILRepackerOverlayPublish" AfterTargets="Publish"
+            Condition="'$(Configuration)' == 'Release' AND Exists('$(OutputPath)Twinelike.dll')">
+        <Copy SourceFiles="$(OutputPath)Twinelike.dll"
+              DestinationFiles="$(PublishDir)Twinelike.dll"
+              OverwriteReadOnlyFiles="true" />
+    </Target>
+</Project>

@@ -6,6 +6,9 @@
         <AssemblyName>Twinelike</AssemblyName>
         <DefaultItemExcludes>$(DefaultItemExcludes);HarloweParser.Tests\**</DefaultItemExcludes>
         <LangVersion>latest</LangVersion>
+        <!-- Required for ILRepack: copies transitive deps (HtmlAgilityPack)
+             into the output folder so the merge target can find them. -->
+        <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     </PropertyGroup>
 
     <!-- NuGet package metadata. Run `dotnet pack -c Release` to produce a .nupkg. -->
@@ -30,6 +33,25 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="HtmlAgilityPack" Version="1.11.46" />
+        <!-- HtmlAgilityPack is consumed by Layer 1 (the Twine 2 HTML loader)
+             and merged into Twinelike.dll at build time by the ILRepack target
+             below. PrivateAssets=all keeps it out of the produced NuGet
+             package's dependency list so consumers see a single self-contained
+             DLL with zero external deps. -->
+        <PackageReference Include="HtmlAgilityPack" Version="1.11.46">
+            <PrivateAssets>all</PrivateAssets>
+        </PackageReference>
+
+        <!-- Build-time only: drives the ILRepack target below. PrivateAssets=all
+             keeps it out of the nuspec. -->
+        <PackageReference Include="ILRepack.Lib.MSBuild.Task" Version="2.0.34.2">
+            <PrivateAssets>all</PrivateAssets>
+        </PackageReference>
     </ItemGroup>
+
+    <!-- ILRepack merge logic lives in ./ILRepack.targets — the package's own
+         override mechanism (its default target is skipped when that file
+         exists). That file merges HtmlAgilityPack into Twinelike.dll on
+         Release builds with HAP types internalized so they don't pollute
+         the public API or conflict with a consumer's own HAP reference. -->
 </Project>
