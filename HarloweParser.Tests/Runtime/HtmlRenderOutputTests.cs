@@ -229,5 +229,127 @@ namespace Harlowe.Tests.Runtime
       sink.EndInteractive();
       Assert.Equal("<a>x</a>", buf.Text);
     }
+
+    // --- v3.1 styling slice: new value fields ---
+
+    [Fact]
+    public void BackgroundImage_EmitsBackgroundImageAndSize()
+    {
+      var (buf, sink) = NewSink();
+      sink.PushStyle(new StyleSpec { BackgroundImage = "sky.png" });
+      sink.Text("x");
+      sink.PopStyle();
+      Assert.Equal("<span style=\"background-image: url(sky.png); background-size: cover;\">x</span>", buf.Text);
+    }
+
+    [Fact]
+    public void BackgroundImage_UserSuppliedValue_IsEscaped()
+    {
+      var (buf, sink) = NewSink();
+      sink.PushStyle(new StyleSpec { BackgroundImage = "\"); evil(" });
+      sink.Text("x");
+      sink.PopStyle();
+      Assert.Contains("&quot;", buf.Text);
+    }
+
+    [Fact]
+    public void Opacity_EmitsOpacityDeclaration()
+    {
+      var (buf, sink) = NewSink();
+      sink.PushStyle(new StyleSpec { Opacity = 0.5 });
+      sink.Text("x");
+      sink.PopStyle();
+      Assert.Equal("<span style=\"opacity: 0.5;\">x</span>", buf.Text);
+    }
+
+    [Theory]
+    [InlineData(TextAlignment.Left, "left")]
+    [InlineData(TextAlignment.Center, "center")]
+    [InlineData(TextAlignment.Right, "right")]
+    [InlineData(TextAlignment.Justify, "justify")]
+    public void Alignment_EmitsTextAlign(TextAlignment a, string cssValue)
+    {
+      var (buf, sink) = NewSink();
+      sink.PushStyle(new StyleSpec { Alignment = a });
+      sink.Text("x");
+      sink.PopStyle();
+      Assert.Contains("text-align: " + cssValue + ";", buf.Text);
+    }
+
+    // --- v3.1: effects ---
+
+    [Fact]
+    public void Mark_EmitsHighlighterBackground()
+    {
+      var (buf, sink) = NewSink();
+      var s = new StyleSpec();
+      s.Effects.Add(TextEffect.Mark);
+      sink.PushStyle(s);
+      sink.Text("x");
+      sink.PopStyle();
+      Assert.Contains("background-color: hsla(50, 100%, 50%, 0.5);", buf.Text);
+    }
+
+    [Fact]
+    public void Blur_EmitsTransparentColorAndTextShadow()
+    {
+      var (buf, sink) = NewSink();
+      var s = new StyleSpec();
+      s.Effects.Add(TextEffect.Blur);
+      sink.PushStyle(s);
+      sink.Text("x");
+      sink.PopStyle();
+      Assert.Contains("color: transparent;", buf.Text);
+      Assert.Contains("text-shadow:", buf.Text);
+    }
+
+    [Fact]
+    public void Mirror_EmitsTransformScaleX()
+    {
+      var (buf, sink) = NewSink();
+      var s = new StyleSpec();
+      s.Effects.Add(TextEffect.Mirror);
+      sink.PushStyle(s);
+      sink.Text("x");
+      sink.PopStyle();
+      Assert.Contains("transform: scaleX(-1);", buf.Text);
+      Assert.Contains("display: inline-block;", buf.Text);
+    }
+
+    [Theory]
+    [InlineData(TextEffect.Blink, "harlowe-blink")]
+    [InlineData(TextEffect.FadeInOut, "harlowe-fade-in-out")]
+    [InlineData(TextEffect.Shudder, "harlowe-shudder")]
+    [InlineData(TextEffect.Rumble, "harlowe-rumble")]
+    [InlineData(TextEffect.Sway, "harlowe-sway")]
+    [InlineData(TextEffect.Buoy, "harlowe-buoy")]
+    [InlineData(TextEffect.Fidget, "harlowe-fidget")]
+    public void Animations_EmitAnimationDeclaration(TextEffect effect, string keyframeName)
+    {
+      var (buf, sink) = NewSink();
+      var s = new StyleSpec();
+      s.Effects.Add(effect);
+      sink.PushStyle(s);
+      sink.Text("x");
+      sink.PopStyle();
+      Assert.Contains("animation: " + keyframeName, buf.Text);
+    }
+
+    [Fact]
+    public void FlagPlusEffect_CollapsesToSingleSpan()
+    {
+      // Bold + a mark effect should fold into one span, not bold-tags
+      // around a span — the effect fields force the value-field path.
+      var (buf, sink) = NewSink();
+      var s = new StyleSpec { Bold = true };
+      s.Effects.Add(TextEffect.Mark);
+      sink.PushStyle(s);
+      sink.Text("x");
+      sink.PopStyle();
+      Assert.StartsWith("<span style=\"", buf.Text);
+      Assert.Contains("background-color: hsla(50, 100%, 50%, 0.5);", buf.Text);
+      Assert.Contains("font-weight: bold;", buf.Text);
+      Assert.EndsWith("</span>", buf.Text);
+    }
   }
 }

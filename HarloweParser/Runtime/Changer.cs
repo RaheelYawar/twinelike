@@ -74,6 +74,16 @@ namespace Harlowe.Runtime
       => new Changer(new List<IChangerPatch> { new InteractionPatch { Interaction = interaction } });
 
     /// <summary>
+    /// Construct a changer from a fixed sequence of patches. Used by macros
+    /// that need to express more than one patch in a single produced changer —
+    /// e.g. <c>(text-style: "none", "bold")</c> emits a
+    /// <see cref="ClearStylesPatch"/> followed by a <see cref="StylePatch"/>.
+    /// Most macros should prefer the single-patch factories above.
+    /// </summary>
+    public static Changer FromPatches(params IChangerPatch[] patches)
+      => new Changer(new List<IChangerPatch>(patches ?? new IChangerPatch[0]));
+
+    /// <summary>
     /// Compose this changer with <paramref name="other"/>, producing a new
     /// changer whose patch list is <c>this</c>'s followed by
     /// <paramref name="other"/>'s. Reading order: <c>A + B</c> means A's

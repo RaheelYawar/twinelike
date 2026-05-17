@@ -32,6 +32,17 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new NumMacro());
       registry.Register(new HistoryMacro());
       registry.Register(new TextStyleMacro());
+      registry.Register(new TextColorMacro("text-color"));
+      registry.Register(new TextColorMacro("text-colour"));
+      registry.Register(new TextColorMacro("color"));
+      registry.Register(new TextColorMacro("colour"));
+      registry.Register(new BackgroundMacro("background"));
+      registry.Register(new BackgroundMacro("bg"));
+      registry.Register(new FontMacro());
+      registry.Register(new TextSizeMacro("text-size"));
+      registry.Register(new TextSizeMacro("size"));
+      registry.Register(new OpacityMacro());
+      registry.Register(new AlignMacro());
       registry.Register(new FindMacro());
       registry.Register(new AllPassMacro());
       registry.Register(new AlteredMacro());

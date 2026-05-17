@@ -187,5 +187,119 @@ namespace Harlowe.Tests.Runtime.Macros
       Assert.Equal(2, pushes);
       Assert.Equal(2, pops);
     }
+
+    // --- v3.1 styling slice: variadic + extended name set ---
+
+    [Fact]
+    public void Strike_SetsStrikethroughFlag()
+    {
+      var buf = RenderRaw("(text-style: \"strike\")[hi]");
+      var push = buf.Entries.Find(e => e.Kind == BufferedRenderOutput.Kind.PushStyle);
+      Assert.NotNull(push);
+      Assert.True(push.Style.Strikethrough);
+    }
+
+    [Fact]
+    public void Strikethrough_AliasSetsStrikethroughFlag()
+    {
+      var buf = RenderRaw("(text-style: \"strikethrough\")[hi]");
+      var push = buf.Entries.Find(e => e.Kind == BufferedRenderOutput.Kind.PushStyle);
+      Assert.NotNull(push);
+      Assert.True(push.Style.Strikethrough);
+    }
+
+    [Fact]
+    public void Variadic_MultipleFlags_FoldIntoOneSpec()
+    {
+      // (text-style: "bold", "italic") installs both flags in ONE StyleSpec,
+      // not two pushed layers — the rendered HTML uses the multi-flag short
+      // tag form a single span/short-tag run.
+      var buf = RenderRaw("(text-style: \"bold\", \"italic\")[hi]");
+      int pushes = 0;
+      foreach (var e in buf.Entries)
+        if (e.Kind == BufferedRenderOutput.Kind.PushStyle) { pushes++; Assert.True(e.Style.Bold); Assert.True(e.Style.Italic); }
+      Assert.Equal(1, pushes);
+    }
+
+    [Fact]
+    public void Variadic_BoldAndMark_FlagPlusEffect()
+    {
+      var buf = RenderRaw("(text-style: \"bold\", \"mark\")[hi]");
+      var push = buf.Entries.Find(e => e.Kind == BufferedRenderOutput.Kind.PushStyle);
+      Assert.NotNull(push);
+      Assert.True(push.Style.Bold);
+      Assert.Contains(TextEffect.Mark, push.Style.Effects);
+    }
+
+    [Theory]
+    [InlineData("mark", TextEffect.Mark)]
+    [InlineData("sup", TextEffect.Superscript)]
+    [InlineData("superscript", TextEffect.Superscript)]
+    [InlineData("sub", TextEffect.Subscript)]
+    [InlineData("subscript", TextEffect.Subscript)]
+    [InlineData("condense", TextEffect.Condense)]
+    [InlineData("expand", TextEffect.Expand)]
+    [InlineData("outline", TextEffect.Outline)]
+    [InlineData("shadow", TextEffect.Shadow)]
+    [InlineData("emboss", TextEffect.Emboss)]
+    [InlineData("smear", TextEffect.Smear)]
+    [InlineData("blur", TextEffect.Blur)]
+    [InlineData("blurrier", TextEffect.Blurrier)]
+    [InlineData("mirror", TextEffect.Mirror)]
+    [InlineData("upside-down", TextEffect.UpsideDown)]
+    [InlineData("blink", TextEffect.Blink)]
+    [InlineData("fade-in-out", TextEffect.FadeInOut)]
+    [InlineData("shudder", TextEffect.Shudder)]
+    [InlineData("rumble", TextEffect.Rumble)]
+    [InlineData("sway", TextEffect.Sway)]
+    [InlineData("buoy", TextEffect.Buoy)]
+    [InlineData("fidget", TextEffect.Fidget)]
+    public void RecognisedEffectNames_AddToEffectsList(string name, TextEffect expected)
+    {
+      var buf = RenderRaw("(text-style: \"" + name + "\")[hi]");
+      var push = buf.Entries.Find(e => e.Kind == BufferedRenderOutput.Kind.PushStyle);
+      Assert.NotNull(push);
+      Assert.Contains(expected, push.Style.Effects);
+    }
+
+    [Fact]
+    public void NameMatching_IsCaseInsensitive()
+    {
+      var buf = RenderRaw("(text-style: \"BOLD\")[hi]");
+      var push = buf.Entries.Find(e => e.Kind == BufferedRenderOutput.Kind.PushStyle);
+      Assert.NotNull(push);
+      Assert.True(push.Style.Bold);
+    }
+
+    [Fact]
+    public void NoneAlone_ClearsPriorComposedStyles()
+    {
+      // (text-style: "bold") + (text-style: "none") composed: the second
+      // changer's ClearStylesPatch wipes the bold layer the first added.
+      var buf = RenderRaw("(text-style: \"bold\") + (text-style: \"none\") [hi]");
+      int pushes = 0;
+      foreach (var e in buf.Entries)
+        if (e.Kind == BufferedRenderOutput.Kind.PushStyle) pushes++;
+      Assert.Equal(0, pushes);
+    }
+
+    [Fact]
+    public void NoneThenAnotherName_ClearsThenAppliesNewLayer()
+    {
+      // (text-style: "bold") + (text-style: "none", "italic") composes to
+      // italic only — none clears bold, then italic is added.
+      var buf = RenderRaw("(text-style: \"bold\") + (text-style: \"none\", \"italic\") [hi]");
+      int pushes = 0;
+      bool sawItalic = false;
+      foreach (var e in buf.Entries)
+        if (e.Kind == BufferedRenderOutput.Kind.PushStyle)
+        {
+          pushes++;
+          if (e.Style.Italic) sawItalic = true;
+          Assert.False(e.Style.Bold);
+        }
+      Assert.Equal(1, pushes);
+      Assert.True(sawItalic);
+    }
   }
 }

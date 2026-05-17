@@ -64,7 +64,7 @@ In-prose errors, never exceptions. Mirrors Harlowe's authoring model: a single b
 
 ## Status
 
-**v3 complete, 1009 tests passing, no active slice.** Full per-version implementation history is in `git log` — see commit messages tagged by slice. The current shape rests on three load-bearing architectural pivots; everything else in the codebase is built atop them and any future slice should respect them rather than work around them.
+**v3.1 complete, 1087 tests passing, no active slice.** Full per-version implementation history is in `git log` — see commit messages tagged by slice. The current shape rests on three load-bearing architectural pivots; everything else in the codebase is built atop them and any future slice should respect them rather than work around them.
 
 - **Descriptor-patch changer model** (introduced v2.3D, matches the reference Harlowe JS impl). A `Changer` is a flat `List<IChangerPatch>` over a `HookDescriptor`. New changer kinds drop in as new patch types + descriptor fields — `Apply` never grows a new top-level branch you can't isolate. Style/Iteration/Revision/Interaction all slot in this way.
 - **Render tree between `BodyRenderer` and `IRenderOutput`** (introduced v3A). An addressable, mutable representation of rendered content, so revision and enchantment macros have something concrete to target rather than a one-way event stream. `RenderTreeBuilder` *is* an `IRenderOutput`, which is why `Changer.Apply` retargets onto the tree for free.
@@ -74,8 +74,9 @@ In-prose errors, never exceptions. Mirrors Harlowe's authoring model: a single b
 
 No active slice; this is a candidate list, not a queue. Weigh each against the game-engine audience before defaulting to order.
 
-- **More styling changers** — `(text-color:)`/`(background:)`/`(font:)`/`(text-size:)` plus the broader `(text-style:)` named set. `StyleSpec` already carries the value fields; each is a thin `StylePatch`-producing macro. Highest immediate impact for engine-rendered stories.
 - **Event/live system** — `(event:)`, `(live:)`, `(trigger:)`. Needs async/live re-evaluation, plus a tick callback channel from the engine to the session.
+- **More styling changers (second wave)** — `(border:)`/`(border-colour:)`/`(border-size:)`/`(corner-radius:)`/`(rotate:)`/`(text-indent:)`/`(text-rotate-x/y/z:)`. Follow the same `StylePatch` pattern as v3.1; borders take CSS-shorthand sided args (1=all, 4=t/r/b/l).
+- **`(hover-style:)` and `(line-style:)`/`(char-style:)`/`(link-style:)`** — need a pseudo-state field on the descriptor and per-line/char/link tree iteration respectively. Their own slice.
 - **String-target click/hover** — `(click: "some text")[…]`, analogous to string-target revision. Reuses `TextOccurrenceFinder`; deferred from v3D to keep scope tight.
 - **`(link:)` family** — `(link-replace:)`, `(link-reveal:)`, `(link-goto:)`. Interaction macros that *create* new link elements rather than wrapping existing hooks. Reuses v3D's interactive channel.
 - **Story-wide `(enchant:)`** via `header`/`footer`-tagged passages. Needs cross-passage enchantment threading on `StorySession`.

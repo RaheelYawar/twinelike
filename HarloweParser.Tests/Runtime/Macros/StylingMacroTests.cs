@@ -1,0 +1,218 @@
+using Harlowe.Parsing;
+using Harlowe.Runtime;
+using Harlowe.Runtime.Macros;
+using Harlowe.Tokens;
+using Xunit;
+
+namespace Harlowe.Tests.Runtime.Macros
+{
+  /// <summary>
+  /// Tests for the v3.1 styling-changer slice: <c>(text-color:)</c> /
+  /// <c>(text-colour:)</c> / <c>(color:)</c> / <c>(colour:)</c>,
+  /// <c>(background:)</c> / <c>(bg:)</c>, <c>(font:)</c>,
+  /// <c>(text-size:)</c> / <c>(size:)</c>, <c>(opacity:)</c>, and
+  /// <c>(align:)</c>. Each macro is a thin <see cref="StyleSpec"/> producer;
+  /// the tests confirm the right semantic field lands on the emitted spec and
+  /// that argument validation errors render in prose.
+  /// </summary>
+  public class StylingMacroTests
+  {
+    private static BufferedRenderOutput RenderRaw(string source)
+    {
+      var ast = new HarloweBodyParser().Parse(new HarloweTokenizer().Tokenize(source));
+      var registry = new MacroRegistry();
+      StandardMacros.RegisterAll(registry);
+      var store = new HarloweVariableStore();
+      var ctx = new MacroContext { Store = store, Invoker = registry };
+      registry.Context = ctx;
+
+      var buf = new BufferedRenderOutput();
+      new BodyRenderer(buf, registry, ctx).Render(ast);
+      return buf;
+    }
+
+    private static StyleSpec FirstPushedStyle(BufferedRenderOutput buf)
+    {
+      var push = buf.Entries.Find(e => e.Kind == BufferedRenderOutput.Kind.PushStyle);
+      Assert.NotNull(push);
+      return push.Style;
+    }
+
+    private static void AssertError(BufferedRenderOutput buf, string contains)
+    {
+      var err = buf.Entries.Find(e => e.Kind == BufferedRenderOutput.Kind.Error);
+      Assert.NotNull(err);
+      Assert.Contains(contains, err.Content);
+    }
+
+    // --- (text-color:) and aliases ---
+
+    [Theory]
+    [InlineData("text-color")]
+    [InlineData("text-colour")]
+    [InlineData("color")]
+    [InlineData("colour")]
+    public void TextColor_AllAliases_SetColor(string macroName)
+    {
+      var buf = RenderRaw("(" + macroName + ": \"red\")[hi]");
+      Assert.Equal("red", FirstPushedStyle(buf).Color);
+    }
+
+    [Fact]
+    public void TextColor_NonString_EmitsError()
+    {
+      var buf = RenderRaw("(text-color: 5)[hi]");
+      AssertError(buf, "String");
+    }
+
+    // --- (background:) ---
+
+    [Fact]
+    public void Background_ColorString_SetsBackgroundColor()
+    {
+      var buf = RenderRaw("(background: \"navy\")[hi]");
+      var s = FirstPushedStyle(buf);
+      Assert.Equal("navy", s.BackgroundColor);
+      Assert.Null(s.BackgroundImage);
+    }
+
+    [Fact]
+    public void Background_ImageExtension_SetsBackgroundImage()
+    {
+      var buf = RenderRaw("(background: \"sky.png\")[hi]");
+      var s = FirstPushedStyle(buf);
+      Assert.Equal("sky.png", s.BackgroundImage);
+      Assert.Null(s.BackgroundColor);
+    }
+
+    [Fact]
+    public void Background_HttpUrl_SetsBackgroundImage()
+    {
+      var buf = RenderRaw("(background: \"https://example.com/bg\")[hi]");
+      var s = FirstPushedStyle(buf);
+      Assert.Equal("https://example.com/bg", s.BackgroundImage);
+    }
+
+    [Fact]
+    public void Background_BgAlias_Works()
+    {
+      var buf = RenderRaw("(bg: \"yellow\")[hi]");
+      Assert.Equal("yellow", FirstPushedStyle(buf).BackgroundColor);
+    }
+
+    // --- (font:) ---
+
+    [Fact]
+    public void Font_SetsFontFamily()
+    {
+      var buf = RenderRaw("(font: \"Times New Roman\")[hi]");
+      Assert.Equal("Times New Roman", FirstPushedStyle(buf).FontFamily);
+    }
+
+    [Fact]
+    public void Font_NonString_EmitsError()
+    {
+      var buf = RenderRaw("(font: 5)[hi]");
+      AssertError(buf, "String");
+    }
+
+    // --- (text-size:) ---
+
+    [Fact]
+    public void TextSize_NumberMultiplier_StoredAsEm()
+    {
+      var buf = RenderRaw("(text-size: 1.5)[hi]");
+      Assert.Equal("1.5em", FirstPushedStyle(buf).FontSize);
+    }
+
+    [Fact]
+    public void TextSize_SizeAlias_Works()
+    {
+      var buf = RenderRaw("(size: 2)[hi]");
+      Assert.Equal("2em", FirstPushedStyle(buf).FontSize);
+    }
+
+    [Fact]
+    public void TextSize_NonNumber_EmitsError()
+    {
+      var buf = RenderRaw("(text-size: \"big\")[hi]");
+      AssertError(buf, "Number");
+    }
+
+    // --- (opacity:) ---
+
+    [Fact]
+    public void Opacity_SetsOpacity()
+    {
+      var buf = RenderRaw("(opacity: 0.25)[hi]");
+      Assert.Equal(0.25, FirstPushedStyle(buf).Opacity);
+    }
+
+    [Fact]
+    public void Opacity_Zero_IsAllowed()
+    {
+      var buf = RenderRaw("(opacity: 0)[hi]");
+      Assert.Equal(0.0, FirstPushedStyle(buf).Opacity);
+    }
+
+    [Fact]
+    public void Opacity_One_IsAllowed()
+    {
+      var buf = RenderRaw("(opacity: 1)[hi]");
+      Assert.Equal(1.0, FirstPushedStyle(buf).Opacity);
+    }
+
+    [Fact]
+    public void Opacity_OutOfRange_EmitsError()
+    {
+      var buf = RenderRaw("(opacity: 1.5)[hi]");
+      AssertError(buf, "between 0 and 1");
+    }
+
+    [Fact]
+    public void Opacity_Negative_EmitsError()
+    {
+      var buf = RenderRaw("(opacity: -0.1)[hi]");
+      AssertError(buf, "between 0 and 1");
+    }
+
+    // --- (align:) ---
+
+    [Theory]
+    [InlineData("<==", TextAlignment.Left)]
+    [InlineData("==>", TextAlignment.Right)]
+    [InlineData("=><=", TextAlignment.Center)]
+    [InlineData("<==>", TextAlignment.Justify)]
+    public void Align_ArrowSyntax_MapsToEnum(string arrow, TextAlignment expected)
+    {
+      var buf = RenderRaw("(align: \"" + arrow + "\")[hi]");
+      Assert.Equal(expected, FirstPushedStyle(buf).Alignment);
+    }
+
+    [Fact]
+    public void Align_UnknownArrow_EmitsError()
+    {
+      var buf = RenderRaw("(align: \"==><==\")[hi]");
+      AssertError(buf, "alignment");
+    }
+
+    [Fact]
+    public void Align_NonString_EmitsError()
+    {
+      var buf = RenderRaw("(align: 5)[hi]");
+      AssertError(buf, "String");
+    }
+
+    // --- Composition across the new macros ---
+
+    [Fact]
+    public void Compose_ColorAndOpacity_StacksTwoStyleLayers()
+    {
+      var buf = RenderRaw("(text-color: \"red\") + (opacity: 0.5) [hi]");
+      int pushes = 0;
+      foreach (var e in buf.Entries)
+        if (e.Kind == BufferedRenderOutput.Kind.PushStyle) pushes++;
+      Assert.Equal(2, pushes);
+    }
+  }
+}

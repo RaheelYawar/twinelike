@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 
 namespace Harlowe.Runtime
@@ -13,20 +14,29 @@ namespace Harlowe.Runtime
   /// <list type="bullet">
   /// <item>Bold/Italic/Underline/Strikethrough emit the canonical inline tags
   /// (<c>&lt;b&gt;</c>/<c>&lt;i&gt;</c>/<c>&lt;u&gt;</c>/<c>&lt;s&gt;</c>) when
-  /// no value fields are set on the same spec — concise output for the
+  /// they are the only fields set on the spec — concise output for the
   /// common case.</item>
-  /// <item>Any value field present, or multiple flags set, collapses to a
-  /// single <c>&lt;span style="..."&gt;</c> with all CSS properties packed in.</item>
+  /// <item>Any value field, opacity, alignment, or effect present collapses to
+  /// a single <c>&lt;span style="..."&gt;</c> with all CSS properties packed
+  /// in; primitive flags fold into the same span when this happens.</item>
   /// <item><see cref="PopStyle"/> closes the tags emitted by the matching
   /// <see cref="PushStyle"/>, in reverse order — so a stack of pushes nests
   /// correctly.</item>
   /// </list>
   /// </para>
   ///
-  /// <para>User-supplied values (Color/BackgroundColor/FontFamily/FontSize)
-  /// are HTML-attribute-escaped via <see cref="EscapeAttribute"/> before
-  /// being embedded in the <c>style="..."</c> attribute, so a story variable
-  /// holding <c>"red"; --></c> can't break out of the attribute.</para>
+  /// <para>User-supplied values (Color/BackgroundColor/BackgroundImage/
+  /// FontFamily/FontSize) are HTML-attribute-escaped via
+  /// <see cref="EscapeAttribute"/> before being embedded into the
+  /// <c>style="..."</c> attribute, so a story variable holding
+  /// <c>"red"; --&gt;</c> can't break out of the attribute.</para>
+  ///
+  /// <para><b>Animation effects</b> (<c>blink</c>, <c>fade-in-out</c>,
+  /// <c>shudder</c>, <c>rumble</c>, <c>sway</c>, <c>buoy</c>, <c>fidget</c>)
+  /// emit <c>animation: harlowe-&lt;name&gt; ...;</c> declarations. The web
+  /// consumer is expected to define matching <c>@keyframes</c> rules
+  /// (<c>harlowe-blink</c>, <c>harlowe-shudder</c>, etc.) in their own
+  /// stylesheet; this adapter does not inject them.</para>
   /// </summary>
   public class HtmlRenderOutput : IRenderOutput
   {
@@ -78,18 +88,22 @@ namespace Harlowe.Runtime
 
     /// <summary>
     /// Decide which HTML elements to emit for a spec. A flag-only spec uses
-    /// the canonical short tags; anything involving a value field collapses
-    /// to a single <c>span</c> carrying inline CSS. Combining multiple flags
-    /// also routes through <c>span</c> for compactness when there's no value.
+    /// the canonical short tags; anything else (value field, opacity,
+    /// alignment, effect) collapses to a single <c>span</c> carrying inline
+    /// CSS — primitive flags fold into the same span in that case.
     /// </summary>
     private static string[] TagsFor(StyleSpec style)
     {
       if (style == null || style.IsEmpty) return new string[0];
 
-      bool hasValue = style.Color != null || style.BackgroundColor != null
-                   || style.FontFamily != null || style.FontSize != null;
+      bool hasNonFlag =
+           style.Color != null || style.BackgroundColor != null
+        || style.BackgroundImage != null || style.FontFamily != null
+        || style.FontSize != null || style.Opacity != null
+        || style.Alignment != null
+        || (style.Effects != null && style.Effects.Count > 0);
 
-      if (!hasValue)
+      if (!hasNonFlag)
       {
         var list = new List<string>(4);
         if (style.Bold) list.Add("b");
@@ -103,36 +117,153 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
-    /// Build a span open tag with both font/decoration flags and value fields
-    /// folded into a single <c>style="..."</c> attribute. Used when at least
-    /// one value field is set; flags alone take the short-tag path.
+    /// Build a span open tag with every flag, value field, opacity, alignment,
+    /// and effect folded into a single <c>style="..."</c> attribute. Used when
+    /// at least one non-flag is set; flags-only specs take the short-tag path.
+    /// Effect CSS recipes are inlined here — keep them in sync with the
+    /// <see cref="TextEffect"/> set.
     /// </summary>
     private static string BuildSpanTag(StyleSpec style)
     {
       var sb = new StringBuilder("span style=\"");
       bool first = true;
-      void Append(string prop, string value)
+
+      if (style.Color != null) AppendCss(sb, ref first, "color", style.Color, preEscaped: false);
+      if (style.BackgroundColor != null) AppendCss(sb, ref first, "background-color", style.BackgroundColor, preEscaped: false);
+      if (style.BackgroundImage != null)
       {
-        if (!first) sb.Append(' ');
-        sb.Append(prop).Append(": ").Append(EscapeAttribute(value)).Append(';');
-        first = false;
+        AppendCss(sb, ref first, "background-image", "url(" + EscapeAttribute(style.BackgroundImage) + ")", preEscaped: true);
+        AppendCss(sb, ref first, "background-size", "cover", preEscaped: true);
       }
-      if (style.Color != null) Append("color", style.Color);
-      if (style.BackgroundColor != null) Append("background-color", style.BackgroundColor);
-      if (style.FontFamily != null) Append("font-family", style.FontFamily);
-      if (style.FontSize != null) Append("font-size", style.FontSize);
-      if (style.Bold) Append("font-weight", "bold");
-      if (style.Italic) Append("font-style", "italic");
+      if (style.FontFamily != null) AppendCss(sb, ref first, "font-family", style.FontFamily, preEscaped: false);
+      if (style.FontSize != null) AppendCss(sb, ref first, "font-size", style.FontSize, preEscaped: false);
+      if (style.Opacity != null) AppendCss(sb, ref first, "opacity", style.Opacity.Value.ToString("R", CultureInfo.InvariantCulture), preEscaped: true);
+      if (style.Alignment != null) AppendCss(sb, ref first, "text-align", CssAlignment(style.Alignment.Value), preEscaped: true);
+      if (style.Bold) AppendCss(sb, ref first, "font-weight", "bold", preEscaped: true);
+      if (style.Italic) AppendCss(sb, ref first, "font-style", "italic", preEscaped: true);
       if (style.Underline || style.Strikethrough)
       {
         var dec = new StringBuilder();
         if (style.Underline) dec.Append("underline");
         if (style.Underline && style.Strikethrough) dec.Append(' ');
         if (style.Strikethrough) dec.Append("line-through");
-        Append("text-decoration", dec.ToString());
+        AppendCss(sb, ref first, "text-decoration", dec.ToString(), preEscaped: true);
+      }
+      if (style.Effects != null)
+      {
+        for (int i = 0; i < style.Effects.Count; i++)
+          AppendEffect(sb, ref first, style.Effects[i]);
       }
       sb.Append("\"");
       return sb.ToString();
+    }
+
+    private static void AppendCss(StringBuilder sb, ref bool first, string prop, string value, bool preEscaped)
+    {
+      if (!first) sb.Append(' ');
+      sb.Append(prop).Append(": ").Append(preEscaped ? value : EscapeAttribute(value)).Append(';');
+      first = false;
+    }
+
+    private static string CssAlignment(TextAlignment a)
+    {
+      switch (a)
+      {
+        case TextAlignment.Left: return "left";
+        case TextAlignment.Center: return "center";
+        case TextAlignment.Right: return "right";
+        case TextAlignment.Justify: return "justify";
+      }
+      return "left";
+    }
+
+    /// <summary>
+    /// Inline CSS recipe for one <see cref="TextEffect"/>. Recipes match the
+    /// reference Harlowe rendering where reasonable; animation effects assume
+    /// the consumer has defined matching <c>@keyframes harlowe-*</c> rules.
+    /// Each recipe is its own helper rather than a table to keep the
+    /// per-effect notes legible — these recipes will get tuned as authors
+    /// hit edge cases.
+    /// </summary>
+    private static void AppendEffect(StringBuilder sb, ref bool first, TextEffect effect)
+    {
+      switch (effect)
+      {
+        case TextEffect.Mark:
+          AppendCss(sb, ref first, "background-color", "hsla(50, 100%, 50%, 0.5)", preEscaped: true);
+          break;
+        case TextEffect.Superscript:
+          AppendCss(sb, ref first, "vertical-align", "super", preEscaped: true);
+          AppendCss(sb, ref first, "font-size", "0.83em", preEscaped: true);
+          break;
+        case TextEffect.Subscript:
+          AppendCss(sb, ref first, "vertical-align", "sub", preEscaped: true);
+          AppendCss(sb, ref first, "font-size", "0.83em", preEscaped: true);
+          break;
+        case TextEffect.Condense:
+          AppendCss(sb, ref first, "letter-spacing", "-0.08em", preEscaped: true);
+          break;
+        case TextEffect.Expand:
+          AppendCss(sb, ref first, "letter-spacing", "0.08em", preEscaped: true);
+          break;
+        case TextEffect.Outline:
+          AppendCss(sb, ref first, "text-shadow",
+              "-1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff", preEscaped: true);
+          break;
+        case TextEffect.Shadow:
+          AppendCss(sb, ref first, "text-shadow", "0.08em 0.08em 0.08em #000", preEscaped: true);
+          break;
+        case TextEffect.Emboss:
+          AppendCss(sb, ref first, "text-shadow", "0 1px 0 #fff, 0 -1px 0 #000", preEscaped: true);
+          break;
+        case TextEffect.Smear:
+          AppendCss(sb, ref first, "text-shadow", "0 0 0.02em #000, 0 0 0.08em currentColor", preEscaped: true);
+          AppendCss(sb, ref first, "color", "transparent", preEscaped: true);
+          break;
+        case TextEffect.Blur:
+          AppendCss(sb, ref first, "color", "transparent", preEscaped: true);
+          AppendCss(sb, ref first, "text-shadow", "0 0 0.08em currentColor", preEscaped: true);
+          break;
+        case TextEffect.Blurrier:
+          AppendCss(sb, ref first, "color", "transparent", preEscaped: true);
+          AppendCss(sb, ref first, "text-shadow", "0 0 0.2em currentColor", preEscaped: true);
+          AppendCss(sb, ref first, "user-select", "none", preEscaped: true);
+          break;
+        case TextEffect.Mirror:
+          AppendCss(sb, ref first, "display", "inline-block", preEscaped: true);
+          AppendCss(sb, ref first, "transform", "scaleX(-1)", preEscaped: true);
+          break;
+        case TextEffect.UpsideDown:
+          AppendCss(sb, ref first, "display", "inline-block", preEscaped: true);
+          AppendCss(sb, ref first, "transform", "scaleY(-1)", preEscaped: true);
+          break;
+        case TextEffect.Blink:
+          AppendCss(sb, ref first, "animation", "harlowe-blink 1s steps(2) infinite", preEscaped: true);
+          break;
+        case TextEffect.FadeInOut:
+          AppendCss(sb, ref first, "animation", "harlowe-fade-in-out 2s ease-in-out infinite alternate", preEscaped: true);
+          break;
+        case TextEffect.Shudder:
+          AppendCss(sb, ref first, "display", "inline-block", preEscaped: true);
+          AppendCss(sb, ref first, "animation", "harlowe-shudder 0.1s linear infinite", preEscaped: true);
+          break;
+        case TextEffect.Rumble:
+          AppendCss(sb, ref first, "display", "inline-block", preEscaped: true);
+          AppendCss(sb, ref first, "animation", "harlowe-rumble 0.1s linear infinite", preEscaped: true);
+          break;
+        case TextEffect.Sway:
+          AppendCss(sb, ref first, "display", "inline-block", preEscaped: true);
+          AppendCss(sb, ref first, "animation", "harlowe-sway 4s ease-in-out infinite", preEscaped: true);
+          break;
+        case TextEffect.Buoy:
+          AppendCss(sb, ref first, "display", "inline-block", preEscaped: true);
+          AppendCss(sb, ref first, "animation", "harlowe-buoy 2s ease-in-out infinite", preEscaped: true);
+          break;
+        case TextEffect.Fidget:
+          AppendCss(sb, ref first, "display", "inline-block", preEscaped: true);
+          AppendCss(sb, ref first, "animation", "harlowe-fidget 4s linear infinite", preEscaped: true);
+          break;
+      }
     }
 
     private static string OpenTag(string tagDescriptor) => "<" + tagDescriptor + ">";

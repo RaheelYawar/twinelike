@@ -30,6 +30,23 @@ namespace Harlowe.Runtime
   }
 
   /// <summary>
+  /// Patch produced by <c>(text-style: "none")</c>: clears any style layers
+  /// accumulated by patches that ran earlier in the same composition. Matches
+  /// the reference Harlowe semantics where the <c>none</c> sentinel wipes prior
+  /// text-style layers from the descriptor. Patches that follow this one still
+  /// add their styles normally — composing <c>(text-style: "bold") +
+  /// (text-style: "none", "italic")</c> yields italic only.
+  /// </summary>
+  public class ClearStylesPatch : IChangerPatch
+  {
+    public void Apply(HookDescriptor descriptor) => descriptor.Styles.Clear();
+
+    public override bool Equals(object obj) => obj is ClearStylesPatch;
+
+    public override int GetHashCode() => -1;
+  }
+
+  /// <summary>
   /// Patch produced by <c>(for:)</c>. Sets the descriptor's iteration spec.
   /// If a prior iteration patch already wrote one, the later one wins — a
   /// chained <c>(for:) + (for:)</c> composition is rejected at apply time by

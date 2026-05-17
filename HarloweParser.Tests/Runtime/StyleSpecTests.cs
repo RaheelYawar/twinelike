@@ -30,8 +30,62 @@ namespace Harlowe.Tests.Runtime
     {
       Assert.False(new StyleSpec { Color = "red" }.IsEmpty);
       Assert.False(new StyleSpec { BackgroundColor = "blue" }.IsEmpty);
+      Assert.False(new StyleSpec { BackgroundImage = "sky.png" }.IsEmpty);
       Assert.False(new StyleSpec { FontFamily = "serif" }.IsEmpty);
       Assert.False(new StyleSpec { FontSize = "120%" }.IsEmpty);
+      Assert.False(new StyleSpec { Opacity = 0.5 }.IsEmpty);
+      Assert.False(new StyleSpec { Alignment = TextAlignment.Center }.IsEmpty);
+    }
+
+    [Fact]
+    public void EffectsSet_NotEmpty()
+    {
+      var s = new StyleSpec();
+      s.Effects.Add(TextEffect.Blur);
+      Assert.False(s.IsEmpty);
+    }
+
+    [Fact]
+    public void Equals_SameEffects_IsEqual()
+    {
+      var a = new StyleSpec();
+      a.Effects.Add(TextEffect.Mark);
+      a.Effects.Add(TextEffect.Shudder);
+      var b = new StyleSpec();
+      b.Effects.Add(TextEffect.Mark);
+      b.Effects.Add(TextEffect.Shudder);
+      Assert.Equal(a, b);
+      Assert.Equal(a.GetHashCode(), b.GetHashCode());
+    }
+
+    [Fact]
+    public void Equals_DifferentEffectOrder_NotEqual()
+    {
+      // Order is preserved and matters — two specs with the same effects in
+      // different order are NOT equal. Composition order would alter render.
+      var a = new StyleSpec();
+      a.Effects.Add(TextEffect.Mark);
+      a.Effects.Add(TextEffect.Shudder);
+      var b = new StyleSpec();
+      b.Effects.Add(TextEffect.Shudder);
+      b.Effects.Add(TextEffect.Mark);
+      Assert.NotEqual(a, b);
+    }
+
+    [Fact]
+    public void Equals_DifferentOpacity_NotEqual()
+    {
+      Assert.NotEqual(
+        new StyleSpec { Opacity = 0.5 },
+        new StyleSpec { Opacity = 0.8 });
+    }
+
+    [Fact]
+    public void Equals_DifferentAlignment_NotEqual()
+    {
+      Assert.NotEqual(
+        new StyleSpec { Alignment = TextAlignment.Center },
+        new StyleSpec { Alignment = TextAlignment.Right });
     }
 
     [Fact]
