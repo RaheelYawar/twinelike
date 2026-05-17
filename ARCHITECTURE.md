@@ -15,7 +15,7 @@ flowchart TB
     TWEE[Twee 3 source]
   end
 
-  subgraph lib[harlowe-parser library]
+  subgraph lib[Twinelike library]
     direction TB
     LOAD[Loader<br/>HtmlAgilityPack / TweeReader]
     TOK[HarloweTokenizer]

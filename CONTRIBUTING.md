@@ -7,8 +7,8 @@ Thanks for your interest. This is a small project — issues, PRs, and discussio
 ```sh
 git clone https://github.com/RaheelYawar/twinelike.git
 cd twinelike
-dotnet build harlowe-parser.sln
-dotnet test  harlowe-parser.sln
+dotnet build Twinelike.sln
+dotnet test  Twinelike.sln
 ```
 
 The library targets `netstandard2.0` (Unity 2018.1+, Godot 3/4, .NET Framework 4.6.1+, .NET 5+, Mono, Xamarin). The test project targets `net48` and uses xUnit. No other prerequisites — `dotnet` 6+ is enough.

@@ -214,8 +214,8 @@ var session = new StorySession(story);
 ## Build & test
 
 ```sh
-dotnet build harlowe-parser.sln
-dotnet test  harlowe-parser.sln
+dotnet build Twinelike.sln
+dotnet test  Twinelike.sln
 ```
 
 Library targets `netstandard2.0`. Test project targets `net48` (uses xUnit).

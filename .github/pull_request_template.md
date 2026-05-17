@@ -12,7 +12,7 @@
 
 ## Tests
 
-- [ ] Existing tests pass (`dotnet test harlowe-parser.sln`)
+- [ ] Existing tests pass (`dotnet test Twinelike.sln`)
 - [ ] Added tests covering the new behaviour and at least one edge case
 - [ ] `IRenderOutput` event ordering / pairing invariants preserved (if touched)
 

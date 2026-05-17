@@ -14,7 +14,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\harlowe-parser.csproj" />
+        <ProjectReference Include="..\Twinelike.csproj" />
     </ItemGroup>
 
     <ItemGroup>

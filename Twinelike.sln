@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # 
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "harlowe-parser", "harlowe-parser.csproj", "{E8DB0159-606F-4CD2-93C3-84CFA5FED9E3}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Twinelike", "Twinelike.csproj", "{E8DB0159-606F-4CD2-93C3-84CFA5FED9E3}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HarloweParser.Tests", "HarloweParser.Tests\HarloweParser.Tests.csproj", "{CA8E1CEE-7C77-43C4-8639-292AEAF8BD73}"
 EndProject
