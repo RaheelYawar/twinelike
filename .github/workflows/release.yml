@@ -1,0 +1,122 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  # Manual dispatch lets you draft a release without pushing a tag first —
+  # the tag is created by GitHub when you click "Publish release" in the UI.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g. 0.1.0) — creates a draft release named v<version>'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build, pack, and draft a GitHub Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      # Derive the version from the tag (push) or the input (manual dispatch).
+      # Tags follow `vX.Y.Z`; the bare version (no `v`) is what NuGet wants.
+      # Versions containing `-` (e.g. 0.1.0-rc1) are marked pre-release.
+      - name: Determine version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+            TAG="v$VERSION"
+          else
+            TAG="${{ github.ref_name }}"
+            VERSION="${TAG#v}"
+          fi
+          if [[ "$VERSION" == *-* ]]; then
+            PRERELEASE=true
+          else
+            PRERELEASE=false
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "Releasing version=$VERSION, tag=$TAG, prerelease=$PRERELEASE"
+
+      - name: Restore
+        run: dotnet restore Twinelike.sln
+
+      # -p:Version overrides the csproj's <Version> at build time, so the tag
+      # is the canonical source of truth for what version a release is.
+      - name: Build (Release)
+        run: dotnet build Twinelike.sln -c Release --no-restore -p:Version=${{ steps.ver.outputs.version }}
+
+      # Tests run as a release gate — a release is only drafted if the merged
+      # DLL passes the full suite on net8.0.
+      - name: Test (net8.0)
+        run: dotnet test Twinelike.sln -c Release --no-build --framework net8.0
+
+      - name: Pack
+        run: dotnet pack Twinelike.csproj -c Release --no-build -p:Version=${{ steps.ver.outputs.version }} -o ./dist
+
+      # Stage three artifacts for the release:
+      #   - the bare versioned DLL (drop straight into Unity/Godot/etc.)
+      #   - the .nupkg + .snupkg (for offline NuGet consumers and symbols)
+      #   - a zip bundle with DLL + README + LICENSE (one-download, all context)
+      - name: Stage release artifacts
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          mkdir -p release-staging
+          cp "bin/Release/netstandard2.0/Twinelike.dll" "release-staging/Twinelike-${VERSION}.dll"
+          cp dist/*.nupkg release-staging/
+          if ls dist/*.snupkg >/dev/null 2>&1; then
+            cp dist/*.snupkg release-staging/
+          fi
+          BUNDLE_DIR="Twinelike-${VERSION}"
+          mkdir -p "$BUNDLE_DIR"
+          cp "bin/Release/netstandard2.0/Twinelike.dll" "$BUNDLE_DIR/"
+          cp README.md LICENSE "$BUNDLE_DIR/"
+          zip -r "release-staging/Twinelike-${VERSION}.zip" "$BUNDLE_DIR"
+          echo "--- staged artifacts ---"
+          ls -la release-staging/
+
+      # Pull this version's section out of CHANGELOG.md to seed the release
+      # body. Falls back to a placeholder if no matching entry exists.
+      - name: Extract release notes from CHANGELOG
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          awk -v ver="$VERSION" '
+            /^## \[/ {
+              if (in_section) { exit }
+              if (index($0, "[" ver "]")) { in_section = 1; next }
+              next
+            }
+            in_section { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "_No CHANGELOG.md entry matched \`${VERSION}\` — see commit log for changes._" > release-notes.md
+          fi
+          echo "--- release notes ---"
+          cat release-notes.md
+
+      # Creates the release as a DRAFT — review the body and attached
+      # artifacts in the GitHub UI, then click "Publish release" to make it
+      # public. (For workflow_dispatch runs, the tag is also created on publish.)
+      - name: Create draft GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: Twinelike ${{ steps.ver.outputs.version }}
+          body_path: release-notes.md
+          draft: true
+          prerelease: ${{ steps.ver.outputs.prerelease }}
+          files: |
+            release-staging/*
