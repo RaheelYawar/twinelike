@@ -1,4 +1,4 @@
-# harlowe-parser
+# Twinelike
 
 A C# library for parsing and running [Twine/Harlowe](https://twinery.org/) interactive fiction, designed to embed inside game engines — Unity, Godot, anything that runs .NET, Mono, or IL2CPP.
 
@@ -66,9 +66,11 @@ public interface IRenderOutput
   void Error(string message);
 
   // Bracketing semantic styles. StyleSpec carries flags (Bold, Italic,
-  // Underline, Strikethrough) and value fields (Color, BackgroundColor,
-  // FontFamily, FontSize). PushStyle is always paired with a matching
-  // PopStyle; nesting is well-formed.
+  // Underline, Strikethrough), value fields (Color, BackgroundColor,
+  // BackgroundImage, FontFamily, FontSize, Opacity, Alignment), and a list
+  // of named Effects (Mark, Outline, Shadow, Blur, Shudder, Blink, ...).
+  // PushStyle is always paired with a matching PopStyle; nesting is
+  // well-formed.
   void PushStyle(StyleSpec style);
   void PopStyle();
 
@@ -145,8 +147,12 @@ public class ConsoleOutput : IRenderOutput
 | `(a:)`, `(dm:)`, `(modulo:)`, `(text:)`, `(num:)` | ✓ |
 | `(find:)`, `(all-pass:)`, `(some-pass:)`, `(none-pass:)`, `(altered:)` | ✓ |
 | `(for:)`, `(folded:)`, `(rotated-to:)`, `(sorted:)` | ✓ |
-| `(text-style:)` | ⚠ bold / italic / underline / strikethrough only |
-| `(text-color:)`, `(background:)`, `(font:)`, `(text-size:)` | ✗ |
+| `(text-style:)` — full name set incl. mark, outline, shadow, blur, mirror, shudder, blink, fade-in-out, … (variadic, with `"none"` reset) | ✓ |
+| `(text-color:)` / `(text-colour:)` / `(color:)` / `(colour:)` | ✓ |
+| `(background:)` / `(bg:)` (colour or image url) | ✓ |
+| `(font:)`, `(text-size:)` / `(size:)`, `(opacity:)`, `(align:)` | ✓ |
+| `(border:)`, `(border-colour:)`, `(border-size:)`, `(corner-radius:)`, `(rotate:)` | ✗ |
+| `(hover-style:)`, `(line-style:)`, `(char-style:)`, `(link-style:)` | ✗ |
 | `(replace:)`, `(append:)`, `(prepend:)` | ✓ |
 | `(change:)`, `(enchant:)` | ✓ hook-name targets (string targets pending) |
 | `(click:)` / `(click-replace:)` / `(click-append:)` / `(click-prepend:)` | ✓ |

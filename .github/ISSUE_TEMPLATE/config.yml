@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Harlowe language reference
+    url: https://twine2.neocities.org/
+    about: Spec questions about how Harlowe should behave belong in the Harlowe manual first.

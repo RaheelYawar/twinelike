@@ -1,11 +1,33 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
         <OutputType>Library</OutputType>
         <TargetFramework>netstandard2.0</TargetFramework>
-        <RootNamespace>harlowe_parser</RootNamespace>
-        <AssemblyName>harlowe_parser</AssemblyName>
+        <RootNamespace>Harlowe</RootNamespace>
+        <AssemblyName>Twinelike</AssemblyName>
         <DefaultItemExcludes>$(DefaultItemExcludes);HarloweParser.Tests\**</DefaultItemExcludes>
+        <LangVersion>latest</LangVersion>
     </PropertyGroup>
+
+    <!-- NuGet package metadata. Run `dotnet pack -c Release` to produce a .nupkg. -->
+    <PropertyGroup>
+        <PackageId>Twinelike</PackageId>
+        <Version>0.1.0</Version>
+        <Authors>Raheel Yawar</Authors>
+        <Company>Raheel Yawar</Company>
+        <Description>A C# library for parsing and running Twine/Harlowe interactive fiction stories. Targets game engines (Unity, Godot, etc.) via an engine-agnostic IRenderOutput interface. Accepts Twine 2 HTML exports and Twee 3 source; emits Twee 3.</Description>
+        <PackageTags>twine;harlowe;interactive-fiction;narrative;unity;godot;game-engine;parser</PackageTags>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <PackageProjectUrl>https://github.com/RaheelYawar/twinelike</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/RaheelYawar/twinelike</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <IncludeSymbols>true</IncludeSymbols>
+        <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <None Include="README.md" Pack="true" PackagePath="\" />
+    </ItemGroup>
 
     <ItemGroup>
         <PackageReference Include="HtmlAgilityPack" Version="1.11.46" />
