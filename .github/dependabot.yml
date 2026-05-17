@@ -1,0 +1,28 @@
+version: 2
+
+# Weekly check for updates to NuGet packages and GitHub Actions versions.
+# Dependabot files a PR per outdated dep; the CI workflow gates merging.
+# Adjust intervals up (monthly) or down (daily) to taste — weekly is a
+# reasonable signal-to-noise default for a small library.
+updates:
+  # NuGet — scans every csproj under the repo root for PackageReference items.
+  # Catches updates to HtmlAgilityPack (merged at build time via ILRepack),
+  # the ILRepack tool itself, and the test project's xUnit / SDK packages.
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+
+  # GitHub Actions — scans .github/workflows/*.yml for action versions
+  # (actions/checkout, actions/setup-dotnet, softprops/action-gh-release).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ci"
