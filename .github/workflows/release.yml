@@ -111,7 +111,7 @@ jobs:
       # artifacts in the GitHub UI, then click "Publish release" to make it
       # public. (For workflow_dispatch runs, the tag is also created on publish.)
       - name: Create draft GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
           name: Twinelike ${{ steps.ver.outputs.version }}
