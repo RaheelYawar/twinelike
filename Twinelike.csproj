@@ -44,7 +44,7 @@
 
         <!-- Build-time only: drives the ILRepack target below. PrivateAssets=all
              keeps it out of the nuspec. -->
-        <PackageReference Include="ILRepack.Lib.MSBuild.Task" Version="2.0.34.2">
+        <PackageReference Include="ILRepack.Lib.MSBuild.Task" Version="2.0.45">
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
     </ItemGroup>
