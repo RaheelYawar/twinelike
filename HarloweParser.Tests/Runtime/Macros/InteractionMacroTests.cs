@@ -210,6 +210,42 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
+    public void Dispatch_AfterUndo_BeforeRender_IsNoOp()
+    {
+      // Sequence: render P1 (registers a (click:) handler), Goto P2, Undo
+      // back to P1, then DispatchEvent the original P1 region id before the
+      // next Render. The live tree from before the Goto is no longer current,
+      // so dispatch must not fire the stale handler against it — it returns
+      // an empty result, and the consumer is expected to call Render to
+      // rebuild the tree (which will re-register handlers from passage source).
+      var sb = new System.Text.StringBuilder();
+      sb.Append("<html><body><tw-storydata name=\"T\" startnode=\"1\" creator=\"\" creator-version=\"\">");
+      sb.Append("<tw-passagedata pid=\"1\" name=\"P1\" tags=\"\">|m>[cake](click: ?m)[surprise]</tw-passagedata>");
+      sb.Append("<tw-passagedata pid=\"2\" name=\"P2\" tags=\"\">plain</tw-passagedata>");
+      sb.Append("</tw-storydata></body></html>");
+      var session = new StorySession(new Harlowe(sb.ToString()));
+
+      var p1 = session.Render();
+      var regionId = FirstRegionId(p1);
+      Assert.NotNull(regionId);
+
+      session.Goto("P2");
+      Assert.True(session.Undo());
+
+      var afterUndo = session.DispatchEvent(regionId);
+      Assert.Equal(string.Empty, afterUndo.Text);
+      Assert.Equal(0, CountKind(afterUndo, BufferedRenderOutput.Kind.BeginInteractive));
+
+      // Render again — handlers re-register from passage source, and dispatch
+      // now works against the freshly-built tree.
+      var rerendered = session.Render();
+      var freshId = FirstRegionId(rerendered);
+      Assert.NotNull(freshId);
+      var fired = session.DispatchEvent(freshId);
+      Assert.Contains("surprise", fired.Text);
+    }
+
+    [Fact]
     public void Click_TargetNotYetRendered_IsNoOp()
     {
       // ?cake is declared after the macro — no wrap registered.

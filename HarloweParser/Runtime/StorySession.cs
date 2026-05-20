@@ -184,6 +184,18 @@ namespace Harlowe.Runtime
     /// empty. After returning <c>true</c>, call <see cref="Render"/> to
     /// display the restored passage. May be called repeatedly to walk back
     /// through every <see cref="Goto"/> the session has performed.
+    ///
+    /// <para>
+    /// The live render tree, click-handler registry, and enchantment list are
+    /// torn down — they belonged to the post-<see cref="Goto"/> passage, not
+    /// the one we're returning to. A <see cref="DispatchEvent"/> call made
+    /// between <see cref="Undo"/> and the next <see cref="Render"/> is a
+    /// no-op rather than firing handlers against a stale tree. The next
+    /// <see cref="Render"/> rebuilds both the tree and the handler/enchantment
+    /// state from passage source, so anything the restored passage's
+    /// <c>(click:)</c>/<c>(enchant:)</c> macros register gets re-registered
+    /// fresh.
+    /// </para>
     /// </summary>
     public bool Undo()
     {
@@ -192,6 +204,8 @@ namespace Harlowe.Runtime
       _currentPassage = snap.PassageName;
       _store.Restore(snap.StoreSnapshot);
       _visitCounts = snap.VisitCounts;
+      _liveRoot = null;
+      _liveContext = null;
       _passageTimer.Restart();
       return true;
     }

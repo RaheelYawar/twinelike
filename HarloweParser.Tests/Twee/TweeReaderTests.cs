@@ -80,6 +80,48 @@ namespace Harlowe.Tests.Twee
     }
 
     [Fact]
+    public void Tags_EscapedBracketsInName_AreUnescaped()
+    {
+      // Twee 3 lets tag names carry [ and ] via \ escapes — the reader must
+      // skip past an escaped ] when finding the closing tag block and strip
+      // the leading \ when materializing the tag value.
+      var story = Read(":: First [a\\]b c\\[d]\nbody");
+      var tags = story.GetPassage("First").Tags;
+      Assert.Equal(2, tags.Count);
+      Assert.Equal("a]b", tags[0]);
+      Assert.Equal("c[d", tags[1]);
+    }
+
+    [Fact]
+    public void Tags_EscapedBackslash_IsUnescaped()
+    {
+      // \\ in source materializes to a single backslash in the tag value.
+      var story = Read(":: First [back\\\\slash]\nbody");
+      var tags = story.GetPassage("First").Tags;
+      Assert.Single(tags);
+      Assert.Equal("back\\slash", tags[0]);
+    }
+
+    [Fact]
+    public void Tags_TabSeparated_SplitIntoMultipleTags()
+    {
+      var story = Read(":: First [foo\tbar]\nbody");
+      var tags = story.GetPassage("First").Tags;
+      Assert.Equal(2, tags.Count);
+      Assert.Equal("foo", tags[0]);
+      Assert.Equal("bar", tags[1]);
+    }
+
+    [Fact]
+    public void DuplicatePassageName_ThrowsHarloweParseException()
+    {
+      // The underlying dictionary throws ArgumentException; the loader rewraps
+      // so consumers can catch a single exception type for malformed input.
+      var ex = Assert.Throws<HarloweParseException>(() => Read(":: First\nA\n\n:: First\nB"));
+      Assert.Equal("First", ex.PassageName);
+    }
+
+    [Fact]
     public void Position_PreservedFromHeader()
     {
       var story = Read(":: First {\"position\":\"640,229\"}\nbody");

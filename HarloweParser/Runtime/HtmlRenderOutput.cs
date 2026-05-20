@@ -63,15 +63,18 @@ namespace Harlowe.Runtime
     /// Map an interactive region to an HTML <c>&lt;a&gt;</c> anchor with the
     /// region id stamped onto <c>data-region-id</c> and the interaction kind
     /// on <c>data-interaction</c>. The kind is exposed verbatim so a script
-    /// can dispatch the right session event. The default <c>href</c> of
-    /// <c>"#"</c> keeps the anchor clickable without a configured target.
+    /// can dispatch the right session event. <c>href="javascript:void(0)"</c>
+    /// keeps the anchor focusable and styled like a link without the
+    /// scroll-to-top jump <c>href="#"</c> would cause when clicked; a consumer
+    /// whose CSP forbids <c>javascript:</c> URIs can wrap this output and
+    /// substitute their own attribute.
     /// </summary>
     public void BeginInteractive(InteractiveRegion region)
     {
       if (region == null) { _inner.Html("<a>"); return; }
       var id = EscapeAttribute(region.Id ?? string.Empty);
       var kind = EscapeAttribute(region.Kind.ToString());
-      _inner.Html("<a href=\"#\" data-region-id=\"" + id + "\" data-interaction=\"" + kind + "\">");
+      _inner.Html("<a href=\"javascript:void(0)\" data-region-id=\"" + id + "\" data-interaction=\"" + kind + "\">");
     }
 
     public void EndInteractive() => _inner.Html("</a>");

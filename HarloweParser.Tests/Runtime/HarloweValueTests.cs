@@ -229,6 +229,22 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
+    public void ToHarloweString_DatamapKeysSortedAlphabetically()
+    {
+      // Dictionary enumeration order is "insertion-order in practice but not
+      // contractually guaranteed" — Mono/IL2CPP have been observed to diverge.
+      // Insert in reverse-alphabetical order; expect alphabetical output so
+      // the rendered string is stable across runtimes.
+      var map = HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      {
+        ["zebra"] = HarloweValue.OfNumber(1),
+        ["apple"] = HarloweValue.OfNumber(2),
+        ["mango"] = HarloweValue.OfNumber(3)
+      });
+      Assert.Equal("apple:2,mango:3,zebra:1", map.ToHarloweString());
+    }
+
+    [Fact]
     public void ToHarloweString_ErrorReturnsMessage()
     {
       Assert.Equal("bad thing", HarloweValue.OfError("bad thing").ToHarloweString());

@@ -277,10 +277,20 @@ namespace Harlowe
     /// <c>StorySession</c> to find the initial passage by pid without exposing
     /// the internal pid-indexed structure.
     /// </summary>
-    public HarlowePassage GetStartPassage()
+    public HarlowePassage GetStartPassage() => GetPassageByPid(StartNode);
+
+    /// <summary>
+    /// Look up a passage by its <see cref="HarlowePassage.Pid"/>. Returns null
+    /// when no passage carries that pid or when <paramref name="pid"/> is
+    /// null/empty. Useful for tooling that walks Twine's pid-indexed graph
+    /// (story maps, link targets) without scanning <see cref="Passages"/>.
+    /// Lookup is linear in passage count; cache the result if hot.
+    /// </summary>
+    public HarlowePassage GetPassageByPid(string pid)
     {
+      if (string.IsNullOrEmpty(pid)) return null;
       foreach (var p in _passages.Values)
-        if (p.Pid == StartNode) return p;
+        if (p.Pid == pid) return p;
       return null;
     }
 
@@ -352,7 +362,15 @@ namespace Harlowe
           RawBody = raw,
         };
 
-        _passages.Add(passage.Name, passage);
+        try { _passages.Add(passage.Name, passage); }
+        catch (ArgumentException ex)
+        {
+          // Dictionary.Add throws on duplicate. Surface as the canonical
+          // loader exception so HTML and Twee front-ends report bad input
+          // the same way.
+          throw new HarloweParseException(
+            $"duplicate passage name '{passage.Name}'", -1, -1, passage.Name, ex);
+        }
         _passageOrder.Add(passage.Name);
       }
     }

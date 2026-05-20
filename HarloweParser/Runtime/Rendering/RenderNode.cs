@@ -82,7 +82,12 @@ namespace Harlowe.Runtime.Rendering
   /// </summary>
   public class RenderStyleNode : RenderNode, IRenderContainer
   {
-    /// <summary>The style layer. Treated as immutable, so clones share the reference.</summary>
+    /// <summary>
+    /// The style layer. <see cref="StyleSpec"/> is public-mutable, so
+    /// <see cref="Clone"/> deep-copies it to keep the clone and original
+    /// independently observable — without that, mutating one node's style
+    /// would change every node ever cloned from it.
+    /// </summary>
     public StyleSpec Style;
 
     /// <summary>
@@ -98,7 +103,7 @@ namespace Harlowe.Runtime.Rendering
 
     public override RenderNode Clone()
     {
-      var copy = new RenderStyleNode { Style = Style, SourceEnchantment = SourceEnchantment };
+      var copy = new RenderStyleNode { Style = Style?.Clone(), SourceEnchantment = SourceEnchantment };
       RenderNodes.CloneInto(Children, copy.Children);
       return copy;
     }
@@ -141,12 +146,17 @@ namespace Harlowe.Runtime.Rendering
   /// </summary>
   public class RenderInteractiveNode : RenderNode, IRenderContainer
   {
+    /// <summary>
+    /// The bracketing region. Deep-copied on <see cref="Clone"/> for the same
+    /// reason <see cref="RenderStyleNode.Style"/> is — the value class is
+    /// public-mutable.
+    /// </summary>
     public InteractiveRegion Region;
     public List<RenderNode> Children { get; } = new List<RenderNode>();
 
     public override RenderNode Clone()
     {
-      var copy = new RenderInteractiveNode { Region = Region };
+      var copy = new RenderInteractiveNode { Region = Region?.Clone() };
       RenderNodes.CloneInto(Children, copy.Children);
       return copy;
     }

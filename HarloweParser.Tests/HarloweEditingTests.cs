@@ -285,6 +285,26 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void GetPassageByPid_FindsByPid()
+    {
+      var story = new Harlowe();
+      var p = MakePassage("First");
+      p.Pid = "42";
+      story.AddPassage(p);
+      Assert.Same(p, story.GetPassageByPid("42"));
+    }
+
+    [Fact]
+    public void GetPassageByPid_NullOrUnknown_ReturnsNull()
+    {
+      var story = new Harlowe();
+      story.AddPassage(MakePassage("First"));
+      Assert.Null(story.GetPassageByPid(null));
+      Assert.Null(story.GetPassageByPid(""));
+      Assert.Null(story.GetPassageByPid("999"));
+    }
+
+    [Fact]
     public void Passages_EnumeratesInLoadOrder()
     {
       var story = new Harlowe();

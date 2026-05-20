@@ -36,6 +36,29 @@ namespace Harlowe.Runtime.Rendering
     /// <summary>The tree built so far. Mutated in place by later sub-slices' revision macros.</summary>
     public RenderRoot Root => _root;
 
+    /// <summary>
+    /// True when every <see cref="PushStyle"/>/<see cref="BeginHook"/>/<see cref="BeginInteractive"/>
+    /// emitted into this builder has been matched by a corresponding pop. The
+    /// builder's pop methods deliberately no-op on imbalance to keep
+    /// engine-facing flushes resilient, but tests and contributors instrumenting
+    /// a new render path can sample this property after a render to catch a
+    /// missing pop without crawling the tree.
+    /// </summary>
+    public bool IsBalanced => _stack.Count == 1;
+
+    /// <summary>
+    /// Throws <see cref="System.InvalidOperationException"/> when
+    /// <see cref="IsBalanced"/> is false, with the count of unmatched opens.
+    /// Opt-in safety check for callers who want a hard failure rather than a
+    /// silent shrug — typically tests and CI render-correctness passes.
+    /// </summary>
+    public void AssertBalanced()
+    {
+      if (_stack.Count > 1)
+        throw new System.InvalidOperationException(
+          $"RenderTreeBuilder is unbalanced: {_stack.Count - 1} container(s) still open");
+    }
+
     private IRenderContainer Current => _stack.Peek();
 
     public void Text(string content) => Current.Children.Add(new RenderTextNode { Content = content });
