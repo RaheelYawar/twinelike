@@ -112,5 +112,35 @@ namespace Harlowe.Runtime
         if (a[i] != b[i]) return false;
       return true;
     }
+
+    /// <summary>
+    /// Field-by-field copy with a fresh <see cref="Effects"/> list. Used by the
+    /// render tree when it clones a styling layer for splicing — the copy and
+    /// the original need to be independently observable, even though the class
+    /// is public-mutable.
+    /// </summary>
+    public StyleSpec Clone()
+    {
+      var copy = new StyleSpec
+      {
+        Bold = Bold,
+        Italic = Italic,
+        Underline = Underline,
+        Strikethrough = Strikethrough,
+        Color = Color,
+        BackgroundColor = BackgroundColor,
+        BackgroundImage = BackgroundImage,
+        FontFamily = FontFamily,
+        FontSize = FontSize,
+        Opacity = Opacity,
+        Alignment = Alignment,
+      };
+      if (Effects != null)
+      {
+        copy.Effects = new List<TextEffect>(Effects.Count);
+        for (int i = 0; i < Effects.Count; i++) copy.Effects.Add(Effects[i]);
+      }
+      return copy;
+    }
   }
 }

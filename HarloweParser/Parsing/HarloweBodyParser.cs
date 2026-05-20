@@ -328,8 +328,8 @@ namespace Harlowe.Parsing
     {
       cursor.Advance();
 
-      string left = string.Empty;
-      string right = string.Empty;
+      var left = new System.Text.StringBuilder();
+      var right = new System.Text.StringBuilder();
       bool sawArrow = false;
       bool arrowIsRight = false;
 
@@ -339,8 +339,7 @@ namespace Harlowe.Parsing
         switch (t.Type)
         {
           case TokenType.Text:
-            if (sawArrow) right += t.Value;
-            else left += t.Value;
+            (sawArrow ? right : left).Append(t.Value);
             cursor.Advance();
             break;
           case TokenType.LinkArrowRight:
@@ -360,9 +359,11 @@ namespace Harlowe.Parsing
       }
       if (cursor.Current.Type == TokenType.LinkClose) cursor.Advance();
 
-      if (!sawArrow) return new LinkNode { Text = left, Target = left };
-      if (arrowIsRight) return new LinkNode { Text = left, Target = right };
-      return new LinkNode { Text = right, Target = left };
+      string leftStr = left.ToString();
+      if (!sawArrow) return new LinkNode { Text = leftStr, Target = leftStr };
+      string rightStr = right.ToString();
+      if (arrowIsRight) return new LinkNode { Text = leftStr, Target = rightStr };
+      return new LinkNode { Text = rightStr, Target = leftStr };
     }
   }
 }

@@ -216,15 +216,26 @@ namespace Harlowe.Runtime
       return sb.ToString();
     }
 
+    /// <summary>
+    /// Serialize a datamap as <c>key:value,key:value</c>. Keys are emitted in
+    /// ordinal sort order so the rendered text is stable across runtimes —
+    /// <see cref="Dictionary{TKey, TValue}"/> enumeration order is
+    /// "insertion-order in practice but not contractually guaranteed," and
+    /// Mono / Unity IL2CPP have been observed to diverge from CoreCLR. The
+    /// equality path is order-independent, so this only affects user-visible
+    /// rendering.
+    /// </summary>
     private static string JoinDatamap(Dictionary<string, HarloweValue> map)
     {
+      var keys = new List<string>(map.Count);
+      foreach (var kv in map) keys.Add(kv.Key);
+      keys.Sort(System.StringComparer.Ordinal);
+
       var sb = new StringBuilder();
-      bool first = true;
-      foreach (var kv in map)
+      for (int i = 0; i < keys.Count; i++)
       {
-        if (!first) sb.Append(',');
-        first = false;
-        sb.Append(kv.Key).Append(':').Append(kv.Value.ToHarloweString());
+        if (i > 0) sb.Append(',');
+        sb.Append(keys[i]).Append(':').Append(map[keys[i]].ToHarloweString());
       }
       return sb.ToString();
     }

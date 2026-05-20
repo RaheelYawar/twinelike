@@ -259,7 +259,7 @@ namespace Harlowe.Tests.Runtime
       sink.BeginInteractive(new InteractiveRegion { Id = "r-3", Kind = InteractionKind.Click });
       sink.Text("cake");
       sink.EndInteractive();
-      Assert.Equal("<a href=\"#\" data-region-id=\"r-3\" data-interaction=\"Click\">cake</a>", buf.Text);
+      Assert.Equal("<a href=\"javascript:void(0)\" data-region-id=\"r-3\" data-interaction=\"Click\">cake</a>", buf.Text);
     }
 
     [Fact]

@@ -208,5 +208,64 @@ namespace Harlowe.Tests.Runtime.Rendering
       ((IRenderOutput)builder).Text("after");
       Assert.IsType<RenderTextNode>(Assert.Single(builder.Root.Children));
     }
+
+    // --- Clone independence ---
+
+    [Fact]
+    public void StyleNode_Clone_IsolatesStyleMutation()
+    {
+      // The render tree clones nodes when revision macros splice into multiple
+      // targets. If clones shared the StyleSpec reference, mutating one node's
+      // style would silently change every clone of it.
+      var original = new RenderStyleNode { Style = new StyleSpec { Bold = true } };
+      original.Style.Effects.Add(TextEffect.Mark);
+      var clone = (RenderStyleNode)original.Clone();
+
+      original.Style.Bold = false;
+      original.Style.Effects.Add(TextEffect.Shadow);
+
+      Assert.True(clone.Style.Bold);
+      Assert.Single(clone.Style.Effects);
+      Assert.Equal(TextEffect.Mark, clone.Style.Effects[0]);
+    }
+
+    [Fact]
+    public void Builder_IsBalanced_ReflectsStackState()
+    {
+      var builder = new RenderTreeBuilder();
+      Assert.True(builder.IsBalanced);
+
+      ((IRenderOutput)builder).PushStyle(new StyleSpec { Bold = true });
+      Assert.False(builder.IsBalanced);
+
+      ((IRenderOutput)builder).PopStyle();
+      Assert.True(builder.IsBalanced);
+    }
+
+    [Fact]
+    public void Builder_AssertBalanced_ThrowsWhenUnbalanced()
+    {
+      var builder = new RenderTreeBuilder();
+      builder.BeginHook("h", HookAnchor.None); // never closed
+
+      var ex = Assert.Throws<System.InvalidOperationException>(() => builder.AssertBalanced());
+      Assert.Contains("1 container", ex.Message);
+    }
+
+    [Fact]
+    public void InteractiveNode_Clone_IsolatesRegionMutation()
+    {
+      var original = new RenderInteractiveNode
+      {
+        Region = new InteractiveRegion { Id = "r-1", Kind = InteractionKind.Click }
+      };
+      var clone = (RenderInteractiveNode)original.Clone();
+
+      original.Region.Id = "r-mutated";
+      original.Region.Kind = InteractionKind.MouseOver;
+
+      Assert.Equal("r-1", clone.Region.Id);
+      Assert.Equal(InteractionKind.Click, clone.Region.Kind);
+    }
   }
 }

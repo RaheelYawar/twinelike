@@ -140,13 +140,35 @@ namespace Harlowe.Twee
         for (int i = 0; i < passage.Tags.Count; i++)
         {
           if (i > 0) sb.Append(' ');
-          sb.Append(passage.Tags[i]);
+          AppendEscapedTag(sb, passage.Tags[i], passage.Name);
         }
         sb.Append(']');
       }
       if (!string.IsNullOrEmpty(passage.Position))
       {
         sb.Append(' ').Append(passage.Position);
+      }
+    }
+
+    /// <summary>
+    /// Append a single Twee 3 tag, escaping <c>[</c>/<c>]</c>/<c>\</c> with a
+    /// leading backslash so the reader can round-trip it. Whitespace inside a
+    /// tag name is not expressible in the Twee 3 grammar (tags are
+    /// whitespace-separated and the spec offers no escape for whitespace
+    /// inside a name); we throw rather than silently corrupt the tag block.
+    /// </summary>
+    private static void AppendEscapedTag(StringBuilder sb, string tag, string passageName)
+    {
+      if (string.IsNullOrEmpty(tag)) return;
+      for (int i = 0; i < tag.Length; i++)
+      {
+        char c = tag[i];
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\r')
+          throw new HarloweParseException(
+            $"tag '{tag}' contains whitespace, which Twee 3 cannot represent",
+            -1, -1, passageName);
+        if (c == '\\' || c == '[' || c == ']') sb.Append('\\');
+        sb.Append(c);
       }
     }
 

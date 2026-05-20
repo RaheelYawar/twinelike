@@ -48,6 +48,60 @@ namespace Harlowe.Tests.Twee
     }
 
     [Fact]
+    public void PassageHeader_TagsWithSpecialChars_EscapeOnEmit()
+    {
+      // Brackets and backslashes inside a tag name must be backslash-escaped so
+      // the reader doesn't terminate the tag block early or mis-split.
+      var story = new Harlowe();
+      story.AddPassage(new HarlowePassage
+      {
+        Name = "First",
+        Tags = new List<string> { "a]b", "c[d", "back\\slash" },
+        Body = "x"
+      });
+      string output = Write(story);
+      Assert.Contains(":: First [a\\]b c\\[d back\\\\slash]", output);
+    }
+
+    [Fact]
+    public void PassageHeader_TagsRoundTripThroughReader()
+    {
+      // End-to-end: the reader sees back the original tag values after the
+      // writer's escapes are applied and parsed.
+      var story = new Harlowe();
+      story.AddPassage(new HarlowePassage
+      {
+        Name = "First",
+        Tags = new List<string> { "a]b", "c[d", "back\\slash" },
+        Body = "x"
+      });
+      string output = Write(story);
+
+      var roundTripped = Read(output);
+      var tags = roundTripped.GetPassage("First").Tags;
+      Assert.Equal(3, tags.Count);
+      Assert.Equal("a]b", tags[0]);
+      Assert.Equal("c[d", tags[1]);
+      Assert.Equal("back\\slash", tags[2]);
+    }
+
+    [Fact]
+    public void PassageHeader_TagWithWhitespace_Throws()
+    {
+      // Twee 3 tags can't contain whitespace; refuse rather than silently
+      // splitting the tag in two on round-trip.
+      var story = new Harlowe();
+      story.AddPassage(new HarlowePassage
+      {
+        Name = "First",
+        Tags = new List<string> { "two words" },
+        Body = "x"
+      });
+      var ex = Assert.Throws<HarloweParseException>(() => Write(story));
+      Assert.Equal("First", ex.PassageName);
+    }
+
+    [Fact]
     public void PassageHeader_WithPosition_PreservedVerbatim()
     {
       var story = Read(":: First {\"position\":\"640,229\"}\nbody");

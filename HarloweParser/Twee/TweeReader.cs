@@ -90,7 +90,15 @@ namespace Harlowe.Twee
           Body = BodyTextRenderer.Render(ast),
           RawBody = block.Body,
         };
-        story.AddPassage(passage);
+        try { story.AddPassage(passage); }
+        catch (System.ArgumentException ex)
+        {
+          // Dictionary.Add throws ArgumentException on duplicate name. Convert
+          // to the loader's canonical bad-input exception so consumers can
+          // catch a single type for "this Twee file is broken."
+          throw new HarloweParseException(
+            $"duplicate passage name '{passage.Name}'", -1, -1, passage.Name, ex);
+        }
         nextPid++;
       }
 
@@ -189,11 +197,9 @@ namespace Harlowe.Twee
         if (line[p] == ' ') { p++; continue; }
         if (line[p] == '[')
         {
-          int close = line.IndexOf(']', p);
+          int close = FindUnescapedTagBlockClose(line, p + 1);
           if (close < 0) break;
-          string raw = line.Substring(p + 1, close - p - 1);
-          var parts = raw.Split(new[] { ' ', '\t' }, System.StringSplitOptions.RemoveEmptyEntries);
-          for (int t = 0; t < parts.Length; t++) block.Tags.Add(parts[t]);
+          ParseTagBlockInto(line, p + 1, close, block.Tags);
           p = close + 1;
           continue;
         }
@@ -208,6 +214,53 @@ namespace Harlowe.Twee
         break;
       }
       return block;
+    }
+
+    /// <summary>
+    /// Scans forward from <paramref name="from"/> for the first unescaped
+    /// <c>]</c>. A <c>]</c> preceded by an odd number of backslashes is escaped
+    /// per the Twee 3 spec — <c>\\]</c> is "literal backslash, end of block",
+    /// <c>\]</c> is "literal closing bracket". Returns -1 if none is found.
+    /// </summary>
+    private static int FindUnescapedTagBlockClose(string line, int from)
+    {
+      int i = from;
+      while (i < line.Length)
+      {
+        if (line[i] == '\\' && i + 1 < line.Length) { i += 2; continue; }
+        if (line[i] == ']') return i;
+        i++;
+      }
+      return -1;
+    }
+
+    /// <summary>
+    /// Walk a tag-block body, treating <c>\X</c> as a literal <c>X</c> (Twee 3
+    /// tag escape — covers <c>\[</c>, <c>\]</c>, <c>\\</c>, plus tolerant
+    /// passthrough for anything else after a backslash) and splitting on
+    /// unescaped whitespace. Empty tokens are dropped so <c>[ a   b ]</c>
+    /// produces just <c>a</c> and <c>b</c>.
+    /// </summary>
+    private static void ParseTagBlockInto(string line, int from, int toExclusive, List<string> tags)
+    {
+      var sb = new StringBuilder();
+      for (int i = from; i < toExclusive; i++)
+      {
+        char c = line[i];
+        if (c == '\\' && i + 1 < toExclusive)
+        {
+          sb.Append(line[i + 1]);
+          i++;
+          continue;
+        }
+        if (c == ' ' || c == '\t')
+        {
+          if (sb.Length > 0) { tags.Add(sb.ToString()); sb.Length = 0; }
+          continue;
+        }
+        sb.Append(c);
+      }
+      if (sb.Length > 0) tags.Add(sb.ToString());
     }
 
     /// <summary>
