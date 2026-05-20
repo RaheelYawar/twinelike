@@ -217,11 +217,12 @@ namespace Harlowe.Runtime
         _result = HarloweValue.OfError($"macro '{node.Name}' cannot be called: no macro registry configured");
         return;
       }
-      // Pre-check the macro name before evaluating arguments, so a `to`/`into`
-      // assignment inside an unknown macro's arg list can't leak its
-      // side-effect before the unknown-macro error is reported. Matches
-      // BodyRenderer.Visit(MacroNode). TODO: replace with full restriction of
-      // `to`/`into` to (set:)/(put:) argument position.
+      // Pre-check the macro name so an unknown call surfaces as a clean
+      // in-prose error before any arg evaluation work. The historical
+      // motivation also included blocking `to`/`into` leakage through arg
+      // evaluation; the parser now enforces that restriction syntactically
+      // (only (set:)/(put:) accept assignment args), so this guard is just
+      // for the clean error message now.
       if (!_macros.Contains(node.Name))
       {
         _result = HarloweValue.OfError($"unknown macro '{node.Name}'");

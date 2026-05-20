@@ -146,13 +146,12 @@ namespace Harlowe.Runtime
 
     public void Visit(MacroNode node)
     {
-      // Pre-check the macro name before evaluating arguments. `to` and `into`
-      // mutate the store during argument evaluation (see
-      // ExpressionEvaluator.AssignTo), so an unknown macro that happens to
-      // wrap an assignment-shaped expression would otherwise leak the
-      // assignment side-effect before the unknown-macro error is reported.
-      // TODO: the broader fix is to forbid `to`/`into` outside `(set:)`/`(put:)`
-      // entirely; until then this guard catches the common typo case.
+      // Pre-check the macro name so an unknown call surfaces as a clean
+      // in-prose error rather than the arity / type errors a no-op registry
+      // dispatch would otherwise produce. `to`/`into` mutation leakage is
+      // no longer a concern here: the parser only emits assignment binary
+      // ops at the top of (set:)/(put:) argument positions, so arg evaluation
+      // for any other macro can't trigger a hidden assignment.
       if (!_registry.Contains(node.Name))
       {
         _output.Error($"unknown macro '{node.Name}'");

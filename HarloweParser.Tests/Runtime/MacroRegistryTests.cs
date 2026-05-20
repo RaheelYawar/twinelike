@@ -127,5 +127,19 @@ namespace Harlowe.Tests.Runtime
 
       Assert.Same(ctx, fake.LastContext);
     }
+
+    [Fact]
+    public void Invoke_WithoutContext_ThrowsClearError()
+    {
+      // The single-arg overload depends on Context being assigned. An NRE
+      // inside a macro is too far from the cause — surface the missing
+      // assignment as an InvalidOperationException so contributors notice.
+      var reg = new MacroRegistry();
+      reg.Register(new FakeMacro { Name = "x" });
+
+      var ex = Assert.Throws<System.InvalidOperationException>(
+        () => reg.Invoke("x", new List<HarloweValue>()));
+      Assert.Contains("MacroRegistry.Context has not been set", ex.Message);
+    }
   }
 }

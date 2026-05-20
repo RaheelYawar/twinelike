@@ -263,11 +263,24 @@ namespace Harlowe
 
     /// <summary>
     /// Looks up a passage by its author-facing name. Returns null if no such
-    /// passage exists — does not throw.
+    /// passage exists — does not throw on miss.
+    ///
+    /// <para>Throws <see cref="InvalidOperationException"/> if the resolved
+    /// passage's <see cref="HarlowePassage.Name"/> no longer matches the
+    /// requested key, which means a consumer has mutated the public
+    /// <see cref="HarlowePassage.Name"/> field directly and corrupted the
+    /// internal index. Use <see cref="RenamePassage"/> instead — it re-keys
+    /// the lookup atomically.</para>
     /// </summary>
     public HarlowePassage GetPassage(string passageName)
     {
-      return !_passages.ContainsKey(passageName) ? null : _passages[passageName];
+      if (passageName == null) return null;
+      if (!_passages.TryGetValue(passageName, out var passage)) return null;
+      if (passage.Name != passageName)
+        throw new InvalidOperationException(
+          $"Passage lookup integrity error: dictionary key '{passageName}' does not match passage.Name '{passage.Name}'. " +
+          "Did you mutate HarlowePassage.Name directly? Use Harlowe.RenamePassage instead.");
+      return passage;
     }
 
     /// <summary>
