@@ -304,6 +304,27 @@ namespace Harlowe.Tests.Runtime
       Assert.True(CountKind(r, BufferedRenderOutput.Kind.Error) >= 1);
     }
 
+    [Fact]
+    public void Display_SelfReference_EmitsErrorInsteadOfStackOverflow()
+    {
+      // A passage displaying itself must terminate with an in-prose error
+      // rather than recursing until the process stack overflows.
+      var session = new StorySession(OnePassage("(display: \"P1\")"));
+      var r = session.Render();
+      Assert.True(CountKind(r, BufferedRenderOutput.Kind.Error) >= 1);
+    }
+
+    [Fact]
+    public void Display_TwoPassageCycle_EmitsErrorInsteadOfStackOverflow()
+    {
+      // Two passages displaying each other still hit the same depth ceiling —
+      // the guard counts nested invocations regardless of which passage they
+      // target.
+      var session = new StorySession(TwoPassages("(display: \"P2\")", "(display: \"P1\")"));
+      var r = session.Render();
+      Assert.True(CountKind(r, BufferedRenderOutput.Kind.Error) >= 1);
+    }
+
     // -----------------------------------------------------------------------
     // Undo
     // -----------------------------------------------------------------------

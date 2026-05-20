@@ -7,8 +7,14 @@ namespace Harlowe.Runtime
   /// <summary>
   /// <see cref="IRenderOutput"/> adapter that translates semantic
   /// <see cref="StyleSpec"/> events back to HTML. Wrap an inner output to
-  /// produce browser-renderable markup; non-style channels (Text/Html/Link/
-  /// Error) pass through unchanged so an inner buffer can capture the result.
+  /// produce browser-renderable markup. <see cref="Text"/> HTML-escapes its
+  /// content before forwarding because the surrounding stream is HTML — raw
+  /// <c>&lt;</c>/<c>&gt;</c>/<c>&amp;</c> in story prose would otherwise be
+  /// eaten or interpreted by the browser, and a value-bearing variable could
+  /// inject markup. <see cref="Html"/> is the raw-passthrough channel for
+  /// author-embedded HTML and stays unescaped. <see cref="Link"/> and
+  /// <see cref="Error"/> are typed entries on the inner output (not HTML
+  /// fragments) and forward unchanged.
   ///
   /// <para>Mapping rules:
   /// <list type="bullet">
@@ -48,7 +54,7 @@ namespace Harlowe.Runtime
       _inner = inner;
     }
 
-    public void Text(string content) => _inner.Text(content);
+    public void Text(string content) => _inner.Text(EscapeText(content));
     public void Html(string rawHtml) => _inner.Html(rawHtml);
     public void Link(string text, string target) => _inner.Link(text, target);
     public void Error(string message) => _inner.Error(message);
@@ -275,6 +281,29 @@ namespace Harlowe.Runtime
       int sp = tagDescriptor.IndexOf(' ');
       string name = sp < 0 ? tagDescriptor : tagDescriptor.Substring(0, sp);
       return "</" + name + ">";
+    }
+
+    /// <summary>
+    /// HTML-escape prose for text-context output. Only the three characters
+    /// that have special meaning between tags need replacing — quote escaping
+    /// is reserved for the attribute helper.
+    /// </summary>
+    private static string EscapeText(string value)
+    {
+      if (string.IsNullOrEmpty(value)) return string.Empty;
+      var sb = new StringBuilder(value.Length);
+      for (int i = 0; i < value.Length; i++)
+      {
+        char c = value[i];
+        switch (c)
+        {
+          case '&': sb.Append("&amp;"); break;
+          case '<': sb.Append("&lt;"); break;
+          case '>': sb.Append("&gt;"); break;
+          default: sb.Append(c); break;
+        }
+      }
+      return sb.ToString();
     }
 
     /// <summary>

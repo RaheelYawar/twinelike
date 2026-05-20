@@ -171,6 +171,59 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
+    public void Text_EscapesAngleBracketsAndAmpersand()
+    {
+      // The adapter emits HTML structure around prose; literal `<`, `>`, `&`
+      // in story text would otherwise be eaten or misrendered by the browser.
+      var (buf, sink) = NewSink();
+      sink.Text("2 < 3 && 4 > 1");
+      Assert.Equal("2 &lt; 3 &amp;&amp; 4 &gt; 1", buf.Text);
+    }
+
+    [Fact]
+    public void Text_EscapesEmbeddedMarkupSoItCannotInject()
+    {
+      // A story variable rendered through Text() must not be able to inject
+      // live HTML — even though IF authoring rarely sees untrusted content,
+      // the adapter still treats Text as text-context, not raw HTML.
+      var (buf, sink) = NewSink();
+      sink.Text("<img src=x onerror=alert(1)>");
+      Assert.Equal("&lt;img src=x onerror=alert(1)&gt;", buf.Text);
+      Assert.DoesNotContain("<img", buf.Text);
+    }
+
+    [Fact]
+    public void Html_StaysRawForAuthorEmbeddedMarkup()
+    {
+      // Html() is the explicit raw-passthrough channel; author HTML in
+      // passage source reaches the browser intact.
+      var (buf, sink) = NewSink();
+      sink.Html("<br/>");
+      Assert.Equal("<br/>", buf.Text);
+    }
+
+    [Fact]
+    public void Text_InsideStyleSpan_IsStillEscaped()
+    {
+      // Escaping has to happen regardless of surrounding style tags — a span
+      // wrapper doesn't change the content context.
+      var (buf, sink) = NewSink();
+      sink.PushStyle(new StyleSpec { Bold = true });
+      sink.Text("a < b");
+      sink.PopStyle();
+      Assert.Equal("<b>a &lt; b</b>", buf.Text);
+    }
+
+    [Fact]
+    public void Text_NullOrEmpty_IsHandled()
+    {
+      var (buf, sink) = NewSink();
+      sink.Text(string.Empty);
+      sink.Text(null);
+      Assert.Equal(string.Empty, buf.Text);
+    }
+
+    [Fact]
     public void PopStyle_WhenStackEmpty_NoOp()
     {
       // Defensive — extra pop shouldn't crash. Should never happen in normal
