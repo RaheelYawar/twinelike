@@ -106,6 +106,17 @@ namespace Harlowe.Runtime
     /// </summary>
     public int NextRegionIndex;
 
+    /// <summary>
+    /// Number of <c>(display:)</c> calls currently on the stack — incremented by
+    /// <see cref="StorySession"/> before recursing into the displayed passage
+    /// and decremented on the way out. Used to bound runaway recursion when a
+    /// passage displays itself (directly or through a cycle); compare against
+    /// <see cref="StorySession"/>'s <c>MaxDisplayDepth</c>. Lives here rather
+    /// than on the session so the count survives across the fresh
+    /// <see cref="BodyRenderer"/> each inline display creates.
+    /// </summary>
+    public int DisplayDepth;
+
     /// <summary>Convenience setter for <see cref="PendingGoto"/>; equivalent to <c>ctx.PendingGoto = name</c> but reads better in macro implementations.</summary>
     public void RequestGoto(string passageName) => PendingGoto = passageName;
 

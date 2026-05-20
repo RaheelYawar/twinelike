@@ -62,6 +62,12 @@ namespace Harlowe.Runtime
 
     private const int MaxGotoDepth = 20;
 
+    // Bounds (display:) recursion: a passage displaying itself (or a cycle
+    // through several passages) would otherwise blow the .NET stack before
+    // any author-visible error appeared. Mirrors MaxGotoDepth so the two
+    // navigation-shaped macros have a consistent ceiling.
+    private const int MaxDisplayDepth = 20;
+
     /// <summary>Name of the passage currently loaded into the session.</summary>
     public string CurrentPassage => _currentPassage;
 
@@ -402,14 +408,19 @@ namespace Harlowe.Runtime
     /// render sink for in-prose use (so Link/Error/Style events propagate),
     /// or a private buffer for expression-position use (so the rendered text
     /// can be returned as a String). Returns an Error value if the passage
-    /// isn't found; otherwise returns an empty String — the work is the
+    /// isn't found or if <see cref="MaxDisplayDepth"/> nested displays would
+    /// be exceeded; otherwise returns an empty String — the work is the
     /// side-effect on <paramref name="output"/>.
     /// </summary>
     private HarloweValue InlineDisplayPassage(string name, IRenderOutput output, MacroContext ctx)
     {
       var passage = _story.GetPassage(name);
       if (passage == null) return HarloweValue.OfError($"passage '{name}' not found");
-      new BodyRenderer(output, _registry, ctx).Render(passage.Ast);
+      if (ctx.DisplayDepth >= MaxDisplayDepth)
+        return HarloweValue.OfError($"(display:) recursion limit reached at '{name}'");
+      ctx.DisplayDepth++;
+      try { new BodyRenderer(output, _registry, ctx).Render(passage.Ast); }
+      finally { ctx.DisplayDepth--; }
       return HarloweValue.OfString(string.Empty);
     }
 
