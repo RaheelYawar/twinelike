@@ -99,20 +99,69 @@ namespace Harlowe
     }
 
     /// <summary>
-    /// Adds a fully-populated <see cref="HarlowePassage"/> to the story,
-    /// indexed by name. Throws on duplicate names because Harlowe passage
-    /// names are unique by spec. If <see cref="HarlowePassage.Pid"/> is
-    /// null/empty a fresh numeric pid is synthesized — the maximum existing
-    /// numeric pid plus one, so removals and explicit pid assignment can't
-    /// collide with the synthesizer.
+    /// Adds a <see cref="HarlowePassage"/> to the story, indexed by name.
+    /// Throws on duplicate names because Harlowe passage names are unique by
+    /// spec. If <see cref="HarlowePassage.Pid"/> is null/empty a fresh numeric
+    /// pid is synthesized — the maximum existing numeric pid plus one, so
+    /// removals and explicit pid assignment can't collide with the
+    /// synthesizer.
+    ///
+    /// <para>When <see cref="HarlowePassage.Ast"/> is null and
+    /// <see cref="HarlowePassage.Body"/> is set, the body is tokenized + parsed
+    /// here so the documented from-scratch shorthand
+    /// <c>new HarlowePassage { Name = "Foo", Body = "..." }</c> produces a
+    /// passage that actually renders and serializes. Callers that supply a
+    /// pre-populated <see cref="HarlowePassage.Ast"/> (the HTML and Twee
+    /// loaders, test fixtures with a hand-built AST) bypass this step.
+    /// <see cref="HarlowePassage.RawBody"/> is filled from the body source if
+    /// not already set, <see cref="HarlowePassage.Branches"/> is collected from
+    /// the AST if not already set, and <see cref="HarlowePassage.Body"/> is
+    /// replaced with the renderer-canonical prose so it matches the loader-set
+    /// shape.</para>
     /// </summary>
     public void AddPassage(HarlowePassage passage)
     {
       if (passage == null) throw new ArgumentNullException(nameof(passage));
       if (string.IsNullOrEmpty(passage.Pid))
         passage.Pid = NextAvailablePid().ToString(CultureInfo.InvariantCulture);
+      HydratePassageFromBody(passage);
       _passages.Add(passage.Name, passage); // throws on duplicate name; list stays clean
       _passageOrder.Add(passage.Name);
+    }
+
+    /// <summary>
+    /// Parse <see cref="HarlowePassage.Body"/> into <see cref="HarlowePassage.Ast"/>
+    /// (and derived <see cref="HarlowePassage.RawBody"/>/
+    /// <see cref="HarlowePassage.Branches"/>/<see cref="HarlowePassage.Body"/>)
+    /// for passages that were constructed by hand without going through the
+    /// HTML or Twee loaders. Skips passages that already have an AST or whose
+    /// body is null — both cases mean the caller is responsible for their own
+    /// shape (loader-populated, deliberately empty, or AST built manually in
+    /// tests). Inner parse errors are rewrapped with the passage name so the
+    /// caller sees the same diagnostic the bulk loaders produce.
+    /// </summary>
+    private static void HydratePassageFromBody(HarlowePassage passage)
+    {
+      if (passage.Ast != null) return;
+      if (passage.Body == null) return;
+
+      var tokenizer = new HarloweTokenizer();
+      var bodyParser = new HarloweBodyParser();
+      Ast.Body.PassageBody ast;
+      try
+      {
+        var tokens = tokenizer.Tokenize(passage.Body);
+        ast = bodyParser.Parse(tokens);
+      }
+      catch (HarloweParseException ex) when (ex.PassageName == null)
+      {
+        throw new HarloweParseException(ex.RawMessage, ex.Line, ex.Column, passage.Name, ex);
+      }
+
+      passage.Ast = ast;
+      if (passage.RawBody == null) passage.RawBody = passage.Body;
+      if (passage.Branches == null) passage.Branches = BranchCollector.Collect(ast);
+      passage.Body = BodyTextRenderer.Render(ast);
     }
 
     /// <summary>

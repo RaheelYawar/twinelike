@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Harlowe.Ast.Body;
+using Harlowe.Runtime;
 using Harlowe.Twee;
 using Xunit;
 
@@ -86,6 +87,108 @@ namespace Harlowe.Tests
     {
       var story = new Harlowe();
       Assert.Throws<System.ArgumentNullException>(() => story.AddPassage(null));
+    }
+
+    [Fact]
+    public void AddPassage_HydratesAstFromBody_WhenAstIsNull()
+    {
+      // The documented from-scratch shorthand only sets Name + Body. AddPassage
+      // should parse the body so the resulting passage is structurally complete
+      // — otherwise rendering and TweeWriter both see a hollow passage.
+      var story = new Harlowe();
+      var p = new HarlowePassage { Name = "Foo", Body = "hello" };
+      story.AddPassage(p);
+
+      var stored = story.GetPassage("Foo");
+      Assert.NotNull(stored.Ast);
+      Assert.NotNull(stored.Ast.Children);
+      Assert.Single(stored.Ast.Children);
+      Assert.IsType<TextNode>(stored.Ast.Children[0]);
+      Assert.Equal("hello", ((TextNode)stored.Ast.Children[0]).Content);
+      Assert.Equal("hello", stored.RawBody);
+      Assert.NotNull(stored.Branches);
+    }
+
+    [Fact]
+    public void AddPassage_HydrationDoesNotOverwritePrebuiltAst()
+    {
+      // Test fixtures (and the HTML/Twee loaders) construct the AST by hand and
+      // pass a fully-formed passage. Hydration must not stomp on their work.
+      var story = new Harlowe();
+      var prebuilt = MakePassage("Foo", "hand-built");
+      var originalAst = prebuilt.Ast;
+      var originalBranches = prebuilt.Branches;
+      story.AddPassage(prebuilt);
+
+      Assert.Same(originalAst, story.GetPassage("Foo").Ast);
+      Assert.Same(originalBranches, story.GetPassage("Foo").Branches);
+    }
+
+    [Fact]
+    public void AddPassage_NullBody_LeavesAstNull()
+    {
+      // A passage with neither Body nor Ast is degenerate but legal — render
+      // and TweeWriter are both null-safe. Hydration must not invent content.
+      var story = new Harlowe();
+      var p = new HarlowePassage { Name = "Empty" };
+      story.AddPassage(p);
+      Assert.Null(story.GetPassage("Empty").Ast);
+    }
+
+    [Fact]
+    public void AddPassage_EmptyBody_ParsesToEmptyAst()
+    {
+      // An empty body is still a body. The AST should be a real (empty) tree
+      // rather than null so downstream code can treat the passage uniformly.
+      var story = new Harlowe();
+      var p = new HarlowePassage { Name = "Empty", Body = "" };
+      story.AddPassage(p);
+
+      var stored = story.GetPassage("Empty");
+      Assert.NotNull(stored.Ast);
+      Assert.NotNull(stored.Ast.Children);
+      Assert.Empty(stored.Ast.Children);
+    }
+
+    [Fact]
+    public void AddPassage_HydratedPassage_RendersThroughSession()
+    {
+      // End-to-end: a hand-constructed story should render to the expected
+      // text. This is the core regression — before hydration, this returned
+      // empty content.
+      var story = new Harlowe();
+      story.AddPassage(new HarlowePassage { Pid = "1", Name = "Start", Body = "(set: $x to 5)$x" });
+      story.StartNode = "1";
+
+      var session = new StorySession(story);
+      var r = session.Render();
+      Assert.Equal("5", r.Text);
+    }
+
+    [Fact]
+    public void AddPassage_HydratedPassage_CollectsBranches()
+    {
+      // [[Next]] in the body should land in Branches via the same collector the
+      // HTML and Twee loaders use.
+      var story = new Harlowe();
+      story.AddPassage(new HarlowePassage { Name = "Start", Body = "go [[Next]]" });
+
+      var stored = story.GetPassage("Start");
+      Assert.NotNull(stored.Branches);
+      Assert.Single(stored.Branches);
+      Assert.Equal("Next", stored.Branches[0].Name);
+    }
+
+    [Fact]
+    public void AddPassage_ParseError_AttachesPassageName()
+    {
+      // Inner parser errors don't know which passage they're inside; AddPassage
+      // re-wraps so the diagnostic mentions the passage by name, matching the
+      // bulk-loader behaviour.
+      var story = new Harlowe();
+      var p = new HarlowePassage { Name = "Broken", Body = "(for: each)" };
+      var ex = Assert.Throws<HarloweParseException>(() => story.AddPassage(p));
+      Assert.Equal("Broken", ex.PassageName);
     }
 
     [Fact]
