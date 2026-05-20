@@ -302,12 +302,12 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void UnknownMacro_DoesNotEvaluateAssignmentArg()
     {
-      // `to` mutates the store during argument evaluation. An unknown macro
-      // wrapping `$x to 5` must report the unknown-macro error WITHOUT having
-      // assigned to $x first — otherwise the typo silently bakes state.
-      var h = Render("(notamacro: $x to 5)");
-      Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
-      Assert.Null(h.Store.Get("x", false));
+      // `(notamacro: $x to 5)` is now a parse error rather than an evaluation
+      // error: `to`/`into` are only allowed at the top of (set:)/(put:) arg
+      // positions, so the parser rejects this before any evaluation can leak
+      // an assignment. The store is never touched.
+      var ex = Assert.Throws<HarloweParseException>(() => Render("(notamacro: $x to 5)"));
+      Assert.Contains("to", ex.Message);
     }
 
     [Fact]

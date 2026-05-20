@@ -124,7 +124,7 @@ namespace Harlowe.Parsing
     {
       string name = cursor.Current.Value;
       cursor.Advance();
-      var args = _expressionParser.ParseArgumentList(cursor);
+      var args = _expressionParser.ParseArgumentList(cursor, HarloweExpressionParser.IsAssignmentMacro(name));
 
       // Try changer chain first — committing as soon as we see `+ (macro)`.
       if (LooksLikeChainContinuation(cursor))
@@ -133,9 +133,12 @@ namespace Harlowe.Parsing
         while (TryAdvanceToChainContinuation(cursor))
         {
           // Cursor is now at the next MacroOpen. Parse one macro call.
+          // Changer-chain components are value-position macros: a stray
+          // assignment here would never reach (set:)/(put:) semantics, so
+          // forbid `to`/`into` in their arg lists.
           string nextName = cursor.Current.Value;
           cursor.Advance();
-          var nextArgs = _expressionParser.ParseArgumentList(cursor);
+          var nextArgs = _expressionParser.ParseArgumentList(cursor, HarloweExpressionParser.IsAssignmentMacro(nextName));
           expr = new BinaryOpNode
           {
             Operator = "+",

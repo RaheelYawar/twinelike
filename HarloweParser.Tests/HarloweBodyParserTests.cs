@@ -238,6 +238,48 @@ namespace Harlowe.Tests
     // --- Mixed end-to-end ---
 
     [Fact]
+    public void Set_AcceptsTopLevelTo()
+    {
+      // (set:)'s arg list is the canonical home for `to`; the body parser
+      // recognises the macro name and routes through ParseArgumentList with
+      // assignment allowed.
+      var body = Parse("(set: $x to 5)");
+      var macro = Assert.IsType<MacroNode>(body.Children[0]);
+      Assert.Equal("set", macro.Name);
+      var assign = Assert.IsType<BinaryOpNode>(macro.Arguments[0]);
+      Assert.Equal("to", assign.Operator);
+    }
+
+    [Fact]
+    public void Put_AcceptsTopLevelInto()
+    {
+      var body = Parse("(put: 5 into $x)");
+      var macro = Assert.IsType<MacroNode>(body.Children[0]);
+      Assert.Equal("put", macro.Name);
+      var assign = Assert.IsType<BinaryOpNode>(macro.Arguments[0]);
+      Assert.Equal("into", assign.Operator);
+    }
+
+    [Fact]
+    public void NonAssignmentMacro_RejectsTopLevelTo()
+    {
+      // Any macro other than set/put must reject `to`/`into` in its arg list.
+      // Without this guard `(print: $x to 5)` would silently mutate $x during
+      // argument evaluation.
+      var ex = Assert.Throws<HarloweParseException>(() => Parse("(print: $x to 5)"));
+      Assert.Contains("to", ex.Message);
+    }
+
+    [Fact]
+    public void IfMacro_RejectsTopLevelInto()
+    {
+      // (if:) reading a boolean is the classic shape; an `into` here used to
+      // mutate during arg evaluation. Now it's a parse error.
+      var ex = Assert.Throws<HarloweParseException>(() => Parse("(if: 5 into $x)[ok]"));
+      Assert.Contains("into", ex.Message);
+    }
+
+    [Fact]
     public void MixedContent_ProducesExpectedSequence()
     {
       var body = Parse("Hello $name.\n(if: $brave)[Step inside]\n[[Continue->Next]]");

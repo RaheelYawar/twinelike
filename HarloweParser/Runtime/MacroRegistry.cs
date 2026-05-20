@@ -32,8 +32,22 @@ namespace Harlowe.Runtime
     /// unknown or the arity is wrong; otherwise returns whatever the macro
     /// returned (which may be null for command macros — translated to an empty
     /// String here so the value-macro caller path stays well-typed).
+    ///
+    /// <para>Throws <see cref="System.InvalidOperationException"/> if
+    /// <see cref="Context"/> has not been assigned. The session sets it before
+    /// each render, and tests set it after constructing the registry; an NRE
+    /// from a macro that touches the context is otherwise the first symptom,
+    /// which buries the actual bug. Use the
+    /// <see cref="Invoke(string, List{HarloweValue}, MacroContext)"/> overload
+    /// when you'd rather pass the context explicitly.</para>
     /// </summary>
-    public HarloweValue Invoke(string name, List<HarloweValue> args) => Invoke(name, args, Context);
+    public HarloweValue Invoke(string name, List<HarloweValue> args)
+    {
+      if (Context == null)
+        throw new System.InvalidOperationException(
+          "MacroRegistry.Context has not been set. Assign Context before dispatching, or use the (name, args, context) overload.");
+      return Invoke(name, args, Context);
+    }
 
     /// <summary>
     /// Dispatch with an explicit context. Used by the body renderer, which

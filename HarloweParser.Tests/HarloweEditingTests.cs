@@ -285,6 +285,32 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void GetPassage_DirectNameMutation_ThrowsIntegrityError()
+    {
+      // HarlowePassage.Name is a public field for legacy reasons; mutating it
+      // after AddPassage leaves the story's lookup keyed by the old name.
+      // GetPassage detects the mismatch on lookup and throws, steering the
+      // consumer at RenamePassage.
+      var story = new Harlowe();
+      var p = MakePassage("First");
+      story.AddPassage(p);
+      p.Name = "Mutated";
+
+      var ex = Assert.Throws<System.InvalidOperationException>(() => story.GetPassage("First"));
+      Assert.Contains("RenamePassage", ex.Message);
+    }
+
+    [Fact]
+    public void GetPassage_NullName_ReturnsNull()
+    {
+      // GetPassage should be null-safe on input — a quirk of the prior
+      // ContainsKey form (which throws on null) hid this; the integrity-check
+      // rewrite restores the documented "null on miss" contract.
+      var story = new Harlowe();
+      Assert.Null(story.GetPassage(null));
+    }
+
+    [Fact]
     public void GetPassageByPid_FindsByPid()
     {
       var story = new Harlowe();

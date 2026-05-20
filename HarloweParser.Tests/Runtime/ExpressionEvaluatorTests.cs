@@ -16,14 +16,17 @@ namespace Harlowe.Tests.Runtime
                                      IEvaluationContext context = null, IMacroInvoker macros = null)
     {
       store = store ?? new HarloweVariableStore();
-      var tokens = new HarloweTokenizer().Tokenize("(_:" + source + ")");
-      // Wrap source in a fake macro so the body parser hands the tokens to the
-      // expression parser. Then pull out the single argument.
+      // The test driver parses a single arbitrary expression — including the
+      // assignment forms `$x to 5` / `5 into $x` that the body parser would
+      // only allow inside a (set:)/(put:) arg position. These tests target the
+      // evaluator's AssignTo handling directly, so wrap the source in `(set:)`
+      // so the parser permits the assignment, then pull the first arg out.
+      var tokens = new HarloweTokenizer().Tokenize("(set:" + source + ")");
       var parser = new HarloweExpressionParser();
-      // Skip the MacroOpen token, parse one expression, ignore the rest.
       var cursor = new TokenCursor(tokens);
       cursor.Advance(); // consume MacroOpen
-      var node = parser.ParseExpression(cursor);
+      var args = parser.ParseArgumentList(cursor, allowAssignment: true);
+      var node = args.Count > 0 ? args[0] : null;
       var evaluator = new ExpressionEvaluator(store, context, macros);
       return evaluator.Evaluate(node);
     }
@@ -347,13 +350,14 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void UnknownMacroCall_DoesNotEvaluateAssignmentArg()
     {
-      // Expression-position counterpart to BodyRendererTests.UnknownMacro_DoesNotEvaluateAssignmentArg.
-      // The pre-existence check must fire before arg evaluation so `$x to 5`
-      // doesn't leak its mutation when wrapped in an unknown macro.
+      // Expression-position counterpart: `(notamacro: $x to 5)` is now a
+      // parse error rather than an evaluation error. The parser rejects
+      // `to`/`into` outside (set:)/(put:) so the mutation can't leak even if
+      // the inner macro happens to be unknown.
       var store = new HarloweVariableStore();
-      var v = Eval("(notamacro: $x to 5)", store, macros: new MacroRegistry());
-      Assert.True(v.IsError);
-      Assert.Contains("notamacro", v.ErrorMessage);
+      var ex = Assert.Throws<HarloweParseException>(
+        () => Eval("(notamacro: $x to 5)", store, macros: new MacroRegistry()));
+      Assert.Contains("to", ex.Message);
       Assert.Null(store.Get("x", false));
     }
 

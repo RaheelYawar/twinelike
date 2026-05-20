@@ -22,14 +22,19 @@ namespace Harlowe.Tests
     /// </summary>
     private static IExpressionNode ParseExpr(string expr)
     {
-      var tokens = new HarloweTokenizer().Tokenize("(_:" + expr + ")");
+      // Wrap as a (set:) call so the expression parser allows top-level
+      // `to`/`into` assignment forms when a test exercises them. These are
+      // direct parser tests — the body-parser-driven restriction lives in its
+      // own tests; the expression parser itself should round-trip every shape.
+      var tokens = new HarloweTokenizer().Tokenize("(set:" + expr + ")");
       var cursor = new TokenCursor(tokens);
-      // Skip the MacroOpen for "_" — we just want what's inside.
-      cursor.Advance();
+      cursor.Advance(); // consume MacroOpen
       var parser = new HarloweExpressionParser();
-      var node = parser.ParseExpression(cursor);
-      Assert.Equal(TokenType.MacroClose, cursor.Current.Type);
-      return node;
+      var args = parser.ParseArgumentList(cursor, allowAssignment: true);
+      // ParseArgumentList consumes the trailing MacroClose, so the cursor lands
+      // at end-of-file for a single-arg `(set:expr)` wrapper.
+      Assert.Single(args);
+      return args[0];
     }
 
     // --- Literals ---
@@ -243,6 +248,68 @@ namespace Harlowe.Tests
     {
       var b = Assert.IsType<BinaryOpNode>(ParseExpr("5 into $x"));
       Assert.Equal("into", b.Operator);
+    }
+
+    [Fact]
+    public void To_NotAllowedAtTop_WhenAssignmentForbidden()
+    {
+      // Calling ParseArgumentList with allowAssignment: false (the default,
+      // and what the body parser uses for every macro that isn't set/put)
+      // must reject `to` at the top of the argument expression.
+      var tokens = new HarloweTokenizer().Tokenize("(print: $x to 5)");
+      var cursor = new TokenCursor(tokens);
+      cursor.Advance();
+      var parser = new HarloweExpressionParser();
+      var ex = Assert.Throws<HarloweParseException>(
+        () => parser.ParseArgumentList(cursor, allowAssignment: false));
+      Assert.Contains("to", ex.Message);
+    }
+
+    [Fact]
+    public void To_NotAllowedInSubExpression_EvenWhenTopLevelAllowed()
+    {
+      // Assignment is only allowed at the immediate top of an arg expression;
+      // a nested `to` (here on the RHS of `+`) is rejected even when the outer
+      // call permits top-level assignment.
+      var tokens = new HarloweTokenizer().Tokenize("(set: $x + ($y to 5))");
+      var cursor = new TokenCursor(tokens);
+      cursor.Advance();
+      var parser = new HarloweExpressionParser();
+      var ex = Assert.Throws<HarloweParseException>(
+        () => parser.ParseArgumentList(cursor, allowAssignment: true));
+      Assert.Contains("to", ex.Message);
+    }
+
+    [Fact]
+    public void Into_NotAllowedInNestedMacroArg()
+    {
+      // `(set: $r to (print: $x into 5))` — the outer (set:) allows `to` at
+      // its top, but the inner (print:) is not an assignment macro and must
+      // refuse `into` in its arg list.
+      var tokens = new HarloweTokenizer().Tokenize("(set: $r to (print: $x into 5))");
+      var cursor = new TokenCursor(tokens);
+      cursor.Advance();
+      var parser = new HarloweExpressionParser();
+      var ex = Assert.Throws<HarloweParseException>(
+        () => parser.ParseArgumentList(cursor, allowAssignment: true));
+      Assert.Contains("into", ex.Message);
+    }
+
+    [Fact]
+    public void To_AllowedInNestedSetCall()
+    {
+      // The inner (set:) is itself an assignment macro, so `to` is allowed at
+      // its arg top even when nested inside another macro's arg.
+      var tokens = new HarloweTokenizer().Tokenize("(print: (set: $x to 5))");
+      var cursor = new TokenCursor(tokens);
+      cursor.Advance();
+      var parser = new HarloweExpressionParser();
+      // No throw — the outer (print:) doesn't allow assignment, but the inner
+      // (set:) does, and `to` is at the top of that inner arg list.
+      var args = parser.ParseArgumentList(cursor, allowAssignment: false);
+      Assert.Single(args);
+      var outerCall = Assert.IsType<MacroCallNode>(args[0]);
+      Assert.Equal("set", outerCall.Name);
     }
 
     // --- of, 's, its (data access) ---

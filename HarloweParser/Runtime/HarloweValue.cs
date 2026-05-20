@@ -34,12 +34,14 @@ namespace Harlowe.Runtime
     public object Raw { get; }
 
     /// <summary>
-    /// Direct constructor. Most call sites should prefer the typed factory
-    /// methods; this is exposed for the evaluator's
-    /// <see cref="Ast.Expression.LiteralNode"/> fast path where Kind+Value can
-    /// be copied verbatim.
+    /// Private constructor — callers go through the typed factories
+    /// (<see cref="OfNumber"/>, <see cref="OfString"/>, …) so a Kind cannot
+    /// be paired with a payload of the wrong CLR type. Was previously public
+    /// for "fast-path" literal construction, but no production code took that
+    /// path — every <c>new HarloweValue</c> site already routed through a
+    /// factory.
     /// </summary>
-    public HarloweValue(HarloweValueKind kind, object raw)
+    private HarloweValue(HarloweValueKind kind, object raw)
     {
       Kind = kind;
       Raw = raw;

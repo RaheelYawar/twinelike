@@ -24,9 +24,11 @@ namespace Harlowe.Tests.Twee
 
     private static IExpressionNode ParseExpression(string source)
     {
-      // Wrap the expression in a dummy macro so the body parser routes us into
-      // the expression parser; then pull the single argument back out.
-      var tokens = new HarloweTokenizer().Tokenize("(print: " + source + ")");
+      // Wrap the expression in (set: ...) so the body parser allows top-level
+      // `to`/`into` assignment forms (the round-trip suite covers both). Other
+      // expression shapes parse the same way whether the wrapper is (print:)
+      // or (set:), so a single wrapper covers every test case.
+      var tokens = new HarloweTokenizer().Tokenize("(set: " + source + ")");
       var ast = new HarloweBodyParser().Parse(tokens);
       var macro = (Ast.Body.MacroNode)ast.Children[0];
       return macro.Arguments[0];

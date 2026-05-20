@@ -6,7 +6,18 @@ namespace Harlowe
   public class HarlowePassage
   {
     public string Pid;
+
+    /// <summary>
+    /// The author-facing passage name. <strong>Do not mutate after the passage
+    /// has been added to a story</strong> — the story's internal lookup is
+    /// indexed by this value, and writing it directly leaves the dictionary
+    /// holding a stale key. Use <see cref="Harlowe.RenamePassage"/> to change
+    /// the name; that re-keys the lookup atomically.
+    /// <see cref="Harlowe.GetPassage"/> detects the inconsistency and throws
+    /// <see cref="System.InvalidOperationException"/> if it happens anyway.
+    /// </summary>
     public string Name;
+
     public string Body;
     public List<string> Tags;
     public List<Branch> Branches;

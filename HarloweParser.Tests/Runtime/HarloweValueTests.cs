@@ -250,17 +250,6 @@ namespace Harlowe.Tests.Runtime
       Assert.Equal("bad thing", HarloweValue.OfError("bad thing").ToHarloweString());
     }
 
-    [Fact]
-    public void Constructor_CopiesKindAndRawForLiteralFastPath()
-    {
-      // The evaluator copies LiteralNode.Kind+Value straight into a HarloweValue
-      // via the public constructor. Confirm that path works without going
-      // through the typed factories.
-      var v = new HarloweValue(HarloweValueKind.Number, 42.0);
-      Assert.Equal(HarloweValueKind.Number, v.Kind);
-      Assert.Equal(42.0, v.AsNumber);
-    }
-
     // Changer kind ----------------------------------------------------------
 
     [Fact]

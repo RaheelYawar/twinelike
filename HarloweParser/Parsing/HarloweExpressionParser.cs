@@ -99,6 +99,16 @@ namespace Harlowe.Parsing
     /// </para>
     /// </summary>
     public IExpressionNode ParseExpression(TokenCursor cursor)
+      => ParseExpression(cursor, allowAssignmentAtTop: false);
+
+    /// <summary>
+    /// Internal entry that threads the assignment-allowed flag. The body
+    /// parser hands <c>true</c> when an arg-list slot is the immediate
+    /// argument of <c>(set:)</c> or <c>(put:)</c>; every sub-expression below
+    /// resets to <c>false</c>, so an embedded <c>to</c>/<c>into</c> fails to
+    /// parse rather than mutating during evaluation.
+    /// </summary>
+    private IExpressionNode ParseExpression(TokenCursor cursor, bool allowAssignmentAtTop)
     {
       var t = cursor.Current;
       // `each _x` is the body-iteration form for (for:). Parameter follows
@@ -107,7 +117,7 @@ namespace Harlowe.Parsing
         return ParseEachLambda(cursor);
       if (t.Type == TokenType.Operator && LambdaClauseKeywords.Contains(t.Value))
         return ParseLambdaTail(cursor, leftAsParam: null);
-      return ParseBinary(cursor, 16);
+      return ParseBinary(cursor, 16, allowAssignmentAtTop);
     }
 
     /// <summary>
@@ -140,6 +150,9 @@ namespace Harlowe.Parsing
     /// past the macro.
     /// </summary>
     public List<IExpressionNode> ParseArgumentList(TokenCursor cursor)
+      => ParseArgumentList(cursor, allowAssignment: false);
+
+    public List<IExpressionNode> ParseArgumentList(TokenCursor cursor, bool allowAssignment)
     {
       var args = new List<IExpressionNode>();
 
@@ -151,7 +164,7 @@ namespace Harlowe.Parsing
 
       while (true)
       {
-        args.Add(ParseExpression(cursor));
+        args.Add(ParseExpression(cursor, allowAssignmentAtTop: allowAssignment));
 
         if (cursor.Current.Type == TokenType.Comma)
         {
@@ -179,13 +192,31 @@ namespace Harlowe.Parsing
     }
 
     /// <summary>
+    /// The macro names whose argument lists may carry top-level
+    /// <c>to</c>/<c>into</c> assignment expressions. Hardcoded — there is no
+    /// extension point for user-defined assignment macros in Harlowe.
+    /// </summary>
+    public static bool IsAssignmentMacro(string name)
+      => name == "set" || name == "put";
+
+    /// <summary>
     /// Precedence-climbing core. Parses an operand via <see cref="ParseUnary"/>,
     /// then loops while the next token is a binary operator with order
     /// &lt;= <paramref name="maxOrder"/> (i.e. loose enough for this level).
     /// Recurses on the right-hand side at <c>order - 1</c> so binary operators
     /// stay left-associative.
+    ///
+    /// <para>
+    /// <paramref name="allowAssignmentAtTop"/> gates the order-16
+    /// <c>to</c>/<c>into</c> assignment operators. Only the immediate argument
+    /// expression of <c>(set:)</c>/<c>(put:)</c> arrives with the flag set; any
+    /// recursion into a sub-expression (RHS of a binary op, parenthesised
+    /// group, macro argument, lambda clause) clears it, so a stray
+    /// <c>to</c>/<c>into</c> below the top-of-arg position is a parse error
+    /// rather than a silent mutation during evaluation.
+    /// </para>
     /// </summary>
-    private IExpressionNode ParseBinary(TokenCursor cursor, int maxOrder)
+    private IExpressionNode ParseBinary(TokenCursor cursor, int maxOrder, bool allowAssignmentAtTop)
     {
       var left = ParseUnary(cursor);
 
@@ -204,8 +235,14 @@ namespace Harlowe.Parsing
         if (!BinaryOps.TryGetValue(t.Value, out int order)) break;
         if (order > maxOrder) break;
 
+        if ((t.Value == "to" || t.Value == "into") && !allowAssignmentAtTop)
+          throw new HarloweParseException(
+            $"'{t.Value}' assignment is only allowed at the top of a (set:) or (put:) argument",
+            t.Line, t.Column);
+
         cursor.Advance();
-        var right = ParseBinary(cursor, order - 1);
+        // RHS is a sub-expression — assignment is never allowed there.
+        var right = ParseBinary(cursor, order - 1, allowAssignmentAtTop: false);
         left = new BinaryOpNode { Operator = t.Value, Left = left, Right = right };
       }
 
@@ -273,14 +310,14 @@ namespace Harlowe.Parsing
       if (t.Value == "where")
       {
         cursor.Advance();
-        node.WhereClause = ParseBinary(cursor, 14);
+        node.WhereClause = ParseBinary(cursor, 14, allowAssignmentAtTop: false);
         t = cursor.Current;
       }
 
       if (t.Type == TokenType.Operator && t.Value == "via")
       {
         cursor.Advance();
-        node.ViaClause = ParseBinary(cursor, 14);
+        node.ViaClause = ParseBinary(cursor, 14, allowAssignmentAtTop: false);
       }
 
       return node;
@@ -299,7 +336,8 @@ namespace Harlowe.Parsing
       if (t.Type == TokenType.Operator && UnaryPrefixOps.TryGetValue(t.Value, out int order))
       {
         cursor.Advance();
-        var operand = ParseBinary(cursor, order - 1);
+        // Operand is a sub-expression; assignment is never allowed there.
+        var operand = ParseBinary(cursor, order - 1, allowAssignmentAtTop: false);
         return new UnaryOpNode { Operator = t.Value, Operand = operand };
       }
       return ParseAtom(cursor);
@@ -367,11 +405,13 @@ namespace Harlowe.Parsing
         case TokenType.MacroOpen:
           string name = t.Value;
           cursor.Advance();
-          return new MacroCallNode { Name = name, Arguments = ParseArgumentList(cursor) };
+          // Nested macro: arg-list assignment-allowed iff this call is (set:)/(put:).
+          return new MacroCallNode { Name = name, Arguments = ParseArgumentList(cursor, IsAssignmentMacro(name)) };
 
         case TokenType.ParenOpen:
           cursor.Advance();
-          var inner = ParseExpression(cursor);
+          // Grouping paren is a sub-expression; assignment never allowed inside.
+          var inner = ParseExpression(cursor, allowAssignmentAtTop: false);
           if (cursor.Current.Type == TokenType.ParenClose) cursor.Advance();
           return inner;
       }
