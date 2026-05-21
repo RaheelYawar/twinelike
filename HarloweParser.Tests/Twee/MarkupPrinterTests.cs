@@ -150,20 +150,30 @@ namespace Harlowe.Tests.Twee
       => Assert.Equal("\"\"", Print(new LiteralNode { Kind = LiteralKind.String, Value = "" }));
 
     [Fact]
-    public void Literal_String_ContainsDoubleQuote_UsesSingleQuote()
-      => Assert.Equal("'a\"b'", Print(new LiteralNode { Kind = LiteralKind.String, Value = "a\"b" }));
+    public void Literal_String_ContainsDoubleQuote_EscapesIt()
+      => Assert.Equal("\"a\\\"b\"", Print(new LiteralNode { Kind = LiteralKind.String, Value = "a\"b" }));
 
     [Fact]
-    public void Literal_String_ContainsSingleQuote_UsesDoubleQuote()
+    public void Literal_String_ContainsSingleQuote_PassesThrough()
+      // Single quotes don't need escaping inside a double-quoted string.
       => Assert.Equal("\"a'b\"", Print(new LiteralNode { Kind = LiteralKind.String, Value = "a'b" }));
 
     [Fact]
-    public void Literal_String_ContainsBoth_Throws()
-    {
-      var n = new LiteralNode { Kind = LiteralKind.String, Value = "a\"b'c" };
-      var ex = Assert.Throws<HarloweParseException>(() => Print(n));
-      Assert.Contains("escape", ex.Message);
-    }
+    public void Literal_String_ContainsBothQuotes_EscapesDoubleAndDoubleQuotes()
+      => Assert.Equal("\"a\\\"b'c\"", Print(new LiteralNode { Kind = LiteralKind.String, Value = "a\"b'c" }));
+
+    [Fact]
+    public void Literal_String_Backslash_IsEscaped()
+      => Assert.Equal("\"a\\\\b\"", Print(new LiteralNode { Kind = LiteralKind.String, Value = "a\\b" }));
+
+    [Fact]
+    public void Literal_String_NewlineTabReturn_UseNamedEscapes()
+      => Assert.Equal("\"a\\nb\\tc\\rd\"", Print(new LiteralNode { Kind = LiteralKind.String, Value = "a\nb\tc\rd" }));
+
+    [Fact]
+    public void Literal_String_OtherControlChar_UsesHexEscape()
+      // U+0007 (BEL) is a control char with no named escape — falls back to \xHH.
+      => Assert.Equal("\"a\\x07b\"", Print(new LiteralNode { Kind = LiteralKind.String, Value = "ab" }));
 
     // ----- Identifiers and variable refs -----
 

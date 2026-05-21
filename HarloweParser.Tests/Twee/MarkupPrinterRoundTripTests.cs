@@ -102,6 +102,9 @@ namespace Harlowe.Tests.Twee
 
     [Fact] public void Expr_Number() => AssertExprRoundTripStable("42");
     [Fact] public void Expr_String() => AssertExprRoundTripStable("\"hello\"");
+    [Fact] public void Expr_String_WithEscapes() => AssertExprRoundTripStable("\"line1\\nline2\\twith\\ttabs\\\\backslash\"");
+    [Fact] public void Expr_String_BothQuoteTypes() => AssertExprRoundTripStable("\"a\\\"b'c\"");
+    [Fact] public void Expr_String_HexAndUnicodeEscape() => AssertExprRoundTripStable("\"\\u2603 \\x41\"");
     [Fact] public void Expr_Bool() => AssertExprRoundTripStable("true");
     [Fact] public void Expr_Variable() => AssertExprRoundTripStable("$hp");
     [Fact] public void Expr_TempVariable() => AssertExprRoundTripStable("_i");
