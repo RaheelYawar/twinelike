@@ -34,8 +34,13 @@ namespace Harlowe.Runtime
   /// <para>User-supplied values (Color/BackgroundColor/BackgroundImage/
   /// FontFamily/FontSize) are HTML-attribute-escaped via
   /// <see cref="EscapeAttribute"/> before being embedded into the
-  /// <c>style="..."</c> attribute, so a story variable holding
-  /// <c>"red"; --&gt;</c> can't break out of the attribute.</para>
+  /// <c>style="..."</c> attribute, which keeps them from breaking out of the
+  /// attribute by closing the quote. CSS-structural characters (<c>;</c>,
+  /// <c>{</c>, <c>}</c>, <c>\</c>, newlines) — which could inject additional
+  /// declarations <em>inside</em> the attribute — are rejected one layer up at
+  /// the macro boundary via <see cref="Macros.StyleValueValidator"/>, so by
+  /// the time a value reaches this adapter the only escaping concern is HTML
+  /// attribute context.</para>
   ///
   /// <para><b>Animation effects</b> (<c>blink</c>, <c>fade-in-out</c>,
   /// <c>shudder</c>, <c>rumble</c>, <c>sway</c>, <c>buoy</c>, <c>fidget</c>)

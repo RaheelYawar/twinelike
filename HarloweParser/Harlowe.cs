@@ -337,17 +337,38 @@ namespace Harlowe
     /// is filled by collecting every <see cref="LinkNode"/> in the AST;
     /// <see cref="HarlowePassage.Body"/> is the AST rendered back to plain
     /// prose with link markup stripped.
+    ///
+    /// <para>Null/missing structural pieces — no passages at all, a passage
+    /// missing its <c>name</c> or <c>pid</c> attribute — surface as
+    /// <see cref="HarloweParseException"/> so HTML loading stays on the
+    /// project's documented error contract instead of NRE'ing on malformed
+    /// input.</para>
     /// </summary>
     private void Parse(HtmlNodeCollection passageNodes)
     {
       _passages = new Dictionary<string, HarlowePassage>();
       _passageOrder = new List<string>();
+      // HtmlAgilityPack returns null from SelectNodes when no nodes match. A
+      // story with zero passages is structurally valid (matches the empty
+      // story from `new Harlowe()`); treat it as such instead of throwing.
+      if (passageNodes == null) return;
+
       var tokenizer = new HarloweTokenizer();
       var bodyParser = new HarloweBodyParser();
 
       foreach (var passageNode in passageNodes)
       {
-        string passageName = passageNode.Attributes["name"].Value;
+        var nameAttr = passageNode.Attributes["name"];
+        if (nameAttr == null)
+          throw new HarloweParseException(
+            "<tw-passagedata> is missing required 'name' attribute", -1, -1, null);
+        string passageName = nameAttr.Value;
+
+        var pidAttr = passageNode.Attributes["pid"];
+        if (pidAttr == null)
+          throw new HarloweParseException(
+            "<tw-passagedata> is missing required 'pid' attribute", -1, -1, passageName);
+
         string raw = HtmlEntity.DeEntitize(passageNode.InnerHtml ?? string.Empty);
 
         Ast.Body.PassageBody ast;
@@ -366,7 +387,7 @@ namespace Harlowe
 
         var passage = new HarlowePassage
         {
-          Pid = passageNode.Attributes["pid"].Value,
+          Pid = pidAttr.Value,
           Name = passageName,
           Tags = ParseTags(passageNode.GetAttributeValue("tags", string.Empty)),
           Ast = ast,

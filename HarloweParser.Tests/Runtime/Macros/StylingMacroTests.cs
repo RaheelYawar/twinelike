@@ -203,6 +203,26 @@ namespace Harlowe.Tests.Runtime.Macros
       AssertError(buf, "String");
     }
 
+    // --- CSS-injection guard ---
+
+    [Theory]
+    [InlineData("(text-color: \"red; background: blue\")[hi]")]
+    [InlineData("(background: \"red; color: white\")[hi]")]
+    [InlineData("(font: \"Arial; color: red\")[hi]")]
+    [InlineData("(text-color: \"red\\n;hax\")[hi]")]
+    [InlineData("(text-color: \"red}body{hax:1\")[hi]")]
+    public void StyleValueWithCssStructuralChar_EmitsErrorAndDoesNotPushStyle(string source)
+    {
+      // A story variable holding `red; background: url(//evil)` must not
+      // inject extra declarations into the style="..." attribute. Validation
+      // is at the macro layer so the author sees an in-prose error rather
+      // than silent injection.
+      var buf = RenderRaw(source);
+      AssertError(buf, "style value");
+      foreach (var e in buf.Entries)
+        Assert.NotEqual(BufferedRenderOutput.Kind.PushStyle, e.Kind);
+    }
+
     // --- Composition across the new macros ---
 
     [Fact]

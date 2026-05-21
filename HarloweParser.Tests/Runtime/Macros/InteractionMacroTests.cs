@@ -287,6 +287,28 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
+    public void ClickAppendComposedWithStyle_AfterDispatch_StyleWrapDisappearsWithRegion()
+    {
+      // A composed (click-append: ?m) + (text-style: "bold") wraps both the
+      // interactive node AND its surrounding style layer around the original
+      // content. When the region fires, the style wrap is owned by the
+      // interaction and must disappear alongside the interactive node — so
+      // the post-dispatch tree shows the original content unstyled and the
+      // appended deferred content unstyled. Regression test for the
+      // outer-wrap-survives bug.
+      var session = Session("|m>[orig](click-append: ?m) + (text-style: \"bold\")[ added]");
+      var initial = session.Render();
+      Assert.Equal(1, CountKind(initial, BufferedRenderOutput.Kind.PushStyle));
+
+      var after = session.DispatchEvent(FirstRegionId(initial));
+      Assert.Equal("orig added", after.Text);
+      // The style wrap consumed with the region — no PushStyle in the
+      // re-flushed post-dispatch tree.
+      Assert.Equal(0, CountKind(after, BufferedRenderOutput.Kind.PushStyle));
+      Assert.Equal(0, CountKind(after, BufferedRenderOutput.Kind.PopStyle));
+    }
+
+    [Fact]
     public void Enchant_AcrossDispatch_StaysSingleWrapped()
     {
       // (enchant:) re-runs after dispatch. Its idempotency (disenchant first)

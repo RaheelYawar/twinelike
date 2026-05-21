@@ -371,9 +371,15 @@ namespace Harlowe.Runtime
     /// <summary>
     /// Walk <paramref name="container"/> and splice out every
     /// <see cref="Rendering.RenderInteractiveNode"/> whose region matches
-    /// <paramref name="regionId"/>, replacing each with its children. Used by
-    /// <see cref="DispatchEvent"/> to consume the fired region so it can't be
-    /// re-clicked and so the post-splice tree doesn't carry a stale wrap.
+    /// <paramref name="regionId"/>, replacing each with its children. Also
+    /// strips any <see cref="Rendering.RenderStyleNode"/> tagged with the same
+    /// region id — those are the composed style layers a changer like
+    /// <c>(click-append: ?m) + (text-style: "bold")</c> wraps around the
+    /// interactive node, and they need to disappear with the wrap so the
+    /// target returns to its pre-interaction styling once the handler fires.
+    /// Used by <see cref="DispatchEvent"/> to consume the fired region so it
+    /// can't be re-clicked and so the post-splice tree doesn't carry a stale
+    /// wrap.
     /// </summary>
     private static void UnwrapInteractive(Rendering.IRenderContainer container, string regionId)
     {
@@ -390,6 +396,8 @@ namespace Harlowe.Runtime
       {
         if (children[i] is Rendering.RenderInteractiveNode iv && iv.Region?.Id == regionId)
           rebuilt.AddRange(iv.Children);
+        else if (children[i] is Rendering.RenderStyleNode sn && sn.SourceRegionId == regionId)
+          rebuilt.AddRange(sn.Children);
         else
           rebuilt.Add(children[i]);
       }
