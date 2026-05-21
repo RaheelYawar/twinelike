@@ -234,8 +234,11 @@ namespace Harlowe.Tests
 
     [Theory]
     [InlineData("(print: \"a\\x41b\")", "aAb")]
+    [InlineData("(print: \"a\\x4Ab\")", "aJb")]
     [InlineData("(print: \"\\x00\")", "\0")]
     [InlineData("(print: \"\\u00e9\")", "é")]
+    [InlineData("(print: \"\\u00E9\")", "é")]
+    [InlineData("(print: \"\\uABCD\")", "ꯍ")]
     [InlineData("(print: \"\\u2603\")", "☃")]
     public void StringLiteral_HexAndUnicodeEscape_Decoded(string source, string expectedValue)
     {
