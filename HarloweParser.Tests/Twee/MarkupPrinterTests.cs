@@ -173,7 +173,10 @@ namespace Harlowe.Tests.Twee
     [Fact]
     public void Literal_String_OtherControlChar_UsesHexEscape()
       // U+0007 (BEL) is a control char with no named escape — falls back to \xHH.
-      => Assert.Equal("\"a\\x07b\"", Print(new LiteralNode { Kind = LiteralKind.String, Value = "ab" }));
+      // Built via (char)0x07 concatenation rather than a string-literal escape
+      // so the embedded control char is obvious from the source instead of
+      // hiding as an invisible byte.
+      => Assert.Equal("\"a\\x07b\"", Print(new LiteralNode { Kind = LiteralKind.String, Value = "a" + (char)0x07 + "b" }));
 
     // ----- Identifiers and variable refs -----
 
