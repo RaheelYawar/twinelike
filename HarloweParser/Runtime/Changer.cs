@@ -261,11 +261,13 @@ namespace Harlowe.Runtime
 
         // Wrap any composed style layers around the interactive node,
         // innermost = last layer. Styles are visible while the region is
-        // clickable and disappear with the wrap once the handler fires.
+        // clickable and disappear with the wrap once the handler fires —
+        // each wrap is tagged with the region id so StorySession's
+        // UnwrapInteractive pass strips it alongside the interactive node.
         RenderNode wrapped = interactiveNode;
         for (int s = d.Styles.Count - 1; s >= 0; s--)
         {
-          var styleNode = new RenderStyleNode { Style = d.Styles[s] };
+          var styleNode = new RenderStyleNode { Style = d.Styles[s], SourceRegionId = regionId };
           styleNode.Children.Add(wrapped);
           wrapped = styleNode;
         }

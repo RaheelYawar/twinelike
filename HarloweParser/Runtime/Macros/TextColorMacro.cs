@@ -27,6 +27,8 @@ namespace Harlowe.Runtime.Macros
       if (arg.IsError) return arg;
       if (arg.Kind != HarloweValueKind.String)
         return HarloweValue.OfError($"({_name}:) requires a String, got {arg.Kind}");
+      var invalid = StyleValueValidator.Validate(_name, arg.AsString);
+      if (invalid != null) return invalid;
       return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { Color = arg.AsString }));
     }
   }

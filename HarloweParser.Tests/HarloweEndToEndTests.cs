@@ -50,6 +50,40 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void Constructor_EmptyStorydata_LoadsAsZeroPassageStory()
+    {
+      // A <tw-storydata> with no <tw-passagedata> children is structurally
+      // valid — same shape as `new Harlowe()`. SelectNodes returns null in
+      // that case; the loader must treat it as zero passages, not NRE.
+      const string html = "<html><body><tw-storydata name=\"T\" startnode=\"0\"></tw-storydata></body></html>";
+      var story = new Harlowe(html);
+      Assert.Equal(0, story.PassageCount);
+    }
+
+    [Fact]
+    public void Constructor_PassageMissingNameAttribute_ThrowsHarloweParseException()
+    {
+      // Missing 'name' was dereferenced directly before; verify it now
+      // surfaces through the project's error contract instead of NRE'ing.
+      const string html = "<html><body><tw-storydata name=\"T\" startnode=\"1\">"
+        + "<tw-passagedata pid=\"1\">body</tw-passagedata>"
+        + "</tw-storydata></body></html>";
+      var ex = Assert.Throws<HarloweParseException>(() => new Harlowe(html));
+      Assert.Contains("name", ex.Message);
+    }
+
+    [Fact]
+    public void Constructor_PassageMissingPidAttribute_ThrowsHarloweParseException()
+    {
+      const string html = "<html><body><tw-storydata name=\"T\" startnode=\"1\">"
+        + "<tw-passagedata name=\"P1\">body</tw-passagedata>"
+        + "</tw-storydata></body></html>";
+      var ex = Assert.Throws<HarloweParseException>(() => new Harlowe(html));
+      Assert.Equal("P1", ex.PassageName);
+      Assert.Contains("pid", ex.Message);
+    }
+
+    [Fact]
     public void PassageCount_MatchesFixture()
     {
       var story = TestFixture.LoadTestFile();

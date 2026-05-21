@@ -20,6 +20,8 @@ namespace Harlowe.Runtime.Macros
       if (arg.IsError) return arg;
       if (arg.Kind != HarloweValueKind.String)
         return HarloweValue.OfError($"(font:) requires a String, got {arg.Kind}");
+      var invalid = StyleValueValidator.Validate("font", arg.AsString);
+      if (invalid != null) return invalid;
       return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { FontFamily = arg.AsString }));
     }
   }

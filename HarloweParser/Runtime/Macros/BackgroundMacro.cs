@@ -36,6 +36,8 @@ namespace Harlowe.Runtime.Macros
         return HarloweValue.OfError($"({_name}:) requires a String, got {arg.Kind}");
 
       var value = arg.AsString;
+      var invalid = StyleValueValidator.Validate(_name, value);
+      if (invalid != null) return invalid;
       var spec = LooksLikeImage(value)
         ? new StyleSpec { BackgroundImage = value }
         : new StyleSpec { BackgroundColor = value };

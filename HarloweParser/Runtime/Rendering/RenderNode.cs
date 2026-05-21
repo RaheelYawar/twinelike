@@ -99,11 +99,27 @@ namespace Harlowe.Runtime.Rendering
     /// </summary>
     public Enchantment SourceEnchantment;
 
+    /// <summary>
+    /// The interactive region this style wrap belongs to, or <c>null</c> for
+    /// style wraps that aren't tied to a region. Set when a composed
+    /// interaction changer (<c>(click-append: ?m) + (text-style: "bold")</c>)
+    /// folds its style layers around the <see cref="RenderInteractiveNode"/>;
+    /// <see cref="StorySession.DispatchEvent"/>'s unwrap pass strips matching
+    /// wraps alongside the interactive node so the original target returns to
+    /// its pre-interaction styling once the region fires.
+    /// </summary>
+    public string SourceRegionId;
+
     public List<RenderNode> Children { get; } = new List<RenderNode>();
 
     public override RenderNode Clone()
     {
-      var copy = new RenderStyleNode { Style = Style?.Clone(), SourceEnchantment = SourceEnchantment };
+      var copy = new RenderStyleNode
+      {
+        Style = Style?.Clone(),
+        SourceEnchantment = SourceEnchantment,
+        SourceRegionId = SourceRegionId
+      };
       RenderNodes.CloneInto(Children, copy.Children);
       return copy;
     }
