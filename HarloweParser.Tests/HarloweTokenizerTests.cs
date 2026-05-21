@@ -213,6 +213,63 @@ namespace Harlowe.Tests
         (TokenType.EndOfFile, ""));
     }
 
+    [Theory]
+    [InlineData("(print: \"a\\nb\")", "a\nb")]
+    [InlineData("(print: \"a\\tb\")", "a\tb")]
+    [InlineData("(print: \"a\\rb\")", "a\rb")]
+    [InlineData("(print: \"a\\\\b\")", "a\\b")]
+    [InlineData("(print: \"a\\\"b\")", "a\"b")]
+    [InlineData("(print: 'a\\'b')", "a'b")]
+    [InlineData("(print: \"a\\0b\")", "a\0b")]
+    [InlineData("(print: \"a\\bb\")", "a\bb")]
+    public void StringLiteral_NamedEscape_Decoded(string source, string expectedValue)
+    {
+      // Reference Harlowe inherits the JS string-literal escape set via its
+      // JS evaluator; we decode the same set in the tokenizer so the runtime
+      // sees the cooked value.
+      var tokens = Tokenize(source);
+      Assert.Equal(TokenType.StringLiteral, tokens[1].Type);
+      Assert.Equal(expectedValue, tokens[1].Value);
+    }
+
+    [Theory]
+    [InlineData("(print: \"a\\x41b\")", "aAb")]
+    [InlineData("(print: \"\\x00\")", "\0")]
+    [InlineData("(print: \"\\u00e9\")", "é")]
+    [InlineData("(print: \"\\u2603\")", "☃")]
+    public void StringLiteral_HexAndUnicodeEscape_Decoded(string source, string expectedValue)
+    {
+      var tokens = Tokenize(source);
+      Assert.Equal(TokenType.StringLiteral, tokens[1].Type);
+      Assert.Equal(expectedValue, tokens[1].Value);
+    }
+
+    [Fact]
+    public void StringLiteral_UnknownEscape_StripsBackslash()
+    {
+      // \q isn't a recognized escape — JS semantics: backslash dropped, `q` kept.
+      var tokens = Tokenize("(print: \"a\\qb\")");
+      Assert.Equal("aqb", tokens[1].Value);
+    }
+
+    [Fact]
+    public void StringLiteral_MalformedHexEscape_FallsBackToStripBackslash()
+    {
+      // \xZZ — Z isn't a hex digit. Falls back to unknown-escape: `\x` becomes
+      // `x`, the rest is regular characters.
+      var tokens = Tokenize("(print: \"\\xZZ\")");
+      Assert.Equal("xZZ", tokens[1].Value);
+    }
+
+    [Fact]
+    public void StringLiteral_BothQuoteTypesViaEscape_RoundTrips()
+    {
+      // The combo previously was unprintable; now it lexes cleanly because
+      // the inner double quote is backslash-escaped.
+      var tokens = Tokenize("(print: \"a\\\"b'c\")");
+      Assert.Equal("a\"b'c", tokens[1].Value);
+    }
+
     [Fact]
     public void Macro_DecimalNumberLiteral_PreservesDecimalPoint()
     {

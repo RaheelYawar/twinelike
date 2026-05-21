@@ -367,10 +367,20 @@ namespace Harlowe.Tokens
 
     /// <summary>
     /// Consumes a single- or double-quoted string literal (the opening quote
-    /// type is passed in). The emitted <see cref="Token.Value"/> contains the
-    /// inner characters only — the surrounding quotes are stripped. There is
-    /// no escape-sequence handling; an unterminated string is silently closed
-    /// at end-of-input.
+    /// type is passed in). The emitted <see cref="Token.Value"/> holds the
+    /// decoded inner characters — surrounding quotes are stripped and escape
+    /// sequences are interpreted. Recognized escapes match the JavaScript
+    /// string-literal set the reference Harlowe runtime inherits from its JS
+    /// evaluator: <c>\n</c> <c>\r</c> <c>\t</c> <c>\b</c> <c>\f</c> <c>\v</c>
+    /// <c>\0</c> <c>\\</c> <c>\'</c> <c>\"</c> <c>\xHH</c> <c>\uHHHH</c>.
+    /// Unknown escapes drop the backslash and keep the next character
+    /// verbatim (so <c>\q</c> tokenizes to <c>q</c>), matching JS semantics —
+    /// authors who want a literal backslash must double it. <c>\xHH</c> and
+    /// <c>\uHHHH</c> require the right number of hex digits; an ill-formed
+    /// hex escape falls back to the unknown-escape rule (the <c>\</c> is
+    /// dropped, the <c>x</c>/<c>u</c> and following characters are kept).
+    /// An unterminated string is silently closed at end-of-input; a trailing
+    /// backslash with no follow-up character is dropped.
     /// </summary>
     private void ScanStringLiteral(char quote, int startPos, int startLine, int startCol)
     {
@@ -378,11 +388,95 @@ namespace Harlowe.Tokens
       var sb = new StringBuilder();
       while (_pos < _src.Length && _src[_pos] != quote)
       {
-        sb.Append(_src[_pos]);
+        char c = _src[_pos];
+        if (c == '\\')
+        {
+          DecodeEscape(sb);
+          continue;
+        }
+        sb.Append(c);
         Advance();
       }
       if (_pos < _src.Length) Advance();
       Emit(TokenType.StringLiteral, sb.ToString(), startPos, startLine, startCol);
+    }
+
+    /// <summary>
+    /// Decode one escape sequence beginning at the current backslash. Consumes
+    /// the backslash plus exactly the characters that belong to the escape
+    /// (one for named/quote escapes, three for <c>\xHH</c>, five for
+    /// <c>\uHHHH</c>), appending the produced character(s) to
+    /// <paramref name="sb"/>. Unknown escapes drop the backslash and keep the
+    /// next character; ill-formed hex escapes fall back to the same rule.
+    /// </summary>
+    private void DecodeEscape(StringBuilder sb)
+    {
+      Advance(); // past the backslash
+      if (_pos >= _src.Length) return; // trailing backslash at EOF
+      char esc = _src[_pos];
+      switch (esc)
+      {
+        case 'n': sb.Append('\n'); Advance(); return;
+        case 'r': sb.Append('\r'); Advance(); return;
+        case 't': sb.Append('\t'); Advance(); return;
+        case 'b': sb.Append('\b'); Advance(); return;
+        case 'f': sb.Append('\f'); Advance(); return;
+        case 'v': sb.Append('\v'); Advance(); return;
+        case '0': sb.Append('\0'); Advance(); return;
+        case '\\': sb.Append('\\'); Advance(); return;
+        case '\'': sb.Append('\''); Advance(); return;
+        case '"': sb.Append('"'); Advance(); return;
+        case 'x':
+          if (TryDecodeHex(2, out var b))
+          {
+            sb.Append((char)b);
+            return;
+          }
+          // ill-formed \xHH — keep the `x` (backslash already dropped)
+          sb.Append(esc); Advance(); return;
+        case 'u':
+          if (TryDecodeHex(4, out var u))
+          {
+            sb.Append((char)u);
+            return;
+          }
+          sb.Append(esc); Advance(); return;
+        default:
+          // unknown escape: drop the backslash, keep the following character
+          sb.Append(esc);
+          Advance();
+          return;
+      }
+    }
+
+    /// <summary>
+    /// Try to consume <paramref name="digits"/> hex characters immediately
+    /// after a <c>\x</c> / <c>\u</c> introducer. On success, advances past the
+    /// introducer + digits and returns the decoded value. On failure leaves
+    /// <c>_pos</c> on the introducer (the caller advances past it via the
+    /// unknown-escape fallback) and returns false.
+    /// </summary>
+    private bool TryDecodeHex(int digits, out int value)
+    {
+      value = 0;
+      // _pos sits on the introducer ('x' or 'u'); the digits start one past it.
+      int scan = _pos + 1;
+      if (scan + digits > _src.Length) return false;
+      int acc = 0;
+      for (int i = 0; i < digits; i++)
+      {
+        char d = _src[scan + i];
+        int v;
+        if (d >= '0' && d <= '9') v = d - '0';
+        else if (d >= 'a' && d <= 'f') v = 10 + (d - 'a');
+        else if (d >= 'A' && d <= 'F') v = 10 + (d - 'A');
+        else return false;
+        acc = (acc << 4) | v;
+      }
+      value = acc;
+      // Advance past the introducer + digits.
+      for (int i = 0; i <= digits; i++) Advance();
+      return true;
     }
 
     /// <summary>

@@ -27,13 +27,12 @@ namespace Harlowe.Twee
   /// runs leftward). Around a <see cref="BinaryOpNode"/> operand of a
   /// <see cref="UnaryOpNode"/>, parens go on equal-or-looser order.</para>
   ///
-  /// <para><b>String literal limitation.</b> Harlowe's tokenizer doesn't honor
-  /// escape sequences (see Known TODOs), so a string containing both
-  /// <c>"</c> and <c>'</c> is genuinely unprintable. The smart-quoting logic
-  /// picks the available delimiter; if neither is safe, the printer throws
-  /// <see cref="HarloweParseException"/>. Once tokenizer escape support
-  /// lands, the printer can switch to always-double-quote with backslash
-  /// escapes.</para>
+  /// <para><b>String literals.</b> Always double-quoted; the tokenizer
+  /// decodes the JS-spec escape set (<c>\n</c>/<c>\r</c>/<c>\t</c>/<c>\\</c>/
+  /// <c>\"</c>/etc.) so the printer can re-encode any value round-trippably
+  /// without picking a delimiter per string. <see cref="AppendStringLiteral"/>
+  /// escapes <c>\</c>, <c>"</c>, and the control characters that can't sit
+  /// raw inside a double-quoted string.</para>
   /// </summary>
   public class MarkupPrinter : IBodyVisitor, IExpressionVisitor
   {
@@ -424,23 +423,40 @@ namespace Harlowe.Twee
     }
 
     /// <summary>
-    /// Emits a string literal, picking <c>"</c> or <c>'</c> based on the
-    /// content. Throws when the string contains both quote types — the
-    /// tokenizer doesn't yet honor escape sequences, so neither delimiter
-    /// would round-trip. The thrown error points at this limitation so the
-    /// caller doesn't get silently-broken output.
+    /// Emit a string literal as a double-quoted, backslash-escaped Harlowe
+    /// string. Round-trips through <see cref="HarloweTokenizer"/> because the
+    /// tokenizer's escape decoder reverses every sequence we produce here.
+    /// <c>\</c> and <c>"</c> get backslash escapes; <c>\n</c>/<c>\r</c>/
+    /// <c>\t</c> become their named escapes so the emitted source stays on a
+    /// single line; other control characters are <c>\xHH</c>-escaped so the
+    /// output remains printable ASCII. Other characters (including <c>'</c>,
+    /// which no longer needs special handling) pass through verbatim.
     /// </summary>
     private void AppendStringLiteral(string s)
     {
-      bool hasDouble = s != null && s.IndexOf('"') >= 0;
-      bool hasSingle = s != null && s.IndexOf('\'') >= 0;
-      if (hasDouble && hasSingle)
+      _sb.Append('"');
+      if (s != null)
       {
-        throw new HarloweParseException(
-          "string literal contains both \" and ' — cannot emit a round-trippable form until tokenizer string escapes are implemented");
+        for (int i = 0; i < s.Length; i++)
+        {
+          char c = s[i];
+          switch (c)
+          {
+            case '\\': _sb.Append("\\\\"); break;
+            case '"':  _sb.Append("\\\""); break;
+            case '\n': _sb.Append("\\n"); break;
+            case '\r': _sb.Append("\\r"); break;
+            case '\t': _sb.Append("\\t"); break;
+            default:
+              if (c < 0x20 || c == 0x7f)
+                _sb.Append("\\x").Append(((int)c).ToString("x2", CultureInfo.InvariantCulture));
+              else
+                _sb.Append(c);
+              break;
+          }
+        }
       }
-      char quote = hasDouble ? '\'' : '"';
-      _sb.Append(quote).Append(s ?? string.Empty).Append(quote);
+      _sb.Append('"');
     }
   }
 }
