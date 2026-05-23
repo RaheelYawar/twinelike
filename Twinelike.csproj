@@ -14,7 +14,7 @@
     <!-- NuGet package metadata. Run `dotnet pack -c Release` to produce a .nupkg. -->
     <PropertyGroup>
         <PackageId>Twinelike</PackageId>
-        <Version>0.1.0</Version>
+        <Version>0.1.1</Version>
         <Authors>Raheel Yawar</Authors>
         <Company>Raheel Yawar</Company>
         <Description>A C# library for parsing and running Twine/Harlowe interactive fiction stories. Targets game engines (Unity, Godot, etc.) via an engine-agnostic IRenderOutput interface. Accepts Twine 2 HTML exports and Twee 3 source; emits Twee 3.</Description>

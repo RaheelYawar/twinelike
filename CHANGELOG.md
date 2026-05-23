@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-05-22
+
+### Added
+
+- **String-literal escape sequences in the tokenizer.** Decodes the JS-spec escape set (`\n`, `\r`, `\t`, `\b`, `\f`, `\v`, `\0`, `\\`, `\'`, `\"`, `\xHH`, `\uHHHH`) at lex time so the runtime sees the cooked value. Matches reference Harlowe via its JS evaluator; unknown escapes drop the backslash.
+- **Round-trippable string literals through `MarkupPrinter`.** Always emits double-quoted strings with backslash escapes; the prior "throw on strings containing both `"` and `'`" limitation is gone.
+
+### Fixed
+
+- **Render-tree node cloning now deep-copies mutable fields** (and the builder runs an imbalance check) so revision and enchantment splices no longer share state between targets.
+- **Datamap rendering uses alphabetical key order** for stable, comparable output.
+- **`AddPassage` hydrates the AST** for passages constructed from a body string.
+
+### Security
+
+- **HTML-escape `<`, `>`, `&` in text output** to prevent unintended HTML rendering or injection through author prose.
+- **`StyleValueValidator` for CSS injection protection.** Style-value macros (`(text-color:)`, `(background:)`, `(font:)`, etc.) validate their inputs to prevent raw CSS payloads reaching the HTML adapter's inline `style="..."` attribute. Composed style layers are now tracked per region for clean teardown after interactions.
+- **Recursion limit on `(display:)`** to safely terminate cyclic embedding.
+- **`to` / `into` assignment restricted to the top-level positions of `(set:)` / `(put:)` argument lists.** Sub-expressions now surface `HarloweParseException` at parse time, eliminating the prior evaluation-time state-leak hazard.
+- **Twee tag values escape special characters** when emitted by `TweeWriter`, preventing malformed headers when round-tripping author-supplied tags.
+
 ## [0.1.0] — 2026-05-16
 
 First public release. Tracks Harlowe 3.3.8 to the extent listed in the [README feature matrix](./README.md#supported-harlowe-features).
@@ -31,5 +52,6 @@ First public release. Tracks Harlowe 3.3.8 to the extent listed in the [README f
 - `(link:)`, `(live:)`, `(event:)`, `(trigger:)`, `(t8n:)` / transitions, custom `(macro:)` / `(output:)`, storylets, and `(unpack:)` / `...` spread are not yet implemented; they emit an "unknown macro" in-prose error.
 - Tokenizer string literals do not handle escape sequences. A string containing both `"` and `'` cannot be round-tripped through `MarkupPrinter`.
 
-[Unreleased]: https://github.com/RaheelYawar/twinelike/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/RaheelYawar/twinelike/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/RaheelYawar/twinelike/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/RaheelYawar/twinelike/releases/tag/v0.1.0
