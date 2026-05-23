@@ -178,6 +178,12 @@ namespace Harlowe.Tests.Twee
       // hiding as an invisible byte.
       => Assert.Equal("\"a\\x07b\"", Print(new LiteralNode { Kind = LiteralKind.String, Value = "a" + (char)0x07 + "b" }));
 
+    [Fact]
+    public void Literal_String_NullChar_UsesHexEscape()
+      // U+0000 has no named escape in the printer (the tokenizer's `\0` is
+      // a read-side convenience, not a printer choice). Falls through to \xHH.
+      => Assert.Equal("\"a\\x00b\"", Print(new LiteralNode { Kind = LiteralKind.String, Value = "a" + (char)0x00 + "b" }));
+
     // ----- Identifiers and variable refs -----
 
     [Fact]
