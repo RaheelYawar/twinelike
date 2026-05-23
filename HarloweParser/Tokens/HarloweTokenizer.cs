@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 
 namespace Harlowe.Tokens
@@ -430,6 +431,7 @@ namespace Harlowe.Tokens
           if (TryDecodeHex(2, out var b))
           {
             sb.Append((char)b);
+            AdvanceN(3); // introducer + 2 hex digits
             return;
           }
           // ill-formed \xHH — keep the `x` (backslash already dropped)
@@ -438,6 +440,7 @@ namespace Harlowe.Tokens
           if (TryDecodeHex(4, out var u))
           {
             sb.Append((char)u);
+            AdvanceN(5); // introducer + 4 hex digits
             return;
           }
           sb.Append(esc); Advance(); return;
@@ -450,33 +453,19 @@ namespace Harlowe.Tokens
     }
 
     /// <summary>
-    /// Try to consume <paramref name="digits"/> hex characters immediately
-    /// after a <c>\x</c> / <c>\u</c> introducer. On success, advances past the
-    /// introducer + digits and returns the decoded value. On failure leaves
-    /// <c>_pos</c> on the introducer (the caller advances past it via the
-    /// unknown-escape fallback) and returns false.
+    /// Try to read <paramref name="digits"/> hex characters one past the
+    /// <c>\x</c> / <c>\u</c> introducer (which sits at <c>_pos</c>). Pure —
+    /// does not advance the cursor; the caller advances on success via
+    /// <c>AdvanceN(digits + 1)</c>, or via the unknown-escape fallback on
+    /// failure. Returns false if the source runs out before <paramref name="digits"/>
+    /// hex digits are available, or if a non-hex character appears.
     /// </summary>
     private bool TryDecodeHex(int digits, out int value)
     {
       value = 0;
-      // _pos sits on the introducer ('x' or 'u'); the digits start one past it.
       int scan = _pos + 1;
       if (scan + digits > _src.Length) return false;
-      int acc = 0;
-      for (int i = 0; i < digits; i++)
-      {
-        char d = _src[scan + i];
-        int v;
-        if (d >= '0' && d <= '9') v = d - '0';
-        else if (d >= 'a' && d <= 'f') v = 10 + (d - 'a');
-        else if (d >= 'A' && d <= 'F') v = 10 + (d - 'A');
-        else return false;
-        acc = (acc << 4) | v;
-      }
-      value = acc;
-      // Advance past the introducer + digits.
-      for (int i = 0; i <= digits; i++) Advance();
-      return true;
+      return int.TryParse(_src.Substring(scan, digits), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value);
     }
 
     /// <summary>

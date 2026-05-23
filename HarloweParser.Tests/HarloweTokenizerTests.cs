@@ -274,6 +274,33 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void StringLiteral_HexEscape_InsufficientDigitsBeforeQuote_FallsBack()
+    {
+      // Only one hex digit before the closing quote — TryDecodeHex's length
+      // check rejects, then the unknown-escape fallback strips the backslash
+      // and keeps the `x`. The lone digit then tokenizes as a regular char.
+      var tokens = Tokenize("(print: \"\\x4\")");
+      Assert.Equal("x4", tokens[1].Value);
+    }
+
+    [Fact]
+    public void StringLiteral_UnicodeEscape_InsufficientDigitsBeforeQuote_FallsBack()
+    {
+      var tokens = Tokenize("(print: \"\\u12\")");
+      Assert.Equal("u12", tokens[1].Value);
+    }
+
+    [Fact]
+    public void StringLiteral_TrailingBackslashAtEof_Dropped()
+    {
+      // Unterminated string ending on a bare backslash. DecodeEscape's
+      // EOF guard drops the backslash; the unterminated string then closes
+      // silently per ScanStringLiteral's policy.
+      var tokens = Tokenize("(print: \"abc\\");
+      Assert.Equal("abc", tokens[1].Value);
+    }
+
+    [Fact]
     public void Macro_DecimalNumberLiteral_PreservesDecimalPoint()
     {
       AssertSequence(Tokenize("(set: $x to 1.5)"),
