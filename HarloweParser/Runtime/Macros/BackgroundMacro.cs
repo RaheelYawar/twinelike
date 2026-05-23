@@ -38,10 +38,15 @@ namespace Harlowe.Runtime.Macros
       var value = arg.AsString;
       var invalid = StyleValueValidator.Validate(_name, value);
       if (invalid != null) return invalid;
-      var spec = LooksLikeImage(value)
-        ? new StyleSpec { BackgroundImage = value }
-        : new StyleSpec { BackgroundColor = value };
-      return HarloweValue.OfChanger(Changer.FromStyle(spec));
+      if (LooksLikeImage(value))
+      {
+        // Authors may write either a bare URL ("art/sky.png") or the CSS-shape
+        // ("url(art/sky.png)"). HtmlRenderOutput wraps BackgroundImage in
+        // url(...) when it emits, so a value already wrapped in url() would
+        // produce url(url(...)) — strip the CSS wrapper here.
+        return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { BackgroundImage = UnwrapCssUrl(value) }));
+      }
+      return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { BackgroundColor = value }));
     }
 
     private static bool LooksLikeImage(string s)
@@ -54,6 +59,24 @@ namespace Harlowe.Runtime.Macros
       return lower.EndsWith(".png") || lower.EndsWith(".jpg") || lower.EndsWith(".jpeg")
           || lower.EndsWith(".gif") || lower.EndsWith(".svg") || lower.EndsWith(".webp")
           || lower.EndsWith(".bmp");
+    }
+
+    /// <summary>
+    /// If <paramref name="s"/> is <c>url(...)</c>, return the inner URL; otherwise
+    /// return <paramref name="s"/> unchanged. Tolerates a single layer of paired
+    /// quotes (<c>url("...")</c> / <c>url('...')</c>) since those are the CSS
+    /// canonical shapes. The renderer adds its own url() wrap at emit time, so
+    /// the spec field always holds the bare URL.
+    /// </summary>
+    private static string UnwrapCssUrl(string s)
+    {
+      if (!s.StartsWith("url(") || !s.EndsWith(")")) return s;
+      var inner = s.Substring(4, s.Length - 5).Trim();
+      if (inner.Length >= 2
+          && ((inner[0] == '"' && inner[inner.Length - 1] == '"')
+           || (inner[0] == '\'' && inner[inner.Length - 1] == '\'')))
+        inner = inner.Substring(1, inner.Length - 2);
+      return inner;
     }
   }
 }

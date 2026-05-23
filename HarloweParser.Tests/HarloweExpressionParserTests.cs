@@ -296,6 +296,22 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void To_PropertyAssignment_EmitsPointedDiagnostic()
+    {
+      // `$x's name to "Bob"` — property assignment is documented in Harlowe
+      // but not implemented here. The parser-level check should surface a
+      // clear diagnostic rather than letting the evaluator emit a generic
+      // "assignment target must be a variable".
+      var tokens = new HarloweTokenizer().Tokenize("(set: $x's name to \"Bob\")");
+      var cursor = new TokenCursor(tokens);
+      cursor.Advance();
+      var parser = new HarloweExpressionParser();
+      var ex = Assert.Throws<HarloweParseException>(
+        () => parser.ParseArgumentList(cursor, allowAssignment: true));
+      Assert.Contains("property assignment", ex.Message);
+    }
+
+    [Fact]
     public void To_AllowedInNestedSetCall()
     {
       // The inner (set:) is itself an assignment macro, so `to` is allowed at

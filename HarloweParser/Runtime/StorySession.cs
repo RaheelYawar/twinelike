@@ -62,11 +62,21 @@ namespace Harlowe.Runtime
 
     private const int MaxGotoDepth = 20;
 
-    // Bounds (display:) recursion: a passage displaying itself (or a cycle
-    // through several passages) would otherwise blow the .NET stack before
-    // any author-visible error appeared. Mirrors MaxGotoDepth so the two
-    // navigation-shaped macros have a consistent ceiling.
-    private const int MaxDisplayDepth = 20;
+    // Default ceiling on (display:) recursion. A passage displaying itself
+    // (or a cycle through several passages) would otherwise blow the .NET
+    // stack before any author-visible error appeared. Mirrors MaxGotoDepth so
+    // the two navigation-shaped macros have a consistent default ceiling, but
+    // authors building modular UIs out of nested displays can raise the
+    // ceiling via the public setter at construction time.
+    private const int DefaultMaxDisplayDepth = 20;
+
+    /// <summary>
+    /// Maximum (display:) nesting depth. Mutating mid-render is supported but
+    /// only affects subsequent (display:) calls — the active stack frame
+    /// continues unaffected. Values &lt; 1 are treated as 1 (a single
+    /// (display:) call always succeeds).
+    /// </summary>
+    public int MaxDisplayDepth { get; set; } = DefaultMaxDisplayDepth;
 
     /// <summary>Name of the passage currently loaded into the session.</summary>
     public string CurrentPassage => _currentPassage;

@@ -26,6 +26,7 @@ namespace Harlowe
     public void Visit(NewlineNode node) { }
     public void Visit(VariableNode node) { }
     public void Visit(Ast.Body.HtmlNode node) { }
+    public void Visit(ParseErrorNode node) { }
     public void Visit(LinkNode node) => Branches.Add(new Branch { Text = node.Text, Name = node.Target });
 
     public void Visit(MacroNode node)
@@ -76,6 +77,7 @@ namespace Harlowe
     public void Visit(Ast.Body.HtmlNode node) => _sb.Append(node.RawHtml);
     public void Visit(LinkNode node) { }
     public void Visit(MacroNode node) { }
+    public void Visit(ParseErrorNode node) { }
 
     public void Visit(HookNode node)
     {

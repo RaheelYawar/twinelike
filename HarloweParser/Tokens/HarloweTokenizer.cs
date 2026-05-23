@@ -352,13 +352,35 @@ namespace Harlowe.Tokens
     /// inline HTML in passage prose, and downstream rendering re-uses the
     /// original markup. Returns false if the leading <c>&lt;</c> is not
     /// followed by a tag-name letter, or if no closing <c>&gt;</c> is found.
+    ///
+    /// <para>Quote-state tracking inside the tag body matters: an attribute
+    /// like <c>title="1 &gt; 0"</c> contains a literal <c>&gt;</c> that is
+    /// not the tag close. Scanning skips characters while inside a single- or
+    /// double-quoted attribute value so the right <c>&gt;</c> wins.</para>
     /// </summary>
     private bool TryScanHtmlTag(int startPos, int startLine, int startCol)
     {
       int look = _pos + 1;
       if (look < _src.Length && _src[look] == '/') look++;
       if (look >= _src.Length || !char.IsLetter(_src[look])) return false;
-      while (look < _src.Length && _src[look] != '>') look++;
+      char quote = '\0';
+      while (look < _src.Length)
+      {
+        char ch = _src[look];
+        if (quote != '\0')
+        {
+          if (ch == quote) quote = '\0';
+        }
+        else if (ch == '"' || ch == '\'')
+        {
+          quote = ch;
+        }
+        else if (ch == '>')
+        {
+          break;
+        }
+        look++;
+      }
       if (look >= _src.Length) return false;
       string tag = _src.Substring(_pos, look - _pos + 1);
       AdvanceN(look - _pos + 1);
@@ -407,13 +429,16 @@ namespace Harlowe.Tokens
     /// the backslash plus exactly the characters that belong to the escape
     /// (one for named/quote escapes, three for <c>\xHH</c>, five for
     /// <c>\uHHHH</c>), appending the produced character(s) to
-    /// <paramref name="sb"/>. Unknown escapes drop the backslash and keep the
-    /// next character; ill-formed hex escapes fall back to the same rule.
+    /// <paramref name="sb"/>. Unknown escapes are passed through verbatim —
+    /// both the backslash and the following character survive, which preserves
+    /// legacy Twee source from other tooling that embedded literal backslashes
+    /// (Windows paths, JSON-like blobs) under a "no escapes" convention.
+    /// Ill-formed hex escapes fall back to the same verbatim rule.
     /// </summary>
     private void DecodeEscape(StringBuilder sb)
     {
       Advance(); // past the backslash
-      if (_pos >= _src.Length) return; // trailing backslash at EOF
+      if (_pos >= _src.Length) { sb.Append('\\'); return; } // trailing backslash at EOF: keep it
       char esc = _src[_pos];
       switch (esc)
       {
@@ -434,8 +459,8 @@ namespace Harlowe.Tokens
             AdvanceN(3); // introducer + 2 hex digits
             return;
           }
-          // ill-formed \xHH — keep the `x` (backslash already dropped)
-          sb.Append(esc); Advance(); return;
+          // ill-formed \xHH — keep both the backslash and `x` literally
+          sb.Append('\\').Append(esc); Advance(); return;
         case 'u':
           if (TryDecodeHex(4, out var u))
           {
@@ -443,10 +468,11 @@ namespace Harlowe.Tokens
             AdvanceN(5); // introducer + 4 hex digits
             return;
           }
-          sb.Append(esc); Advance(); return;
+          sb.Append('\\').Append(esc); Advance(); return;
         default:
-          // unknown escape: drop the backslash, keep the following character
-          sb.Append(esc);
+          // unknown escape: keep both the backslash and the next character
+          // verbatim so legacy raw-backslash content round-trips intact.
+          sb.Append('\\').Append(esc);
           Advance();
           return;
       }
@@ -458,14 +484,18 @@ namespace Harlowe.Tokens
     /// does not advance the cursor; the caller advances on success via
     /// <c>AdvanceN(digits + 1)</c>, or via the unknown-escape fallback on
     /// failure. Returns false if the source runs out before <paramref name="digits"/>
-    /// hex digits are available, or if a non-hex character appears.
+    /// hex digits are available, or if a non-hex character appears. Uses
+    /// <see cref="NumberStyles.AllowHexSpecifier"/> only (not the composite
+    /// <c>HexNumber</c>) so leading/trailing whitespace in the candidate
+    /// substring falls back to the unknown-escape rule instead of silently
+    /// parsing.
     /// </summary>
     private bool TryDecodeHex(int digits, out int value)
     {
       value = 0;
       int scan = _pos + 1;
       if (scan + digits > _src.Length) return false;
-      return int.TryParse(_src.Substring(scan, digits), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value);
+      return int.TryParse(_src.Substring(scan, digits), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out value);
     }
 
     /// <summary>

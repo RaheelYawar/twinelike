@@ -328,6 +328,35 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
+    public void RandomFractionalBound_EmitsInProseError()
+    {
+      // The (int) cast used to silently truncate 1.5 to 1. Validate up front.
+      var h = Render("(random: 1.5, 5)");
+      Assert.Contains(h.Buf.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error
+                                       && e.Content.Contains("whole-number"));
+    }
+
+    [Fact]
+    public void RandomMaxInt32Bound_EmitsInProseError()
+    {
+      // hi == int.MaxValue would overflow Random.Next(lo, hi + 1). Must
+      // surface as an in-prose error, not an OverflowException.
+      var h = Render("(random: 0, 2147483647)");
+      Assert.Contains(h.Buf.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error
+                                       && e.Content.Contains("too large"));
+    }
+
+    [Fact]
+    public void RandomHugeBound_EmitsInProseError()
+    {
+      // 1e30 is finite but well outside Int32 — the (int) cast would have
+      // produced garbage. The bound validator catches it.
+      var h = Render("(random: 0, 1000000000000)");
+      Assert.Contains(h.Buf.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error
+                                       && e.Content.Contains("whole-number"));
+    }
+
+    [Fact]
     public void AMacroAtBodyPosition_PrintsCommaJoined()
     {
       var h = Render("(a: 1, 2, 3)");

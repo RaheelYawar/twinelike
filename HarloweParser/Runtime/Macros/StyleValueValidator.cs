@@ -7,7 +7,13 @@ namespace Harlowe.Runtime.Macros
   /// CSS — <c>;</c> (declaration separator), <c>{</c> / <c>}</c> (rule blocks),
   /// <c>\</c> (CSS string escapes), newline characters — to keep a story
   /// variable from injecting extra declarations into the
-  /// <c>style="..."</c> attribute the HTML adapter emits.
+  /// <c>style="..."</c> attribute the HTML adapter emits. Also blocks a small
+  /// set of payload-level CSS feature keywords that have a history of being
+  /// abused for code execution: <c>expression(</c> (IE6/7 legacy),
+  /// <c>javascript:</c>, <c>vbscript:</c>, <c>behavior:</c>, <c>binding:</c>.
+  /// Modern browsers ignore them, but non-browser CSS consumers
+  /// (offline tools, legacy renderers, email clients) might still execute, and
+  /// keeping the denylist makes the security boundary explicit.
   ///
   /// <para>Macro layer is the right place to reject: it gives the author a
   /// clear in-prose error pointing at the offending macro, instead of silently
@@ -20,12 +26,23 @@ namespace Harlowe.Runtime.Macros
   internal static class StyleValueValidator
   {
     /// <summary>
+    /// Case-insensitively flagged substrings. <c>expression(</c> needs the open
+    /// paren so it doesn't catch a hex colour like <c>#express123</c>; the
+    /// scheme entries need the trailing colon so they don't trip on the words
+    /// alone.
+    /// </summary>
+    private static readonly string[] DeniedKeywords = new[]
+    {
+      "expression(", "javascript:", "vbscript:", "behavior:", "binding:",
+    };
+
+    /// <summary>
     /// Returns null when <paramref name="value"/> is safe to embed in a CSS
     /// declaration; otherwise returns a ready-to-return error
     /// <see cref="HarloweValue"/> mentioning the macro name and the offending
-    /// character (so the in-prose message tells the author what to fix).
-    /// Returning the error value (rather than throwing) keeps the macro on the
-    /// project's in-prose error contract.
+    /// character or keyword (so the in-prose message tells the author what to
+    /// fix). Returning the error value (rather than throwing) keeps the macro
+    /// on the project's in-prose error contract.
     /// </summary>
     public static HarloweValue Validate(string macroName, string value)
     {
@@ -39,7 +56,47 @@ namespace Harlowe.Runtime.Macros
             $"({macroName}:) value contains a character that isn't allowed in a style value: '{Describe(c)}'");
         }
       }
+
+      // Keyword check on the lowercased string so authors can't bypass the
+      // denylist via case mixing (e.g. JaVaScRiPt:). Allocates a copy on the
+      // hot path only when at least one keyword matches a candidate letter —
+      // skip the lowercase entirely if no candidate letter is present.
+      if (ContainsAnyDeniedKeyword(value, out var hit))
+      {
+        return HarloweValue.OfError(
+          $"({macroName}:) value contains a disallowed CSS keyword: '{hit}'");
+      }
       return null;
+    }
+
+    private static bool ContainsAnyDeniedKeyword(string value, out string hit)
+    {
+      hit = null;
+      // Quick scan: if none of the keyword first-letters appears anywhere in
+      // the value, the lowercase + IndexOf walk would be wasted.
+      bool maybe = false;
+      for (int i = 0; i < value.Length; i++)
+      {
+        char c = value[i];
+        if (c == 'e' || c == 'E' || c == 'j' || c == 'J' || c == 'v' || c == 'V'
+         || c == 'b' || c == 'B')
+        {
+          maybe = true;
+          break;
+        }
+      }
+      if (!maybe) return false;
+
+      string lower = value.ToLowerInvariant();
+      for (int i = 0; i < DeniedKeywords.Length; i++)
+      {
+        if (lower.IndexOf(DeniedKeywords[i], System.StringComparison.Ordinal) >= 0)
+        {
+          hit = DeniedKeywords[i];
+          return true;
+        }
+      }
+      return false;
     }
 
     private static string Describe(char c)

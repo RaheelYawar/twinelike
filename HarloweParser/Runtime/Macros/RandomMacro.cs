@@ -24,13 +24,48 @@ namespace Harlowe.Runtime.Macros
           return HarloweValue.OfError($"(random:) requires Number arguments, got {args[i].Kind}");
       }
 
+      // Validate bounds inside the runtime-error contract: a NaN/infinity or
+      // a fractional / out-of-Int32-range bound would otherwise either throw
+      // (Random.Next on int.MaxValue + 1 overflows) or silently truncate via
+      // the (int) cast.
       int lo, hi;
-      if (args.Count == 1) { lo = 0; hi = (int)args[0].AsNumber; }
-      else { lo = (int)args[0].AsNumber; hi = (int)args[1].AsNumber; }
+      if (args.Count == 1)
+      {
+        lo = 0;
+        if (!TryAsBound(args[0].AsNumber, out hi))
+          return HarloweValue.OfError("(random:) requires a finite whole-number argument");
+      }
+      else
+      {
+        if (!TryAsBound(args[0].AsNumber, out lo) || !TryAsBound(args[1].AsNumber, out hi))
+          return HarloweValue.OfError("(random:) requires finite whole-number arguments");
+      }
       if (lo > hi) { int tmp = lo; lo = hi; hi = tmp; }
+
+      // Random.Next(lo, hi + 1) overflows on hi == int.MaxValue. Detect and
+      // surface as an in-prose error rather than letting OverflowException
+      // escape the runtime contract.
+      if (hi == int.MaxValue)
+        return HarloweValue.OfError("(random:) upper bound is too large");
 
       var rng = context.Rng ?? new Random();
       return HarloweValue.OfNumber(rng.Next(lo, hi + 1));
+    }
+
+    /// <summary>
+    /// Validate <paramref name="d"/> as an Int32 bound: finite, whole, and in
+    /// range. Returns false on NaN/infinity, on a fractional value, or on a
+    /// value outside Int32 — so the (int) cast a successful return precedes
+    /// is always safe.
+    /// </summary>
+    private static bool TryAsBound(double d, out int result)
+    {
+      result = 0;
+      if (double.IsNaN(d) || double.IsInfinity(d)) return false;
+      if (d < int.MinValue || d > int.MaxValue) return false;
+      if (d != Math.Truncate(d)) return false;
+      result = (int)d;
+      return true;
     }
   }
 }

@@ -235,10 +235,22 @@ namespace Harlowe.Parsing
         if (!BinaryOps.TryGetValue(t.Value, out int order)) break;
         if (order > maxOrder) break;
 
-        if ((t.Value == "to" || t.Value == "into") && !allowAssignmentAtTop)
-          throw new HarloweParseException(
-            $"'{t.Value}' assignment is only allowed at the top of a (set:) or (put:) argument",
-            t.Line, t.Column);
+        if (t.Value == "to" || t.Value == "into")
+        {
+          if (!allowAssignmentAtTop)
+            throw new HarloweParseException(
+              $"'{t.Value}' assignment is only allowed at the top of a (set:) or (put:) argument",
+              t.Line, t.Column);
+          // Property assignment (`$x's name to ...`, `$arr's 1st to ...`) is
+          // documented in Harlowe but not yet implemented here. Surface a
+          // pointed parse-time error so authors don't get the generic
+          // "assignment target must be a variable" from the evaluator —
+          // that message hides which shape they tried to write.
+          if (left is BinaryOpNode binLeft && binLeft.Operator == "'s")
+            throw new HarloweParseException(
+              $"property assignment ('$x's ... {t.Value} ...') is not supported; assign to a whole variable instead",
+              t.Line, t.Column);
+        }
 
         cursor.Advance();
         // RHS is a sub-expression — assignment is never allowed there.

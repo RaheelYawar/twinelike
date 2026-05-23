@@ -1,5 +1,6 @@
 using System;
 using Harlowe.Ast.Body;
+using Harlowe.Runtime;
 using Xunit;
 
 namespace Harlowe.Tests
@@ -32,21 +33,29 @@ namespace Harlowe.Tests
     }
 
     [Fact]
-    public void Constructor_PassageParseError_PopulatesLocationFields()
+    public void Constructor_PassageParseError_RecoversWithSyntheticAst()
     {
       // (set: $x to ) leaves the right-hand side of `to` empty; the expression
-      // parser hits a MacroClose where it expected an operand and throws.
+      // parser hits a MacroClose where it expected an operand. The HTML
+      // loader recovers per-passage: the rest of the story is loadable, and
+      // rendering the broken passage emits an in-prose error rather than
+      // throwing out of the constructor.
       const string html = "<html><body><tw-storydata name=\"T\" startnode=\"1\">"
         + "<tw-passagedata pid=\"1\" name=\"Bad\">(set: $x to )</tw-passagedata>"
+        + "<tw-passagedata pid=\"2\" name=\"Good\">hello</tw-passagedata>"
         + "</tw-storydata></body></html>";
-      var ex = Assert.Throws<HarloweParseException>(() => new Harlowe(html));
 
-      Assert.Equal("Bad", ex.PassageName);
-      Assert.True(ex.Line >= 1, "expected populated line number");
-      Assert.True(ex.Column >= 1, "expected populated column number");
-      // The formatted message should mention the passage so a default
-      // ToString()/log line is informative on its own.
-      Assert.Contains("Bad", ex.Message);
+      var story = new Harlowe(html);
+      Assert.Equal(2, story.PassageCount);
+      // Good passage is unaffected.
+      var good = story.GetPassage("Good");
+      Assert.NotNull(good);
+      // Rendering the bad passage produces an Error entry, not an exception.
+      var session = new StorySession(story);
+      var result = session.Goto("Bad");
+      Assert.Contains(result.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error
+                                        && e.Content.Contains("parse error")
+                                        && e.Content.Contains("Bad"));
     }
 
     [Fact]

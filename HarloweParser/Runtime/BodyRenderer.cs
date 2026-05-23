@@ -97,6 +97,8 @@ namespace Harlowe.Runtime
 
     public void Visit(LinkNode node) => _output.Link(node.Text, node.Target);
 
+    public void Visit(ParseErrorNode node) => _output.Error(node.Message);
+
     /// <summary>
     /// Render a hook's contents. When the output is a
     /// <see cref="Rendering.RenderTreeBuilder"/>, the contents are bracketed as

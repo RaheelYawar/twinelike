@@ -133,6 +133,36 @@ namespace Harlowe.Tests.Runtime
       Assert.IsType<MacroNode>(body.Children[0]);
     }
 
+    [Fact]
+    public void Parser_SetAsFirstChainComponent_Rejected()
+    {
+      // (set:) is an assignment macro — letting it ride into a chain would
+      // mutate state on evaluation before producing the inevitable chain-
+      // type error at render time. Reject at parse time, before the AST
+      // escapes, so the mutation never happens.
+      var ex = Assert.Throws<HarloweParseException>(
+        () => ParseBody("(set: $x to 1)+(text-style: \"bold\")[hi]"));
+      Assert.Contains("set", ex.Message);
+    }
+
+    [Fact]
+    public void Parser_PutAsContinuationChainComponent_Rejected()
+    {
+      var ex = Assert.Throws<HarloweParseException>(
+        () => ParseBody("(text-style: \"bold\")+(put: $x into 1)[hi]"));
+      Assert.Contains("put", ex.Message);
+    }
+
+    [Fact]
+    public void Parser_PlainSetMacro_StillParsesAsBodyMacro()
+    {
+      // Regression check: rejecting (set:) in chains must not affect the
+      // plain-body (set:) call shape.
+      var body = ParseBody("(set: $x to 1)");
+      var macro = Assert.IsType<MacroNode>(body.Children[0]);
+      Assert.Equal("set", macro.Name);
+    }
+
     // ----- Body renderer behaviour -----
 
     [Fact]

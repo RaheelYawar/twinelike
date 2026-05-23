@@ -247,7 +247,6 @@ namespace Harlowe.Runtime
       var targets = HookResolver.Resolve(liveRoot, spec.HookTarget);
 
       var regionId = ctx.AllocateRegionId();
-      var region = new InteractiveRegion { Id = regionId, Kind = spec.Kind };
 
       bool wrappedAny = false;
       for (int i = 0; i < targets.Count; i++)
@@ -256,7 +255,16 @@ namespace Harlowe.Runtime
         wrappedAny = true;
 
         var content = new List<RenderNode>(container.Children);
-        var interactiveNode = new RenderInteractiveNode { Region = region };
+        // Each wrap gets its own InteractiveRegion instance (sharing the same
+        // id and kind) so a future in-place mutation on one node's region
+        // doesn't propagate to its siblings. Same reasoning for style layers:
+        // d.Styles holds StyleSpec values shared across the descriptor, so we
+        // clone per wrap. Identity for matching is the region id string, not
+        // the InteractiveRegion reference.
+        var interactiveNode = new RenderInteractiveNode
+        {
+          Region = new InteractiveRegion { Id = regionId, Kind = spec.Kind }
+        };
         interactiveNode.Children.AddRange(content);
 
         // Wrap any composed style layers around the interactive node,
@@ -267,7 +275,7 @@ namespace Harlowe.Runtime
         RenderNode wrapped = interactiveNode;
         for (int s = d.Styles.Count - 1; s >= 0; s--)
         {
-          var styleNode = new RenderStyleNode { Style = d.Styles[s], SourceRegionId = regionId };
+          var styleNode = new RenderStyleNode { Style = d.Styles[s]?.Clone(), SourceRegionId = regionId };
           styleNode.Children.Add(wrapped);
           wrapped = styleNode;
         }

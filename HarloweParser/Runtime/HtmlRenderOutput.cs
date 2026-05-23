@@ -42,6 +42,14 @@ namespace Harlowe.Runtime
   /// the time a value reaches this adapter the only escaping concern is HTML
   /// attribute context.</para>
   ///
+  /// <para><see cref="Error"/> messages may embed user-controlled strings
+  /// (variable names, datamap keys, validator-rejected characters). They are
+  /// HTML-escaped before being forwarded so a consumer that mirrors the
+  /// channel into <c>innerHTML</c> can't be XSSed through a crafted variable
+  /// name. The escape matches <see cref="Text"/>'s rule (the three between-tag
+  /// characters), which keeps the inner buffer's text-and-error stream
+  /// uniformly HTML-safe.</para>
+  ///
   /// <para><b>Animation effects</b> (<c>blink</c>, <c>fade-in-out</c>,
   /// <c>shudder</c>, <c>rumble</c>, <c>sway</c>, <c>buoy</c>, <c>fidget</c>)
   /// emit <c>animation: harlowe-&lt;name&gt; ...;</c> declarations. The web
@@ -51,35 +59,59 @@ namespace Harlowe.Runtime
   /// </summary>
   public class HtmlRenderOutput : IRenderOutput
   {
+    /// <summary>
+    /// Default <c>href</c> emitted on interactive anchors. <c>javascript:void(0)</c>
+    /// keeps the anchor focusable and styled like a link without the
+    /// scroll-to-top jump <c>href="#"</c> would cause when clicked. Consumers
+    /// running under a strict Content-Security-Policy (which blocks
+    /// <c>javascript:</c> URIs) should pass an alternative through the
+    /// <c>interactiveHref</c> constructor parameter — e.g. <c>"#"</c> with a
+    /// click-side <c>preventDefault</c>, or an empty string to omit the
+    /// attribute entirely.
+    /// </summary>
+    public const string DefaultInteractiveHref = "javascript:void(0)";
+
     private readonly IRenderOutput _inner;
+    private readonly string _interactiveHref;
     private readonly Stack<string[]> _openTags = new Stack<string[]>();
 
-    public HtmlRenderOutput(IRenderOutput inner)
+    public HtmlRenderOutput(IRenderOutput inner) : this(inner, DefaultInteractiveHref) { }
+
+    /// <summary>
+    /// Build an adapter forwarding to <paramref name="inner"/>. The
+    /// <paramref name="interactiveHref"/> value is emitted on every
+    /// <c>BeginInteractive</c> anchor; pass an empty string to omit the
+    /// attribute. Whatever is supplied is HTML-attribute-escaped at emit time.
+    /// </summary>
+    public HtmlRenderOutput(IRenderOutput inner, string interactiveHref)
     {
       _inner = inner;
+      _interactiveHref = interactiveHref ?? string.Empty;
     }
 
     public void Text(string content) => _inner.Text(EscapeText(content));
     public void Html(string rawHtml) => _inner.Html(rawHtml);
     public void Link(string text, string target) => _inner.Link(text, target);
-    public void Error(string message) => _inner.Error(message);
+    public void Error(string message) => _inner.Error(EscapeText(message));
 
     /// <summary>
     /// Map an interactive region to an HTML <c>&lt;a&gt;</c> anchor with the
     /// region id stamped onto <c>data-region-id</c> and the interaction kind
     /// on <c>data-interaction</c>. The kind is exposed verbatim so a script
-    /// can dispatch the right session event. <c>href="javascript:void(0)"</c>
-    /// keeps the anchor focusable and styled like a link without the
-    /// scroll-to-top jump <c>href="#"</c> would cause when clicked; a consumer
-    /// whose CSP forbids <c>javascript:</c> URIs can wrap this output and
-    /// substitute their own attribute.
+    /// can dispatch the right session event. The <c>href</c> attribute uses
+    /// the value passed to the constructor (defaulting to
+    /// <c>javascript:void(0)</c>); an empty configured href omits the
+    /// attribute, which is what CSP-strict consumers want.
     /// </summary>
     public void BeginInteractive(InteractiveRegion region)
     {
       if (region == null) { _inner.Html("<a>"); return; }
       var id = EscapeAttribute(region.Id ?? string.Empty);
       var kind = EscapeAttribute(region.Kind.ToString());
-      _inner.Html("<a href=\"javascript:void(0)\" data-region-id=\"" + id + "\" data-interaction=\"" + kind + "\">");
+      var hrefAttr = _interactiveHref.Length == 0
+        ? string.Empty
+        : "href=\"" + EscapeAttribute(_interactiveHref) + "\" ";
+      _inner.Html("<a " + hrefAttr + "data-region-id=\"" + id + "\" data-interaction=\"" + kind + "\">");
     }
 
     public void EndInteractive() => _inner.Html("</a>");

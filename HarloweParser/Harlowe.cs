@@ -114,10 +114,11 @@ namespace Harlowe
     /// pre-populated <see cref="HarlowePassage.Ast"/> (the HTML and Twee
     /// loaders, test fixtures with a hand-built AST) bypass this step.
     /// <see cref="HarlowePassage.RawBody"/> is filled from the body source if
-    /// not already set, <see cref="HarlowePassage.Branches"/> is collected from
-    /// the AST if not already set, and <see cref="HarlowePassage.Body"/> is
-    /// replaced with the renderer-canonical prose so it matches the loader-set
-    /// shape.</para>
+    /// not already set, and <see cref="HarlowePassage.Branches"/> is collected
+    /// from the AST if not already set. The caller's
+    /// <see cref="HarlowePassage.Body"/> is left untouched so its source
+    /// representation round-trips intact — the loader-set shape is reserved
+    /// for the bulk-loader code paths that own the input string.</para>
     /// </summary>
     public void AddPassage(HarlowePassage passage)
     {
@@ -161,7 +162,24 @@ namespace Harlowe
       passage.Ast = ast;
       if (passage.RawBody == null) passage.RawBody = passage.Body;
       if (passage.Branches == null) passage.Branches = BranchCollector.Collect(ast);
-      passage.Body = BodyTextRenderer.Render(ast);
+      // Don't overwrite passage.Body — the caller's source representation is
+      // authoritative; the loader-canonical macro-stripped prose is only
+      // emitted on the bulk-load code paths that own the input string.
+    }
+
+    /// <summary>
+    /// Build a synthetic <see cref="Ast.Body.PassageBody"/> wrapping a single
+    /// <see cref="Ast.Body.ParseErrorNode"/>. Used by the loader paths to keep
+    /// the rest of the story loadable when one passage's body fails to parse.
+    /// </summary>
+    private static Ast.Body.PassageBody MakeParseErrorAst(string passageName, HarloweParseException ex)
+    {
+      string detail = ex.RawMessage ?? ex.Message ?? "parse error";
+      string where = ex.Line > 0 ? $" at line {ex.Line}, column {ex.Column}" : string.Empty;
+      var message = $"parse error in passage '{passageName}'{where}: {detail}";
+      var ast = new Ast.Body.PassageBody { Children = new List<Ast.Body.IBodyNode>() };
+      ast.Children.Add(new Ast.Body.ParseErrorNode { Message = message });
+      return ast;
     }
 
     /// <summary>
@@ -265,21 +283,18 @@ namespace Harlowe
     /// Looks up a passage by its author-facing name. Returns null if no such
     /// passage exists — does not throw on miss.
     ///
-    /// <para>Throws <see cref="InvalidOperationException"/> if the resolved
-    /// passage's <see cref="HarlowePassage.Name"/> no longer matches the
-    /// requested key, which means a consumer has mutated the public
-    /// <see cref="HarlowePassage.Name"/> field directly and corrupted the
-    /// internal index. Use <see cref="RenamePassage"/> instead — it re-keys
-    /// the lookup atomically.</para>
+    /// <para>If a consumer has mutated <see cref="HarlowePassage.Name"/>
+    /// directly, the lookup still returns the dictionary entry — the
+    /// dictionary key is what callers asked for. The mismatch corrupts the
+    /// internal index, but throwing here would propagate out of the runtime
+    /// hot path (<c>(display:)</c> and goto both reach this method) and break
+    /// the documented in-prose error contract. Use <see cref="RenamePassage"/>
+    /// to rename atomically; that's the supported path.</para>
     /// </summary>
     public HarlowePassage GetPassage(string passageName)
     {
       if (passageName == null) return null;
       if (!_passages.TryGetValue(passageName, out var passage)) return null;
-      if (passage.Name != passageName)
-        throw new InvalidOperationException(
-          $"Passage lookup integrity error: dictionary key '{passageName}' does not match passage.Name '{passage.Name}'. " +
-          "Did you mutate HarlowePassage.Name directly? Use Harlowe.RenamePassage instead.");
       return passage;
     }
 
@@ -309,10 +324,12 @@ namespace Harlowe
 
     /// <summary>
     /// Returns the body text of the named passage with branch links stripped.
-    /// Returns <see cref="string.Empty"/> for unknown names.
+    /// Returns <see cref="string.Empty"/> for unknown or null names — matches
+    /// the rest of the lookup API's null-safe contract.
     /// </summary>
     public string GetPassageBody(string passageName)
     {
+      if (passageName == null) return string.Empty;
       if (!_passages.TryGetValue(passageName, out var passage)) return string.Empty;
 
       return passage.Body;
@@ -320,11 +337,13 @@ namespace Harlowe
 
     /// <summary>
     /// Returns the outgoing branch links for the named passage. Returns null
-    /// for unknown names; returns an empty list for known passages with no
-    /// links.
+    /// for unknown or null names; returns an empty list for known passages
+    /// with no links. Null-safe to match <see cref="GetPassage"/> and
+    /// <see cref="RemovePassage"/>.
     /// </summary>
     public List<Branch> GetPassageBranches(string passageName)
     {
+      if (passageName == null) return null;
       if (!_passages.TryGetValue(passageName, out var passage)) return null;
 
       return passage.Branches;
@@ -377,12 +396,14 @@ namespace Harlowe
           var tokens = tokenizer.Tokenize(raw);
           ast = bodyParser.Parse(tokens);
         }
-        catch (HarloweParseException ex) when (ex.PassageName == null)
+        catch (HarloweParseException ex)
         {
-          // Inner parsers don't know which passage they're inside. Re-throw
-          // with the passage name attached so the caller's error message
-          // points at the right place.
-          throw new HarloweParseException(ex.RawMessage, ex.Line, ex.Column, passageName, ex);
+          // One broken passage shouldn't take the whole story down — a typo
+          // in `(if: $x to 5)` used to load and error at runtime; we keep the
+          // story loadable by substituting a synthetic AST that renders the
+          // parse message in place of the passage's prose. The original
+          // RawBody is preserved so Twee writers can still emit the source.
+          ast = MakeParseErrorAst(passageName, ex);
         }
 
         var passage = new HarlowePassage

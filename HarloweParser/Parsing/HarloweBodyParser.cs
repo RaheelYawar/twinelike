@@ -122,13 +122,25 @@ namespace Harlowe.Parsing
     /// </summary>
     private IBodyNode ParseMacro(TokenCursor cursor)
     {
-      string name = cursor.Current.Value;
+      var nameToken = cursor.Current;
+      string name = nameToken.Value;
       cursor.Advance();
       var args = _expressionParser.ParseArgumentList(cursor, HarloweExpressionParser.IsAssignmentMacro(name));
 
       // Try changer chain first — committing as soon as we see `+ (macro)`.
       if (LooksLikeChainContinuation(cursor))
       {
+        // Reject (set:)/(put:) as a chain component: the chain is evaluated
+        // as a value expression, which would silently execute the assignment
+        // *before* producing the (inevitable) chain-type error. The first
+        // arg list has already been parsed with assignment enabled — we
+        // catch the misuse before the AST escapes so no mutation occurs at
+        // render time.
+        if (HarloweExpressionParser.IsAssignmentMacro(name))
+          throw new HarloweParseException(
+            $"({name}:) cannot appear as a changer-chain component — it's an assignment macro, not a value-position macro",
+            nameToken.Line, nameToken.Column);
+
         IExpressionNode expr = new MacroCallNode { Name = name, Arguments = args };
         while (TryAdvanceToChainContinuation(cursor))
         {
@@ -136,9 +148,14 @@ namespace Harlowe.Parsing
           // Changer-chain components are value-position macros: a stray
           // assignment here would never reach (set:)/(put:) semantics, so
           // forbid `to`/`into` in their arg lists.
-          string nextName = cursor.Current.Value;
+          var nextNameToken = cursor.Current;
+          string nextName = nextNameToken.Value;
           cursor.Advance();
-          var nextArgs = _expressionParser.ParseArgumentList(cursor, HarloweExpressionParser.IsAssignmentMacro(nextName));
+          if (HarloweExpressionParser.IsAssignmentMacro(nextName))
+            throw new HarloweParseException(
+              $"({nextName}:) cannot appear as a changer-chain component — it's an assignment macro, not a value-position macro",
+              nextNameToken.Line, nextNameToken.Column);
+          var nextArgs = _expressionParser.ParseArgumentList(cursor, allowAssignment: false);
           expr = new BinaryOpNode
           {
             Operator = "+",

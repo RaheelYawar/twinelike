@@ -283,6 +283,43 @@ namespace Harlowe.Tests.Runtime
       Assert.Equal("<a>x</a>", buf.Text);
     }
 
+    [Fact]
+    public void BeginInteractive_ConfigurableHref_OverridesDefault()
+    {
+      // A CSP-strict consumer can substitute an alternative href via the
+      // constructor — empty string omits the attribute entirely.
+      var buf = new BufferedRenderOutput();
+      var sink = new HtmlRenderOutput(buf, "#");
+      sink.BeginInteractive(new InteractiveRegion { Id = "r-1", Kind = InteractionKind.Click });
+      sink.EndInteractive();
+      Assert.Contains("href=\"#\"", buf.Text);
+      Assert.DoesNotContain("javascript:", buf.Text);
+    }
+
+    [Fact]
+    public void BeginInteractive_EmptyHref_OmitsTheAttributeEntirely()
+    {
+      var buf = new BufferedRenderOutput();
+      var sink = new HtmlRenderOutput(buf, string.Empty);
+      sink.BeginInteractive(new InteractiveRegion { Id = "r-1", Kind = InteractionKind.Click });
+      sink.EndInteractive();
+      Assert.DoesNotContain("href=", buf.Text);
+      Assert.Contains("data-region-id=\"r-1\"", buf.Text);
+    }
+
+    [Fact]
+    public void Error_HtmlEscapesMessage()
+    {
+      // Error messages embed user-controlled strings (variable names, datamap
+      // keys, validator-rejected chars). A consumer that mirrors error
+      // entries into innerHTML must not be XSSable through them.
+      var (buf, sink) = NewSink();
+      sink.Error("<img src=x onerror=alert(1)>");
+      var err = buf.Entries.Find(e => e.Kind == BufferedRenderOutput.Kind.Error);
+      Assert.NotNull(err);
+      Assert.Equal("&lt;img src=x onerror=alert(1)&gt;", err.Content);
+    }
+
     // --- v3.1 styling slice: new value fields ---
 
     [Fact]

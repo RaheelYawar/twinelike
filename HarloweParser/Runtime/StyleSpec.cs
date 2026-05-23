@@ -135,7 +135,15 @@ namespace Harlowe.Runtime
         Opacity = Opacity,
         Alignment = Alignment,
       };
-      if (Effects != null)
+      // Preserve the null-vs-empty distinction on Effects: the field
+      // initializer hands the freshly constructed copy an empty list, but a
+      // consumer who deliberately set Effects=null is using null as a
+      // sentinel and we shouldn't normalize it away on a clone.
+      if (Effects == null)
+      {
+        copy.Effects = null;
+      }
+      else
       {
         copy.Effects = new List<TextEffect>(Effects.Count);
         for (int i = 0; i < Effects.Count; i++) copy.Effects.Add(Effects[i]);

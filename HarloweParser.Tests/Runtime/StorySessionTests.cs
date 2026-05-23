@@ -325,6 +325,30 @@ namespace Harlowe.Tests.Runtime
       Assert.True(CountKind(r, BufferedRenderOutput.Kind.Error) >= 1);
     }
 
+    [Fact]
+    public void Display_MaxDepth_IsConfigurable()
+    {
+      // Authors building modular UIs out of nested (display:) calls must be
+      // able to raise/lower the ceiling. With a chain P1 → P2 → P3 and the
+      // ceiling at 1, the second-level (display:) inside P2 trips the limit
+      // even though P3 itself contains no further nesting.
+      var story = ThreePassages("(display: \"P2\")", "(display: \"P3\")", "ok");
+      var session = new StorySession(story) { MaxDisplayDepth = 1 };
+      var r = session.Render();
+      Assert.True(CountKind(r, BufferedRenderOutput.Kind.Error) >= 1);
+    }
+
+    [Fact]
+    public void Display_DeepLegitimateChain_SucceedsWhenCeilingRaised()
+    {
+      // With the same chain but ceiling raised, the displays go through.
+      var story = ThreePassages("(display: \"P2\")", "(display: \"P3\")", "ok");
+      var session = new StorySession(story) { MaxDisplayDepth = 10 };
+      var r = session.Render();
+      Assert.Equal(0, CountKind(r, BufferedRenderOutput.Kind.Error));
+      Assert.Contains("ok", r.Text);
+    }
+
     // -----------------------------------------------------------------------
     // Undo
     // -----------------------------------------------------------------------
