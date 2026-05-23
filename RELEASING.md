@@ -65,7 +65,9 @@ Open the draft from the [Releases page](https://github.com/RaheelYawar/twinelike
 - Body matches your `## [X.Y.Z]` CHANGELOG section.
 - All four assets are attached: `Twinelike-X.Y.Z.dll`, `Twinelike-X.Y.Z.zip`, `Twinelike.X.Y.Z.nupkg`, `Twinelike.X.Y.Z.snupkg`.
 
-Click **Publish release** to make it public. The tag is already in place from step 5.
+**Publish is a manual click in the GitHub UI** — `release.yml` deliberately drafts the release (`draft: true`) so this step is the human review gate. Drafts are invisible to non-collaborators and don't appear in the public release feed, so nothing is exposed until you click.
+
+When the checks above pass, click **Publish release**. The tag is already in place from step 5; the publish click is purely the visibility flip — GitHub doesn't create a new tag here.
 
 ## Manual dispatch (without a tag)
 
