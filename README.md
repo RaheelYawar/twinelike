@@ -238,7 +238,7 @@ dotnet publish Twinelike.csproj -c Release -o ./dist/Twinelike
 
 # Or for the NuGet package:
 dotnet pack Twinelike.csproj -c Release -o ./dist
-# → dist/Twinelike.0.1.0.nupkg
+# → dist/Twinelike.0.1.1.nupkg
 ```
 
 Drop the produced `Twinelike.dll` into Unity's `Assets/Plugins/` or reference it from any .NET project — no other DLLs required.
