@@ -182,6 +182,27 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void HtmlTag_AttributeWithLiteralGreaterThan_StaysInsideQuotes()
+    {
+      // A `>` inside a quoted attribute value isn't the tag close. The
+      // scanner must track quote state so `<a title="1 > 0">x</a>` parses as
+      // a single tag followed by prose and a closing tag.
+      AssertSequence(Tokenize("<a title=\"1 > 0\">x</a>"),
+        (TokenType.HtmlTag, "<a title=\"1 > 0\">"),
+        (TokenType.Text, "x"),
+        (TokenType.HtmlTag, "</a>"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void HtmlTag_AttributeWithSingleQuotedGreaterThan_StaysInsideQuotes()
+    {
+      AssertSequence(Tokenize("<a title='2 > 1'>"),
+        (TokenType.HtmlTag, "<a title='2 > 1'>"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
     public void Macro_BasicSet_PushesIntoExpressionMode()
     {
       AssertSequence(Tokenize("(set: $x to 1)"),
@@ -248,20 +269,22 @@ namespace Harlowe.Tests
     }
 
     [Fact]
-    public void StringLiteral_UnknownEscape_StripsBackslash()
+    public void StringLiteral_UnknownEscape_PreservesBackslash()
     {
-      // \q isn't a recognized escape — JS semantics: backslash dropped, `q` kept.
+      // \q isn't a recognized escape. We keep the backslash verbatim so
+      // legacy Twee source with literal backslashes (Windows paths, JSON-like
+      // blobs) survives a read-trip.
       var tokens = Tokenize("(print: \"a\\qb\")");
-      Assert.Equal("aqb", tokens[1].Value);
+      Assert.Equal("a\\qb", tokens[1].Value);
     }
 
     [Fact]
-    public void StringLiteral_MalformedHexEscape_FallsBackToStripBackslash()
+    public void StringLiteral_MalformedHexEscape_PreservesBackslash()
     {
-      // \xZZ — Z isn't a hex digit. Falls back to unknown-escape: `\x` becomes
-      // `x`, the rest is regular characters.
+      // \xZZ — Z isn't a hex digit. The fallback now keeps the backslash so
+      // the source representation round-trips intact.
       var tokens = Tokenize("(print: \"\\xZZ\")");
-      Assert.Equal("xZZ", tokens[1].Value);
+      Assert.Equal("\\xZZ", tokens[1].Value);
     }
 
     [Fact]
@@ -277,27 +300,38 @@ namespace Harlowe.Tests
     public void StringLiteral_HexEscape_InsufficientDigitsBeforeQuote_FallsBack()
     {
       // Only one hex digit before the closing quote — TryDecodeHex's length
-      // check rejects, then the unknown-escape fallback strips the backslash
-      // and keeps the `x`. The lone digit then tokenizes as a regular char.
+      // check rejects, then the unknown-escape fallback keeps the backslash
+      // and the `x`. The lone digit then tokenizes as a regular char.
       var tokens = Tokenize("(print: \"\\x4\")");
-      Assert.Equal("x4", tokens[1].Value);
+      Assert.Equal("\\x4", tokens[1].Value);
     }
 
     [Fact]
     public void StringLiteral_UnicodeEscape_InsufficientDigitsBeforeQuote_FallsBack()
     {
       var tokens = Tokenize("(print: \"\\u12\")");
-      Assert.Equal("u12", tokens[1].Value);
+      Assert.Equal("\\u12", tokens[1].Value);
     }
 
     [Fact]
-    public void StringLiteral_TrailingBackslashAtEof_Dropped()
+    public void StringLiteral_TrailingBackslashAtEof_Preserved()
     {
       // Unterminated string ending on a bare backslash. DecodeEscape's
-      // EOF guard drops the backslash; the unterminated string then closes
-      // silently per ScanStringLiteral's policy.
+      // EOF guard now preserves the backslash; the unterminated string then
+      // closes silently per ScanStringLiteral's policy.
       var tokens = Tokenize("(print: \"abc\\");
-      Assert.Equal("abc", tokens[1].Value);
+      Assert.Equal("abc\\", tokens[1].Value);
+    }
+
+    [Fact]
+    public void StringLiteral_HexEscape_WhitespaceInDigits_FallsBack()
+    {
+      // \x followed by space + hex digit must NOT be parsed as a hex escape:
+      // NumberStyles.HexNumber would accept the leading whitespace, which is
+      // not the documented escape shape. TryDecodeHex uses AllowHexSpecifier
+      // only, so this falls back to the verbatim-escape rule.
+      var tokens = Tokenize("(print: \"\\x F\")");
+      Assert.Equal("\\x F", tokens[1].Value);
     }
 
     [Fact]

@@ -111,6 +111,14 @@ namespace Harlowe.Twee
     public void Visit(Ast.Body.HtmlNode node) => _sb.Append(node.RawHtml);
 
     /// <summary>
+    /// A parse-error stub passage has no representable source — emit nothing so
+    /// the writer doesn't smuggle a synthetic error message back into the
+    /// document. Callers that want to surface the error keep the original
+    /// RawBody (which TweeWriter prefers when the passage isn't dirty).
+    /// </summary>
+    public void Visit(ParseErrorNode node) { }
+
+    /// <summary>
     /// Emits the canonical link form. <c>[[name]]</c> when <c>Text == Target</c>
     /// (or the parser populated <c>Text</c> from <c>Target</c>); otherwise
     /// <c>[[text-&gt;target]]</c>. The <c>&lt;-</c> form is never emitted —

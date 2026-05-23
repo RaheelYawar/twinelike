@@ -74,9 +74,13 @@ namespace Harlowe.Twee
           var tokens = tokenizer.Tokenize(block.Body);
           ast = bodyParser.Parse(tokens);
         }
-        catch (HarloweParseException ex) when (ex.PassageName == null)
+        catch (HarloweParseException ex)
         {
-          throw new HarloweParseException(ex.RawMessage, ex.Line, ex.Column, block.Name, ex);
+          // Per-passage recovery: a broken body doesn't abort the whole Twee
+          // load. The synthetic AST renders the parse error in place of the
+          // passage's prose at render time. RawBody is preserved verbatim so
+          // a subsequent TweeWriter round-trip emits the original source.
+          ast = MakeParseErrorAst(block.Name, ex);
         }
 
         var passage = new HarlowePassage
@@ -291,6 +295,21 @@ namespace Harlowe.Twee
     {
       if (!dict.TryGetValue(key, out object v) || v == null) return fallback;
       return v as string ?? fallback;
+    }
+
+    /// <summary>
+    /// Build a synthetic <see cref="PassageBody"/> wrapping a single
+    /// <see cref="ParseErrorNode"/>. Keeps the rest of the Twee file loadable
+    /// when one passage's body fails to parse.
+    /// </summary>
+    private static PassageBody MakeParseErrorAst(string passageName, HarloweParseException ex)
+    {
+      string detail = ex.RawMessage ?? ex.Message ?? "parse error";
+      string where = ex.Line > 0 ? $" at line {ex.Line}, column {ex.Column}" : string.Empty;
+      var message = $"parse error in passage '{passageName}'{where}: {detail}";
+      var ast = new PassageBody { Children = new List<IBodyNode>() };
+      ast.Children.Add(new ParseErrorNode { Message = message });
+      return ast;
     }
 
     private class PassageBlock

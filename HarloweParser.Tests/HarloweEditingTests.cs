@@ -110,6 +110,21 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void AddPassage_DoesNotMutateCallerBodyFromMacroSource()
+    {
+      // The caller's Body source is authoritative. Hydration must not rewrite
+      // it to BodyTextRenderer's macro-stripped view — that would silently
+      // drop macros on round-trip through (passage.Body → AddPassage).
+      var story = new Harlowe();
+      var p = new HarlowePassage { Name = "X", Body = "(set: $x to 1)Hello" };
+      story.AddPassage(p);
+      Assert.Equal("(set: $x to 1)Hello", p.Body);
+      Assert.Equal("(set: $x to 1)Hello", story.GetPassage("X").Body);
+      // The AST must still be hydrated.
+      Assert.NotNull(p.Ast);
+    }
+
+    [Fact]
     public void AddPassage_HydrationDoesNotOverwritePrebuiltAst()
     {
       // Test fixtures (and the HTML/Twee loaders) construct the AST by hand and
@@ -285,19 +300,23 @@ namespace Harlowe.Tests
     }
 
     [Fact]
-    public void GetPassage_DirectNameMutation_ThrowsIntegrityError()
+    public void GetPassage_DirectNameMutation_StillReturnsByDictionaryKey()
     {
       // HarlowePassage.Name is a public field for legacy reasons; mutating it
       // after AddPassage leaves the story's lookup keyed by the old name.
-      // GetPassage detects the mismatch on lookup and throws, steering the
-      // consumer at RenamePassage.
+      // GetPassage must not throw — it lives on the runtime hot path
+      // ((display:), goto) where the project's contract is in-prose errors,
+      // not exceptions. Lookup returns by dictionary key; the consumer's
+      // mismatched passage.Name is theirs to clean up via RenamePassage.
       var story = new Harlowe();
       var p = MakePassage("First");
       story.AddPassage(p);
       p.Name = "Mutated";
 
-      var ex = Assert.Throws<System.InvalidOperationException>(() => story.GetPassage("First"));
-      Assert.Contains("RenamePassage", ex.Message);
+      // Lookup by the original key still resolves to the entry.
+      Assert.Same(p, story.GetPassage("First"));
+      // Lookup by the consumer-set name doesn't (the dict was never re-keyed).
+      Assert.Null(story.GetPassage("Mutated"));
     }
 
     [Fact]
@@ -308,6 +327,23 @@ namespace Harlowe.Tests
       // rewrite restores the documented "null on miss" contract.
       var story = new Harlowe();
       Assert.Null(story.GetPassage(null));
+    }
+
+    [Fact]
+    public void GetPassageBody_NullName_ReturnsEmptyString()
+    {
+      // GetPassageBody used to delegate to Dictionary.TryGetValue, which
+      // throws ArgumentNullException on null keys. Now matches the rest of
+      // the lookup API's null-safe contract.
+      var story = new Harlowe();
+      Assert.Equal(string.Empty, story.GetPassageBody(null));
+    }
+
+    [Fact]
+    public void GetPassageBranches_NullName_ReturnsNull()
+    {
+      var story = new Harlowe();
+      Assert.Null(story.GetPassageBranches(null));
     }
 
     [Fact]

@@ -223,6 +223,25 @@ namespace Harlowe.Tests.Runtime.Macros
         Assert.NotEqual(BufferedRenderOutput.Kind.PushStyle, e.Kind);
     }
 
+    [Theory]
+    [InlineData("(text-color: \"expression(alert(1))\")[hi]")]
+    [InlineData("(background: \"javascript:alert(1)\")[hi]")]
+    [InlineData("(background: \"JaVaScRiPt:alert(1)\")[hi]")]   // case-insensitive
+    [InlineData("(font: \"vbscript:msgbox\")[hi]")]
+    [InlineData("(text-color: \"behavior:url(evil.htc)\")[hi]")]
+    public void StyleValueWithDeniedKeyword_EmitsErrorAndDoesNotPushStyle(string source)
+    {
+      // Defense-in-depth: even though ';' is blocked separately, CSS feature
+      // payloads (legacy IE expression(), javascript:/vbscript: URI schemes,
+      // behavior:/binding: hooks) shouldn't survive the validator. Modern
+      // browsers ignore them, but non-browser CSS consumers might still run
+      // them — the denylist makes the boundary explicit.
+      var buf = RenderRaw(source);
+      AssertError(buf, "disallowed CSS keyword");
+      foreach (var e in buf.Entries)
+        Assert.NotEqual(BufferedRenderOutput.Kind.PushStyle, e.Kind);
+    }
+
     // --- Composition across the new macros ---
 
     [Fact]
@@ -233,6 +252,38 @@ namespace Harlowe.Tests.Runtime.Macros
       foreach (var e in buf.Entries)
         if (e.Kind == BufferedRenderOutput.Kind.PushStyle) pushes++;
       Assert.Equal(2, pushes);
+    }
+
+    // --- v0.1.2 regression: (background:) url() input shape ---
+
+    [Fact]
+    public void Background_BareImagePath_StoresVerbatimSoHtmlRendersOneUrl()
+    {
+      // Author wrote a bare path. BackgroundImage holds the bare URL; the
+      // HTML adapter wraps it in url(...) at emit time.
+      var buf = RenderRaw("(background: \"art/sky.png\")[hi]");
+      var style = FirstPushedStyle(buf);
+      Assert.Equal("art/sky.png", style.BackgroundImage);
+    }
+
+    [Fact]
+    public void Background_CssUrlShape_StripsTheWrapperSoHtmlDoesntDoubleWrap()
+    {
+      // Author wrote url(...). We strip the wrapper because BuildSpanTag adds
+      // its own. Otherwise we'd emit background-image: url(url(art/sky.png)).
+      var buf = RenderRaw("(background: \"url(art/sky.png)\")[hi]");
+      var style = FirstPushedStyle(buf);
+      Assert.Equal("art/sky.png", style.BackgroundImage);
+    }
+
+    [Fact]
+    public void Background_CssUrlWithDoubleQuotes_StripsQuotesAndWrapper()
+    {
+      // url("...") is the canonical CSS shape; the quotes are also stripped
+      // so the spec field holds the bare URL.
+      var buf = RenderRaw("(background: 'url(\"art/sky.png\")')[hi]");
+      var style = FirstPushedStyle(buf);
+      Assert.Equal("art/sky.png", style.BackgroundImage);
     }
   }
 }

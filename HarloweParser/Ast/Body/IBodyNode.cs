@@ -27,5 +27,6 @@ namespace Harlowe.Ast.Body
     void Visit(LinkNode node);
     void Visit(HtmlNode node);
     void Visit(ChangerChainNode node);
+    void Visit(ParseErrorNode node);
   }
 }

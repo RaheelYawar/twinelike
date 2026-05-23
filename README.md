@@ -138,7 +138,7 @@ public class ConsoleOutput : IRenderOutput
 | Hook references: `?name`, `?passage`, `?page`, `?link` (+ ordinal narrowing) | ✓ |
 | `(goto:)` with multi-step undo | ✓ |
 | Inline `<html>` passthrough in passage bodies | ✓ |
-| String escape sequences inside literals | ✗ (known limitation) |
+| String escape sequences (`\n`/`\r`/`\t`/`\\`/`\"`/`\xHH`/`\uHHHH`, etc.) | ✓ |
 | `when` lambda clause | ✗ (reserved for `(event:)`) |
 
 ### Macros
