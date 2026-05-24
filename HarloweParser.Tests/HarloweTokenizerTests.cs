@@ -203,6 +203,17 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void HtmlTag_NonAsciiLead_DoesNotMatch_TreatedAsProse()
+    {
+      // WHATWG HTML restricts tag names to ASCII alpha. char.IsLetter would
+      // also accept CJK / Cyrillic / Greek, which would silently scoop up
+      // non-English prose like `<日本 ...>` as a malformed HtmlTag token.
+      var tokens = Tokenize("<日本>x");
+      // First token should be a `<` text fragment, not an HtmlTag.
+      Assert.NotEqual(TokenType.HtmlTag, tokens[0].Type);
+    }
+
+    [Fact]
     public void Macro_BasicSet_PushesIntoExpressionMode()
     {
       AssertSequence(Tokenize("(set: $x to 1)"),

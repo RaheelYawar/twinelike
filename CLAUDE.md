@@ -58,11 +58,11 @@ A C# library (netstandard2.0) for parsing and running Twine/Harlowe interactive 
 In-prose errors, never exceptions. Mirrors Harlowe's authoring model: a single bad expression renders an inline error message at the spot it happened and the rest of the passage continues. `HarloweValue.Error` propagates through the evaluator (every operator short-circuits on it); when an Error value reaches the renderer it goes through `IRenderOutput.Error(message)` instead of being printed. No exceptions on the runtime hot path — engine integrations don't want `try/catch` around every render call.
 
 ## Known TODOs
-- `BodyTextRenderer` (in `BodyVisitors.cs`) drops `MacroNode` content from the rendered body string. Acceptable for current consumers; if a downstream needs macros in the rendered prose, add a printer that round-trips macros via the AST.
+- `BodyTextRenderer` (in `BodyVisitors.cs`) is now unused by the loaders (HTML/Twee/AddPassage all set `Body` to the raw author source). Keep for diagnostics or remove once no consumer references it.
 
 ## Status
 
-**v3.1 complete, 1189 tests passing, no active slice.** Full per-version implementation history is in `git log` — see commit messages tagged by slice. The current shape rests on three load-bearing architectural pivots; everything else in the codebase is built atop them and any future slice should respect them rather than work around them.
+**v3.1 complete, 1200 tests passing, no active slice.** Full per-version implementation history is in `git log` — see commit messages tagged by slice. The current shape rests on three load-bearing architectural pivots; everything else in the codebase is built atop them and any future slice should respect them rather than work around them.
 
 - **Descriptor-patch changer model** (introduced v2.3D, matches the reference Harlowe JS impl). A `Changer` is a flat `List<IChangerPatch>` over a `HookDescriptor`. New changer kinds drop in as new patch types + descriptor fields — `Apply` never grows a new top-level branch you can't isolate. Style/Iteration/Revision/Interaction all slot in this way.
 - **Render tree between `BodyRenderer` and `IRenderOutput`** (introduced v3A). An addressable, mutable representation of rendered content, so revision and enchantment macros have something concrete to target rather than a one-way event stream. `RenderTreeBuilder` *is* an `IRenderOutput`, which is why `Changer.Apply` retargets onto the tree for free.

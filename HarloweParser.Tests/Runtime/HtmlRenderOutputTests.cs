@@ -274,13 +274,20 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
-    public void BeginInteractive_NullRegion_EmitsBareAnchor()
+    public void BeginInteractive_NullRegion_StillHonoursConfiguredHref()
     {
+      // The defensive null-region path used to emit a bare `<a>` and silently
+      // drop the configured _interactiveHref, defeating a CSP-strict consumer's
+      // href override on the one path it most needed to apply. Now the
+      // anchor is emitted with the configured href and empty data-* values
+      // so the consumer's click-dispatch script sees a uniform shape.
       var (buf, sink) = NewSink();
       sink.BeginInteractive(null);
       sink.Text("x");
       sink.EndInteractive();
-      Assert.Equal("<a>x</a>", buf.Text);
+      Assert.Contains("href=\"javascript:void(0)\"", buf.Text);
+      Assert.Contains("data-region-id=\"\"", buf.Text);
+      Assert.EndsWith(">x</a>", buf.Text);
     }
 
     [Fact]
@@ -305,6 +312,48 @@ namespace Harlowe.Tests.Runtime
       sink.EndInteractive();
       Assert.DoesNotContain("href=", buf.Text);
       Assert.Contains("data-region-id=\"r-1\"", buf.Text);
+    }
+
+    [Fact]
+    public void BeginInteractive_WhitespaceHref_TreatedAsEmpty()
+    {
+      // A whitespace-only configured href used to slip past the empty check
+      // and emit `href=" "`, which browsers treat as a same-page navigation
+      // on click — reloading the page and destroying session state. Now
+      // collapses to the same omit-the-attribute path empty triggers.
+      var buf = new BufferedRenderOutput();
+      var sink = new HtmlRenderOutput(buf, "  ");
+      sink.BeginInteractive(new InteractiveRegion { Id = "r-1", Kind = InteractionKind.Click });
+      sink.EndInteractive();
+      Assert.DoesNotContain("href=", buf.Text);
+    }
+
+    [Fact]
+    public void Constructor_RejectsHtmlRenderOutputAsInner()
+    {
+      // Composing two HtmlRenderOutput adapters double-escapes Text/Error
+      // while passing Html/PushStyle through once — the asymmetric corruption
+      // produces `&amp;lt;` artifacts that are hard to track down. Surface
+      // the misuse at construction time.
+      var buf = new BufferedRenderOutput();
+      var inner = new HtmlRenderOutput(buf);
+      Assert.Throws<System.ArgumentException>(() => new HtmlRenderOutput(inner));
+    }
+
+    [Fact]
+    public void Link_EscapesDisplayTextButPassesTargetThroughForSemanticResolution()
+    {
+      // Defense-in-depth: link display text is user-controlled prose and gets
+      // the same Text-style escape so a downstream sink mirroring it into
+      // innerHTML can't be XSSed. The target stays raw because it is a
+      // passage-name reference the consumer resolves semantically; consumers
+      // embedding it in an href attribute must attribute-escape at that point.
+      var (buf, sink) = NewSink();
+      sink.Link("<click>", "P\"><script>");
+      var link = buf.Entries.Find(e => e.Kind == BufferedRenderOutput.Kind.Link);
+      Assert.NotNull(link);
+      Assert.Equal("&lt;click&gt;", link.Content);
+      Assert.Equal("P\"><script>", link.Target);
     }
 
     [Fact]

@@ -229,6 +229,7 @@ namespace Harlowe.Tests.Runtime.Macros
     [InlineData("(background: \"JaVaScRiPt:alert(1)\")[hi]")]   // case-insensitive
     [InlineData("(font: \"vbscript:msgbox\")[hi]")]
     [InlineData("(text-color: \"behavior:url(evil.htc)\")[hi]")]
+    [InlineData("(text-color: \"Ｊavascript:alert(1)\")[hi]")] // full-width J — earlier ASCII-only prefilter bypassed the scan
     public void StyleValueWithDeniedKeyword_EmitsErrorAndDoesNotPushStyle(string source)
     {
       // Defense-in-depth: even though ';' is blocked separately, CSS feature
@@ -284,6 +285,26 @@ namespace Harlowe.Tests.Runtime.Macros
       var buf = RenderRaw("(background: 'url(\"art/sky.png\")')[hi]");
       var style = FirstPushedStyle(buf);
       Assert.Equal("art/sky.png", style.BackgroundImage);
+    }
+
+    [Fact]
+    public void Background_UppercaseUrlWrapper_AlsoStripped()
+    {
+      // The unwrap is case-insensitive — earlier the prefix match was strict
+      // and `URL(foo.png)` survived unchanged, producing `url(URL(foo.png))`
+      // in the emitted CSS.
+      var buf = RenderRaw("(background: \"URL(art/sky.png)\")[hi]");
+      var style = FirstPushedStyle(buf);
+      Assert.Equal("art/sky.png", style.BackgroundImage);
+    }
+
+    [Fact]
+    public void Background_EmptyUrlValue_EmitsInProseError()
+    {
+      // (background: "url()") used to silently produce a malformed
+      // `background-image: url();` declaration. Now flagged at the macro.
+      var buf = RenderRaw("(background: \"url()\")[hi]");
+      AssertError(buf, "url() value is empty");
     }
   }
 }

@@ -72,7 +72,13 @@ namespace Harlowe.Runtime.Rendering
 
     public void PushStyle(StyleSpec style)
     {
-      var node = new RenderStyleNode { Style = style };
+      // Clone the spec when stamping it onto the tree so a downstream pass
+      // that mutates one RenderStyleNode.Style (enchantment overrides,
+      // future patches) can't bleed back into the changer's descriptor or
+      // every other sibling node sharing the same reference. Centralized
+      // here so every render path is protected — RunStyles, RunRevision,
+      // and RunInteraction all share this invariant for free.
+      var node = new RenderStyleNode { Style = style?.Clone() };
       Current.Children.Add(node);
       _stack.Push(node);
     }

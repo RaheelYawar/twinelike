@@ -13,8 +13,11 @@ namespace Harlowe
     /// indexed by this value, and writing it directly leaves the dictionary
     /// holding a stale key. Use <see cref="Harlowe.RenamePassage"/> to change
     /// the name; that re-keys the lookup atomically.
-    /// <see cref="Harlowe.GetPassage"/> detects the inconsistency and throws
-    /// <see cref="System.InvalidOperationException"/> if it happens anyway.
+    /// <see cref="Harlowe.GetPassage"/> still returns the entry by its
+    /// original dictionary key (the runtime hot path must not throw to honour
+    /// the project's in-prose error contract), so a stale-key mismatch fails
+    /// silently rather than surfacing — the consumer is responsible for
+    /// keeping <see cref="Name"/> coherent.
     /// </summary>
     public string Name;
 

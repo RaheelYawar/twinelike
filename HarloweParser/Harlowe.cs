@@ -133,13 +133,18 @@ namespace Harlowe
     /// <summary>
     /// Parse <see cref="HarlowePassage.Body"/> into <see cref="HarlowePassage.Ast"/>
     /// (and derived <see cref="HarlowePassage.RawBody"/>/
-    /// <see cref="HarlowePassage.Branches"/>/<see cref="HarlowePassage.Body"/>)
-    /// for passages that were constructed by hand without going through the
-    /// HTML or Twee loaders. Skips passages that already have an AST or whose
-    /// body is null — both cases mean the caller is responsible for their own
-    /// shape (loader-populated, deliberately empty, or AST built manually in
-    /// tests). Inner parse errors are rewrapped with the passage name so the
-    /// caller sees the same diagnostic the bulk loaders produce.
+    /// <see cref="HarlowePassage.Branches"/>) for passages that were
+    /// constructed by hand without going through the HTML or Twee loaders.
+    /// Skips passages that already have an AST or whose body is null — both
+    /// cases mean the caller is responsible for their own shape
+    /// (loader-populated, deliberately empty, or AST built manually in tests).
+    ///
+    /// <para>A parse error doesn't throw out of <see cref="AddPassage"/> —
+    /// the passage is hydrated with a synthetic <see cref="Ast.Body.ParseErrorNode"/>
+    /// AST so the rest of the story remains usable and the broken passage
+    /// renders an in-prose error at render time. Matches the bulk-loader
+    /// recovery contract so the editing API and the file loaders behave the
+    /// same way on identical input.</para>
     /// </summary>
     private static void HydratePassageFromBody(HarlowePassage passage)
     {
@@ -154,25 +159,27 @@ namespace Harlowe
         var tokens = tokenizer.Tokenize(passage.Body);
         ast = bodyParser.Parse(tokens);
       }
-      catch (HarloweParseException ex) when (ex.PassageName == null)
+      catch (HarloweParseException ex)
       {
-        throw new HarloweParseException(ex.RawMessage, ex.Line, ex.Column, passage.Name, ex);
+        ast = MakeParseErrorAst(passage.Name, ex);
       }
 
       passage.Ast = ast;
       if (passage.RawBody == null) passage.RawBody = passage.Body;
       if (passage.Branches == null) passage.Branches = BranchCollector.Collect(ast);
-      // Don't overwrite passage.Body — the caller's source representation is
-      // authoritative; the loader-canonical macro-stripped prose is only
-      // emitted on the bulk-load code paths that own the input string.
+      // passage.Body is left untouched — the caller's source representation is
+      // authoritative.
     }
 
     /// <summary>
     /// Build a synthetic <see cref="Ast.Body.PassageBody"/> wrapping a single
-    /// <see cref="Ast.Body.ParseErrorNode"/>. Used by the loader paths to keep
-    /// the rest of the story loadable when one passage's body fails to parse.
+    /// <see cref="Ast.Body.ParseErrorNode"/>. Used by the loader paths and
+    /// <see cref="AddPassage"/> to keep the rest of the story loadable when
+    /// one passage's body fails to parse. <c>internal</c> so the Twee reader
+    /// can share the same recovery shape without duplicating the message
+    /// format.
     /// </summary>
-    private static Ast.Body.PassageBody MakeParseErrorAst(string passageName, HarloweParseException ex)
+    internal static Ast.Body.PassageBody MakeParseErrorAst(string passageName, HarloweParseException ex)
     {
       string detail = ex.RawMessage ?? ex.Message ?? "parse error";
       string where = ex.Line > 0 ? $" at line {ex.Line}, column {ex.Column}" : string.Empty;
@@ -323,9 +330,9 @@ namespace Harlowe
     }
 
     /// <summary>
-    /// Returns the body text of the named passage with branch links stripped.
-    /// Returns <see cref="string.Empty"/> for unknown or null names — matches
-    /// the rest of the lookup API's null-safe contract.
+    /// Returns the raw author source of the named passage's body. Returns
+    /// <see cref="string.Empty"/> for unknown or null names — matches the
+    /// rest of the lookup API's null-safe contract.
     /// </summary>
     public string GetPassageBody(string passageName)
     {
@@ -354,8 +361,7 @@ namespace Harlowe
     /// through entity decoding → tokenizer → body parser, and indexes the
     /// resulting <see cref="HarlowePassage"/> by name. <see cref="HarlowePassage.Branches"/>
     /// is filled by collecting every <see cref="LinkNode"/> in the AST;
-    /// <see cref="HarlowePassage.Body"/> is the AST rendered back to plain
-    /// prose with link markup stripped.
+    /// <see cref="HarlowePassage.Body"/> holds the raw author source.
     ///
     /// <para>Null/missing structural pieces — no passages at all, a passage
     /// missing its <c>name</c> or <c>pid</c> attribute — surface as
@@ -413,7 +419,11 @@ namespace Harlowe
           Tags = ParseTags(passageNode.GetAttributeValue("tags", string.Empty)),
           Ast = ast,
           Branches = BranchCollector.Collect(ast),
-          Body = BodyTextRenderer.Render(ast),
+          // Body holds the raw author source verbatim, matching AddPassage's
+          // contract. The previous "macro-stripped prose" shape diverged from
+          // AddPassage and returned an empty string for parse-error-recovered
+          // passages (indistinguishable from a missing passage).
+          Body = raw,
           RawBody = raw,
         };
 

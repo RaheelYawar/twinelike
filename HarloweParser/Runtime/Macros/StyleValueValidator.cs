@@ -57,10 +57,10 @@ namespace Harlowe.Runtime.Macros
         }
       }
 
-      // Keyword check on the lowercased string so authors can't bypass the
-      // denylist via case mixing (e.g. JaVaScRiPt:). Allocates a copy on the
-      // hot path only when at least one keyword matches a candidate letter —
-      // skip the lowercase entirely if no candidate letter is present.
+      // Keyword check on a NFKC-normalized + lowercased copy. Normalization
+      // folds full-width Latin (Ｊ → j), ligatures, and other compatibility
+      // variants so authors can't bypass the denylist with look-alike
+      // characters; lower-casing then absorbs `JaVaScRiPt:` style mixing.
       if (ContainsAnyDeniedKeyword(value, out var hit))
       {
         return HarloweValue.OfError(
@@ -72,22 +72,14 @@ namespace Harlowe.Runtime.Macros
     private static bool ContainsAnyDeniedKeyword(string value, out string hit)
     {
       hit = null;
-      // Quick scan: if none of the keyword first-letters appears anywhere in
-      // the value, the lowercase + IndexOf walk would be wasted.
-      bool maybe = false;
-      for (int i = 0; i < value.Length; i++)
-      {
-        char c = value[i];
-        if (c == 'e' || c == 'E' || c == 'j' || c == 'J' || c == 'v' || c == 'V'
-         || c == 'b' || c == 'B')
-        {
-          maybe = true;
-          break;
-        }
-      }
-      if (!maybe) return false;
-
-      string lower = value.ToLowerInvariant();
+      // NFKC folds compatibility variants (full-width Latin Ｊ → j, ligatures,
+      // etc.) so authors can't bypass the ASCII denylist with look-alike
+      // characters. Then lower-case for the case-insensitive scan. The cost
+      // is a per-call allocation pair — acceptable on the rarely-hit error
+      // boundary; legitimate prose containing CJK is unaffected since none
+      // of those characters fold to the ASCII keyword spellings.
+      string normalized = value.Normalize(System.Text.NormalizationForm.FormKC);
+      string lower = normalized.ToLowerInvariant();
       for (int i = 0; i < DeniedKeywords.Length; i++)
       {
         if (lower.IndexOf(DeniedKeywords[i], System.StringComparison.Ordinal) >= 0)
