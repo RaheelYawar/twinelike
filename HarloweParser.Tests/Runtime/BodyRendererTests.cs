@@ -302,12 +302,16 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void UnknownMacro_DoesNotEvaluateAssignmentArg()
     {
-      // `(notamacro: $x to 5)` is now a parse error rather than an evaluation
-      // error: `to`/`into` are only allowed at the top of (set:)/(put:) arg
-      // positions, so the parser rejects this before any evaluation can leak
-      // an assignment. The store is never touched.
-      var ex = Assert.Throws<HarloweParseException>(() => Render("(notamacro: $x to 5)"));
-      Assert.Contains("to", ex.Message);
+      // `(notamacro: $x to 5)` is rejected at parse time: `to`/`into` are
+      // only allowed at the top of (set:)/(put:) arg positions, so the parser
+      // refuses to build the MacroCallNode. With per-node parser recovery
+      // the rejection surfaces as an in-prose Error entry on the render
+      // buffer rather than a thrown exception — but the (notamacro:) call is
+      // never evaluated, so $x stays untouched (the invariant this test
+      // really cares about).
+      var h = Render("(notamacro: $x to 5)");
+      Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+      Assert.Null(h.Store.Get("x", isTemporary: false));
     }
 
     [Fact]

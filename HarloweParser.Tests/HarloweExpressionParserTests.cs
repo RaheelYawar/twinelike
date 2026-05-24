@@ -312,6 +312,54 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void Into_PropertyAssignment_EmitsPointedDiagnostic()
+    {
+      // `(put: "Bob" into $x's name)` — `into` puts the value on the LEFT and
+      // the target on the RIGHT. The `to` guard only inspects the LHS; the
+      // `into` guard must inspect the RHS to symmetric-ly catch the property
+      // assignment shape instead of leaking through to the evaluator's
+      // generic "assignment target must be a variable" message.
+      var tokens = new HarloweTokenizer().Tokenize("(put: \"Bob\" into $x's name)");
+      var cursor = new TokenCursor(tokens);
+      cursor.Advance();
+      var parser = new HarloweExpressionParser();
+      var ex = Assert.Throws<HarloweParseException>(
+        () => parser.ParseArgumentList(cursor, allowAssignment: true));
+      Assert.Contains("property assignment", ex.Message);
+      Assert.Contains("into", ex.Message);
+    }
+
+    [Fact]
+    public void Into_ChainedPropertyAssignment_EmitsPointedDiagnostic()
+    {
+      // `$x's name's first` on the RHS of `into` — the rejection check has to
+      // see through the outer `'s` BinaryOpNode, which it does because the
+      // RHS is itself a `'s` chain at the top level.
+      var tokens = new HarloweTokenizer().Tokenize("(put: \"Bob\" into $x's name's first)");
+      var cursor = new TokenCursor(tokens);
+      cursor.Advance();
+      var parser = new HarloweExpressionParser();
+      var ex = Assert.Throws<HarloweParseException>(
+        () => parser.ParseArgumentList(cursor, allowAssignment: true));
+      Assert.Contains("property assignment", ex.Message);
+    }
+
+    [Fact]
+    public void Into_BareVariableTarget_StillParses()
+    {
+      // Regression check: the new RHS-side guard must not break the legal
+      // shape `(put: value into $target)` where the target is a bare variable.
+      var tokens = new HarloweTokenizer().Tokenize("(put: 5 into $x)");
+      var cursor = new TokenCursor(tokens);
+      cursor.Advance();
+      var parser = new HarloweExpressionParser();
+      var args = parser.ParseArgumentList(cursor, allowAssignment: true);
+      Assert.Single(args);
+      var assign = Assert.IsType<BinaryOpNode>(args[0]);
+      Assert.Equal("into", assign.Operator);
+    }
+
+    [Fact]
     public void To_AllowedInNestedSetCall()
     {
       // The inner (set:) is itself an assignment macro, so `to` is allowed at

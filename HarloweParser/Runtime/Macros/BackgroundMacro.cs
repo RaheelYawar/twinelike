@@ -46,10 +46,16 @@ namespace Harlowe.Runtime.Macros
         // produce url(url(...)) — strip the CSS wrapper here. An empty inner
         // URL is rejected with an in-prose error rather than emitting silently
         // malformed CSS.
-        var url = UnwrapCssUrl(value.Trim());
-        if (string.IsNullOrWhiteSpace(url))
-          return HarloweValue.OfError($"({_name}:) url() value is empty");
-        return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { BackgroundImage = url }));
+        var trimmed = value.Trim();
+        if (StartsWithCssUrl(trimmed))
+        {
+          if (!TryUnwrapCssUrl(trimmed, out var url))
+            return HarloweValue.OfError($"({_name}:) malformed url() value: '{value}'");
+          if (string.IsNullOrWhiteSpace(url))
+            return HarloweValue.OfError($"({_name}:) url() value is empty");
+          return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { BackgroundImage = url }));
+        }
+        return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { BackgroundImage = trimmed }));
       }
       return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { BackgroundColor = value }));
     }
@@ -67,23 +73,44 @@ namespace Harlowe.Runtime.Macros
     }
 
     /// <summary>
-    /// If <paramref name="s"/> is <c>url(...)</c> (case-insensitive), return
-    /// the inner URL; otherwise return <paramref name="s"/> unchanged. Tolerates
-    /// a single layer of paired quotes (<c>url("...")</c> / <c>url('...')</c>)
-    /// since those are the CSS canonical shapes. The renderer adds its own
-    /// url() wrap at emit time, so the spec field always holds the bare URL.
+    /// Case-insensitive test for the four-char <c>url(</c> prefix. Cheap
+    /// gate before the stricter <see cref="TryUnwrapCssUrl"/> call.
     /// </summary>
-    private static string UnwrapCssUrl(string s)
+    private static bool StartsWithCssUrl(string s)
     {
-      if (s.Length < 5 || !s.EndsWith(")")) return s;
-      if (!(s[0] == 'u' || s[0] == 'U') || !(s[1] == 'r' || s[1] == 'R')
-       || !(s[2] == 'l' || s[2] == 'L') || s[3] != '(') return s;
+      if (s.Length < 4) return false;
+      return (s[0] == 'u' || s[0] == 'U')
+          && (s[1] == 'r' || s[1] == 'R')
+          && (s[2] == 'l' || s[2] == 'L')
+          && s[3] == '(';
+    }
+
+    /// <summary>
+    /// Strict <c>url(...)</c> unwrap. Returns true and sets <paramref name="url"/>
+    /// to the inner URL only when the entire input matches the canonical CSS
+    /// shape — the closing <c>)</c> must be the final character. Tolerates a
+    /// single layer of paired quotes (<c>url("...")</c> / <c>url('...')</c>).
+    ///
+    /// <para>Returns false on trailing content after <c>)</c> (e.g.
+    /// <c>url(x.png)evil</c>), on a missing close paren, or on mismatched
+    /// quoting. The caller surfaces the rejection as an in-prose error rather
+    /// than silently emitting double-wrapped <c>url(url(...)evil)</c> CSS.</para>
+    /// </summary>
+    private static bool TryUnwrapCssUrl(string s, out string url)
+    {
+      url = null;
+      if (!StartsWithCssUrl(s)) return false;
+      // Require the closing `)` to be the final character — any trailing
+      // content means the value is not a clean CSS url() shape and the
+      // unwrap is unsafe (downstream would double-wrap and emit broken CSS).
+      if (s.Length < 5 || s[s.Length - 1] != ')') return false;
       var inner = s.Substring(4, s.Length - 5).Trim();
       if (inner.Length >= 2
           && ((inner[0] == '"' && inner[inner.Length - 1] == '"')
            || (inner[0] == '\'' && inner[inner.Length - 1] == '\'')))
         inner = inner.Substring(1, inner.Length - 2);
-      return inner;
+      url = inner;
+      return true;
     }
   }
 }

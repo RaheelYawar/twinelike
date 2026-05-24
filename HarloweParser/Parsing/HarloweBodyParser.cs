@@ -40,13 +40,37 @@ namespace Harlowe.Parsing
     /// Used both for the top-level body and for recursing into hook contents
     /// (which terminate at <see cref="TokenType.HookClose"/>). The terminator
     /// itself is not consumed; the caller decides what to do with it.
+    ///
+    /// <para>Recovers from a <see cref="HarloweParseException"/> raised by a
+    /// nested <see cref="ParseNode"/> call by appending a
+    /// <see cref="ParseErrorNode"/> in place of the failed node and returning
+    /// what was parsed so far. This preserves the valid prefix (and any
+    /// branches in it) instead of discarding the whole AST when one
+    /// expression goes bad. Loader recovery still kicks in for tokenizer-
+    /// level failures, which can't be recovered at parse time.</para>
     /// </summary>
     private List<IBodyNode> ParseNodes(TokenCursor cursor, TokenType? terminator)
     {
       var nodes = new List<IBodyNode>();
       while (!cursor.IsAtEnd && (!terminator.HasValue || cursor.Current.Type != terminator.Value))
       {
-        var node = ParseNode(cursor);
+        IBodyNode node;
+        try
+        {
+          node = ParseNode(cursor);
+        }
+        catch (HarloweParseException ex)
+        {
+          // Preserve the prefix already parsed; replace the failing node
+          // with a ParseErrorNode carrying the diagnostic. We stop here
+          // rather than trying to skip ahead — the cursor state after a
+          // throw is unreliable and a skip heuristic could swallow valid
+          // content or loop forever. Branches/text parsed before the error
+          // survive in `nodes`.
+          string where = ex.Line > 0 ? $" at line {ex.Line}, column {ex.Column}" : string.Empty;
+          nodes.Add(new ParseErrorNode { Message = $"parse error{where}: {ex.RawMessage ?? ex.Message}" });
+          break;
+        }
         if (node != null) nodes.Add(node);
       }
       return nodes;

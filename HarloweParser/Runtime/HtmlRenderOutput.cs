@@ -127,7 +127,14 @@ namespace Harlowe.Runtime
     public void BeginInteractive(InteractiveRegion region)
     {
       var id = EscapeAttribute(region?.Id ?? string.Empty);
-      var kind = EscapeAttribute((region?.Kind ?? default(InteractionKind)).ToString());
+      // When region is null the interaction kind is genuinely unknown — emit
+      // an empty data-interaction so a dispatch script can distinguish it
+      // from a real region. Falling back to default(InteractionKind) would
+      // stamp "Click" onto a region that isn't actually a click target,
+      // tricking scripts that select on `[data-interaction="Click"]`.
+      var kind = region != null
+        ? EscapeAttribute(region.Kind.ToString())
+        : string.Empty;
       var hrefAttr = _interactiveHref.Length == 0
         ? string.Empty
         : "href=\"" + EscapeAttribute(_interactiveHref) + "\" ";

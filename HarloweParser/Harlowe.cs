@@ -163,6 +163,7 @@ namespace Harlowe
       {
         ast = MakeParseErrorAst(passage.Name, ex);
       }
+      DecorateParseErrors(ast, passage.Name);
 
       passage.Ast = ast;
       if (passage.RawBody == null) passage.RawBody = passage.Body;
@@ -175,9 +176,10 @@ namespace Harlowe
     /// Build a synthetic <see cref="Ast.Body.PassageBody"/> wrapping a single
     /// <see cref="Ast.Body.ParseErrorNode"/>. Used by the loader paths and
     /// <see cref="AddPassage"/> to keep the rest of the story loadable when
-    /// one passage's body fails to parse. <c>internal</c> so the Twee reader
-    /// can share the same recovery shape without duplicating the message
-    /// format.
+    /// the tokenizer fails (the body parser handles its own per-node recovery
+    /// internally — see <see cref="Parsing.HarloweBodyParser"/>). <c>internal</c>
+    /// so the Twee reader can share the same recovery shape without
+    /// duplicating the message format.
     /// </summary>
     internal static Ast.Body.PassageBody MakeParseErrorAst(string passageName, HarloweParseException ex)
     {
@@ -187,6 +189,35 @@ namespace Harlowe
       var ast = new Ast.Body.PassageBody { Children = new List<Ast.Body.IBodyNode>() };
       ast.Children.Add(new Ast.Body.ParseErrorNode { Message = message });
       return ast;
+    }
+
+    /// <summary>
+    /// Walk the top-level children of <paramref name="ast"/> and prepend the
+    /// passage-name context to any <see cref="Ast.Body.ParseErrorNode"/>
+    /// message. The body parser recovers per-node and emits these without
+    /// knowing which passage it's parsing; the loaders call this once after
+    /// parse to inject the surrounding context so the rendered error names
+    /// the broken passage. Idempotent — re-running on the same AST does not
+    /// stack prefixes (the helper checks for the marker).
+    /// </summary>
+    internal static void DecorateParseErrors(Ast.Body.PassageBody ast, string passageName)
+    {
+      if (ast?.Children == null) return;
+      const string marker = "parse error in passage";
+      for (int i = 0; i < ast.Children.Count; i++)
+      {
+        if (ast.Children[i] is Ast.Body.ParseErrorNode err)
+        {
+          var msg = err.Message ?? string.Empty;
+          if (msg.StartsWith(marker)) continue;
+          // Original parser message is "parse error at line X, column Y: ..."
+          // — drop the leading "parse error" since we re-introduce it with
+          // the passage context, so the rendered string reads naturally.
+          const string prefix = "parse error";
+          if (msg.StartsWith(prefix)) msg = msg.Substring(prefix.Length);
+          err.Message = $"parse error in passage '{passageName}'{msg}";
+        }
+      }
     }
 
     /// <summary>
@@ -411,6 +442,10 @@ namespace Harlowe
           // RawBody is preserved so Twee writers can still emit the source.
           ast = MakeParseErrorAst(passageName, ex);
         }
+        // The body parser also recovers per-node and may leave ParseErrorNodes
+        // alongside successfully-parsed children — decorate those with the
+        // passage name so the rendered error names the broken passage.
+        DecorateParseErrors(ast, passageName);
 
         var passage = new HarlowePassage
         {

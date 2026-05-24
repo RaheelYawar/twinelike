@@ -265,18 +265,46 @@ namespace Harlowe.Tests
     {
       // Any macro other than set/put must reject `to`/`into` in its arg list.
       // Without this guard `(print: $x to 5)` would silently mutate $x during
-      // argument evaluation.
-      var ex = Assert.Throws<HarloweParseException>(() => Parse("(print: $x to 5)"));
-      Assert.Contains("to", ex.Message);
+      // argument evaluation. The parser self-recovers and emits a
+      // ParseErrorNode for the failing call instead of throwing — but the
+      // diagnostic still fires before the (print:) MacroCallNode is produced,
+      // so the assignment is never reachable from any evaluation path.
+      var body = Parse("(print: $x to 5)");
+      var err = Assert.IsType<ParseErrorNode>(body.Children[body.Children.Count - 1]);
+      Assert.Contains("to", err.Message);
     }
 
     [Fact]
     public void IfMacro_RejectsTopLevelInto()
     {
       // (if:) reading a boolean is the classic shape; an `into` here used to
-      // mutate during arg evaluation. Now it's a parse error.
-      var ex = Assert.Throws<HarloweParseException>(() => Parse("(if: 5 into $x)[ok]"));
-      Assert.Contains("into", ex.Message);
+      // mutate during arg evaluation. Now it's a parse error materialized as
+      // a ParseErrorNode rather than a throw.
+      var body = Parse("(if: 5 into $x)[ok]");
+      var err = Assert.IsType<ParseErrorNode>(body.Children[body.Children.Count - 1]);
+      Assert.Contains("into", err.Message);
+    }
+
+    [Fact]
+    public void ParseError_PreservesValidPrefix()
+    {
+      // Per-node parser recovery: when one node throws partway through, the
+      // body parser captures the diagnostic as a ParseErrorNode and keeps
+      // every successfully-parsed sibling that came before. Previously the
+      // whole AST was discarded by loader-level catch, so a passage like
+      // `[[Town]] (oops to` lost its branches even though tokenization +
+      // parsing of `[[Town]]` had already succeeded.
+      var body = Parse("Hello [[Town]] middle (notamacro: $x to 5) trailing");
+      // Prefix nodes survive — at minimum the link and the leading text.
+      bool sawLink = false;
+      bool sawError = false;
+      for (int i = 0; i < body.Children.Count; i++)
+      {
+        if (body.Children[i] is LinkNode) sawLink = true;
+        if (body.Children[i] is ParseErrorNode) sawError = true;
+      }
+      Assert.True(sawLink, "valid prefix link should survive parser recovery");
+      Assert.True(sawError, "failed node should be replaced by a ParseErrorNode");
     }
 
     [Fact]

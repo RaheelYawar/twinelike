@@ -59,6 +59,35 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void Constructor_PassageWithPartialParseFailure_PreservesPriorBranches()
+    {
+      // A passage with valid prefix content (text, links) followed by a
+      // broken macro: per-node parser recovery preserves everything before
+      // the failure, so BranchCollector still picks up the links and
+      // navigable graph tooling sees the real outgoing edges. Before
+      // per-node recovery, the whole AST was replaced with a synthetic
+      // single-ParseErrorNode and branches went to zero.
+      const string html = "<html><body><tw-storydata name=\"T\" startnode=\"1\">"
+        + "<tw-passagedata pid=\"1\" name=\"Hub\">Go to [[Town]] or [[Forest]] then (badmacro: $x to )</tw-passagedata>"
+        + "<tw-passagedata pid=\"2\" name=\"Town\">town</tw-passagedata>"
+        + "<tw-passagedata pid=\"3\" name=\"Forest\">forest</tw-passagedata>"
+        + "</tw-storydata></body></html>";
+
+      var story = new Harlowe(html);
+      var hub = story.GetPassage("Hub");
+      Assert.NotNull(hub);
+      // Both branches survive the partial recovery.
+      Assert.Equal(2, hub.Branches.Count);
+      Assert.Contains(hub.Branches, b => b.Name == "Town");
+      Assert.Contains(hub.Branches, b => b.Name == "Forest");
+      // Rendering surfaces the parse error in-prose, named to the passage.
+      var session = new StorySession(story);
+      var result = session.Goto("Hub");
+      Assert.Contains(result.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error
+                                        && e.Content.Contains("Hub"));
+    }
+
+    [Fact]
     public void Constructor_EmptyStorydata_LoadsAsZeroPassageStory()
     {
       // A <tw-storydata> with no <tw-passagedata> children is structurally

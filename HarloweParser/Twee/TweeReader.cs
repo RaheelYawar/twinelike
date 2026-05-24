@@ -82,6 +82,10 @@ namespace Harlowe.Twee
           // a subsequent TweeWriter round-trip emits the original source.
           ast = Harlowe.MakeParseErrorAst(block.Name, ex);
         }
+        // The body parser also recovers per-node and may leave ParseErrorNodes
+        // alongside successfully-parsed children — decorate those with the
+        // passage name so the rendered error names the broken passage.
+        Harlowe.DecorateParseErrors(ast, block.Name);
 
         var passage = new HarlowePassage
         {

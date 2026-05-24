@@ -57,10 +57,10 @@ namespace Harlowe.Runtime.Macros
         }
       }
 
-      // Keyword check on a NFKC-normalized + lowercased copy. Normalization
-      // folds full-width Latin (Ｊ → j), ligatures, and other compatibility
-      // variants so authors can't bypass the denylist with look-alike
-      // characters; lower-casing then absorbs `JaVaScRiPt:` style mixing.
+      // Keyword check on a NFKC-normalized + lowercased copy. See the
+      // helper's comment for the threat model — covers ASCII-keyword
+      // payloads with compatibility-variant or case-mixing camouflage, not
+      // cross-script confusables (those are the browser's responsibility).
       if (ContainsAnyDeniedKeyword(value, out var hit))
       {
         return HarloweValue.OfError(
@@ -72,12 +72,22 @@ namespace Harlowe.Runtime.Macros
     private static bool ContainsAnyDeniedKeyword(string value, out string hit)
     {
       hit = null;
-      // NFKC folds compatibility variants (full-width Latin Ｊ → j, ligatures,
-      // etc.) so authors can't bypass the ASCII denylist with look-alike
-      // characters. Then lower-case for the case-insensitive scan. The cost
-      // is a per-call allocation pair — acceptable on the rarely-hit error
-      // boundary; legitimate prose containing CJK is unaffected since none
-      // of those characters fold to the ASCII keyword spellings.
+      // NFKC folds compatibility variants — full-width Latin (Ｊ → j),
+      // ligatures (ﬁ → fi), Roman numeral characters (Ⅰ → I), half-width
+      // katakana — so an attacker can't bypass the ASCII denylist by
+      // substituting any of those for the canonical ASCII spelling of a
+      // keyword. Then lower-case absorbs `JaVaScRiPt:` mixing.
+      //
+      // What this does NOT catch: cross-script confusables (Cyrillic 'а'
+      // U+0430, Greek 'ο' U+03BF) — those don't decompose to Latin under
+      // NFKC. We don't expand to a full Unicode-confusables map here
+      // because (a) the browser is the actual interpreter of CSS values
+      // and won't recognise `аvascript:` as the `javascript:` URL scheme
+      // either, and (b) the structural-char check above already blocks `;`
+      // / `{` / `}` / `\` / newlines, so a confusable can't escape the
+      // declaration boundary it's embedded in. The denylist is
+      // defense-in-depth against ASCII-keyword payloads; cross-script
+      // attacks are out of scope here and stop at the browser layer.
       string normalized = value.Normalize(System.Text.NormalizationForm.FormKC);
       string lower = normalized.ToLowerInvariant();
       for (int i = 0; i < DeniedKeywords.Length; i++)
