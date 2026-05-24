@@ -257,10 +257,8 @@ namespace Harlowe.Runtime
         var content = new List<RenderNode>(container.Children);
         // Each wrap gets its own InteractiveRegion instance (sharing the same
         // id and kind) so a future in-place mutation on one node's region
-        // doesn't propagate to its siblings. Same reasoning for style layers:
-        // d.Styles holds StyleSpec values shared across the descriptor, so we
-        // clone per wrap. Identity for matching is the region id string, not
-        // the InteractiveRegion reference.
+        // doesn't propagate to its siblings. Identity for matching is the
+        // region id string, not the InteractiveRegion reference.
         var interactiveNode = new RenderInteractiveNode
         {
           Region = new InteractiveRegion { Id = regionId, Kind = spec.Kind }
@@ -268,10 +266,11 @@ namespace Harlowe.Runtime
         interactiveNode.Children.AddRange(content);
 
         // Wrap any composed style layers around the interactive node,
-        // innermost = last layer. Styles are visible while the region is
-        // clickable and disappear with the wrap once the handler fires —
-        // each wrap is tagged with the region id so StorySession's
-        // UnwrapInteractive pass strips it alongside the interactive node.
+        // innermost = last layer. Each wrap clones the descriptor's style so
+        // sibling wraps stay independent (the descriptor's Styles list is
+        // shared across all matches of this changer application). Wrap is
+        // tagged with the region id so StorySession's UnwrapInteractive pass
+        // strips it alongside the interactive node.
         RenderNode wrapped = interactiveNode;
         for (int s = d.Styles.Count - 1; s >= 0; s--)
         {
@@ -358,7 +357,10 @@ namespace Harlowe.Runtime
       var content = new List<RenderNode>(target.Children);
       for (int i = styles.Count - 1; i >= 0; i--)
       {
-        var styleNode = new RenderStyleNode { Style = styles[i], SourceEnchantment = source };
+        // Clone the descriptor's style on the way onto the tree so the
+        // enchantment can be re-applied to multiple targets across passes
+        // without nodes sharing a StyleSpec reference.
+        var styleNode = new RenderStyleNode { Style = styles[i]?.Clone(), SourceEnchantment = source };
         styleNode.Children.AddRange(content);
         content = new List<RenderNode> { styleNode };
       }

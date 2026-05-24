@@ -43,8 +43,13 @@ namespace Harlowe.Runtime.Macros
         // Authors may write either a bare URL ("art/sky.png") or the CSS-shape
         // ("url(art/sky.png)"). HtmlRenderOutput wraps BackgroundImage in
         // url(...) when it emits, so a value already wrapped in url() would
-        // produce url(url(...)) — strip the CSS wrapper here.
-        return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { BackgroundImage = UnwrapCssUrl(value) }));
+        // produce url(url(...)) — strip the CSS wrapper here. An empty inner
+        // URL is rejected with an in-prose error rather than emitting silently
+        // malformed CSS.
+        var url = UnwrapCssUrl(value.Trim());
+        if (string.IsNullOrWhiteSpace(url))
+          return HarloweValue.OfError($"({_name}:) url() value is empty");
+        return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { BackgroundImage = url }));
       }
       return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { BackgroundColor = value }));
     }
@@ -52,25 +57,27 @@ namespace Harlowe.Runtime.Macros
     private static bool LooksLikeImage(string s)
     {
       if (string.IsNullOrEmpty(s)) return false;
-      if (s.StartsWith("http://") || s.StartsWith("https://")
-       || s.StartsWith("data:image/") || s.StartsWith("url("))
-        return true;
       var lower = s.ToLowerInvariant();
+      if (lower.StartsWith("http://") || lower.StartsWith("https://")
+       || lower.StartsWith("data:image/") || lower.StartsWith("url("))
+        return true;
       return lower.EndsWith(".png") || lower.EndsWith(".jpg") || lower.EndsWith(".jpeg")
           || lower.EndsWith(".gif") || lower.EndsWith(".svg") || lower.EndsWith(".webp")
           || lower.EndsWith(".bmp");
     }
 
     /// <summary>
-    /// If <paramref name="s"/> is <c>url(...)</c>, return the inner URL; otherwise
-    /// return <paramref name="s"/> unchanged. Tolerates a single layer of paired
-    /// quotes (<c>url("...")</c> / <c>url('...')</c>) since those are the CSS
-    /// canonical shapes. The renderer adds its own url() wrap at emit time, so
-    /// the spec field always holds the bare URL.
+    /// If <paramref name="s"/> is <c>url(...)</c> (case-insensitive), return
+    /// the inner URL; otherwise return <paramref name="s"/> unchanged. Tolerates
+    /// a single layer of paired quotes (<c>url("...")</c> / <c>url('...')</c>)
+    /// since those are the CSS canonical shapes. The renderer adds its own
+    /// url() wrap at emit time, so the spec field always holds the bare URL.
     /// </summary>
     private static string UnwrapCssUrl(string s)
     {
-      if (!s.StartsWith("url(") || !s.EndsWith(")")) return s;
+      if (s.Length < 5 || !s.EndsWith(")")) return s;
+      if (!(s[0] == 'u' || s[0] == 'U') || !(s[1] == 'r' || s[1] == 'R')
+       || !(s[2] == 'l' || s[2] == 'L') || s[3] != '(') return s;
       var inner = s.Substring(4, s.Length - 5).Trim();
       if (inner.Length >= 2
           && ((inner[0] == '"' && inner[inner.Length - 1] == '"')

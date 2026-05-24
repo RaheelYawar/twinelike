@@ -70,13 +70,19 @@ namespace Harlowe.Runtime
     // ceiling via the public setter at construction time.
     private const int DefaultMaxDisplayDepth = 20;
 
+    private int _maxDisplayDepth = DefaultMaxDisplayDepth;
+
     /// <summary>
     /// Maximum (display:) nesting depth. Mutating mid-render is supported but
     /// only affects subsequent (display:) calls — the active stack frame
-    /// continues unaffected. Values &lt; 1 are treated as 1 (a single
-    /// (display:) call always succeeds).
+    /// continues unaffected. Values &lt; 1 are clamped to 1 so a single
+    /// (display:) call always succeeds, matching the documented contract.
     /// </summary>
-    public int MaxDisplayDepth { get; set; } = DefaultMaxDisplayDepth;
+    public int MaxDisplayDepth
+    {
+      get => _maxDisplayDepth;
+      set => _maxDisplayDepth = value < 1 ? 1 : value;
+    }
 
     /// <summary>Name of the passage currently loaded into the session.</summary>
     public string CurrentPassage => _currentPassage;

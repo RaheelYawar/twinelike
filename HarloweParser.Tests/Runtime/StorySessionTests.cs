@@ -349,6 +349,27 @@ namespace Harlowe.Tests.Runtime
       Assert.Contains("ok", r.Text);
     }
 
+    [Fact]
+    public void Display_MaxDepthSetToZero_ClampsToOneSoSingleDisplayStillSucceeds()
+    {
+      // The docstring promises "Values < 1 are clamped to 1 (a single
+      // (display:) call always succeeds)." A previous version had no clamping
+      // so MaxDisplayDepth=0 caused the very first (display:) to error out.
+      var story = ThreePassages("(display: \"P2\")", "ok", "unused");
+      var session = new StorySession(story) { MaxDisplayDepth = 0 };
+      var r = session.Render();
+      Assert.Equal(0, CountKind(r, BufferedRenderOutput.Kind.Error));
+      Assert.Contains("ok", r.Text);
+      Assert.Equal(1, session.MaxDisplayDepth);
+    }
+
+    [Fact]
+    public void Display_MaxDepthSetNegative_ClampsToOne()
+    {
+      var session = new StorySession(OnePassage("hi")) { MaxDisplayDepth = -5 };
+      Assert.Equal(1, session.MaxDisplayDepth);
+    }
+
     // -----------------------------------------------------------------------
     // Undo
     // -----------------------------------------------------------------------

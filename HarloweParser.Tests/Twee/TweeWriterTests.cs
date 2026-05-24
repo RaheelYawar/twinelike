@@ -240,6 +240,39 @@ namespace Harlowe.Tests.Twee
     }
 
     [Fact]
+    public void ParseErrorPassage_WithIsDirty_PreservesOriginalSourceFromRawBody()
+    {
+      // A parse-error-recovered passage's AST is a synthetic ParseErrorNode
+      // with no representable source. If TweeWriter routed it through
+      // MarkupPrinter on IsDirty==true the body would silently become empty,
+      // destroying the broken-but-recoverable original. ResolveBody must
+      // always prefer RawBody for parse-error AST regardless of IsDirty.
+      var story = Read(":: Bad\n(set: $x to )\n\n:: Good\nhello");
+      var bad = story.GetPassage("Bad");
+      Assert.True(Ast.Body.ParseErrorNode.IsParseErrorBody(bad.Ast));
+
+      bad.IsDirty = true;
+      string output = Write(story);
+
+      Assert.Contains("(set: $x to )", output);
+      Assert.Contains(":: Good\nhello", output);
+    }
+
+    [Fact]
+    public void ParseErrorPassage_FromAddPassage_RoundTripsThroughTweeWriter()
+    {
+      // AddPassage recovers from parse errors via the same MakeParseErrorAst
+      // path the loaders use, so its broken passages also need the RawBody
+      // round-trip preservation.
+      var story = new Harlowe { StoryName = "T" };
+      story.AddPassage(new HarlowePassage { Name = "Bad", Body = "(set: $x to )" });
+      story.GetPassage("Bad").IsDirty = true;
+
+      string output = Write(story);
+      Assert.Contains("(set: $x to )", output);
+    }
+
+    [Fact]
     public void BodyLineStartingWithColonColon_ReEscaped()
     {
       // A line beginning with `::` would be misread as a header on round-trip;

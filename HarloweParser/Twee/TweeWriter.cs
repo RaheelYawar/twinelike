@@ -179,9 +179,19 @@ namespace Harlowe.Twee
     /// passage separation stays the writer's responsibility); dirty (or
     /// RawBody-less) passages run through <see cref="MarkupPrinter"/> in
     /// canonical form.
+    ///
+    /// <para>Parse-error-recovered passages always prefer <see cref="HarlowePassage.RawBody"/>
+    /// when one is available, even if <see cref="HarlowePassage.IsDirty"/> is
+    /// set. The synthetic <see cref="Ast.Body.ParseErrorNode"/> AST has no
+    /// representable source — re-canonicalizing through <see cref="MarkupPrinter"/>
+    /// would emit an empty body and silently destroy the broken-but-recoverable
+    /// original source the consumer was trying to fix.</para>
     /// </summary>
     private static string ResolveBody(HarlowePassage passage)
     {
+      if (passage.Ast != null && Ast.Body.ParseErrorNode.IsParseErrorBody(passage.Ast)
+          && passage.RawBody != null)
+        return passage.RawBody;
       if (!passage.IsDirty && passage.RawBody != null) return passage.RawBody;
       if (passage.Ast != null) return new MarkupPrinter().Print(passage.Ast);
       return passage.RawBody ?? string.Empty;

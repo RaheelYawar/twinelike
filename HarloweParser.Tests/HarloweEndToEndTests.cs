@@ -207,13 +207,18 @@ namespace Harlowe.Tests
     }
 
     [Fact]
-    public void Branches_AreStrippedFromPassageBody()
+    public void GetPassageBody_ReturnsRawAuthorSource()
     {
+      // Body now holds the raw author source verbatim (matches the AddPassage
+      // contract and the Twee loader). The previous "links stripped" shape
+      // produced an empty string for parse-error-recovered passages,
+      // indistinguishable from a missing passage. Branches still resolve via
+      // GetPassageBranches for callers that want the navigable links.
       var story = TestFixture.LoadTestFile();
       var body = story.GetPassageBody("Disclaimer");
 
-      Assert.DoesNotContain("[[", body);
-      Assert.DoesNotContain("]]", body);
+      Assert.Contains("[[", body);
+      Assert.NotEmpty(story.GetPassageBranches("Disclaimer"));
     }
 
     [Fact]

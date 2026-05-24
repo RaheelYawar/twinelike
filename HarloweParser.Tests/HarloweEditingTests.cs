@@ -195,15 +195,24 @@ namespace Harlowe.Tests
     }
 
     [Fact]
-    public void AddPassage_ParseError_AttachesPassageName()
+    public void AddPassage_ParseError_RecoversWithSyntheticAst()
     {
-      // Inner parser errors don't know which passage they're inside; AddPassage
-      // re-wraps so the diagnostic mentions the passage by name, matching the
-      // bulk-loader behaviour.
+      // AddPassage matches the HTML/Twee bulk loaders' contract: a broken body
+      // doesn't throw out of the editing API — the passage is hydrated with a
+      // ParseErrorNode AST so the rest of the story remains usable and the
+      // broken passage renders an in-prose error at render time. Editors that
+      // batch per-passage saves don't crash on a single bad expression.
       var story = new Harlowe();
       var p = new HarlowePassage { Name = "Broken", Body = "(for: each)" };
-      var ex = Assert.Throws<HarloweParseException>(() => story.AddPassage(p));
-      Assert.Equal("Broken", ex.PassageName);
+      story.AddPassage(p);
+
+      Assert.Same(p, story.GetPassage("Broken"));
+      Assert.NotNull(p.Ast);
+      Assert.Single(p.Ast.Children);
+      var err = Assert.IsType<ParseErrorNode>(p.Ast.Children[0]);
+      Assert.Contains("Broken", err.Message);
+      // RawBody captures the original source so TweeWriter can round-trip it.
+      Assert.Equal("(for: each)", p.RawBody);
     }
 
     [Fact]

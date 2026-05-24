@@ -80,18 +80,36 @@ namespace Harlowe.Runtime
     /// <summary>
     /// Build an adapter forwarding to <paramref name="inner"/>. The
     /// <paramref name="interactiveHref"/> value is emitted on every
-    /// <c>BeginInteractive</c> anchor; pass an empty string to omit the
-    /// attribute. Whatever is supplied is HTML-attribute-escaped at emit time.
+    /// <c>BeginInteractive</c> anchor; pass null, an empty string, or a
+    /// whitespace-only string to omit the attribute (a whitespace-only href
+    /// would otherwise be treated by browsers as a same-page navigation on
+    /// click, which silently reloads the page and destroys session state).
+    /// Whatever is supplied is HTML-attribute-escaped at emit time.
+    ///
+    /// <para>Throws when <paramref name="inner"/> is itself an
+    /// <see cref="HtmlRenderOutput"/>: composing two adapters double-escapes
+    /// <see cref="Text"/> and <see cref="Error"/> while passing <see cref="Html"/>
+    /// /<see cref="BeginInteractive"/>/<see cref="PushStyle"/> through once,
+    /// producing asymmetric <c>&amp;amp;lt;</c> corruption that is hard to
+    /// localize.</para>
     /// </summary>
     public HtmlRenderOutput(IRenderOutput inner, string interactiveHref)
     {
+      if (inner is HtmlRenderOutput)
+        throw new System.ArgumentException(
+          "HtmlRenderOutput cannot wrap another HtmlRenderOutput — Text and Error would double-escape while Html/PushStyle pass through once. Wrap the underlying buffer directly.",
+          nameof(inner));
       _inner = inner;
-      _interactiveHref = interactiveHref ?? string.Empty;
+      _interactiveHref = string.IsNullOrWhiteSpace(interactiveHref) ? string.Empty : interactiveHref;
     }
 
     public void Text(string content) => _inner.Text(EscapeText(content));
     public void Html(string rawHtml) => _inner.Html(rawHtml);
-    public void Link(string text, string target) => _inner.Link(text, target);
+    // Link text is display-string, escape it like Text. Target stays raw —
+    // it's a passage-name reference the consumer resolves semantically (lookup,
+    // navigation, dispatch); consumers who embed target directly in an href
+    // are responsible for attribute-escaping at that point.
+    public void Link(string text, string target) => _inner.Link(EscapeText(text), target);
     public void Error(string message) => _inner.Error(EscapeText(message));
 
     /// <summary>
@@ -100,14 +118,16 @@ namespace Harlowe.Runtime
     /// on <c>data-interaction</c>. The kind is exposed verbatim so a script
     /// can dispatch the right session event. The <c>href</c> attribute uses
     /// the value passed to the constructor (defaulting to
-    /// <c>javascript:void(0)</c>); an empty configured href omits the
-    /// attribute, which is what CSP-strict consumers want.
+    /// <c>javascript:void(0)</c>); an empty/whitespace configured href omits
+    /// the attribute, which is what CSP-strict consumers want.
+    ///
+    /// <para>The defensive null-region path still honours the configured
+    /// href so the click-dispatch script sees a consistent anchor shape.</para>
     /// </summary>
     public void BeginInteractive(InteractiveRegion region)
     {
-      if (region == null) { _inner.Html("<a>"); return; }
-      var id = EscapeAttribute(region.Id ?? string.Empty);
-      var kind = EscapeAttribute(region.Kind.ToString());
+      var id = EscapeAttribute(region?.Id ?? string.Empty);
+      var kind = EscapeAttribute((region?.Kind ?? default(InteractionKind)).ToString());
       var hrefAttr = _interactiveHref.Length == 0
         ? string.Empty
         : "href=\"" + EscapeAttribute(_interactiveHref) + "\" ";

@@ -216,11 +216,14 @@ namespace Harlowe.Tests.Twee
     }
 
     [Fact]
-    public void Body_DerivedBodyStringStripsLinks()
+    public void Body_HoldsRawAuthorSource()
     {
+      // Body now stores the verbatim author source — matches AddPassage and
+      // the HTML loader's contract. The previous "macro-stripped prose" shape
+      // diverged from those paths and produced an empty Body for parse-error-
+      // recovered passages, indistinguishable from a missing passage.
       var story = Read(":: First\nClick [[here->Other]] now.");
-      // BodyTextRenderer drops link markup the same way the HTML loader does.
-      Assert.Equal("Click  now.", story.GetPassage("First").Body);
+      Assert.Equal("Click [[here->Other]] now.", story.GetPassage("First").Body);
     }
 
     [Fact]

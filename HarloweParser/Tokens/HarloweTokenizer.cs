@@ -357,12 +357,18 @@ namespace Harlowe.Tokens
     /// like <c>title="1 &gt; 0"</c> contains a literal <c>&gt;</c> that is
     /// not the tag close. Scanning skips characters while inside a single- or
     /// double-quoted attribute value so the right <c>&gt;</c> wins.</para>
+    ///
+    /// <para>The tag-name lead is restricted to ASCII alpha per WHATWG HTML.
+    /// <see cref="char.IsLetter(char)"/> would otherwise accept every Unicode
+    /// letter category (CJK, Cyrillic, etc.) and promote prose like
+    /// <c>&lt;日本 hi&gt;</c> to an HtmlTag token, swallowing intervening
+    /// content as raw markup.</para>
     /// </summary>
     private bool TryScanHtmlTag(int startPos, int startLine, int startCol)
     {
       int look = _pos + 1;
       if (look < _src.Length && _src[look] == '/') look++;
-      if (look >= _src.Length || !char.IsLetter(_src[look])) return false;
+      if (look >= _src.Length || !IsAsciiAlpha(_src[look])) return false;
       char quote = '\0';
       while (look < _src.Length)
       {
@@ -396,14 +402,14 @@ namespace Harlowe.Tokens
     /// string-literal set the reference Harlowe runtime inherits from its JS
     /// evaluator: <c>\n</c> <c>\r</c> <c>\t</c> <c>\b</c> <c>\f</c> <c>\v</c>
     /// <c>\0</c> <c>\\</c> <c>\'</c> <c>\"</c> <c>\xHH</c> <c>\uHHHH</c>.
-    /// Unknown escapes drop the backslash and keep the next character
-    /// verbatim (so <c>\q</c> tokenizes to <c>q</c>), matching JS semantics —
-    /// authors who want a literal backslash must double it. <c>\xHH</c> and
-    /// <c>\uHHHH</c> require the right number of hex digits; an ill-formed
-    /// hex escape falls back to the unknown-escape rule (the <c>\</c> is
-    /// dropped, the <c>x</c>/<c>u</c> and following characters are kept).
+    /// Unknown escapes are passed through verbatim — both the backslash and
+    /// the following character survive (so <c>\q</c> tokenizes to <c>\q</c>),
+    /// which preserves legacy Twee source from other tooling that embeds
+    /// literal backslashes (Windows paths, JSON-like blobs).
+    /// <c>\xHH</c> and <c>\uHHHH</c> require the right number of hex digits;
+    /// an ill-formed hex escape falls back to the same verbatim rule.
     /// An unterminated string is silently closed at end-of-input; a trailing
-    /// backslash with no follow-up character is dropped.
+    /// backslash with no follow-up character is preserved.
     /// </summary>
     private void ScanStringLiteral(char quote, int startPos, int startLine, int startCol)
     {
@@ -840,6 +846,14 @@ namespace Harlowe.Tokens
     /// underscore).
     /// </summary>
     private static bool IsIdContinue(char c) => char.IsLetterOrDigit(c) || c == '_';
+
+    /// <summary>
+    /// ASCII-alpha test used for the HTML tag-name lead. WHATWG HTML restricts
+    /// element names to ASCII letters; <see cref="char.IsLetter(char)"/> would
+    /// also match Unicode letter categories and let non-HTML prose get scooped
+    /// up as a single HtmlTag token.
+    /// </summary>
+    private static bool IsAsciiAlpha(char c) => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 
     /// <summary>
     /// Returns the character at <c>_pos + offset</c>, or <c>'\0'</c> if that
