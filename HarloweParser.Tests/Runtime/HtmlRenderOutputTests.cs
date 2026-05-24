@@ -291,6 +291,21 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
+    public void BeginInteractive_NullRegion_EmitsEmptyDataInteraction()
+    {
+      // The defensive null-region path used to stamp `data-interaction="Click"`
+      // (the default(InteractionKind) value) onto the anchor — making it
+      // indistinguishable from a real click region to a dispatch script that
+      // selects on `[data-interaction="Click"]`. Now the attribute is empty
+      // so scripts can tell the placeholder anchor apart from a real one.
+      var (buf, sink) = NewSink();
+      sink.BeginInteractive(null);
+      sink.EndInteractive();
+      Assert.Contains("data-interaction=\"\"", buf.Text);
+      Assert.DoesNotContain("data-interaction=\"Click\"", buf.Text);
+    }
+
+    [Fact]
     public void BeginInteractive_ConfigurableHref_OverridesDefault()
     {
       // A CSP-strict consumer can substitute an alternative href via the

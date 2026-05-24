@@ -138,19 +138,22 @@ namespace Harlowe.Tests.Runtime
     {
       // (set:) is an assignment macro — letting it ride into a chain would
       // mutate state on evaluation before producing the inevitable chain-
-      // type error at render time. Reject at parse time, before the AST
-      // escapes, so the mutation never happens.
-      var ex = Assert.Throws<HarloweParseException>(
-        () => ParseBody("(set: $x to 1)+(text-style: \"bold\")[hi]"));
-      Assert.Contains("set", ex.Message);
+      // type error at render time. The body parser recovers per-node, so the
+      // misuse surfaces as a ParseErrorNode in the AST rather than escaping
+      // as an exception — but the diagnostic still fires before the AST
+      // node carrying the (set:) MacroCallNode is produced, so no eval can
+      // touch the store.
+      var body = ParseBody("(set: $x to 1)+(text-style: \"bold\")[hi]");
+      var err = Assert.IsType<ParseErrorNode>(body.Children[body.Children.Count - 1]);
+      Assert.Contains("set", err.Message);
     }
 
     [Fact]
     public void Parser_PutAsContinuationChainComponent_Rejected()
     {
-      var ex = Assert.Throws<HarloweParseException>(
-        () => ParseBody("(text-style: \"bold\")+(put: $x into 1)[hi]"));
-      Assert.Contains("put", ex.Message);
+      var body = ParseBody("(text-style: \"bold\")+(put: $x into 1)[hi]");
+      var err = Assert.IsType<ParseErrorNode>(body.Children[body.Children.Count - 1]);
+      Assert.Contains("put", err.Message);
     }
 
     [Fact]

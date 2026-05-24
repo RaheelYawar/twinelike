@@ -200,6 +200,15 @@ namespace Harlowe.Parsing
       => name == "set" || name == "put";
 
     /// <summary>
+    /// True if <paramref name="node"/> is a `'s` chain (the AST shape for
+    /// property/ordinal access like <c>$x's name</c> or <c>$arr's 1st</c>).
+    /// Used to reject property assignment for either side of `to`/`into`
+    /// before the AST escapes the parser.
+    /// </summary>
+    private static bool IsPropertyAccess(IExpressionNode node)
+      => node is BinaryOpNode bin && bin.Operator == "'s";
+
+    /// <summary>
     /// Precedence-climbing core. Parses an operand via <see cref="ParseUnary"/>,
     /// then loops while the next token is a binary operator with order
     /// &lt;= <paramref name="maxOrder"/> (i.e. loose enough for this level).
@@ -245,16 +254,22 @@ namespace Harlowe.Parsing
           // documented in Harlowe but not yet implemented here. Surface a
           // pointed parse-time error so authors don't get the generic
           // "assignment target must be a variable" from the evaluator —
-          // that message hides which shape they tried to write.
-          if (left is BinaryOpNode binLeft && binLeft.Operator == "'s")
+          // that message hides which shape they tried to write. Targets
+          // sit on the LHS of `to` and on the RHS of `into`, so the check
+          // runs for both sides below.
+          if (t.Value == "to" && IsPropertyAccess(left))
             throw new HarloweParseException(
-              $"property assignment ('$x's ... {t.Value} ...') is not supported; assign to a whole variable instead",
+              $"property assignment ('$x's ... to ...') is not supported; assign to a whole variable instead",
               t.Line, t.Column);
         }
 
         cursor.Advance();
         // RHS is a sub-expression — assignment is never allowed there.
         var right = ParseBinary(cursor, order - 1, allowAssignmentAtTop: false);
+        if (t.Value == "into" && IsPropertyAccess(right))
+          throw new HarloweParseException(
+            $"property assignment ('... into $x's ...') is not supported; assign to a whole variable instead",
+            t.Line, t.Column);
         left = new BinaryOpNode { Operator = t.Value, Left = left, Right = right };
       }
 

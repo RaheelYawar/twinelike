@@ -306,5 +306,19 @@ namespace Harlowe.Tests.Runtime.Macros
       var buf = RenderRaw("(background: \"url()\")[hi]");
       AssertError(buf, "url() value is empty");
     }
+
+    [Fact]
+    public void Background_UrlWithTrailingJunk_EmitsInProseError()
+    {
+      // `url(art/sky.png)evil` — `LooksLikeImage` matches the `url(` prefix
+      // but the value isn't a clean CSS url() shape (trailing content after
+      // the close paren). An earlier UnwrapCssUrl required `EndsWith(")")`
+      // and silently passed this through, producing double-wrapped
+      // `background-image: url(url(art/sky.png)evil);` CSS. Reject at the
+      // macro instead so the author sees a pointed diagnostic.
+      var buf = RenderRaw("(background: \"url(art/sky.png)evil\")[hi]");
+      AssertError(buf, "malformed url()");
+    }
+
   }
 }
