@@ -26,8 +26,11 @@ namespace Harlowe.Ast.Body
     /// hand) so <see cref="Twee.MarkupPrinter"/> can round-trip the broken
     /// source even when the passage has no <see cref="HarlowePassage.RawBody"/>
     /// to fall back on (programmatically constructed passages). Body-parser
-    /// per-node recovery leaves this null because the parser only sees tokens,
-    /// not source text.
+    /// per-node recovery also populates this when the caller routes through
+    /// <c>HarloweBodyParser.Parse(tokens, source)</c> — the slice covers the
+    /// failed node's first token through the resync point, so a consumer who
+    /// mutates the AST of a partially-recovered passage and re-saves keeps
+    /// the broken substring instead of silently dropping it.
     /// </summary>
     public string OriginalSource;
 

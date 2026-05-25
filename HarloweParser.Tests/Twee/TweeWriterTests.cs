@@ -281,6 +281,10 @@ namespace Harlowe.Tests.Twee
       // original RawBody returned verbatim. The earlier IsParseErrorBody guard
       // was an any-child check; it fired for partial recovery too and silently
       // dropped every consumer edit on save.
+      // The ParseErrorNode must also carry its captured OriginalSource so the
+      // re-canonicalized output keeps the broken substring intact — otherwise
+      // the consumer's edit lands but the original `(notamacro: ...)` quietly
+      // vanishes from the file.
       var story = Read(":: P\nHello [[Town]] middle (notamacro: $x to 5)");
       var p = story.GetPassage("P");
       // Verify shape: AST has a link and a ParseErrorNode among multiple children.
@@ -290,6 +294,24 @@ namespace Harlowe.Tests.Twee
       p.IsDirty = true;
       string output = Write(story);
       Assert.Contains("EDITED", output);
+      Assert.Contains("(notamacro: $x to 5)", output);
+    }
+
+    [Fact]
+    public void PerNodeParseError_CapturesOriginalSourceFromSliceOnAst()
+    {
+      // Per-node body-parser recovery slices the source between the failing
+      // node's start position and the resync point so OriginalSource is
+      // populated even when the loader doesn't see the failure (the wholly-
+      // stub path is the loader's fallback; this is the in-tree case).
+      var story = Read(":: P\nbefore (notamacro: $x to 5) after");
+      var p = story.GetPassage("P");
+      Assert.False(Ast.Body.ParseErrorNode.IsWhollyParseError(p.Ast));
+      Ast.Body.ParseErrorNode err = null;
+      foreach (var child in p.Ast.Children)
+        if (child is Ast.Body.ParseErrorNode pen) { err = pen; break; }
+      Assert.NotNull(err);
+      Assert.Contains("(notamacro: $x to 5)", err.OriginalSource);
     }
 
     [Fact]
