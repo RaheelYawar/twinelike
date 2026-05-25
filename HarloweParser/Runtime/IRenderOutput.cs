@@ -32,19 +32,33 @@ namespace Harlowe.Runtime
   /// <c>[url]</c>, HTML <c>&lt;a&gt;</c> — and report user events back via
   /// <see cref="StorySession.DispatchEvent"/>.
   /// </para>
+  ///
+  /// <para>
+  /// <b>Escaping contract.</b> <see cref="Text"/>, <see cref="Link"/>'s text
+  /// arg, and <see cref="Error"/> all carry author-controlled prose. The
+  /// built-in <see cref="HtmlRenderOutput"/> HTML-escapes those three on its
+  /// way to the inner sink; <see cref="Html"/> is raw markup and forwarded
+  /// verbatim; <see cref="Link"/>'s target arg is a passage-name reference
+  /// the consumer resolves semantically (lookup/dispatch) and is NOT escaped
+  /// (consumers embedding it directly into an <c>href</c> attribute must
+  /// attribute-escape at that point). Adapters that wrap or replace
+  /// <see cref="HtmlRenderOutput"/> must respect this split — escaping the
+  /// already-escaped channels a second time produces <c>&amp;amp;lt;</c>
+  /// corruption.
+  /// </para>
   /// </summary>
   public interface IRenderOutput
   {
-    /// <summary>Plain prose text (already entity-decoded and post-macro).</summary>
+    /// <summary>Plain prose text (already entity-decoded and post-macro). HtmlRenderOutput HTML-escapes this channel — see the interface-level escaping contract.</summary>
     void Text(string content);
 
-    /// <summary>Raw HTML pass-through from author-written inline HTML in passage source (e.g. <c>&lt;b&gt;</c>). Engine consumers that don't render HTML may drop or escape this channel.</summary>
+    /// <summary>Raw HTML pass-through from author-written inline HTML in passage source (e.g. <c>&lt;b&gt;</c>). Forwarded verbatim by HtmlRenderOutput. Engine consumers that don't render HTML may drop or escape this channel.</summary>
     void Html(string rawHtml);
 
-    /// <summary>A passage-to-passage navigation link with display text and target passage name.</summary>
+    /// <summary>A passage-to-passage navigation link. <paramref name="text"/> is display prose and is HTML-escaped by HtmlRenderOutput; <paramref name="target"/> is the passage-name reference and is forwarded raw — consumers embedding it in an HTML attribute must attribute-escape at that point.</summary>
     void Link(string text, string target);
 
-    /// <summary>An in-prose error message produced by a failed expression or macro. Routed through this channel rather than thrown.</summary>
+    /// <summary>An in-prose error message produced by a failed expression or macro. Routed through this channel rather than thrown. HtmlRenderOutput HTML-escapes this channel — see the interface-level escaping contract.</summary>
     void Error(string message);
 
     /// <summary>Open one styling layer. The renderer guarantees a matching <see cref="PopStyle"/> after the wrapped hook content. Multiple PushStyle calls before content nest from outermost (first) to innermost (last).</summary>

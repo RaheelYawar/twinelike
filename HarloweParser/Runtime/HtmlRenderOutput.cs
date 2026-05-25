@@ -88,10 +88,16 @@ namespace Harlowe.Runtime
     ///
     /// <para>Throws when <paramref name="inner"/> is itself an
     /// <see cref="HtmlRenderOutput"/>: composing two adapters double-escapes
-    /// <see cref="Text"/> and <see cref="Error"/> while passing <see cref="Html"/>
-    /// /<see cref="BeginInteractive"/>/<see cref="PushStyle"/> through once,
-    /// producing asymmetric <c>&amp;amp;lt;</c> corruption that is hard to
-    /// localize.</para>
+    /// <see cref="Text"/>/<see cref="Link"/>/<see cref="Error"/> while passing
+    /// <see cref="Html"/>/<see cref="BeginInteractive"/>/<see cref="PushStyle"/>
+    /// through once, producing asymmetric <c>&amp;amp;lt;</c> corruption that
+    /// is hard to localize. This guard catches the direct case only — a
+    /// passthrough adapter sitting between two HtmlRenderOutputs slips through,
+    /// and arbitrary downstream adapters that also escape the same channels
+    /// can double-escape regardless of this check. See the escaping contract
+    /// on <see cref="IRenderOutput"/> for which channels HtmlRenderOutput
+    /// escapes; downstream adapters should respect that split rather than
+    /// re-escaping already-escaped channels.</para>
     /// </summary>
     public HtmlRenderOutput(IRenderOutput inner, string interactiveHref)
     {
