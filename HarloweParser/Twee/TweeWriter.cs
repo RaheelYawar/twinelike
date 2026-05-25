@@ -180,18 +180,24 @@ namespace Harlowe.Twee
     /// RawBody-less) passages run through <see cref="MarkupPrinter"/> in
     /// canonical form.
     ///
-    /// <para>Parse-error-recovered passages always prefer <see cref="HarlowePassage.RawBody"/>
-    /// when one is available, even if <see cref="HarlowePassage.IsDirty"/> is
-    /// set. The synthetic <see cref="Ast.Body.ParseErrorNode"/> AST has no
-    /// representable source — re-canonicalizing through <see cref="MarkupPrinter"/>
-    /// would emit an empty body and silently destroy the broken-but-recoverable
-    /// original source the consumer was trying to fix.</para>
+    /// <para>Loader-recovered passages whose entire AST is the synthetic
+    /// <see cref="Ast.Body.ParseErrorNode"/> stub prefer
+    /// <see cref="HarlowePassage.RawBody"/> regardless of <see cref="HarlowePassage.IsDirty"/>
+    /// — the stub AST has no representable structure and re-canonicalizing
+    /// would silently destroy the broken-but-recoverable original. When
+    /// RawBody is missing (programmatic construction), the printer falls back
+    /// to the source stashed on the ParseErrorNode itself.</para>
+    ///
+    /// <para>Passages with only <em>partial</em> parse-error recovery (a real
+    /// AST that contains a ParseErrorNode among valid siblings) follow the
+    /// normal IsDirty path so consumer-driven AST edits are emitted; the
+    /// inline error node prints as its captured source (or empty, for
+    /// per-node parser recoveries that have no source text).</para>
     /// </summary>
     private static string ResolveBody(HarlowePassage passage)
     {
-      if (passage.Ast != null && Ast.Body.ParseErrorNode.IsParseErrorBody(passage.Ast)
-          && passage.RawBody != null)
-        return passage.RawBody;
+      bool wholeStub = passage.Ast != null && Ast.Body.ParseErrorNode.IsWhollyParseError(passage.Ast);
+      if (wholeStub && passage.RawBody != null) return passage.RawBody;
       if (!passage.IsDirty && passage.RawBody != null) return passage.RawBody;
       if (passage.Ast != null) return new MarkupPrinter().Print(passage.Ast);
       return passage.RawBody ?? string.Empty;

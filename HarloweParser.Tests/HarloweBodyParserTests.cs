@@ -308,6 +308,63 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void ParseError_InsideHook_PreservesOuterStructure()
+    {
+      // Per-node recovery inside a hook left the cursor mid-stream, so the
+      // hook's closing `]` was never consumed and trailing prose got
+      // reparented to the outer scope — corrupting the AST shape and any
+      // downstream branch/round-trip processing. The recovery now advances
+      // to the balanced terminator so the hook closes cleanly and outer
+      // siblings remain at the outer level.
+      var body = Parse("before [content (badmacro: $x to ) trailing] after");
+      // The first node is the leading "before " text.
+      Assert.IsType<TextNode>(body.Children[0]);
+      // The hook is the second meaningful child (the parser surfaces it as a
+      // HookNode at the outer scope, not as text shoveled into the outer
+      // sibling list).
+      HookNode hook = null;
+      bool sawAfter = false;
+      for (int i = 0; i < body.Children.Count; i++)
+      {
+        if (body.Children[i] is HookNode h && hook == null) hook = h;
+        if (body.Children[i] is TextNode t && t.Content.Contains("after")) sawAfter = true;
+      }
+      Assert.NotNull(hook);
+      // The hook closed cleanly: trailing prose after `]` is a sibling of
+      // the hook, not orphaned inside the hook's child list.
+      Assert.True(sawAfter, "trailing prose after the broken hook should sit at the outer level");
+      // The ParseErrorNode lives inside the hook, not at the outer scope.
+      bool hookHasError = false;
+      for (int i = 0; i < hook.Children.Count; i++)
+        if (hook.Children[i] is ParseErrorNode) hookHasError = true;
+      Assert.True(hookHasError, "ParseErrorNode should live inside the hook that contained the error");
+    }
+
+    [Fact]
+    public void ParseError_InsideNestedHooks_RecoversAtCorrectLevel()
+    {
+      // The skip-to-balanced-terminator helper must track HookOpen/HookClose
+      // depth: a parse error inside an inner hook should leave the inner hook
+      // closed and the outer hook intact, even when intervening hook tokens
+      // appear in the skipped region.
+      var body = Parse("[outer [inner (bad to ) tail] more]");
+      HookNode outer = null;
+      for (int i = 0; i < body.Children.Count; i++)
+        if (body.Children[i] is HookNode h) { outer = h; break; }
+      Assert.NotNull(outer);
+      // The outer hook should contain at minimum: prose, the inner hook, and
+      // the "more" trailing text — all as direct outer children.
+      bool sawInner = false, sawMore = false;
+      for (int i = 0; i < outer.Children.Count; i++)
+      {
+        if (outer.Children[i] is HookNode) sawInner = true;
+        if (outer.Children[i] is TextNode t && t.Content.Contains("more")) sawMore = true;
+      }
+      Assert.True(sawInner, "inner hook should be a child of the outer hook");
+      Assert.True(sawMore, "post-inner-hook trailing prose should still sit inside the outer hook");
+    }
+
+    [Fact]
     public void MixedContent_ProducesExpectedSequence()
     {
       var body = Parse("Hello $name.\n(if: $brave)[Step inside]\n[[Continue->Next]]");

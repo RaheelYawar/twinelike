@@ -80,12 +80,13 @@ namespace Harlowe.Twee
           // load. The synthetic AST renders the parse error in place of the
           // passage's prose at render time. RawBody is preserved verbatim so
           // a subsequent TweeWriter round-trip emits the original source.
-          ast = Harlowe.MakeParseErrorAst(block.Name, ex);
+          ast = Harlowe.MakeParseErrorAst(block.Name, ex, block.Body);
         }
         // The body parser also recovers per-node and may leave ParseErrorNodes
         // alongside successfully-parsed children — decorate those with the
         // passage name so the rendered error names the broken passage.
         Harlowe.DecorateParseErrors(ast, block.Name);
+        Harlowe.EnsureWholeStubOriginalSource(ast, block.Body);
 
         var passage = new HarlowePassage
         {

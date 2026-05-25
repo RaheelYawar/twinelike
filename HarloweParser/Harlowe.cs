@@ -161,9 +161,10 @@ namespace Harlowe
       }
       catch (HarloweParseException ex)
       {
-        ast = MakeParseErrorAst(passage.Name, ex);
+        ast = MakeParseErrorAst(passage.Name, ex, passage.Body);
       }
       DecorateParseErrors(ast, passage.Name);
+      EnsureWholeStubOriginalSource(ast, passage.Body);
 
       passage.Ast = ast;
       if (passage.RawBody == null) passage.RawBody = passage.Body;
@@ -179,15 +180,18 @@ namespace Harlowe
     /// the tokenizer fails (the body parser handles its own per-node recovery
     /// internally — see <see cref="Parsing.HarloweBodyParser"/>). <c>internal</c>
     /// so the Twee reader can share the same recovery shape without
-    /// duplicating the message format.
+    /// duplicating the message format. <paramref name="originalSource"/> is
+    /// stashed on the node so <see cref="Twee.MarkupPrinter"/> can round-trip
+    /// the broken source even when the carrying passage has no
+    /// <see cref="HarlowePassage.RawBody"/>.
     /// </summary>
-    internal static Ast.Body.PassageBody MakeParseErrorAst(string passageName, HarloweParseException ex)
+    internal static Ast.Body.PassageBody MakeParseErrorAst(string passageName, HarloweParseException ex, string originalSource)
     {
       string detail = ex.RawMessage ?? ex.Message ?? "parse error";
       string where = ex.Line > 0 ? $" at line {ex.Line}, column {ex.Column}" : string.Empty;
       var message = $"parse error in passage '{passageName}'{where}: {detail}";
       var ast = new Ast.Body.PassageBody { Children = new List<Ast.Body.IBodyNode>() };
-      ast.Children.Add(new Ast.Body.ParseErrorNode { Message = message });
+      ast.Children.Add(new Ast.Body.ParseErrorNode { Message = message, OriginalSource = originalSource });
       return ast;
     }
 
@@ -200,6 +204,23 @@ namespace Harlowe
     /// the broken passage. Idempotent — re-running on the same AST does not
     /// stack prefixes (the helper checks for the marker).
     /// </summary>
+    /// <summary>
+    /// When <paramref name="ast"/> is the loader-stub shape (a single
+    /// <see cref="Ast.Body.ParseErrorNode"/> child) and that node has no
+    /// <see cref="Ast.Body.ParseErrorNode.OriginalSource"/>, set it from
+    /// <paramref name="source"/>. Covers the case where the body parser's
+    /// own per-node recovery (which doesn't know the source) failed at the
+    /// very first node, leaving the AST indistinguishable from the
+    /// tokenizer-failure stub but with <c>OriginalSource = null</c>.
+    /// </summary>
+    internal static void EnsureWholeStubOriginalSource(Ast.Body.PassageBody ast, string source)
+    {
+      if (source == null) return;
+      if (!Ast.Body.ParseErrorNode.IsWhollyParseError(ast)) return;
+      if (ast.Children[0] is Ast.Body.ParseErrorNode err && err.OriginalSource == null)
+        err.OriginalSource = source;
+    }
+
     internal static void DecorateParseErrors(Ast.Body.PassageBody ast, string passageName)
     {
       if (ast?.Children == null) return;
@@ -440,12 +461,13 @@ namespace Harlowe
           // story loadable by substituting a synthetic AST that renders the
           // parse message in place of the passage's prose. The original
           // RawBody is preserved so Twee writers can still emit the source.
-          ast = MakeParseErrorAst(passageName, ex);
+          ast = MakeParseErrorAst(passageName, ex, raw);
         }
         // The body parser also recovers per-node and may leave ParseErrorNodes
         // alongside successfully-parsed children — decorate those with the
         // passage name so the rendered error names the broken passage.
         DecorateParseErrors(ast, passageName);
+        EnsureWholeStubOriginalSource(ast, raw);
 
         var passage = new HarlowePassage
         {
