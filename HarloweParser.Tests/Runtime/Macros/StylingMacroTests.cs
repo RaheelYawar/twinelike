@@ -260,16 +260,35 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
-    public void StyleValueWithUnpairedSurrogate_DoesNotThrow()
+    public void StyleValueWithUnpairedSurrogate_RejectsInProse()
     {
       // The tokenizer's \uHHHH escape decodes to a single char and may produce
       // an unpaired surrogate. The validator calls String.Normalize, which
       // throws ArgumentException on invalid Unicode. The runtime contract
-      // requires in-prose errors, never thrown exceptions on the render path —
-      // so the validator must catch and degrade rather than escape the macro.
+      // requires in-prose errors, never thrown exceptions on the render path,
+      // AND the validator must fail closed — a raw-value fallback would skip
+      // the NFKC-equivalence defense (see surrogate+fullwidth-separator test
+      // below).
       var buf = RenderRaw("(text-color: \"\\uD800abc\")[hi]");
-      // Either accepts or errors in-prose; whichever, no exception leaks.
-      Assert.NotEmpty(buf.Entries);
+      AssertError(buf, "malformed Unicode");
+      foreach (var e in buf.Entries)
+        Assert.NotEqual(BufferedRenderOutput.Kind.PushStyle, e.Kind);
+    }
+
+    [Fact]
+    public void StyleValueWithSurrogateAndFullWidthSeparator_IsBlocked()
+    {
+      // Bypass scenario the closed-fail fix defends against: pairing an
+      // unpaired surrogate (which makes Normalize throw) with a full-width
+      // semicolon U+FF1B (which NFKC would have folded to ASCII `;`). If the
+      // validator falls back to the raw value on the normalize failure, the
+      // structural-char loop only sees the ASCII set and the full-width
+      // separator survives — letting an attacker smuggle a `;` past the
+      // declaration boundary into the inline style attribute.
+      var buf = RenderRaw("(text-color: \"red\\uD800；evil:1\")[hi]");
+      AssertError(buf, "malformed Unicode");
+      foreach (var e in buf.Entries)
+        Assert.NotEqual(BufferedRenderOutput.Kind.PushStyle, e.Kind);
     }
 
     // --- Composition across the new macros ---
