@@ -58,8 +58,10 @@ namespace Harlowe.Runtime.Macros
       //
       // Normalize can throw ArgumentException when the string contains an
       // unpaired surrogate (e.g. a `\uD800` escape that the tokenizer decoded
-      // verbatim). Fall back to the raw value so the macro stays on the
-      // no-throws runtime contract.
+      // verbatim). Reject — falling back to the raw value would skip the
+      // NFKC-equivalence defense entirely, letting an attacker pair an
+      // unpaired surrogate with a full-width separator like `；` (U+FF1B) to
+      // smuggle a `;` past the structural-char check.
       string normalized;
       try
       {
@@ -67,7 +69,8 @@ namespace Harlowe.Runtime.Macros
       }
       catch (System.ArgumentException)
       {
-        normalized = value;
+        return HarloweValue.OfError(
+          $"({macroName}:) value contains malformed Unicode (an unpaired surrogate)");
       }
 
       for (int i = 0; i < normalized.Length; i++)
