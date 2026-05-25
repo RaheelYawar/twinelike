@@ -70,18 +70,32 @@ namespace Harlowe.Runtime
     // ceiling via the public setter at construction time.
     private const int DefaultMaxDisplayDepth = 20;
 
+    // Absolute ceiling, regardless of consumer configuration. .NET's default
+    // 1MB stack with a few hundred bytes per recursion frame leaves room for
+    // a few thousand levels, but we leave a safety margin — exceeding the
+    // real stack throws StackOverflowException, which is uncatchable and
+    // crashes the host process, violating the no-throws runtime contract.
+    private const int AbsoluteMaxDisplayDepth = 256;
+
     private int _maxDisplayDepth = DefaultMaxDisplayDepth;
 
     /// <summary>
     /// Maximum (display:) nesting depth. Mutating mid-render is supported but
     /// only affects subsequent (display:) calls — the active stack frame
-    /// continues unaffected. Values &lt; 1 are clamped to 1 so a single
-    /// (display:) call always succeeds, matching the documented contract.
+    /// continues unaffected. Values are clamped to <c>[1, 256]</c>: under 1
+    /// would refuse a single (display:) call (the documented baseline);
+    /// above 256 risks a StackOverflowException, which terminates the host
+    /// process and bypasses the in-prose error contract.
     /// </summary>
     public int MaxDisplayDepth
     {
       get => _maxDisplayDepth;
-      set => _maxDisplayDepth = value < 1 ? 1 : value;
+      set
+      {
+        if (value < 1) value = 1;
+        else if (value > AbsoluteMaxDisplayDepth) value = AbsoluteMaxDisplayDepth;
+        _maxDisplayDepth = value;
+      }
     }
 
     /// <summary>Name of the passage currently loaded into the session.</summary>

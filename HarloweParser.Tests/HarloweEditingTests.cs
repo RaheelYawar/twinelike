@@ -356,6 +356,19 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void GetPassageBody_HandBuiltPassageWithNullBody_ReturnsEmptyString()
+    {
+      // A pre-built-AST passage may carry Body=null (HydratePassageFromBody
+      // short-circuits when Ast is set and never coerces Body). GetPassageBody
+      // must still honour its documented never-null return — otherwise
+      // downstream .Length / .Contains calls crash with NullReferenceException.
+      var story = new Harlowe();
+      var ast = new Ast.Body.PassageBody { Children = new System.Collections.Generic.List<Ast.Body.IBodyNode>() };
+      story.AddPassage(new HarlowePassage { Name = "X", Body = null, Ast = ast });
+      Assert.Equal(string.Empty, story.GetPassageBody("X"));
+    }
+
+    [Fact]
     public void GetPassageByPid_FindsByPid()
     {
       var story = new Harlowe();

@@ -370,6 +370,19 @@ namespace Harlowe.Tests.Runtime
       Assert.Equal(1, session.MaxDisplayDepth);
     }
 
+    [Fact]
+    public void Display_MaxDepthSetHuge_ClampsToAbsoluteCeiling()
+    {
+      // High values previously passed through; a consumer setting
+      // int.MaxValue thinking "no limit" would let recursive (display:) blow
+      // the .NET stack with StackOverflowException — uncatchable and fatal
+      // for the host process. The setter now caps at a safe absolute ceiling
+      // so the in-prose error path still fires before the real stack does.
+      var session = new StorySession(OnePassage("hi")) { MaxDisplayDepth = int.MaxValue };
+      Assert.True(session.MaxDisplayDepth <= 1024, "absolute ceiling should bound the configured depth");
+      Assert.True(session.MaxDisplayDepth >= 20, "ceiling should still leave generous headroom over the default");
+    }
+
     // -----------------------------------------------------------------------
     // Undo
     // -----------------------------------------------------------------------

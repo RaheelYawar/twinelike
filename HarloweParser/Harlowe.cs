@@ -221,22 +221,54 @@ namespace Harlowe
         err.OriginalSource = source;
     }
 
+    /// <summary>
+    /// Recursively walk <paramref name="ast"/> and prepend the passage-name
+    /// context to every <see cref="Ast.Body.ParseErrorNode"/> message,
+    /// including ones the body parser placed inside hook children (per-node
+    /// recovery inside <c>[hook contents]</c>) or attached hooks on macro and
+    /// changer-chain nodes. The body parser emits ParseErrorNodes without
+    /// knowing which passage it's parsing; loaders call this once after parse
+    /// so the rendered error names the broken passage.
+    ///
+    /// <para>Idempotent — re-running on the same AST does not stack prefixes
+    /// (the marker check skips already-decorated nodes). String comparisons
+    /// use <see cref="StringComparison.Ordinal"/> so the marker detection is
+    /// locale-independent.</para>
+    /// </summary>
     internal static void DecorateParseErrors(Ast.Body.PassageBody ast, string passageName)
     {
       if (ast?.Children == null) return;
+      DecorateChildren(ast.Children, passageName);
+    }
+
+    private static void DecorateChildren(List<Ast.Body.IBodyNode> children, string passageName)
+    {
       const string marker = "parse error in passage";
-      for (int i = 0; i < ast.Children.Count; i++)
+      const string prefix = "parse error";
+      for (int i = 0; i < children.Count; i++)
       {
-        if (ast.Children[i] is Ast.Body.ParseErrorNode err)
+        var child = children[i];
+        if (child is Ast.Body.ParseErrorNode err)
         {
           var msg = err.Message ?? string.Empty;
-          if (msg.StartsWith(marker)) continue;
-          // Original parser message is "parse error at line X, column Y: ..."
-          // — drop the leading "parse error" since we re-introduce it with
-          // the passage context, so the rendered string reads naturally.
-          const string prefix = "parse error";
-          if (msg.StartsWith(prefix)) msg = msg.Substring(prefix.Length);
+          if (msg.StartsWith(marker, StringComparison.Ordinal)) continue;
+          // Drop the leading "parse error" since we re-introduce it with the
+          // passage context so the rendered string reads naturally.
+          if (msg.StartsWith(prefix, StringComparison.Ordinal))
+            msg = msg.Substring(prefix.Length);
           err.Message = $"parse error in passage '{passageName}'{msg}";
+        }
+        else if (child is Ast.Body.HookNode hook && hook.Children != null)
+        {
+          DecorateChildren(hook.Children, passageName);
+        }
+        else if (child is Ast.Body.MacroNode macro && macro.AttachedHook?.Children != null)
+        {
+          DecorateChildren(macro.AttachedHook.Children, passageName);
+        }
+        else if (child is Ast.Body.ChangerChainNode chain && chain.AttachedHook?.Children != null)
+        {
+          DecorateChildren(chain.AttachedHook.Children, passageName);
         }
       }
     }
@@ -390,8 +422,10 @@ namespace Harlowe
     {
       if (passageName == null) return string.Empty;
       if (!_passages.TryGetValue(passageName, out var passage)) return string.Empty;
-
-      return passage.Body;
+      // A hand-built passage may have Body left null (the caller supplied a
+      // pre-parsed Ast and never set Body). Coerce so the documented
+      // "never-null" return contract holds for those too.
+      return passage.Body ?? string.Empty;
     }
 
     /// <summary>

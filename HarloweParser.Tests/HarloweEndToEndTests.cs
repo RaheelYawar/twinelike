@@ -59,6 +59,42 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void Constructor_NestedHookParseError_NamesPassageInRenderedDiagnostic()
+    {
+      // Per-node parser recovery inside `[hook contents]` produces a
+      // ParseErrorNode under the HookNode, not at the top level. The loader's
+      // DecorateParseErrors helper must walk into hook children so the
+      // rendered error still mentions the passage by name — otherwise authors
+      // get a bare "parse error at line N" with no clue which passage is
+      // broken.
+      const string html = "<html><body><tw-storydata name=\"T\" startnode=\"1\">"
+        + "<tw-passagedata pid=\"1\" name=\"NestedBad\">prefix [hook (set: $x to )] tail</tw-passagedata>"
+        + "</tw-storydata></body></html>";
+      var story = new Harlowe(html);
+      var session = new StorySession(story);
+      var r = session.Goto("NestedBad");
+      Assert.Contains(r.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error
+                                   && e.Content.Contains("NestedBad"));
+    }
+
+    [Fact]
+    public void Constructor_BodyWithErrorThenValidContent_ResumesParsingAfterBrokenMacro()
+    {
+      // Per-node recovery now resumes at the next safe body-mode resync
+      // point (Newline or closing macro paren). A passage that mixes a bad
+      // macro followed by a valid link should yield both the error node AND
+      // the trailing link — previously the parser broke after the first
+      // error and dropped every well-formed sibling that came after.
+      const string html = "<html><body><tw-storydata name=\"T\" startnode=\"1\">"
+        + "<tw-passagedata pid=\"1\" name=\"Hub\">(badmacro: $x to ) trailing [[Town]]</tw-passagedata>"
+        + "<tw-passagedata pid=\"2\" name=\"Town\">t</tw-passagedata>"
+        + "</tw-storydata></body></html>";
+      var story = new Harlowe(html);
+      var hub = story.GetPassage("Hub");
+      Assert.Contains(hub.Branches, b => b.Name == "Town");
+    }
+
+    [Fact]
     public void Constructor_PassageWithPartialParseFailure_PreservesPriorBranches()
     {
       // A passage with valid prefix content (text, links) followed by a

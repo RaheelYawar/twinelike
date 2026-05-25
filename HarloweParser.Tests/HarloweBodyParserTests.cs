@@ -279,9 +279,15 @@ namespace Harlowe.Tests
     {
       // (if:) reading a boolean is the classic shape; an `into` here used to
       // mutate during arg evaluation. Now it's a parse error materialized as
-      // a ParseErrorNode rather than a throw.
+      // a ParseErrorNode in the body; per-node recovery resumes after the
+      // broken macro's closing paren so trailing siblings (the `[ok]` hook)
+      // may follow — we just verify the diagnostic landed somewhere in the
+      // children, naming `into`.
       var body = Parse("(if: 5 into $x)[ok]");
-      var err = Assert.IsType<ParseErrorNode>(body.Children[body.Children.Count - 1]);
+      ParseErrorNode err = null;
+      for (int i = 0; i < body.Children.Count; i++)
+        if (body.Children[i] is ParseErrorNode n) { err = n; break; }
+      Assert.NotNull(err);
       Assert.Contains("into", err.Message);
     }
 
