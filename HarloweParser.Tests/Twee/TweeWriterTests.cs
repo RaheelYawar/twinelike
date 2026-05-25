@@ -249,7 +249,7 @@ namespace Harlowe.Tests.Twee
       // always prefer RawBody for parse-error AST regardless of IsDirty.
       var story = Read(":: Bad\n(set: $x to )\n\n:: Good\nhello");
       var bad = story.GetPassage("Bad");
-      Assert.True(Ast.Body.ParseErrorNode.IsParseErrorBody(bad.Ast));
+      Assert.True(Ast.Body.ParseErrorNode.IsWhollyParseError(bad.Ast));
 
       bad.IsDirty = true;
       string output = Write(story);
@@ -268,6 +268,50 @@ namespace Harlowe.Tests.Twee
       story.AddPassage(new HarlowePassage { Name = "Bad", Body = "(set: $x to )" });
       story.GetPassage("Bad").IsDirty = true;
 
+      string output = Write(story);
+      Assert.Contains("(set: $x to )", output);
+    }
+
+    [Fact]
+    public void PartialParseError_IsDirty_DoesNotDiscardAstEdits()
+    {
+      // After per-node parser recovery, AST may be [Text, Link, ParseErrorNode]
+      // with RawBody = original source. A consumer who edits the AST and sets
+      // IsDirty=true expects MarkupPrinter to re-canonicalize — not the
+      // original RawBody returned verbatim. The earlier IsParseErrorBody guard
+      // was an any-child check; it fired for partial recovery too and silently
+      // dropped every consumer edit on save.
+      var story = Read(":: P\nHello [[Town]] middle (notamacro: $x to 5)");
+      var p = story.GetPassage("P");
+      // Verify shape: AST has a link and a ParseErrorNode among multiple children.
+      Assert.False(Ast.Body.ParseErrorNode.IsWhollyParseError(p.Ast));
+      // Append a new child and mark dirty.
+      p.Ast.Children.Add(new Ast.Body.TextNode { Content = " EDITED" });
+      p.IsDirty = true;
+      string output = Write(story);
+      Assert.Contains("EDITED", output);
+    }
+
+    [Fact]
+    public void HandBuiltParseErrorPassage_WithoutRawBody_PreservesSourceViaOriginalSource()
+    {
+      // A programmatically built passage that hands AddPassage a Body that
+      // fails to parse: HydratePassageFromBody routes through MakeParseErrorAst,
+      // which stashes the source on ParseErrorNode.OriginalSource. RawBody is
+      // populated from passage.Body. With IsDirty=true, MarkupPrinter falls
+      // back to OriginalSource on the node so the body still round-trips
+      // even if RawBody were stripped.
+      var story = new Harlowe { StoryName = "T" };
+      story.AddPassage(new HarlowePassage { Name = "Bad", Body = "(set: $x to )" });
+      var bad = story.GetPassage("Bad");
+      Assert.True(Ast.Body.ParseErrorNode.IsWhollyParseError(bad.Ast));
+      var err = (Ast.Body.ParseErrorNode)bad.Ast.Children[0];
+      Assert.Equal("(set: $x to )", err.OriginalSource);
+
+      // Even if a consumer cleared RawBody, MarkupPrinter still emits the
+      // captured source — round-trip survives.
+      bad.RawBody = null;
+      bad.IsDirty = true;
       string output = Write(story);
       Assert.Contains("(set: $x to )", output);
     }

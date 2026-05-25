@@ -243,6 +243,19 @@ namespace Harlowe.Tests.Runtime.Macros
         Assert.NotEqual(BufferedRenderOutput.Kind.PushStyle, e.Kind);
     }
 
+    [Fact]
+    public void StyleValueWithUnpairedSurrogate_DoesNotThrow()
+    {
+      // The tokenizer's \uHHHH escape decodes to a single char and may produce
+      // an unpaired surrogate. The validator calls String.Normalize, which
+      // throws ArgumentException on invalid Unicode. The runtime contract
+      // requires in-prose errors, never thrown exceptions on the render path —
+      // so the validator must catch and degrade rather than escape the macro.
+      var buf = RenderRaw("(text-color: \"\\uD800abc\")[hi]");
+      // Either accepts or errors in-prose; whichever, no exception leaks.
+      Assert.NotEmpty(buf.Entries);
+    }
+
     // --- Composition across the new macros ---
 
     [Fact]

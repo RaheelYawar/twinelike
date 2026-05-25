@@ -88,7 +88,21 @@ namespace Harlowe.Runtime.Macros
       // declaration boundary it's embedded in. The denylist is
       // defense-in-depth against ASCII-keyword payloads; cross-script
       // attacks are out of scope here and stop at the browser layer.
-      string normalized = value.Normalize(System.Text.NormalizationForm.FormKC);
+      // Normalize can throw ArgumentException when the string contains an
+      // unpaired surrogate (e.g. a `\uD800` escape that the tokenizer decoded
+      // verbatim). Fall back to scanning the raw value so the macro stays on
+      // the no-throws runtime contract — we lose compatibility-folding for
+      // that path, but the structural-char check above already blocks the
+      // dangerous boundary chars regardless.
+      string normalized;
+      try
+      {
+        normalized = value.Normalize(System.Text.NormalizationForm.FormKC);
+      }
+      catch (System.ArgumentException)
+      {
+        normalized = value;
+      }
       string lower = normalized.ToLowerInvariant();
       for (int i = 0; i < DeniedKeywords.Length; i++)
       {

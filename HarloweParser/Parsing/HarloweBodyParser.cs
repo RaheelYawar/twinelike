@@ -62,18 +62,42 @@ namespace Harlowe.Parsing
         catch (HarloweParseException ex)
         {
           // Preserve the prefix already parsed; replace the failing node
-          // with a ParseErrorNode carrying the diagnostic. We stop here
-          // rather than trying to skip ahead — the cursor state after a
-          // throw is unreliable and a skip heuristic could swallow valid
-          // content or loop forever. Branches/text parsed before the error
-          // survive in `nodes`.
+          // with a ParseErrorNode carrying the diagnostic. We stop parsing
+          // further nodes at this nesting level, but when a terminator is
+          // expected (hook contents) we still need to advance the cursor to
+          // the matching close so the caller can consume it normally —
+          // otherwise the close token gets reparented to the outer scope
+          // and surrounding structure goes haywire.
           string where = ex.Line > 0 ? $" at line {ex.Line}, column {ex.Column}" : string.Empty;
           nodes.Add(new ParseErrorNode { Message = $"parse error{where}: {ex.RawMessage ?? ex.Message}" });
+          if (terminator.HasValue) SkipToBalancedTerminator(cursor, terminator.Value);
           break;
         }
         if (node != null) nodes.Add(node);
       }
       return nodes;
+    }
+
+    /// <summary>
+    /// Advance the cursor to the next <paramref name="terminator"/> token at
+    /// the same nesting depth (or end-of-input). Only <see cref="TokenType.HookOpen"/>
+    /// /<see cref="TokenType.HookClose"/> are tracked for depth because hooks
+    /// are the only nestable structure that recurses through ParseNodes;
+    /// macro/link/paren tokens encountered along the way are simply skipped.
+    /// Used by per-node error recovery so the caller's terminator check still
+    /// fires on the right token after a mid-stream throw.
+    /// </summary>
+    private static void SkipToBalancedTerminator(TokenCursor cursor, TokenType terminator)
+    {
+      int depth = 0;
+      while (!cursor.IsAtEnd)
+      {
+        var t = cursor.Current.Type;
+        if (depth == 0 && t == terminator) return;
+        if (t == TokenType.HookOpen) depth++;
+        else if (t == TokenType.HookClose && depth > 0) depth--;
+        cursor.Advance();
+      }
     }
 
     /// <summary>
