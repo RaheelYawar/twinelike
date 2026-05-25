@@ -157,7 +157,7 @@ namespace Harlowe
       try
       {
         var tokens = tokenizer.Tokenize(passage.Body);
-        ast = bodyParser.Parse(tokens);
+        ast = bodyParser.Parse(tokens, passage.Body);
       }
       catch (HarloweParseException ex)
       {
@@ -486,7 +486,7 @@ namespace Harlowe
         try
         {
           var tokens = tokenizer.Tokenize(raw);
-          ast = bodyParser.Parse(tokens);
+          ast = bodyParser.Parse(tokens, raw);
         }
         catch (HarloweParseException ex)
         {

@@ -20,11 +20,22 @@ namespace Harlowe.Parsing
   public class TokenCursor
   {
     private readonly IReadOnlyList<Token> _tokens;
+    private readonly string _source;
     private int _pos;
 
-    public TokenCursor(IReadOnlyList<Token> tokens)
+    public TokenCursor(IReadOnlyList<Token> tokens) : this(tokens, null) { }
+
+    /// <summary>
+    /// Constructs a cursor with the original source text the tokens were
+    /// produced from. The source is consulted by <see cref="SliceFrom"/> so
+    /// parser-level recovery can capture the broken sub-source for a failed
+    /// node. Pass null when the source isn't available — slicing then returns
+    /// null, matching the legacy behaviour.
+    /// </summary>
+    public TokenCursor(IReadOnlyList<Token> tokens, string source)
     {
       _tokens = tokens;
+      _source = source;
       _pos = 0;
     }
 
@@ -74,6 +85,24 @@ namespace Harlowe.Parsing
       if (t.Type != type || t.Value != value) return false;
       Advance();
       return true;
+    }
+
+    /// <summary>
+    /// Slice the original source from <paramref name="startPos"/> (a token's
+    /// <see cref="Token.Position"/>) up to the current cursor token's
+    /// position. Returns null when the cursor was constructed without a
+    /// source string, or when the range is out of bounds. Used by per-node
+    /// parse-error recovery to capture the broken sub-source for AST
+    /// round-tripping — tokens alone can't reconstruct it because the
+    /// tokenizer drops whitespace and punctuation that don't surface in any
+    /// <see cref="Token.Value"/>.
+    /// </summary>
+    public string SliceFrom(int startPos)
+    {
+      if (_source == null) return null;
+      int endPos = _tokens[_pos].Position;
+      if (startPos < 0 || endPos <= startPos || endPos > _source.Length) return null;
+      return _source.Substring(startPos, endPos - startPos);
     }
   }
 }

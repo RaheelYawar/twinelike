@@ -25,11 +25,25 @@ namespace Harlowe.Parsing
 
     /// <summary>
     /// Top-level entry: build a <see cref="PassageBody"/> from <paramref name="tokens"/>
-    /// by parsing nodes until end-of-file.
+    /// by parsing nodes until end-of-file. Per-node recovery leaves any
+    /// resulting <see cref="ParseErrorNode.OriginalSource"/> null since the
+    /// parser has no source string to slice — see the overload that takes
+    /// the source text for round-trip-safe recovery.
     /// </summary>
-    public PassageBody Parse(IReadOnlyList<Token> tokens)
+    public PassageBody Parse(IReadOnlyList<Token> tokens) => Parse(tokens, null);
+
+    /// <summary>
+    /// Source-aware entry: same as <see cref="Parse(IReadOnlyList{Token})"/>,
+    /// but per-node recovery slices <paramref name="source"/> with the
+    /// failure-span token positions and stashes the slice on
+    /// <see cref="ParseErrorNode.OriginalSource"/>. Loaders and
+    /// <c>AddPassage</c> use this so partial recovery round-trips the broken
+    /// sub-source through <see cref="Twee.MarkupPrinter"/> instead of silently
+    /// dropping it when the consumer mutates the AST and re-saves.
+    /// </summary>
+    public PassageBody Parse(IReadOnlyList<Token> tokens, string source)
     {
-      var cursor = new TokenCursor(tokens);
+      var cursor = new TokenCursor(tokens, source);
       var children = ParseNodes(cursor, terminator: null);
       return new PassageBody { Children = children };
     }
@@ -56,6 +70,13 @@ namespace Harlowe.Parsing
       var nodes = new List<IBodyNode>();
       while (!cursor.IsAtEnd && (!terminator.HasValue || cursor.Current.Type != terminator.Value))
       {
+        // Capture the failure-span start BEFORE attempting the node so the
+        // catch can slice the original source between the failed node's first
+        // token and wherever the resync helper lands. The cursor owns the
+        // source (passed in at construction) and slices on demand — tokens
+        // alone can't reconstruct the run because the tokenizer drops
+        // whitespace and punctuation that don't surface in Token.Value.
+        int startPos = cursor.Current.Position;
         IBodyNode node;
         try
         {
@@ -64,8 +85,13 @@ namespace Harlowe.Parsing
         catch (HarloweParseException ex)
         {
           string where = ex.Line > 0 ? $" at line {ex.Line}, column {ex.Column}" : string.Empty;
-          nodes.Add(new ParseErrorNode { Message = $"parse error{where}: {ex.RawMessage ?? ex.Message}" });
-          if (!TryAdvanceToResumePoint(cursor, terminator)) break;
+          bool advanced = TryAdvanceToResumePoint(cursor, terminator);
+          nodes.Add(new ParseErrorNode
+          {
+            Message = $"parse error{where}: {ex.RawMessage ?? ex.Message}",
+            OriginalSource = cursor.SliceFrom(startPos),
+          });
+          if (!advanced) break;
           continue;
         }
         if (node != null) nodes.Add(node);

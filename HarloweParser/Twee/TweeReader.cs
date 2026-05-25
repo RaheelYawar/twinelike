@@ -72,7 +72,7 @@ namespace Harlowe.Twee
         try
         {
           var tokens = tokenizer.Tokenize(block.Body);
-          ast = bodyParser.Parse(tokens);
+          ast = bodyParser.Parse(tokens, block.Body);
         }
         catch (HarloweParseException ex)
         {
