@@ -243,6 +243,22 @@ namespace Harlowe.Tests.Runtime.Macros
         Assert.NotEqual(BufferedRenderOutput.Kind.PushStyle, e.Kind);
     }
 
+    [Theory]
+    [InlineData("(text-color: \"red；background:url(x)\")[hi]")]   // full-width semicolon U+FF1B → ASCII ; under NFKC
+    [InlineData("(text-color: \"red｛...｝\")[hi]")]              // full-width braces U+FF5B / U+FF5D → { / } under NFKC
+    public void StyleValueWithFullWidthStructuralChar_IsBlocked(string source)
+    {
+      // The structural-char check used to scan the raw value and miss any
+      // NFKC-equivalent variant; only the keyword pass normalized. Now both
+      // checks share the normalized form, so a full-width `；` (U+FF1B, the
+      // declaration separator's compatibility variant) trips the structural
+      // gate the same way ASCII `;` does.
+      var buf = RenderRaw(source);
+      AssertError(buf, "style value");
+      foreach (var e in buf.Entries)
+        Assert.NotEqual(BufferedRenderOutput.Kind.PushStyle, e.Kind);
+    }
+
     [Fact]
     public void StyleValueWithUnpairedSurrogate_DoesNotThrow()
     {
@@ -331,6 +347,27 @@ namespace Harlowe.Tests.Runtime.Macros
       // macro instead so the author sees a pointed diagnostic.
       var buf = RenderRaw("(background: \"url(art/sky.png)evil\")[hi]");
       AssertError(buf, "malformed url()");
+    }
+
+    [Fact]
+    public void Background_BareUrlWithSurroundingWhitespace_StillRoutesAsImage()
+    {
+      // LooksLikeImage didn't trim before its prefix/suffix matchers, so a
+      // value like `" url(art/sky.png) "` fell into the BackgroundColor
+      // branch and emitted `background-color: <url>` (silently dropped by
+      // browsers). Trim once up front so authors with stray whitespace get
+      // the obvious behaviour.
+      var buf = RenderRaw("(background: \"  url(art/sky.png)  \")[hi]");
+      var style = FirstPushedStyle(buf);
+      Assert.Equal("art/sky.png", style.BackgroundImage);
+    }
+
+    [Fact]
+    public void Background_BarePathWithSurroundingWhitespace_StoresTrimmed()
+    {
+      var buf = RenderRaw("(background: \"  art/sky.png  \")[hi]");
+      var style = FirstPushedStyle(buf);
+      Assert.Equal("art/sky.png", style.BackgroundImage);
     }
 
   }

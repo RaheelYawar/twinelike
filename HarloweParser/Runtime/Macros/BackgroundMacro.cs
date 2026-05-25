@@ -35,7 +35,13 @@ namespace Harlowe.Runtime.Macros
       if (arg.Kind != HarloweValueKind.String)
         return HarloweValue.OfError($"({_name}:) requires a String, got {arg.Kind}");
 
-      var value = arg.AsString;
+      // Trim once up front. Incidental leading/trailing whitespace would
+      // otherwise defeat the LooksLikeImage prefix/suffix matchers — e.g.
+      // `" url(art/sky.png) "` would fail StartsWith("url(") and fall into
+      // the BackgroundColor branch, emitting `background-color: <url>` which
+      // browsers silently drop. The trimmed form is what we both validate and
+      // store, so the downstream emit doesn't carry stray whitespace either.
+      var value = arg.AsString?.Trim();
       var invalid = StyleValueValidator.Validate(_name, value);
       if (invalid != null) return invalid;
       if (LooksLikeImage(value))
@@ -46,16 +52,15 @@ namespace Harlowe.Runtime.Macros
         // produce url(url(...)) — strip the CSS wrapper here. An empty inner
         // URL is rejected with an in-prose error rather than emitting silently
         // malformed CSS.
-        var trimmed = value.Trim();
-        if (StartsWithCssUrl(trimmed))
+        if (StartsWithCssUrl(value))
         {
-          if (!TryUnwrapCssUrl(trimmed, out var url))
+          if (!TryUnwrapCssUrl(value, out var url))
             return HarloweValue.OfError($"({_name}:) malformed url() value: '{value}'");
           if (string.IsNullOrWhiteSpace(url))
             return HarloweValue.OfError($"({_name}:) url() value is empty");
           return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { BackgroundImage = url }));
         }
-        return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { BackgroundImage = trimmed }));
+        return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { BackgroundImage = value }));
       }
       return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { BackgroundColor = value }));
     }
