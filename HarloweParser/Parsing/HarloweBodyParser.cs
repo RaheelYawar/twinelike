@@ -41,13 +41,15 @@ namespace Harlowe.Parsing
     /// (which terminate at <see cref="TokenType.HookClose"/>). The terminator
     /// itself is not consumed; the caller decides what to do with it.
     ///
-    /// <para>Recovers from a <see cref="HarloweParseException"/> raised by a
-    /// nested <see cref="ParseNode"/> call by appending a
-    /// <see cref="ParseErrorNode"/> in place of the failed node and returning
-    /// what was parsed so far. This preserves the valid prefix (and any
-    /// branches in it) instead of discarding the whole AST when one
-    /// expression goes bad. Loader recovery still kicks in for tokenizer-
-    /// level failures, which can't be recovered at parse time.</para>
+    /// <para>Recovers from a <see cref="HarloweParseException"/> by appending
+    /// a <see cref="ParseErrorNode"/> in place of the failed node and then
+    /// trying to resync the cursor to a safe body-mode resume point so
+    /// sibling content after the broken construct still parses. The resync
+    /// helper stops at the caller's terminator (so the broken hook still
+    /// closes cleanly) or skips to the next Newline / closing macro paren at
+    /// the same nesting level. When no resume point is available we stop
+    /// parsing further siblings at this level. Loader recovery still handles
+    /// tokenizer-level failures that can't be recovered here.</para>
     /// </summary>
     private List<IBodyNode> ParseNodes(TokenCursor cursor, TokenType? terminator)
     {
@@ -61,17 +63,10 @@ namespace Harlowe.Parsing
         }
         catch (HarloweParseException ex)
         {
-          // Preserve the prefix already parsed; replace the failing node
-          // with a ParseErrorNode carrying the diagnostic. We stop parsing
-          // further nodes at this nesting level, but when a terminator is
-          // expected (hook contents) we still need to advance the cursor to
-          // the matching close so the caller can consume it normally —
-          // otherwise the close token gets reparented to the outer scope
-          // and surrounding structure goes haywire.
           string where = ex.Line > 0 ? $" at line {ex.Line}, column {ex.Column}" : string.Empty;
           nodes.Add(new ParseErrorNode { Message = $"parse error{where}: {ex.RawMessage ?? ex.Message}" });
-          if (terminator.HasValue) SkipToBalancedTerminator(cursor, terminator.Value);
-          break;
+          if (!TryAdvanceToResumePoint(cursor, terminator)) break;
+          continue;
         }
         if (node != null) nodes.Add(node);
       }
@@ -79,25 +74,38 @@ namespace Harlowe.Parsing
     }
 
     /// <summary>
-    /// Advance the cursor to the next <paramref name="terminator"/> token at
-    /// the same nesting depth (or end-of-input). Only <see cref="TokenType.HookOpen"/>
-    /// /<see cref="TokenType.HookClose"/> are tracked for depth because hooks
-    /// are the only nestable structure that recurses through ParseNodes;
-    /// macro/link/paren tokens encountered along the way are simply skipped.
-    /// Used by per-node error recovery so the caller's terminator check still
-    /// fires on the right token after a mid-stream throw.
+    /// Advance the cursor to a safe body-mode resume point after a parse
+    /// error, or to the caller's terminator. Returns true when the cursor
+    /// landed on a resume position (a Newline or matching MacroClose was
+    /// consumed and parsing can continue); false when the caller's
+    /// terminator was reached at this depth or end-of-input was hit.
+    ///
+    /// <para>Hook nesting is tracked so a stray HookClose deeper than the
+    /// outer ParseNodes call doesn't masquerade as the terminator. Macro
+    /// parens are tracked the other direction: a MacroClose token after the
+    /// failure point typically closes the broken macro itself (the parser
+    /// had already advanced past the matching MacroOpen before the throw),
+    /// so consuming it lands us back in body mode.</para>
     /// </summary>
-    private static void SkipToBalancedTerminator(TokenCursor cursor, TokenType terminator)
+    private static bool TryAdvanceToResumePoint(TokenCursor cursor, TokenType? terminator)
     {
-      int depth = 0;
+      int hookDepth = 0;
       while (!cursor.IsAtEnd)
       {
         var t = cursor.Current.Type;
-        if (depth == 0 && t == terminator) return;
-        if (t == TokenType.HookOpen) depth++;
-        else if (t == TokenType.HookClose && depth > 0) depth--;
+        bool atOuter = hookDepth == 0;
+        if (atOuter && terminator.HasValue && t == terminator.Value)
+          return false;
+        if (atOuter && (t == TokenType.Newline || t == TokenType.MacroClose))
+        {
+          cursor.Advance();
+          return true;
+        }
+        if (t == TokenType.HookOpen) hookDepth++;
+        else if (t == TokenType.HookClose && hookDepth > 0) hookDepth--;
         cursor.Advance();
       }
+      return false;
     }
 
     /// <summary>

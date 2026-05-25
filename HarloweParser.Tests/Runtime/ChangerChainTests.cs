@@ -142,9 +142,14 @@ namespace Harlowe.Tests.Runtime
       // misuse surfaces as a ParseErrorNode in the AST rather than escaping
       // as an exception — but the diagnostic still fires before the AST
       // node carrying the (set:) MacroCallNode is produced, so no eval can
-      // touch the store.
+      // touch the store. Per-node recovery resumes after the broken
+      // construct so trailing siblings may follow — we just verify the
+      // diagnostic landed somewhere in the children.
       var body = ParseBody("(set: $x to 1)+(text-style: \"bold\")[hi]");
-      var err = Assert.IsType<ParseErrorNode>(body.Children[body.Children.Count - 1]);
+      ParseErrorNode err = null;
+      for (int i = 0; i < body.Children.Count; i++)
+        if (body.Children[i] is ParseErrorNode n) { err = n; break; }
+      Assert.NotNull(err);
       Assert.Contains("set", err.Message);
     }
 
@@ -152,7 +157,10 @@ namespace Harlowe.Tests.Runtime
     public void Parser_PutAsContinuationChainComponent_Rejected()
     {
       var body = ParseBody("(text-style: \"bold\")+(put: $x into 1)[hi]");
-      var err = Assert.IsType<ParseErrorNode>(body.Children[body.Children.Count - 1]);
+      ParseErrorNode err = null;
+      for (int i = 0; i < body.Children.Count; i++)
+        if (body.Children[i] is ParseErrorNode n) { err = n; break; }
+      Assert.NotNull(err);
       Assert.Contains("put", err.Message);
     }
 
