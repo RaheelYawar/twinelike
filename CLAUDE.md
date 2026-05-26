@@ -67,6 +67,9 @@ Real example: the `\::` body-content escape in `TweeWriter` looked like a normal
 - **Null handling:** Return `null` or `string.Empty` for missing lookups, not exceptions
 - **No LINQ usage** — the codebase uses explicit loops and Dictionary lookups
 
+## Temp variable scoping
+Temp variables (`_foo`) are hook-scoped via a stack of dictionaries inside `HarloweVariableStore`. Every `Visit(HookNode)` in `BodyRenderer` pushes a fresh scope; entry dies on hook exit. Set semantics walk outer-to-inner looking for an existing declaration and write to the OUTERMOST match (matches reference Harlowe `ts/internaltypes/varref.ts:941-947`: "inner hooks can modify outer hooks' values"); fresh declarations land in the innermost scope. Story-scoped `$` vars are unaffected — they share a single flat dictionary. `(for:)` iterations get a fresh scope per iteration for free (each iteration re-renders the attached hook through the same `Visit(HookNode)` path).
+
 ## Error Policy
 In-prose errors, never exceptions. Mirrors Harlowe's authoring model: a single bad expression renders an inline error message at the spot it happened and the rest of the passage continues. `HarloweValue.Error` propagates through the evaluator (every operator short-circuits on it); when an Error value reaches the renderer it goes through `IRenderOutput.Error(message)` instead of being printed. No exceptions on the runtime hot path — engine integrations don't want `try/catch` around every render call.
 

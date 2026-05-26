@@ -108,12 +108,22 @@ namespace Harlowe.Runtime
     /// output is a plain sink (a unit-test buffer, an expression-position
     /// <c>(display:)</c> capture) there is no tree to build into, so the hook
     /// renders flat — exactly the pre-render-tree behaviour.
+    ///
+    /// <para>Pushes a fresh temp-variable scope for the hook body so authors
+    /// who write <c>(set: _x to ...)</c> inside a hook see Harlowe's
+    /// documented hook-scoped semantics: a freshly-declared temp variable
+    /// dies on hook exit, but <c>(set:)</c> of an outer-scoped temp variable
+    /// still updates the outer binding. Matches reference Harlowe
+    /// (ts/internaltypes/varscope.ts).</para>
     /// </summary>
     public void Visit(HookNode node)
     {
       var builder = _output as Rendering.RenderTreeBuilder;
       builder?.BeginHook(node.Name, node.Anchor);
-      if (node.Children != null) RenderChildren(node.Children);
+      using (_context.Store.PushTempScope())
+      {
+        if (node.Children != null) RenderChildren(node.Children);
+      }
       builder?.EndHook();
     }
 

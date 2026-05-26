@@ -92,5 +92,23 @@ namespace Harlowe.Runtime
     /// rather than a named parameter.
     /// </summary>
     IDisposable PushItBinding(HarloweValue value);
+
+    /// <summary>
+    /// Push a fresh empty temporary-variable scope and return a token that
+    /// pops it on dispose. While the inner scope is active, lookups walk
+    /// outward (inner-to-outer) until a name is found, and a
+    /// <see cref="Set"/> of a previously-undefined temp variable writes to
+    /// the innermost scope (does not leak out on pop). <see cref="Set"/> of
+    /// a name that already exists in an outer scope writes to the outermost
+    /// declaration, matching reference Harlowe's varref.ts:941-947 behaviour
+    /// ("inner hooks can modify outer hooks' values").
+    ///
+    /// <para>Called by the renderer at every hook boundary so authors who
+    /// write <c>(set: _x to ...)</c> inside a hook see the documented
+    /// hook-scoped temp variable semantics. Story-scoped variables
+    /// (<c>$foo</c>) are unaffected by this stack — they always live in a
+    /// single global namespace.</para>
+    /// </summary>
+    IDisposable PushTempScope();
   }
 }
