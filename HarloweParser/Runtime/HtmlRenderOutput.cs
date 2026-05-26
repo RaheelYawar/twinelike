@@ -127,8 +127,15 @@ namespace Harlowe.Runtime
     /// <c>javascript:void(0)</c>); an empty/whitespace configured href omits
     /// the attribute, which is what CSP-strict consumers want.
     ///
-    /// <para>The defensive null-region path still honours the configured
-    /// href so the click-dispatch script sees a consistent anchor shape.</para>
+    /// <para>One-shape policy: every call emits the same anchor template
+    /// regardless of whether <paramref name="region"/> is null. A null region
+    /// produces an anchor with empty <c>data-region-id</c> and
+    /// <c>data-interaction</c> values — addressable in the DOM, focusable by
+    /// keyboard, announced as a link, but undispatchable
+    /// (<see cref="StorySession.DispatchEvent"/> with an empty id is a no-op).
+    /// Deliberate over the alternative of emitting a bare <c>&lt;a&gt;</c> on
+    /// null, which would be non-focusable / non-link / inaccessible and force
+    /// consumers to handle two output shapes.</para>
     /// </summary>
     public void BeginInteractive(InteractiveRegion region)
     {
