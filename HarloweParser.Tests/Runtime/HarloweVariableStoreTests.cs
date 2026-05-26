@@ -221,10 +221,10 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void PushTempScope_InnerSetOfOuterVariable_WritesToOuter()
     {
-      // varref.ts:941-947: "inner hooks can modify outer hooks' values" —
-      // a (set:) of a name that exists in any outer scope writes to the
-      // OUTERMOST declaration. After the inner scope pops, the change
-      // persists.
+      // Reference's parent-walking set() loop in ts/internaltypes/varref.ts:
+      // "inner hooks can modify outer hooks' values" — a (set:) of a name
+      // that exists in any outer scope writes to the OUTERMOST declaration.
+      // After the inner scope pops, the change persists.
       var store = new HarloweVariableStore();
       store.Set("x", isTemporary: true, value: HarloweValue.OfNumber(1));
       using (store.PushTempScope())

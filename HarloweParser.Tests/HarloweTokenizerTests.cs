@@ -228,9 +228,10 @@ namespace Harlowe.Tests
     [Fact]
     public void Macro_EqualsSignAliasForTo()
     {
-      // Reference Harlowe patterns.ts:1034: `to = either('to'+wb, '=')`.
-      // A bare `=` lexes as the same `to` operator used by (set:)/(put:),
-      // so `(set: $x = 1)` is identical to `(set: $x to 1)`.
+      // Reference Harlowe ts/markup/patterns.ts defines the `to` pattern
+      // as `either('to'+wb, '=')`. A bare `=` lexes as the same `to`
+      // operator used by (set:)/(put:), so `(set: $x = 1)` is identical
+      // to `(set: $x to 1)`.
       AssertSequence(Tokenize("(set: $x = 1)"),
         (TokenType.MacroOpen, "set"),
         (TokenType.Variable, "x"),
@@ -571,8 +572,9 @@ namespace Harlowe.Tests
     [Fact]
     public void PercentInExpression_EmittedAsModuloOperator()
     {
-      // Matches reference Harlowe patterns.ts:1030 — `division = either('/', '%')`.
-      // `%` is the binary modulo operator in expression mode.
+      // Matches reference Harlowe ts/markup/patterns.ts — the `division`
+      // pattern is `either('/', '%')`. `%` is the binary modulo operator
+      // in expression mode.
       AssertSequence(Tokenize("(print: 5 % 2)"),
         (TokenType.MacroOpen, "print"),
         (TokenType.NumberLiteral, "5"),

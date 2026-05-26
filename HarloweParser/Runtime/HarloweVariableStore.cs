@@ -13,11 +13,13 @@ namespace Harlowe.Runtime
   ///
   /// <para>
   /// Temp scope semantics match reference Harlowe (ts/internaltypes/varscope.ts
-  /// + ts/internaltypes/varref.ts:941-947). A <see cref="Get"/> walks
-  /// inner-to-outer through the stack and returns the first match. A
-  /// <see cref="Set"/> walks outer-to-inner looking for an existing
-  /// declaration: if any scope already declares the name, the write goes to
-  /// the OUTERMOST such scope ("inner hooks can modify outer hooks' values").
+  /// for the prototype-chain construction, plus ts/internaltypes/varref.ts —
+  /// see its set() parent-walk loop that searches for an existing declaration
+  /// up the scope chain). A <see cref="Get"/> walks inner-to-outer through
+  /// the stack and returns the first match. A <see cref="Set"/> walks
+  /// outer-to-inner looking for an existing declaration: if any scope already
+  /// declares the name, the write goes to the OUTERMOST such scope ("inner
+  /// hooks can modify outer hooks' values").
   /// If the name is undeclared anywhere, the write goes to the INNERMOST
   /// (current) scope, where it dies on the next <see cref="PushTempScope"/>
   /// pop.
