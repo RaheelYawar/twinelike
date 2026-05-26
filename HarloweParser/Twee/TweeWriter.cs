@@ -227,6 +227,20 @@ namespace Harlowe.Twee
     /// strips one <c>\</c> from any <c>\+::</c> run), but the failure mode
     /// only triggers for a hand-built body shape that authors essentially
     /// never produce, so the simpler narrow rule stays.</para>
+    ///
+    /// <para>Line-start detection is LF-only: <c>atLineStart</c> re-arms
+    /// when the just-emitted character is <c>\n</c> and only then. Bare
+    /// <c>\r</c> (classic-Mac), Unicode line separators (U+2028 / U+2029),
+    /// and NEL (U+0085) do not trigger escaping of a following <c>::</c>.
+    /// This matches <see cref="TweeReader.SplitLines"/>, which also splits
+    /// on <c>\n</c> only — the writer and reader use the same line-ending
+    /// model, so the asymmetry is invisible to the ecosystem this library
+    /// targets (Twee 3 tooling — Tweego and Extwee also split on LF). A
+    /// downstream Twee-aware IDE plugin that recognised <c>\r</c> or
+    /// U+2028 as a line break would see an unescaped <c>::</c> for a
+    /// programmatic body that mixed those separators with the header
+    /// sigil; same hand-built shape as the known asymmetry above, and
+    /// just as rare in practice.</para>
     /// </summary>
     private static void AppendEscapedBody(StringBuilder sb, string body)
     {
