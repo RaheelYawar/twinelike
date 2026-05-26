@@ -743,7 +743,7 @@ namespace Harlowe.Tokens
       char c = _src[_pos];
       switch (c)
       {
-        case '+': case '*': case '/':
+        case '+': case '*': case '/': case '%':
         case '<': case '>':
           Advance();
           Emit(TokenType.Operator, c.ToString(), startPos, startLine, startCol);

@@ -50,7 +50,7 @@ namespace Harlowe.Parsing
       // Order 8 (additive)
       { "+", 8 }, { "-", 8 },
       // Order 7 (multiplicative)
-      { "*", 7 }, { "/", 7 },
+      { "*", 7 }, { "/", 7 }, { "%", 7 },
       // Order 4 (belonging — data on the right)
       { "of", 4 },
       // Order 3 (possessive — data on the left)

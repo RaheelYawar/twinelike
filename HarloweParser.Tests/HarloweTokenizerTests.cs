@@ -569,14 +569,14 @@ namespace Harlowe.Tests
     }
 
     [Fact]
-    public void PercentInExpression_NotEmittedAsOperator()
+    public void PercentInExpression_EmittedAsModuloOperator()
     {
-      // `%` is no longer in the symbol-operator set; it's silently skipped in
-      // expression mode like any other unrecognised char. The surrounding tokens
-      // should still parse correctly.
+      // Matches reference Harlowe patterns.ts:1030 — `division = either('/', '%')`.
+      // `%` is the binary modulo operator in expression mode.
       AssertSequence(Tokenize("(print: 5 % 2)"),
         (TokenType.MacroOpen, "print"),
         (TokenType.NumberLiteral, "5"),
+        (TokenType.Operator, "%"),
         (TokenType.NumberLiteral, "2"),
         (TokenType.MacroClose, ")"),
         (TokenType.EndOfFile, ""));

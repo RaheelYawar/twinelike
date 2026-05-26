@@ -176,6 +176,39 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
+    public void Modulo() => Assert.Equal(1, Eval("7 % 3").AsNumber);
+
+    [Fact]
+    public void Modulo_NegativeDividend_FollowsDividendSign()
+    {
+      // Matches reference Harlowe (which delegates to JS `%`): the result's
+      // sign follows the dividend. -7 % 3 → -1, not 2.
+      Assert.Equal(-1, Eval("-7 % 3").AsNumber);
+    }
+
+    [Fact]
+    public void Modulo_ByZero_Errors()
+    {
+      var v = Eval("5 % 0");
+      Assert.True(v.IsError);
+      Assert.Contains("zero", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void Modulo_NonNumber_Errors()
+    {
+      var v = Eval("\"abc\" % 2");
+      Assert.True(v.IsError);
+    }
+
+    [Fact]
+    public void Modulo_SamePrecedenceAsMul()
+    {
+      // 1 + 7 % 3 → 1 + (7 % 3) → 2 (multiplicative binds tighter than additive).
+      Assert.Equal(2, Eval("1 + 7 % 3").AsNumber);
+    }
+
+    [Fact]
     public void UnaryMinus() => Assert.Equal(-5, Eval("-5").AsNumber);
 
     [Fact]
