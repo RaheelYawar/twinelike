@@ -163,7 +163,7 @@ namespace Harlowe.Runtime
       switch (node.Operator)
       {
         case "+": _result = OpAdd(left, right); return;
-        case "-": _result = OpNumeric("-", left, right, (a, b) => a - b); return;
+        case "-": _result = OpSubtract(left, right); return;
         case "*": _result = OpNumeric("*", left, right, (a, b) => a * b); return;
         case "/":
           if (left.Kind == HarloweValueKind.Number && right.Kind == HarloweValueKind.Number && right.AsNumber == 0.0)
@@ -313,6 +313,61 @@ namespace Harlowe.Runtime
           return HarloweValue.OfChanger(left.AsChanger.Compose(right.AsChanger));
         default:
           return HarloweValue.OfError($"+ does not apply to {left.Kind} and {right.Kind}");
+      }
+    }
+
+    /// <summary>
+    /// Type-dispatched <c>-</c>. Reference Harlowe (the <c>"-"</c> entry in
+    /// <c>ts/twinescript/operations.ts</c>) overloads <c>-</c> with
+    /// <c>doNotCoerce</c> — both operands must share kind — to mean "remove
+    /// all instances of": <c>String - String</c> deletes every occurrence of
+    /// the RHS substring, <c>Array - Array</c> filters out elements that
+    /// appear anywhere in the RHS (by <c>is</c>-equality, our
+    /// <see cref="HarloweValue.Equals"/>). <c>Set - Set</c> is the set
+    /// difference; we don't have a Set value type yet, so that case falls
+    /// through to the type-mismatch error.
+    ///
+    /// <para>Note the reference comment: "Subtracting 1 element from an array
+    /// requires it be wrapped in an (a:) macro." Authors write
+    /// <c>$list - (a:item)</c>, not <c>$list - item</c>.</para>
+    /// </summary>
+    private static HarloweValue OpSubtract(HarloweValue left, HarloweValue right)
+    {
+      if (left.Kind != right.Kind)
+        return HarloweValue.OfError($"- does not apply to {left.Kind} and {right.Kind}");
+
+      switch (left.Kind)
+      {
+        case HarloweValueKind.Number:
+          return HarloweValue.OfNumber(left.AsNumber - right.AsNumber);
+        case HarloweValueKind.String:
+        {
+          // Reference: `l.split(r).join('')` — remove every occurrence. An
+          // empty RHS means "remove nothing" (matches JS split-on-empty).
+          // C#'s string.Replace throws on an empty pattern in .NET 5+, so
+          // short-circuit empty RHS rather than depending on platform.
+          if (right.AsString.Length == 0) return HarloweValue.OfString(left.AsString);
+          return HarloweValue.OfString(left.AsString.Replace(right.AsString, string.Empty));
+        }
+        case HarloweValueKind.Array:
+        {
+          var srcL = left.AsArray;
+          var srcR = right.AsArray;
+          var kept = new List<HarloweValue>(srcL.Count);
+          for (int i = 0; i < srcL.Count; i++)
+          {
+            bool drop = false;
+            for (int j = 0; j < srcR.Count; j++)
+            {
+              if (srcL[i] != null && srcL[i].Equals(srcR[j])) { drop = true; break; }
+              if (srcL[i] == null && srcR[j] == null) { drop = true; break; }
+            }
+            if (!drop) kept.Add(srcL[i]);
+          }
+          return HarloweValue.OfArray(kept);
+        }
+        default:
+          return HarloweValue.OfError($"- does not apply to {left.Kind} and {right.Kind}");
       }
     }
 

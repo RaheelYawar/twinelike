@@ -272,6 +272,85 @@ namespace Harlowe.Tests.Runtime
       Assert.Equal(3, v.AsArray.Count);
     }
 
+    // --- Polymorphic - (Array / String) ---
+
+    [Fact]
+    public void Subtract_Strings_RemovesAllOccurrencesOfRhs()
+    {
+      // Reference: `"hello" - "l"` → `"heo"` (every occurrence of the RHS
+      // substring removed from the LHS).
+      Assert.Equal("heo", Eval("\"hello\" - \"l\"").AsString);
+    }
+
+    [Fact]
+    public void Subtract_Strings_EmptyRhs_LeavesLhsUnchanged()
+    {
+      // JS `l.split("").join("")` returns l unchanged (split-on-empty
+      // explodes to characters, join puts them back). We special-case empty
+      // RHS to match without depending on platform string.Replace semantics.
+      Assert.Equal("hello", Eval("\"hello\" - \"\"").AsString);
+    }
+
+    [Fact]
+    public void Subtract_Strings_RhsNotPresent_LeavesLhsUnchanged()
+    {
+      Assert.Equal("hello", Eval("\"hello\" - \"zzz\"").AsString);
+    }
+
+    [Fact]
+    public void Subtract_Arrays_RemovesEachRhsElement()
+    {
+      // Reference: `[1,3,5,3] - [3] = [1,5]` — filter LHS by membership in
+      // RHS via `is`-equality. Note both 3s in LHS get removed.
+      var v = EvalP("(a:1,3,5,3) - (a:3)");
+      Assert.Equal(HarloweValueKind.Array, v.Kind);
+      Assert.Equal(2, v.AsArray.Count);
+      Assert.Equal(1, v.AsArray[0].AsNumber);
+      Assert.Equal(5, v.AsArray[1].AsNumber);
+    }
+
+    [Fact]
+    public void Subtract_Arrays_RhsIsMultipleValues()
+    {
+      var v = EvalP("(a:1,2,3,4,5) - (a:2,4)");
+      Assert.Equal(3, v.AsArray.Count);
+      Assert.Equal(1, v.AsArray[0].AsNumber);
+      Assert.Equal(3, v.AsArray[1].AsNumber);
+      Assert.Equal(5, v.AsArray[2].AsNumber);
+    }
+
+    [Fact]
+    public void Subtract_Arrays_EmptyRhs_LeavesLhsUnchanged()
+    {
+      var v = EvalP("(a:1,2,3) - (a:)");
+      Assert.Equal(3, v.AsArray.Count);
+    }
+
+    [Fact]
+    public void Subtract_Arrays_NoMatchingElements_LeavesLhsUnchanged()
+    {
+      var v = EvalP("(a:1,2,3) - (a:99)");
+      Assert.Equal(3, v.AsArray.Count);
+    }
+
+    [Fact]
+    public void Subtract_NumberMinusArray_Errors()
+    {
+      // doNotCoerce: kinds must match.
+      var v = EvalP("5 - (a:1)");
+      Assert.True(v.IsError);
+    }
+
+    [Fact]
+    public void Subtract_BareItemNotInArray_Errors()
+    {
+      // Reference docs explicitly: "Subtracting 1 element from an array
+      // requires it be wrapped in an (a:) macro." `(a:1,2) - 1` is a
+      // type-mismatch error in both impls.
+      var v = EvalP("(a:1,2) - 1");
+      Assert.True(v.IsError);
+    }
+
     [Fact]
     public void UnaryMinus() => Assert.Equal(-5, Eval("-5").AsNumber);
 
