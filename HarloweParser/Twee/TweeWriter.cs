@@ -208,6 +208,25 @@ namespace Harlowe.Twee
     /// <c>\</c> to any <c>::</c> sequence that sits at the start of a line.
     /// The reader strips the leading <c>\</c> on parse, so this is a pure
     /// escape — the body content the user sees is unchanged.
+    ///
+    /// <para>This <c>\::</c> body-content escape is a <em>library-local</em>
+    /// extension. The Twee 3 specification defines escapes only for passage
+    /// headers (names/tags), not body content; reference compilers Tweego
+    /// and Extwee split on <c>\n::</c> literally and cannot represent a
+    /// body line that begins with <c>::</c> at all. The escape is here so
+    /// programmatically constructed passages whose bodies legitimately begin
+    /// a line with <c>::</c> can round-trip through this library — a
+    /// capability the wider ecosystem doesn't offer.</para>
+    ///
+    /// <para>Known asymmetry: a programmatic body containing a literal
+    /// <c>\::</c> at line start (i.e. a real backslash followed by the
+    /// header sigil) round-trips lossy — the writer emits <c>\::</c>
+    /// unchanged and the reader strips the backslash, dropping the
+    /// authored backslash. The symmetric fix would be a counting rule
+    /// (writer prefixes one extra <c>\</c> to any <c>\+::</c> run; reader
+    /// strips one <c>\</c> from any <c>\+::</c> run), but the failure mode
+    /// only triggers for a hand-built body shape that authors essentially
+    /// never produce, so the simpler narrow rule stays.</para>
     /// </summary>
     private static void AppendEscapedBody(StringBuilder sb, string body)
     {
