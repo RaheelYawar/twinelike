@@ -164,6 +164,17 @@ namespace Harlowe.Twee
     /// (both <c>\r\n</c> and lone <c>\n</c> are normalized away). A trailing
     /// blank line from a final newline is dropped so the iteration count
     /// reflects content lines.
+    ///
+    /// <para>LF-only by design. Bare <c>\r</c> (classic-Mac line endings,
+    /// effectively extinct), Unicode line separators (U+2028 / U+2029),
+    /// and NEL (U+0085) are not recognised as line breaks — a file using
+    /// any of those exclusively would collapse to a single line and only
+    /// the leading header would parse. This matches reference Twee 3
+    /// tooling: Tweego splits on <c>\n::</c> via byte scan, Extwee splits
+    /// on <c>\n::</c> via <c>String.split</c> — neither recognises CR-only
+    /// or Unicode separators either. <see cref="TweeWriter.AppendEscapedBody"/>
+    /// uses the same LF-only line-start detection so the writer/reader pair
+    /// is symmetric.</para>
     /// </summary>
     private static List<string> SplitLines(string source)
     {
