@@ -10,6 +10,17 @@ A C# library (netstandard2.0) for parsing and running Twine/Harlowe interactive 
 - **Output:** Library DLL (`harlowe_parser.dll`)
 - The library csproj sits at the repo root and uses `<DefaultItemExcludes>` to keep it from globbing the test folder.
 
+## Spec & reference sources
+When a design question turns on how Twine/Twee/Harlowe is *supposed* to behave, fetch and quote the authoritative source before recommending a fix — don't reason from "what seems reasonable" or "what other tools probably do."
+
+- **Twee 3 / serialization questions** → the Twee 3 specification at `github.com/iftechfoundation/twine-specs` (maintained by the IFTechFoundation, which stewards Twine itself — closest to "official").
+- **Harlowe macro/runtime semantics** → the reference Harlowe JS implementation at `github.com/twine/Harlowe`. Quote the relevant JS, don't paraphrase.
+- **Cross-tool compatibility claims** → check at least one popular implementation (Tweego at `github.com/tmedwards/tweego`, Extwee at `github.com/videlais/extwee`) before claiming "tools generally do X."
+
+Use `gh api -H "Accept: application/vnd.github.raw" repos/<owner>/<repo>/contents/<path>` to fetch raw files — WebFetch has session limits. Distinguish authority levels in recommendations: the IFTF-maintained spec is closest to "official"; third-party compilers are popular but not authoritative.
+
+Real example: the `\::` body-content escape in `TweeWriter` looked like a normal Twee feature worth fixing symmetrically — checking the spec + Tweego + Extwee revealed it's a library-local extension nobody else implements, which flipped the recommendation from "fix the asymmetry" to "document and leave."
+
 ## Architecture
 - Entry points: `new Harlowe(htmlText)` for the Twine 2 HTML export, or `new TweeReader().Read(tweeText)` for the plain-text Twee 3 form. Both paths populate the same `Harlowe` story object. Outbound: `new TweeWriter().Write(story)` emits Twee 3 source (the only write format; HTML emit is out of scope, since Twine 2 is the natural HTML producer).
 - Two parsing layers. **Layer 1 (host)** has two front-ends: HtmlAgilityPack extracts `<tw-storydata>` / `<tw-passagedata>` from HTML and HTML-entity-decodes the inner text via `HtmlEntity.DeEntitize`; `TweeReader` splits Twee source on `:: Name [tags] {position}` headers at column 0, special-cases `:: StoryTitle` and `:: StoryData` (with a hand-rolled `JsonReader`), and synthesizes sequential pids since Twee has none. **Layer 2 (Harlowe markup)** is shared: `HarloweTokenizer` → `HarloweBodyParser` (which delegates to `HarloweExpressionParser` at every `MacroOpen`) → `PassageBody` AST stored on `HarlowePassage.Ast`. `HarlowePassage.Body` (string) and `HarlowePassage.Branches` are derived from the AST by visitors. Both front-ends populate `HarlowePassage.RawBody` so `TweeWriter` can emit clean passages verbatim (lazy reserialization — only passages whose `IsDirty` flag is set re-canonicalize via `MarkupPrinter`).
