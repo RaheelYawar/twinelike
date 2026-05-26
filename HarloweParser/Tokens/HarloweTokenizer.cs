@@ -168,14 +168,14 @@ namespace Harlowe.Tokens
     {
       // Skip Unicode whitespace between tokens. char.IsWhiteSpace matches
       // NBSP / em-en / ideographic / line+paragraph separators — same set
-      // as reference Harlowe's `ws` pattern (ts/markup/patterns.ts:63),
-      // which is used universally in reference for syntactic whitespace.
+      // as reference Harlowe's `ws` pattern in ts/markup/patterns.ts, which
+      // is used universally in reference for syntactic whitespace.
       // Body-mode is intentionally narrower (only ASCII chars in
       // IsBodySpecial trigger token boundaries) — NBSP inside prose stays
       // as content in the surrounding Text token, matching reference's
-      // `text` pattern (patterns.ts:307: any-char-but-`]`). Same code
-      // point plays two roles by context; this isn't an inconsistency,
-      // it's the language's tokenizer model.
+      // `text` pattern in ts/markup/patterns.ts (defined as any-char-but-`]`).
+      // Same code point plays two roles by context; this isn't an
+      // inconsistency, it's the language's tokenizer model.
       while (_pos < _src.Length && char.IsWhiteSpace(_src[_pos])) Advance();
       if (_pos >= _src.Length) return;
 
@@ -450,6 +450,20 @@ namespace Harlowe.Tokens
     /// legacy Twee source from other tooling that embedded literal backslashes
     /// (Windows paths, JSON-like blobs) under a "no escapes" convention.
     /// Ill-formed hex escapes fall back to the same verbatim rule.
+    ///
+    /// <para>Deliberate divergence from reference Harlowe on <c>\0</c>:
+    /// reference (<c>ts/twinescript/runner.ts</c> — see the strict-mode
+    /// <c>\0</c> rewrite regex, commented "Remove octal literals (plus the
+    /// \0 escape), as they will throw in strict mode") rewrites <c>\0</c>
+    /// to the literal ASCII digit <c>'0'</c> before handing the string to
+    /// <c>window.eval</c>, because JS strict mode forbids the legacy octal
+    /// <c>\0</c> escape. That's a JS-engine workaround, not a designed
+    /// language feature — the reference comment calls it out explicitly. We
+    /// don't go through <c>window.eval</c>, so we follow the natural
+    /// completion of the named-escape table and emit NUL (U+0000) instead.
+    /// An author who writes <c>"\0"</c> intending NUL gets NUL in ours; in
+    /// reference they silently get <c>'0'</c>. Both are obscure enough that
+    /// no realistic Harlowe authoring practice relies on either shape.</para>
     /// </summary>
     private void DecodeEscape(StringBuilder sb)
     {
@@ -750,9 +764,10 @@ namespace Harlowe.Tokens
           return true;
         case '=':
           // Bare `=` is the documented Harlowe shorthand for `to` — reference
-          // patterns.ts:1034 defines `to = either('to'+wb, '=')`, so
-          // `(set: $x = 5)` is identical to `(set: $x to 5)`. The two-char
-          // forms `==`, `<=`, `>=` are handled above and don't reach here.
+          // ts/markup/patterns.ts defines the `to` pattern as
+          // `either('to'+wb, '=')`, so `(set: $x = 5)` is identical to
+          // `(set: $x to 5)`. The two-char forms `==`, `<=`, `>=` are
+          // handled above and don't reach here.
           Advance();
           Emit(TokenType.Operator, "to", startPos, startLine, startCol);
           return true;
