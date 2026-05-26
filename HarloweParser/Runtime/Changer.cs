@@ -163,6 +163,7 @@ namespace Harlowe.Runtime
         var item = iter.Items[i];
         if (item != null && item.IsError) { output.Error(item.ErrorMessage); continue; }
         using (ctx.Store.PushItBinding(item))
+        using (ctx.Store.PushPosBinding(i + 1))
         using (ctx.Store.PushBinding(iter.ParamName, iter.ParamIsTemporary, item))
         {
           RunStyles(d.Styles, output, renderHook);

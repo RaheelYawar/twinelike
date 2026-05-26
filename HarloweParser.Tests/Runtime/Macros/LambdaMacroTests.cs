@@ -57,7 +57,7 @@ namespace Harlowe.Tests.Runtime.Macros
       ctx.Store.Set("x", true, HarloweValue.OfNumber(999));
       var lambda = ParseLambda("_x where _x > 5");
 
-      var verdict = LambdaInvoker.EvalPredicate(lambda, HarloweValue.OfNumber(10), ctx);
+      var verdict = LambdaInvoker.EvalPredicate(lambda, HarloweValue.OfNumber(10), 1, ctx);
 
       Assert.Equal(HarloweValueKind.Bool, verdict.Kind);
       Assert.True(verdict.AsBool);
@@ -72,7 +72,7 @@ namespace Harlowe.Tests.Runtime.Macros
       var priorIt = ctx.Store.It;
       var lambda = ParseLambda("where it > 5");
 
-      var verdict = LambdaInvoker.EvalPredicate(lambda, HarloweValue.OfNumber(10), ctx);
+      var verdict = LambdaInvoker.EvalPredicate(lambda, HarloweValue.OfNumber(10), 1, ctx);
 
       Assert.True(verdict.AsBool);
       Assert.Same(priorIt, ctx.Store.It); // `it` restored
@@ -83,7 +83,7 @@ namespace Harlowe.Tests.Runtime.Macros
     {
       var (reg, ctx) = Setup();
       var lambda = ParseLambda("_x where _x > 5");
-      var v = LambdaInvoker.EvalPredicate(lambda, HarloweValue.OfError("upstream"), ctx);
+      var v = LambdaInvoker.EvalPredicate(lambda, HarloweValue.OfError("upstream"), 1, ctx);
       Assert.True(v.IsError);
     }
 
@@ -92,7 +92,7 @@ namespace Harlowe.Tests.Runtime.Macros
     {
       var (reg, ctx) = Setup();
       var lambda = ParseLambda("_x where _x + 1");
-      var v = LambdaInvoker.EvalPredicate(lambda, HarloweValue.OfNumber(5), ctx);
+      var v = LambdaInvoker.EvalPredicate(lambda, HarloweValue.OfNumber(5), 1, ctx);
       Assert.True(v.IsError);
       Assert.Contains("Bool", v.ErrorMessage);
     }
@@ -103,7 +103,7 @@ namespace Harlowe.Tests.Runtime.Macros
       var (reg, ctx) = Setup();
       // unset $missing — looked up inside the predicate, surfaces as error.
       var lambda = ParseLambda("_x where $missing > 5");
-      var v = LambdaInvoker.EvalPredicate(lambda, HarloweValue.OfNumber(10), ctx);
+      var v = LambdaInvoker.EvalPredicate(lambda, HarloweValue.OfNumber(10), 1, ctx);
       Assert.True(v.IsError);
     }
 
@@ -115,7 +115,7 @@ namespace Harlowe.Tests.Runtime.Macros
       // both _x and `it`.
       var (reg, ctx) = Setup();
       var lambda = ParseLambda("_x where it > 5");
-      var verdict = LambdaInvoker.EvalPredicate(lambda, HarloweValue.OfNumber(10), ctx);
+      var verdict = LambdaInvoker.EvalPredicate(lambda, HarloweValue.OfNumber(10), 1, ctx);
       Assert.True(verdict.AsBool);
     }
 
@@ -130,6 +130,58 @@ namespace Harlowe.Tests.Runtime.Macros
       Assert.Equal(2, arr.Count);
       Assert.Equal(6, arr[0].AsNumber);
       Assert.Equal(7, arr[1].AsNumber);
+    }
+
+    // --- `pos` identifier (1-indexed iteration position) ---
+
+    [Fact]
+    public void Pos_AlteredVia_BindsOneIndexedPosition()
+    {
+      // Documented reference example: `(altered: via it + (str:pos), "A","B","C")`
+      // → (a:"A1","B2","C3"). pos binds 1, 2, 3. Uses (str:) directly to
+      // match reference's docs verbatim — (str:) is now registered as an
+      // alias for (text:).
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(altered: _x via _x + (str: pos), \"A\", \"B\", \"C\")");
+      var arr = v.AsArray;
+      Assert.Equal(3, arr.Count);
+      Assert.Equal("A1", arr[0].AsString);
+      Assert.Equal("B2", arr[1].AsString);
+      Assert.Equal("C3", arr[2].AsString);
+    }
+
+    [Fact]
+    public void Pos_FindWhere_AvailableInPredicate()
+    {
+      // Predicate that picks items at even positions.
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(find: _x where pos % 2 is 0, \"a\", \"b\", \"c\", \"d\")");
+      var arr = v.AsArray;
+      Assert.Equal(2, arr.Count);
+      Assert.Equal("b", arr[0].AsString); // pos 2
+      Assert.Equal("d", arr[1].AsString); // pos 4
+    }
+
+    [Fact]
+    public void Pos_OutsideLambda_IsError()
+    {
+      // `pos` is only meaningful inside a lambda iteration. Reading it
+      // from bare expression scope errors in-prose.
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(print: pos)");
+      Assert.True(v.IsError);
+      Assert.Contains("pos", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void Pos_FoldedVia_StartsAtTwoSinceFirstItemIsAccumulator()
+    {
+      // (folded:) treats items[0] as the initial accumulator (no lambda
+      // call), so the first lambda invocation processes items[1] at pos=2.
+      // The accumulator is `pos` summed; final result is 2 + 3 = 5.
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(folded: _x making _acc via _acc + pos, 0, 10, 20)");
+      Assert.Equal(5, v.AsNumber); // 0 + 2 + 3
     }
 
     [Fact]
@@ -226,7 +278,7 @@ namespace Harlowe.Tests.Runtime.Macros
     {
       var (reg, ctx) = Setup();
       var lambda = ParseLambda("_x via _x * 2");
-      var v = LambdaInvoker.EvalTransform(lambda, HarloweValue.OfNumber(7), ctx);
+      var v = LambdaInvoker.EvalTransform(lambda, HarloweValue.OfNumber(7), 1, ctx);
       Assert.Equal(14, v.AsNumber);
     }
 
@@ -235,7 +287,7 @@ namespace Harlowe.Tests.Runtime.Macros
     {
       var (reg, ctx) = Setup();
       var lambda = ParseLambda("_x where _x > 5"); // no via clause
-      var v = LambdaInvoker.EvalTransform(lambda, HarloweValue.OfNumber(7), ctx);
+      var v = LambdaInvoker.EvalTransform(lambda, HarloweValue.OfNumber(7), 1, ctx);
       Assert.True(v.IsError);
       Assert.Contains("via", v.ErrorMessage);
     }
@@ -245,7 +297,7 @@ namespace Harlowe.Tests.Runtime.Macros
     {
       var (reg, ctx) = Setup();
       var lambda = ParseLambda("_x via _x + 1"); // produces Number, not Bool
-      var v = LambdaInvoker.EvalTransform(lambda, HarloweValue.OfNumber(7), ctx);
+      var v = LambdaInvoker.EvalTransform(lambda, HarloweValue.OfNumber(7), 1, ctx);
       Assert.Equal(HarloweValueKind.Number, v.Kind);
     }
 
@@ -354,7 +406,7 @@ namespace Harlowe.Tests.Runtime.Macros
     {
       var (reg, ctx) = Setup();
       var lambda = ParseLambda("_item making _acc via _acc + _item");
-      var v = LambdaInvoker.EvalFold(lambda, HarloweValue.OfNumber(10), HarloweValue.OfNumber(3), ctx);
+      var v = LambdaInvoker.EvalFold(lambda, HarloweValue.OfNumber(10), HarloweValue.OfNumber(3), 2, ctx);
       Assert.Equal(13, v.AsNumber);
     }
 
@@ -368,7 +420,7 @@ namespace Harlowe.Tests.Runtime.Macros
       ctx.Store.Set("acc", true, HarloweValue.OfNumber(222));
       var lambda = ParseLambda("_item making _acc via _acc + _item");
 
-      var v = LambdaInvoker.EvalFold(lambda, HarloweValue.OfNumber(10), HarloweValue.OfNumber(3), ctx);
+      var v = LambdaInvoker.EvalFold(lambda, HarloweValue.OfNumber(10), HarloweValue.OfNumber(3), 2, ctx);
 
       Assert.Equal(13, v.AsNumber);
       Assert.Equal(111, ctx.Store.Get("item", true).AsNumber);
@@ -380,7 +432,7 @@ namespace Harlowe.Tests.Runtime.Macros
     {
       var (reg, ctx) = Setup();
       var lambda = ParseLambda("_x via _x * 2"); // no making clause
-      var v = LambdaInvoker.EvalFold(lambda, HarloweValue.OfNumber(1), HarloweValue.OfNumber(2), ctx);
+      var v = LambdaInvoker.EvalFold(lambda, HarloweValue.OfNumber(1), HarloweValue.OfNumber(2), 2, ctx);
       Assert.True(v.IsError);
       Assert.Contains("making", v.ErrorMessage);
     }
@@ -390,7 +442,7 @@ namespace Harlowe.Tests.Runtime.Macros
     {
       var (reg, ctx) = Setup();
       var lambda = ParseLambda("_item making _acc via _acc + _item");
-      var v = LambdaInvoker.EvalFold(lambda, HarloweValue.OfError("upstream"), HarloweValue.OfNumber(2), ctx);
+      var v = LambdaInvoker.EvalFold(lambda, HarloweValue.OfError("upstream"), HarloweValue.OfNumber(2), 2, ctx);
       Assert.True(v.IsError);
     }
 

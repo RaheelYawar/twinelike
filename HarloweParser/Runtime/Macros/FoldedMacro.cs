@@ -40,7 +40,10 @@ namespace Harlowe.Runtime.Macros
       {
         var item = items[i];
         if (item.IsError) return item;
-        acc = LambdaInvoker.EvalFold(lambda, acc, item, context);
+        // pos is the 1-indexed position in the original arg list. items[0]
+        // is the initial accumulator (no lambda call), so the first call
+        // here lands on items[1] with pos=2, matching reference.
+        acc = LambdaInvoker.EvalFold(lambda, acc, item, i + 1, context);
         if (acc.IsError) return acc;
       }
 

@@ -28,7 +28,7 @@ namespace Harlowe.Runtime.Macros
       {
         var item = items[i];
         if (item.IsError) return item;
-        var mapped = LambdaInvoker.EvalTransform(lambda, item, context);
+        var mapped = LambdaInvoker.EvalTransform(lambda, item, i + 1, context);
         if (mapped.IsError) return mapped;
         transformed.Add(mapped);
       }

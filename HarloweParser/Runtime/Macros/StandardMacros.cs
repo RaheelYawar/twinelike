@@ -28,7 +28,8 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new AMacro());
       registry.Register(new DmMacro());
       registry.Register(new ModuloMacro());
-      registry.Register(new TextMacro());
+      registry.Register(new TextMacro("text"));
+      registry.Register(new TextMacro("str"));
       registry.Register(new NumMacro());
       registry.Register(new HistoryMacro());
       registry.Register(new TextStyleMacro());

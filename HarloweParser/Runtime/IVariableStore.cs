@@ -94,6 +94,24 @@ namespace Harlowe.Runtime
     IDisposable PushItBinding(HarloweValue value);
 
     /// <summary>
+    /// The current 1-indexed lambda iteration position, or <c>null</c> when
+    /// no lambda is in flight. Matches reference Harlowe's <c>pos</c>
+    /// identifier — see the <c>pos</c> binding in <c>ts/datatypes/lambda.ts</c>'s
+    /// <c>apply()</c> method. Documented examples:
+    /// <c>(altered: via it + (str: pos), "A","B","C")</c> →
+    /// <c>(a:"A1","B2","C3")</c>.
+    /// </summary>
+    HarloweValue Pos { get; }
+
+    /// <summary>
+    /// Bind <see cref="Pos"/> to <paramref name="oneIndexedPos"/> for the
+    /// duration of a lambda iteration; the disposable restores the prior
+    /// value on disposal. Callers pass the 1-indexed iteration counter (so
+    /// the first iteration sets <c>pos = 1</c>).
+    /// </summary>
+    IDisposable PushPosBinding(int oneIndexedPos);
+
+    /// <summary>
     /// Push a fresh empty temporary-variable scope and return a token that
     /// pops it on dispose. While the inner scope is active, lookups walk
     /// outward (inner-to-outer) until a name is found, and a

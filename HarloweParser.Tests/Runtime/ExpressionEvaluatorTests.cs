@@ -352,6 +352,16 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
+    public void Text_AndStr_AreAliases()
+    {
+      // Reference Harlowe registers both (text:) and (str:) as the same
+      // value-to-string coercion. The lambda docs example uses (str: pos);
+      // both spellings must work.
+      Assert.Equal("5", EvalP("(text: 5)").AsString);
+      Assert.Equal("5", EvalP("(str: 5)").AsString);
+    }
+
+    [Fact]
     public void UnaryMinus() => Assert.Equal(-5, Eval("-5").AsNumber);
 
     [Fact]

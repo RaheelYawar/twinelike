@@ -39,6 +39,7 @@ namespace Harlowe.Runtime
     private Dictionary<string, HarloweValue> _story = new Dictionary<string, HarloweValue>();
     private List<Dictionary<string, HarloweValue>> _tempStack;
     private HarloweValue _it;
+    private HarloweValue _pos;
 
     public HarloweVariableStore()
     {
@@ -47,6 +48,7 @@ namespace Harlowe.Runtime
     }
 
     public HarloweValue It => _it;
+    public HarloweValue Pos => _pos;
 
     public HarloweValue Get(string name, bool isTemporary)
     {
@@ -173,6 +175,13 @@ namespace Harlowe.Runtime
       return new ItBindingScope(this, prior);
     }
 
+    public IDisposable PushPosBinding(int oneIndexedPos)
+    {
+      var prior = _pos;
+      _pos = HarloweValue.OfNumber(oneIndexedPos);
+      return new PosBindingScope(this, prior);
+    }
+
     public IDisposable PushTempScope()
     {
       _tempStack.Add(new Dictionary<string, HarloweValue>());
@@ -196,6 +205,26 @@ namespace Harlowe.Runtime
         if (_disposed) return;
         _disposed = true;
         _store._it = _prior;
+      }
+    }
+
+    private class PosBindingScope : IDisposable
+    {
+      private readonly HarloweVariableStore _store;
+      private readonly HarloweValue _prior;
+      private bool _disposed;
+
+      public PosBindingScope(HarloweVariableStore store, HarloweValue prior)
+      {
+        _store = store;
+        _prior = prior;
+      }
+
+      public void Dispose()
+      {
+        if (_disposed) return;
+        _disposed = true;
+        _store._pos = _prior;
       }
     }
 
