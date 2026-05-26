@@ -143,5 +143,44 @@ namespace Harlowe.Tests.Runtime
       var b = new StyleSpec { Bold = true, Color = "red" };
       Assert.Equal(a.GetHashCode(), b.GetHashCode());
     }
+
+    [Fact]
+    public void Effects_FreshSpec_IsNonNullEmpty()
+    {
+      // Class-level invariant: Effects is always non-null. The field is
+      // readonly + initialized, so this holds by construction.
+      var s = new StyleSpec();
+      Assert.NotNull(s.Effects);
+      Assert.Empty(s.Effects);
+    }
+
+    [Fact]
+    public void Clone_EmptyEffects_ProducesIndependentNonNullEmpty()
+    {
+      // Regression: a previous Clone explicitly propagated null Effects, which
+      // could only happen via reassignment but violated the class invariant
+      // either way. With Effects readonly, both source and clone always have
+      // a non-null list — and the two are independent.
+      var original = new StyleSpec();
+      var clone = original.Clone();
+      Assert.NotNull(clone.Effects);
+      Assert.Empty(clone.Effects);
+      clone.Effects.Add(TextEffect.Mark);
+      Assert.Empty(original.Effects);
+    }
+
+    [Fact]
+    public void Clone_NonEmptyEffects_CopiesContentsIndependently()
+    {
+      var original = new StyleSpec();
+      original.Effects.Add(TextEffect.Mark);
+      original.Effects.Add(TextEffect.Shudder);
+      var clone = original.Clone();
+      Assert.Equal(2, clone.Effects.Count);
+      Assert.Equal(TextEffect.Mark, clone.Effects[0]);
+      Assert.Equal(TextEffect.Shudder, clone.Effects[1]);
+      clone.Effects.Add(TextEffect.Blur);
+      Assert.Equal(2, original.Effects.Count);
+    }
   }
 }

@@ -16,7 +16,10 @@ namespace Harlowe.Runtime
   /// semantic effect names from variadic <c>(text-style:)</c> (mark, outline,
   /// blur, shudder, …) that don't have a primitive flag. Unset value fields
   /// are <c>null</c>; unset flags are <c>false</c>; <see cref="Effects"/> is
-  /// always non-null but may be empty. A consumer should ignore fields it
+  /// always non-null but may be empty — the field is <c>readonly</c> and
+  /// initialized to a fresh empty list at construction, so consumers can
+  /// iterate it without null-guarding (mutate via <c>Add</c>/<c>Clear</c>;
+  /// reassignment is a compile error). A consumer should ignore fields it
   /// doesn't render rather than treating them as errors — Harlowe macros may
   /// set styles the host engine has no equivalent for.</para>
   ///
@@ -51,8 +54,8 @@ namespace Harlowe.Runtime
     /// <summary>Text alignment, or <c>null</c> if unset. Set by <c>(align:)</c>.</summary>
     public TextAlignment? Alignment;
 
-    /// <summary>Effect names from variadic <c>(text-style:)</c> that don't have a primitive flag — order preserved for diagnostic clarity; engines may ignore unsupported entries.</summary>
-    public List<TextEffect> Effects = new List<TextEffect>();
+    /// <summary>Effect names from variadic <c>(text-style:)</c> that don't have a primitive flag — order preserved for diagnostic clarity; engines may ignore unsupported entries. <c>readonly</c> so the non-null invariant is enforced at the type system: callers mutate via <c>Add</c>/<c>Clear</c>/index, never by reassigning the field.</summary>
+    public readonly List<TextEffect> Effects = new List<TextEffect>();
 
     /// <summary>True iff every field is unset. A no-op spec; a renderer can skip emitting events for one.</summary>
     public bool IsEmpty =>
@@ -114,10 +117,10 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
-    /// Field-by-field copy with a fresh <see cref="Effects"/> list. Used by the
-    /// render tree when it clones a styling layer for splicing — the copy and
-    /// the original need to be independently observable, even though the class
-    /// is public-mutable.
+    /// Field-by-field copy. The copy's <see cref="Effects"/> is the fresh
+    /// empty list the field initializer produced; items are appended one at a
+    /// time so the copy and the original have independent lists. Used by the
+    /// render tree when it clones a styling layer for splicing.
     /// </summary>
     public StyleSpec Clone()
     {
@@ -135,19 +138,7 @@ namespace Harlowe.Runtime
         Opacity = Opacity,
         Alignment = Alignment,
       };
-      // Preserve the null-vs-empty distinction on Effects: the field
-      // initializer hands the freshly constructed copy an empty list, but a
-      // consumer who deliberately set Effects=null is using null as a
-      // sentinel and we shouldn't normalize it away on a clone.
-      if (Effects == null)
-      {
-        copy.Effects = null;
-      }
-      else
-      {
-        copy.Effects = new List<TextEffect>(Effects.Count);
-        for (int i = 0; i < Effects.Count; i++) copy.Effects.Add(Effects[i]);
-      }
+      for (int i = 0; i < Effects.Count; i++) copy.Effects.Add(Effects[i]);
       return copy;
     }
   }
