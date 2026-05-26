@@ -41,6 +41,14 @@ namespace Harlowe.Runtime.Macros
       // the BackgroundColor branch, emitting `background-color: <url>` which
       // browsers silently drop. The trimmed form is what we both validate and
       // store, so the downstream emit doesn't carry stray whitespace either.
+      //
+      // Parameterless Trim is deliberate. It strips all Unicode whitespace
+      // (NBSP, ideographic space, etc.), matching reference Harlowe's
+      // ts/macrolib/stylechangers.ts which tolerates the same set via regex
+      // `^\s*` (ECMAScript `\s` covers Unicode Space_Separator chars). An
+      // ASCII-only Trim would make this macro stricter than reference and
+      // silently misroute NBSP-padded image paths from word-processor
+      // copy-pastes to the BackgroundColor branch.
       var value = arg.AsString?.Trim();
       var invalid = StyleValueValidator.Validate(_name, value);
       if (invalid != null) return invalid;

@@ -14,7 +14,7 @@ A C# library (netstandard2.0) for parsing and running Twine/Harlowe interactive 
 When a design question turns on how Twine/Twee/Harlowe is *supposed* to behave, fetch and quote the authoritative source before recommending a fix — don't reason from "what seems reasonable" or "what other tools probably do."
 
 - **Twee 3 / serialization questions** → the Twee 3 specification at `github.com/iftechfoundation/twine-specs` (maintained by the IFTechFoundation, which stewards Twine itself — closest to "official").
-- **Harlowe macro/runtime semantics** → the reference Harlowe JS implementation at `github.com/twine/Harlowe`. Quote the relevant JS, don't paraphrase.
+- **Harlowe macro/runtime semantics** → reference Harlowe source is checked into this repo at `references/harlowe-branch-default.zip` (snapshot of the canonical Mercurial repo at `foss.heptapod.net/games/harlowe`, branch `default`). Unzip to `/c/temp` or similar and read `ts/macrolib/*.ts` for macro semantics, `ts/internaltypes/*.ts` for runtime types. The Heptapod host itself sits behind Anubis bot-protection that blocks automated fetches — if `references/` is stale, ask the user to re-download via browser. Quote the relevant TypeScript, don't paraphrase.
 - **Cross-tool compatibility claims** → check at least one popular implementation (Tweego at `github.com/tmedwards/tweego`, Extwee at `github.com/videlais/extwee`) before claiming "tools generally do X."
 
 Use `gh api -H "Accept: application/vnd.github.raw" repos/<owner>/<repo>/contents/<path>` to fetch raw files — WebFetch has session limits. Distinguish authority levels in recommendations: the IFTF-maintained spec is closest to "official"; third-party compilers are popular but not authoritative.
@@ -72,6 +72,7 @@ In-prose errors, never exceptions. Mirrors Harlowe's authoring model: a single b
 
 ## Known TODOs
 - `BodyTextRenderer` (in `BodyVisitors.cs`) is now unused by the loaders (HTML/Twee/AddPassage all set `Body` to the raw author source). Keep for diagnostics or remove once no consumer references it.
+- `(background:)` image-vs-colour heuristic is **inverted** from reference Harlowe (`ts/macrolib/stylechangers.ts` lines 1999–2042). Reference rule: "colour only if hex / function-call shape; else image (default to `url(value)`)." Ours: "image only if URL prefix / image extension; else colour." Diverges on named CSS colours (`"blue"`, `"navy"`) — we treat as colour, reference treats as image URL — and on extensionless paths. Reference's design presumes authors pass a typed `Colour` value (from `(rgb:)`/`(hsl:)`/`(lch:)`) for named colours; we don't have a typed `Colour` runtime value yet so we picked the more author-intuitive default. Re-aligning would require landing a typed `Colour` first.
 
 ## Status
 
