@@ -112,6 +112,28 @@ namespace Harlowe.Parsing
     /// failure point typically closes the broken macro itself (the parser
     /// had already advanced past the matching MacroOpen before the throw),
     /// so consuming it lands us back in body mode.</para>
+    ///
+    /// <para>Known edge case: nested malformed macros. For source like
+    /// <c>(outer: (inner: bad))</c> where the throw fires inside <c>inner</c>'s
+    /// args, the cursor is mid-args of <c>inner</c> when the catch runs. The
+    /// first <c>MacroClose</c> this helper finds is <c>inner</c>'s closer;
+    /// consuming it lands the cursor on <c>outer</c>'s <c>MacroClose</c>,
+    /// which the body parser's <see cref="ParseNode"/> default branch then
+    /// silently skips as a stray closer. Net result: the AST has a single
+    /// <see cref="ParseErrorNode"/> for the inner failure, and <c>outer</c>'s
+    /// wrapper is lost (no <see cref="MacroNode"/> for it). The captured
+    /// <see cref="ParseErrorNode.OriginalSource"/> covers <c>(outer: (inner: bad)</c>
+    /// — endPos lands on <c>outer</c>'s <c>MacroClose</c> position, before
+    /// that closer is consumed — so the slice has the inner failure and
+    /// outer's opener but not outer's closer. Round-tripping a mutated AST
+    /// produces source with one fewer paren than the original.
+    ///
+    /// Fixing properly would require threading macro-call depth through the
+    /// body parser (increment on <see cref="ParseMacro"/> entry, decrement
+    /// on exit) so the catch site knows how many <c>MacroClose</c> tokens
+    /// to consume. Out of scope for current recovery work — the edge case
+    /// requires nested malformed macros + AST mutation + re-save to manifest,
+    /// which is rare enough to defer until a real bug report shows it.</para>
     /// </summary>
     private static bool TryAdvanceToResumePoint(TokenCursor cursor, TokenType? terminator)
     {
