@@ -171,10 +171,11 @@ namespace Harlowe.Runtime
           _result = OpNumeric("/", left, right, (a, b) => a / b); return;
 
         case "%":
-          // Matches reference Harlowe (ts/twinescript/operations.ts:360-365):
-          // numbers only (no coercion), error on divisor zero, otherwise
-          // delegate to the native modulo. C# `%` semantics match JS `%`
-          // semantics: truncated, sign follows the dividend.
+          // Matches reference Harlowe (the "%" entry in
+          // ts/twinescript/operations.ts): numbers only (no coercion), error
+          // on divisor zero, otherwise delegate to the native modulo. C# `%`
+          // semantics match JS `%` semantics: truncated, sign follows the
+          // dividend.
           if (left.Kind == HarloweValueKind.Number && right.Kind == HarloweValueKind.Number && right.AsNumber == 0.0)
           { _result = HarloweValue.OfError("modulo by zero"); return; }
           _result = OpNumeric("%", left, right, (a, b) => a % b); return;

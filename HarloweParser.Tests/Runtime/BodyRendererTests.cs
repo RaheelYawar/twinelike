@@ -464,7 +464,8 @@ namespace Harlowe.Tests.Runtime
     public void Set_EqualsSignAliasForTo()
     {
       // Reference Harlowe shorthand: `(set: $x = 5)` is identical to
-      // `(set: $x to 5)`. patterns.ts:1034 — `to = either('to'+wb, '=')`.
+      // `(set: $x to 5)`. ts/markup/patterns.ts — the `to` pattern is
+      // `either('to'+wb, '=')`.
       var h = Render("(set: $x = 5)(print: $x)");
       Assert.Contains("5", h.Buf.Text);
       Assert.Equal(0, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));

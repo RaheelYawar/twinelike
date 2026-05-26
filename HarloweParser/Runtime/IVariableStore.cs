@@ -100,8 +100,9 @@ namespace Harlowe.Runtime
     /// <see cref="Set"/> of a previously-undefined temp variable writes to
     /// the innermost scope (does not leak out on pop). <see cref="Set"/> of
     /// a name that already exists in an outer scope writes to the outermost
-    /// declaration, matching reference Harlowe's varref.ts:941-947 behaviour
-    /// ("inner hooks can modify outer hooks' values").
+    /// declaration, matching reference Harlowe's parent-walking set() loop in
+    /// ts/internaltypes/varref.ts ("inner hooks can modify outer hooks'
+    /// values").
     ///
     /// <para>Called by the renderer at every hook boundary so authors who
     /// write <c>(set: _x to ...)</c> inside a hook see the documented
