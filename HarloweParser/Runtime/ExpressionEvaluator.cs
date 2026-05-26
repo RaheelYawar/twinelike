@@ -269,15 +269,51 @@ namespace Harlowe.Runtime
     public void Visit(HookRefNode node)
       => _result = HarloweValue.OfHookName(new HookNameValue { Name = node.Name, Steps = node.Steps });
 
+    /// <summary>
+    /// Type-dispatched <c>+</c>. Reference Harlowe (the <c>"+"</c> entry in
+    /// <c>ts/twinescript/operations.ts</c>) overloads <c>+</c> across primitive
+    /// and collection types using <c>doNotCoerce</c> — both operands must have
+    /// the same kind, but each kind has its own meaning of <c>+</c>:
+    /// arithmetic for numbers, concatenation for strings and arrays, RHS-wins
+    /// merge for datamaps, logical OR for booleans, changer composition for
+    /// changers. The combinations we don't support yet (Set, Colour, Gradient,
+    /// HookName) require value types we don't have; they fall through to the
+    /// type-mismatch error.
+    /// </summary>
     private static HarloweValue OpAdd(HarloweValue left, HarloweValue right)
     {
-      if (left.Kind == HarloweValueKind.Number && right.Kind == HarloweValueKind.Number)
-        return HarloweValue.OfNumber(left.AsNumber + right.AsNumber);
-      if (left.Kind == HarloweValueKind.String && right.Kind == HarloweValueKind.String)
-        return HarloweValue.OfString(left.AsString + right.AsString);
-      if (left.Kind == HarloweValueKind.Changer && right.Kind == HarloweValueKind.Changer)
-        return HarloweValue.OfChanger(left.AsChanger.Compose(right.AsChanger));
-      return HarloweValue.OfError($"+ does not apply to {left.Kind} and {right.Kind}");
+      if (left.Kind != right.Kind)
+        return HarloweValue.OfError($"+ does not apply to {left.Kind} and {right.Kind}");
+
+      switch (left.Kind)
+      {
+        case HarloweValueKind.Number:
+          return HarloweValue.OfNumber(left.AsNumber + right.AsNumber);
+        case HarloweValueKind.String:
+          return HarloweValue.OfString(left.AsString + right.AsString);
+        case HarloweValueKind.Bool:
+          // Reference uses JS `||`; for booleans this is logical OR.
+          return HarloweValue.OfBool(left.AsBool || right.AsBool);
+        case HarloweValueKind.Array:
+        {
+          var combined = new List<HarloweValue>(left.AsArray.Count + right.AsArray.Count);
+          combined.AddRange(left.AsArray);
+          combined.AddRange(right.AsArray);
+          return HarloweValue.OfArray(combined);
+        }
+        case HarloweValueKind.Datamap:
+        {
+          // Start with LHS entries; overwrite with RHS entries so RHS wins on
+          // key collision (matches reference's Map(l) then r.forEach(set)).
+          var merged = new Dictionary<string, HarloweValue>(left.AsDatamap);
+          foreach (var kv in right.AsDatamap) merged[kv.Key] = kv.Value;
+          return HarloweValue.OfDatamap(merged);
+        }
+        case HarloweValueKind.Changer:
+          return HarloweValue.OfChanger(left.AsChanger.Compose(right.AsChanger));
+        default:
+          return HarloweValue.OfError($"+ does not apply to {left.Kind} and {right.Kind}");
+      }
     }
 
     private static HarloweValue OpNumeric(string op, HarloweValue left, HarloweValue right, System.Func<double, double, double> fn)

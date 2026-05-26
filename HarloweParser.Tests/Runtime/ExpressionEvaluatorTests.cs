@@ -208,6 +208,70 @@ namespace Harlowe.Tests.Runtime
       Assert.Equal(2, Eval("1 + 7 % 3").AsNumber);
     }
 
+    // --- Polymorphic + (Array / Datamap / Boolean) ---
+
+    [Fact]
+    public void Add_Arrays_Concatenates()
+    {
+      // Matches reference Harlowe's "+" entry in ts/twinescript/operations.ts:
+      // Array + Array spreads both into a new array, preserving order.
+      var v = EvalP("(a:1,2) + (a:3,4)");
+      Assert.Equal(HarloweValueKind.Array, v.Kind);
+      Assert.Equal(4, v.AsArray.Count);
+      Assert.Equal(1, v.AsArray[0].AsNumber);
+      Assert.Equal(2, v.AsArray[1].AsNumber);
+      Assert.Equal(3, v.AsArray[2].AsNumber);
+      Assert.Equal(4, v.AsArray[3].AsNumber);
+    }
+
+    [Fact]
+    public void Add_EmptyArrays_ProducesEmpty()
+    {
+      var v = EvalP("(a:) + (a:)");
+      Assert.Equal(HarloweValueKind.Array, v.Kind);
+      Assert.Empty(v.AsArray);
+    }
+
+    [Fact]
+    public void Add_Datamaps_RhsWinsOnKeyCollision()
+    {
+      // Reference: "values of keys used on the right side trump those on the
+      // left side."
+      var v = EvalP("(dm: \"a\", 1, \"b\", 2) + (dm: \"b\", 99, \"c\", 3)");
+      Assert.Equal(HarloweValueKind.Datamap, v.Kind);
+      var map = v.AsDatamap;
+      Assert.Equal(3, map.Count);
+      Assert.Equal(1, map["a"].AsNumber);
+      Assert.Equal(99, map["b"].AsNumber);  // RHS won.
+      Assert.Equal(3, map["c"].AsNumber);
+    }
+
+    [Fact]
+    public void Add_Booleans_LogicalOr()
+    {
+      Assert.True(Eval("true + false").AsBool);
+      Assert.True(Eval("false + true").AsBool);
+      Assert.True(Eval("true + true").AsBool);
+      Assert.False(Eval("false + false").AsBool);
+    }
+
+    [Fact]
+    public void Add_MixedTypes_Errors()
+    {
+      // doNotCoerce: + of mismatched kinds errors.
+      var v = EvalP("(a:1) + 2");
+      Assert.True(v.IsError);
+    }
+
+    [Fact]
+    public void Add_ArrayResult_DoesNotAliasInputs()
+    {
+      // The concat result is a fresh List; mutating it must not show up in
+      // either operand (defensive against future copy-on-write attempts).
+      var v = EvalP("(a:1,2) + (a:3)");
+      Assert.Equal(3, v.AsArray.Count);
+    }
+
     [Fact]
     public void UnaryMinus() => Assert.Equal(-5, Eval("-5").AsNumber);
 
