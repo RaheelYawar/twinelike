@@ -166,6 +166,16 @@ namespace Harlowe.Tokens
     /// </summary>
     private void ScanExpression()
     {
+      // Skip Unicode whitespace between tokens. char.IsWhiteSpace matches
+      // NBSP / em-en / ideographic / line+paragraph separators — same set
+      // as reference Harlowe's `ws` pattern (ts/markup/patterns.ts:63),
+      // which is used universally in reference for syntactic whitespace.
+      // Body-mode is intentionally narrower (only ASCII chars in
+      // IsBodySpecial trigger token boundaries) — NBSP inside prose stays
+      // as content in the surrounding Text token, matching reference's
+      // `text` pattern (patterns.ts:307: any-char-but-`]`). Same code
+      // point plays two roles by context; this isn't an inconsistency,
+      // it's the language's tokenizer model.
       while (_pos < _src.Length && char.IsWhiteSpace(_src[_pos])) Advance();
       if (_pos >= _src.Length) return;
 
