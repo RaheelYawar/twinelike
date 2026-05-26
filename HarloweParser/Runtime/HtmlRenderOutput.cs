@@ -109,12 +109,24 @@ namespace Harlowe.Runtime
       _interactiveHref = string.IsNullOrWhiteSpace(interactiveHref) ? string.Empty : interactiveHref;
     }
 
+    // Text / Link's display text / Error message all flow through EscapeText,
+    // which is the single point that defines the escape-channel contract for
+    // this adapter. Two invariants the adapter enforces uniformly on those
+    // channels: (1) `<`, `>`, `&`, `"`, `'` are HTML-escaped before reaching
+    // _inner; (2) a null input coerces to the empty string. The null→""
+    // coercion is deliberate — downstream IRenderOutput implementations in
+    // this repo treat empty and null identically (BufferedRenderOutput stores
+    // either as Content; RenderTreeBuilder builds a RenderErrorNode either
+    // way), and surfacing one shape rather than two simplifies the contract
+    // for external adapters too. An adapter that legitimately needs to
+    // distinguish "no message" from "empty message" should branch on its own
+    // semantic state rather than relying on null sentinels through this
+    // channel. Link's target stays raw — it's a passage-name reference the
+    // consumer resolves semantically (lookup, navigation, dispatch);
+    // consumers who embed target directly in an href are responsible for
+    // attribute-escaping at that point.
     public void Text(string content) => _inner.Text(EscapeText(content));
     public void Html(string rawHtml) => _inner.Html(rawHtml);
-    // Link text is display-string, escape it like Text. Target stays raw —
-    // it's a passage-name reference the consumer resolves semantically (lookup,
-    // navigation, dispatch); consumers who embed target directly in an href
-    // are responsible for attribute-escaping at that point.
     public void Link(string text, string target) => _inner.Link(EscapeText(text), target);
     public void Error(string message) => _inner.Error(EscapeText(message));
 
@@ -366,7 +378,10 @@ namespace Harlowe.Runtime
     /// <summary>
     /// HTML-escape prose for text-context output. Only the three characters
     /// that have special meaning between tags need replacing — quote escaping
-    /// is reserved for the attribute helper.
+    /// is reserved for the attribute helper. Null or empty input returns the
+    /// empty string; this is the single coercion point that the
+    /// Text/Link/Error channels all share, so the adapter never forwards a
+    /// null to its inner output through those channels.
     /// </summary>
     private static string EscapeText(string value)
     {
