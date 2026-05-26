@@ -226,6 +226,21 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void Macro_EqualsSignAliasForTo()
+    {
+      // Reference Harlowe patterns.ts:1034: `to = either('to'+wb, '=')`.
+      // A bare `=` lexes as the same `to` operator used by (set:)/(put:),
+      // so `(set: $x = 1)` is identical to `(set: $x to 1)`.
+      AssertSequence(Tokenize("(set: $x = 1)"),
+        (TokenType.MacroOpen, "set"),
+        (TokenType.Variable, "x"),
+        (TokenType.Operator, "to"),
+        (TokenType.NumberLiteral, "1"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
     public void Macro_DoubleQuotedString_TokenizedAsStringLiteral()
     {
       AssertSequence(Tokenize("(print: \"hello\")"),
