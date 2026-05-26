@@ -744,9 +744,17 @@ namespace Harlowe.Tokens
       switch (c)
       {
         case '+': case '*': case '/':
-        case '<': case '>': case '=':
+        case '<': case '>':
           Advance();
           Emit(TokenType.Operator, c.ToString(), startPos, startLine, startCol);
+          return true;
+        case '=':
+          // Bare `=` is the documented Harlowe shorthand for `to` — reference
+          // patterns.ts:1034 defines `to = either('to'+wb, '=')`, so
+          // `(set: $x = 5)` is identical to `(set: $x to 5)`. The two-char
+          // forms `==`, `<=`, `>=` are handled above and don't reach here.
+          Advance();
+          Emit(TokenType.Operator, "to", startPos, startLine, startCol);
           return true;
         case '-':
           if (TryScanTypeSuffix(startPos, startLine, startCol)) return true;

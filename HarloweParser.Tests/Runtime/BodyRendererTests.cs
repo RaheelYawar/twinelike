@@ -457,5 +457,17 @@ namespace Harlowe.Tests.Runtime
       Assert.Contains("5", h.Buf.Text);
       Assert.Equal(0, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
     }
+
+    // `=` as `to` alias ------------------------------------------------------
+
+    [Fact]
+    public void Set_EqualsSignAliasForTo()
+    {
+      // Reference Harlowe shorthand: `(set: $x = 5)` is identical to
+      // `(set: $x to 5)`. patterns.ts:1034 — `to = either('to'+wb, '=')`.
+      var h = Render("(set: $x = 5)(print: $x)");
+      Assert.Contains("5", h.Buf.Text);
+      Assert.Equal(0, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+    }
   }
 }
