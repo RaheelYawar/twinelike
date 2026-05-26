@@ -30,6 +30,19 @@ namespace Harlowe.Runtime.Macros
     /// paren so it doesn't catch a hex colour like <c>#express123</c>; the
     /// scheme entries need the trailing colon so they don't trip on the words
     /// alone.
+    ///
+    /// <para><c>url(</c> is deliberately NOT in this list. <c>(background:)</c>
+    /// legitimately accepts <c>url(...)</c> wrappers (unwrapped via
+    /// <c>BackgroundMacro.TryUnwrapCssUrl</c> after this validator passes), so a
+    /// universal <c>url(</c> denial would reject every valid background image.
+    /// Macros that emit CSS properties which DON'T accept <c>url()</c> (today:
+    /// <c>(text-color:)</c> / <c>(font:)</c> / <c>(text-size:)</c>) don't need
+    /// local <c>url(</c> rejection because the browser/CSS consumer will reject
+    /// the property-value combination as malformed regardless. A future macro
+    /// emitting a <c>url()</c>-accepting property where Harlowe doesn't intend
+    /// that capability (e.g. a hypothetical <c>(cursor:)</c> macro) should add
+    /// its own local <c>url(</c> rejection before calling this validator,
+    /// rather than expanding the universal denylist.</para>
     /// </summary>
     private static readonly string[] DeniedKeywords = new[]
     {
