@@ -1035,5 +1035,76 @@ namespace Harlowe.Tests
         (TokenType.MacroClose, ")"),
         (TokenType.EndOfFile, ""));
     }
+
+    // --- incorrectOperator: targeted authoring hints for common mistakes ---
+    //
+    // Reference Harlowe catches a set of common-mistake operator spellings at
+    // lex time and converts each match into a precise corrective error. See
+    // the `incorrectOperator` pattern in ts/markup/patterns.ts.
+
+    [Theory]
+    [InlineData("(if: $x gt 5)",      "gt")]
+    [InlineData("(if: $x gte 5)",     "gte")]
+    [InlineData("(if: $x lt 5)",      "lt")]
+    [InlineData("(if: $x lte 5)",     "lte")]
+    [InlineData("(if: $x eq 5)",      "eq")]
+    [InlineData("(if: $x neq 5)",     "neq")]
+    [InlineData("(if: $x isnot 5)",   "isnot")]
+    [InlineData("(if: $x isa Number)", "isa")]
+    [InlineData("(if: $x are 5)",     "are")]
+    [InlineData("(set: $a to 2 x 3)", "x")]
+    public void IncorrectIdentifier_ThrowsWithCorrectiveHint(string source, string badSpelling)
+    {
+      var ex = Assert.Throws<HarloweParseException>(() => new HarloweTokenizer().Tokenize(source));
+      Assert.Contains($"'{badSpelling}'", ex.Message);
+    }
+
+    [Fact]
+    public void IncorrectOperator_OrA_Detected()
+    {
+      // `or a` is two words; the scanner peeks for `a` after consuming `or`.
+      var ex = Assert.Throws<HarloweParseException>(
+        () => new HarloweTokenizer().Tokenize("(if: $x is 1 or a 2)"));
+      Assert.Contains("'or a'", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("(if: $x =< 5)", "=<", "<=")]
+    [InlineData("(if: $x => 5)", "=>", ">=")]
+    public void IncorrectSymbolOperator_ThrowsWithCorrectiveHint(string source, string bad, string good)
+    {
+      var ex = Assert.Throws<HarloweParseException>(() => new HarloweTokenizer().Tokenize(source));
+      Assert.Contains($"'{good}'", ex.Message);
+      Assert.Contains($"'{bad}'", ex.Message);
+    }
+
+    [Fact]
+    public void IncorrectIdentifier_DoesNotInterfereWithValidWordOperators()
+    {
+      // Regression guard: the IncorrectIdentifiers dict is matched AFTER the
+      // multi-word fuser and BEFORE the WordOperators check, so valid
+      // single-word operators like "or" / "and" / "is" pass through.
+      AssertSequence(Tokenize("(if: $x or $y)"),
+        (TokenType.MacroOpen, "if"),
+        (TokenType.Variable, "x"),
+        (TokenType.Operator, "or"),
+        (TokenType.Variable, "y"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void IncorrectIdentifier_OrA_DoesNotTripOnBareOr()
+    {
+      // The `or a` peek must not produce a false positive when `or` is
+      // followed by a different word like `another`.
+      AssertSequence(Tokenize("(if: $x or $another)"),
+        (TokenType.MacroOpen, "if"),
+        (TokenType.Variable, "x"),
+        (TokenType.Operator, "or"),
+        (TokenType.Variable, "another"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
   }
 }

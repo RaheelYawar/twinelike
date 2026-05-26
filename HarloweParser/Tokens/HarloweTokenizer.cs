@@ -31,6 +31,28 @@ namespace Harlowe.Tokens
     };
 
     /// <summary>
+    /// Common-mistake operator spellings that reference Harlowe catches at
+    /// lex time and converts into a targeted authoring hint. See the
+    /// <c>incorrectOperator</c> pattern in <c>ts/markup/patterns.ts</c>.
+    /// Matched in <see cref="ScanIdentifierOrKeyword"/> after the multi-word
+    /// fuser fails; throws <see cref="HarloweParseException"/> with the
+    /// "Please say X instead of Y" hint.
+    /// </summary>
+    private static readonly Dictionary<string, string> IncorrectIdentifiers = new Dictionary<string, string>
+    {
+      { "gt",    "use '>' instead of 'gt'" },
+      { "gte",   "use '>=' instead of 'gte'" },
+      { "lt",    "use '<' instead of 'lt'" },
+      { "lte",   "use '<=' instead of 'lte'" },
+      { "eq",    "use 'is' instead of 'eq'" },
+      { "neq",   "use 'is not' instead of 'neq'" },
+      { "isnot", "use 'is not' instead of 'isnot'" },
+      { "isa",   "use 'is a' instead of 'isa'" },
+      { "are",   "use 'is' instead of 'are'" },
+      { "x",     "use '*' instead of 'x'" },
+    };
+
+    /// <summary>
     /// Lex <paramref name="passageBody"/> into a flat token stream terminated by
     /// <see cref="TokenType.EndOfFile"/>. Resets all internal state, so the same
     /// instance can be reused for multiple passages. A null input is treated as
@@ -573,6 +595,24 @@ namespace Harlowe.Tokens
       if (TryFuseMultiWordOperator(word, startPos, startLine, startCol))
         return;
 
+      // Single-word common-mistake spellings (gt, eq, isa, …). Throw an
+      // authoring hint with the correct form before falling through to the
+      // generic identifier emit. Reference equivalent: incorrectOperator in
+      // ts/markup/patterns.ts plus the runner conversion to an error token.
+      if (IncorrectIdentifiers.TryGetValue(word, out var hint))
+        throw new HarloweParseException(hint, startLine, startCol);
+
+      // Two-word case: `or a` → "use 'or' instead of 'or a'". `or` is a valid
+      // word-operator on its own; we only complain when followed (after
+      // whitespace) by a bare `a` that isn't part of a larger construct.
+      if (word == "or")
+      {
+        string next = PeekNextWordFrom(_pos, out int afterNext);
+        if (next == "a")
+          throw new HarloweParseException(
+            "use 'or' instead of 'or a'", startLine, startCol);
+      }
+
       if (WordOperators.Contains(word))
         Emit(TokenType.Operator, word, startPos, startLine, startCol);
       else
@@ -745,6 +785,14 @@ namespace Harlowe.Tokens
           Emit(TokenType.Operator, two, startPos, startLine, startCol);
           return true;
         }
+        // Reference Harlowe catches reversed forms with a precise hint.
+        // See the `incorrectOperator` pattern in ts/markup/patterns.ts.
+        if (two == "=<")
+          throw new HarloweParseException(
+            "use '<=' instead of '=<'", startLine, startCol);
+        if (two == "=>")
+          throw new HarloweParseException(
+            "use '>=' instead of '=>'", startLine, startCol);
       }
 
       if (_pos + 2 < _src.Length && _src[_pos] == '.' && _src[_pos + 1] == '.' && _src[_pos + 2] == '.')
