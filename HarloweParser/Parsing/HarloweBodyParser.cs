@@ -310,6 +310,18 @@ namespace Harlowe.Parsing
     /// because <c>+</c> is not body-special at the tokenizer level — it falls
     /// into <c>ScanText</c> just like any other character. We peek into the
     /// Text content to recognise the marker.</para>
+    ///
+    /// <para>Parameterless <c>Trim()</c> is deliberate. Reference Harlowe's
+    /// <c>ts/markup/patterns.ts</c> defines its syntactic-whitespace class
+    /// (the <c>ws</c> pattern at line 63) as the union of ASCII space,
+    /// <c>\f</c>, <c>\t</c>, <c>\v</c>, U+00A0 (NBSP), U+2000..U+200A (em /
+    /// en / quad / thin / hair spaces), U+2028..U+2029 (line / paragraph
+    /// separators), U+202F (narrow NBSP), U+205F (medium math space), and
+    /// U+3000 (ideographic space), explicitly excluding zero-width
+    /// characters. <c>char.IsWhiteSpace</c> matches almost exactly the same
+    /// set (it returns false for ZWSP/ZWNJ/ZWJ/BOM, matching reference). An
+    /// ASCII-only Trim would diverge from reference and reject NBSP-padded
+    /// chain markers that reference accepts.</para>
     /// </summary>
     private static bool LooksLikeChainContinuation(TokenCursor cursor)
     {
