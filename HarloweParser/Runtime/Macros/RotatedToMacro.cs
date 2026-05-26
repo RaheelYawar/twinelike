@@ -34,7 +34,7 @@ namespace Harlowe.Runtime.Macros
       {
         var item = items[i];
         if (item.IsError) return item;
-        var verdict = LambdaInvoker.EvalPredicate(lambda, item, context);
+        var verdict = LambdaInvoker.EvalPredicate(lambda, item, i + 1, context);
         if (verdict.IsError) return verdict;
         if (verdict.AsBool)
         {

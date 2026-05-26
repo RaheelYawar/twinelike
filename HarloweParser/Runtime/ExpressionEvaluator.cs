@@ -62,6 +62,13 @@ namespace Harlowe.Runtime
         case "it":
           _result = _store.It ?? HarloweValue.OfError("'it' is not yet set");
           break;
+        case "pos":
+          // The 1-indexed lambda iteration position. Bound by LambdaInvoker
+          // (and by (for:) iteration in Changer) for the duration of each
+          // iteration; null outside any lambda. Documented reference idiom:
+          // `(altered: via it + (str: pos), "A","B","C")` → "A1","B2","C3".
+          _result = _store.Pos ?? HarloweValue.OfError("'pos' is only available inside a lambda iteration");
+          break;
         case "time":
           _result = _context != null ? _context.Time : HarloweValue.OfError("'time' is unavailable outside a story session");
           break;
