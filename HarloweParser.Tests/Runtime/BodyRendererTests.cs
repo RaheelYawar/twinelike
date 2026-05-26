@@ -406,5 +406,56 @@ namespace Harlowe.Tests.Runtime
       Assert.DoesNotContain("Weak.", h.Buf.Text);
       Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Link));
     }
+
+    // Hook-scoped temp variables ---------------------------------------------
+
+    [Fact]
+    public void TempVar_FreshDeclarationInHook_DoesNotLeak()
+    {
+      // Matches reference Harlowe semantics: (set: _y to 2) inside a hook
+      // is local to that hook. After the hook, _y is undefined and reading
+      // it surfaces an in-prose error rather than the leaked value.
+      var h = Render("[(set: _y to 2)](print: _y)");
+      Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+    }
+
+    [Fact]
+    public void TempVar_InnerSetOfOuter_ModifiesOuter()
+    {
+      // Reference's "inner hooks can modify outer hooks' values" — a (set:)
+      // inside a hook of a temp var declared outside writes to the outer
+      // declaration. After the hook, the outer var has the new value.
+      var h = Render("(set: _x to 1)[(set: _x to 2)](print: _x)");
+      Assert.Contains("2", h.Buf.Text);
+    }
+
+    [Fact]
+    public void TempVar_NestedHooks_LocalDeclarationDiesAtHookExit()
+    {
+      var h = Render("[(set: _a to 1)[(set: _b to 2)](print: _b)]");
+      // _b is local to the inner hook; reading it in the outer hook (after
+      // the inner closes) errors.
+      Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+    }
+
+    [Fact]
+    public void TempVar_ForLoopBody_DoesNotLeakLocalDeclarations()
+    {
+      // The (for:) body is rendered as a hook per iteration; a fresh
+      // declaration inside should die at iteration end and not be visible
+      // after the loop.
+      var h = Render("(for: each _i, 1, 2, 3)[(set: _double to _i * 2)](print: _double)");
+      Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+    }
+
+    [Fact]
+    public void TempVar_StoryVarUnaffectedByHookScopes()
+    {
+      // Story-scoped $vars are not subject to hook scoping; (set: $x ...)
+      // inside a hook persists after the hook exits.
+      var h = Render("[(set: $x to 5)](print: $x)");
+      Assert.Contains("5", h.Buf.Text);
+      Assert.Equal(0, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+    }
   }
 }

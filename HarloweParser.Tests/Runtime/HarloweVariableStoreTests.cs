@@ -200,5 +200,138 @@ namespace Harlowe.Tests.Runtime
       store.Restore(snap);
       Assert.Equal(10, store.Get("hp", isTemporary: false).AsNumber);
     }
+
+    // --- PushTempScope (hook-scoped temp variables) ---
+
+    [Fact]
+    public void PushTempScope_FreshInnerBinding_DiesOnPop()
+    {
+      // Matches reference Harlowe ts/internaltypes/varscope.ts: a temp
+      // variable first declared inside a hook is scope-local — it's gone
+      // after the hook exits.
+      var store = new HarloweVariableStore();
+      using (store.PushTempScope())
+      {
+        store.Set("y", isTemporary: true, value: HarloweValue.OfNumber(2));
+        Assert.Equal(2, store.Get("y", isTemporary: true).AsNumber);
+      }
+      Assert.Null(store.Get("y", isTemporary: true));
+    }
+
+    [Fact]
+    public void PushTempScope_InnerSetOfOuterVariable_WritesToOuter()
+    {
+      // varref.ts:941-947: "inner hooks can modify outer hooks' values" —
+      // a (set:) of a name that exists in any outer scope writes to the
+      // OUTERMOST declaration. After the inner scope pops, the change
+      // persists.
+      var store = new HarloweVariableStore();
+      store.Set("x", isTemporary: true, value: HarloweValue.OfNumber(1));
+      using (store.PushTempScope())
+      {
+        store.Set("x", isTemporary: true, value: HarloweValue.OfNumber(2));
+        Assert.Equal(2, store.Get("x", isTemporary: true).AsNumber);
+      }
+      Assert.Equal(2, store.Get("x", isTemporary: true).AsNumber);
+    }
+
+    [Fact]
+    public void PushTempScope_OuterReadFindsOuterValue_WhenInnerShadowDoesNotExist()
+    {
+      var store = new HarloweVariableStore();
+      store.Set("x", isTemporary: true, value: HarloweValue.OfNumber(1));
+      using (store.PushTempScope())
+      {
+        // Inner scope didn't declare _x locally; Get walks outward.
+        Assert.Equal(1, store.Get("x", isTemporary: true).AsNumber);
+      }
+    }
+
+    [Fact]
+    public void PushTempScope_StoryVarsUnaffected()
+    {
+      var store = new HarloweVariableStore();
+      store.Set("hp", isTemporary: false, value: HarloweValue.OfNumber(10));
+      using (store.PushTempScope())
+      {
+        store.Set("hp", isTemporary: false, value: HarloweValue.OfNumber(20));
+      }
+      // Story namespace ignores the scope stack — write persisted.
+      Assert.Equal(20, store.Get("hp", isTemporary: false).AsNumber);
+    }
+
+    [Fact]
+    public void PushTempScope_Nested_InnerSetWritesToOutermostMatch()
+    {
+      var store = new HarloweVariableStore();
+      store.Set("x", isTemporary: true, value: HarloweValue.OfNumber(1));
+      using (store.PushTempScope())
+      using (store.PushTempScope())
+      {
+        store.Set("x", isTemporary: true, value: HarloweValue.OfNumber(99));
+      }
+      // The two-level-deep write should have landed in the root scope.
+      Assert.Equal(99, store.Get("x", isTemporary: true).AsNumber);
+    }
+
+    [Fact]
+    public void PushTempScope_Nested_LocalDeclarationDoesNotLeakUp()
+    {
+      var store = new HarloweVariableStore();
+      using (store.PushTempScope())
+      {
+        store.Set("a", isTemporary: true, value: HarloweValue.OfNumber(1));
+        using (store.PushTempScope())
+        {
+          // Fresh declaration at depth 2 — lives in the innermost scope.
+          store.Set("b", isTemporary: true, value: HarloweValue.OfNumber(2));
+          Assert.Equal(2, store.Get("b", isTemporary: true).AsNumber);
+        }
+        // Depth 2 scope popped. _b is gone.
+        Assert.Null(store.Get("b", isTemporary: true));
+        // _a (declared at depth 1) is still visible.
+        Assert.Equal(1, store.Get("a", isTemporary: true).AsNumber);
+      }
+    }
+
+    [Fact]
+    public void PushTempScope_BeginPassage_ClearsAllScopes()
+    {
+      var store = new HarloweVariableStore();
+      store.Set("x", isTemporary: true, value: HarloweValue.OfNumber(1));
+      var inner = store.PushTempScope();
+      store.Set("y", isTemporary: true, value: HarloweValue.OfNumber(2));
+
+      store.BeginPassage();
+      // Both temp vars cleared; the scope stack reset to a single empty root.
+      Assert.Null(store.Get("x", isTemporary: true));
+      Assert.Null(store.Get("y", isTemporary: true));
+
+      // Disposing the dangling inner-scope token after BeginPassage must not
+      // pop the new root (would leave the stack empty and break later Sets).
+      inner.Dispose();
+      store.Set("z", isTemporary: true, value: HarloweValue.OfNumber(3));
+      Assert.Equal(3, store.Get("z", isTemporary: true).AsNumber);
+    }
+
+    [Fact]
+    public void PushTempScope_Snapshot_CapturesEntireStack()
+    {
+      var store = new HarloweVariableStore();
+      store.Set("a", isTemporary: true, value: HarloweValue.OfNumber(1));
+      using (store.PushTempScope())
+      {
+        store.Set("b", isTemporary: true, value: HarloweValue.OfNumber(2));
+        var snap = store.Snapshot();
+
+        // Mutate after the snapshot.
+        store.Set("a", isTemporary: true, value: HarloweValue.OfNumber(99));
+        store.Set("b", isTemporary: true, value: HarloweValue.OfNumber(99));
+
+        store.Restore(snap);
+        Assert.Equal(1, store.Get("a", isTemporary: true).AsNumber);
+        Assert.Equal(2, store.Get("b", isTemporary: true).AsNumber);
+      }
+    }
   }
 }
