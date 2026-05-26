@@ -19,6 +19,8 @@ When a design question turns on how Twine/Twee/Harlowe is *supposed* to behave, 
 
 Use `gh api -H "Accept: application/vnd.github.raw" repos/<owner>/<repo>/contents/<path>` to fetch raw files — WebFetch has session limits. Distinguish authority levels in recommendations: the IFTF-maintained spec is closest to "official"; third-party compilers are popular but not authoritative.
 
+When quoting reference Harlowe's regex character classes (e.g. the `ws` pattern at `patterns.ts:63`) into C# XML doc comments, **do not paste the literal Unicode characters** — U+2028 (LINE SEPARATOR) and U+2029 (PARAGRAPH SEPARATOR) are treated as line breaks by the C# lexer, which silently truncates the surrounding `///` comment block and turns the trailing characters into stray code tokens (CS1519). Spell the code points out as text (`U+2028`, `U+202F`, etc.) instead.
+
 Real example: the `\::` body-content escape in `TweeWriter` looked like a normal Twee feature worth fixing symmetrically — checking the spec + Tweego + Extwee revealed it's a library-local extension nobody else implements, which flipped the recommendation from "fix the asymmetry" to "document and leave."
 
 ## Architecture
