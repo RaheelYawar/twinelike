@@ -371,6 +371,18 @@ namespace Harlowe.Runtime
       }
 
       // Re-run the enchantment pass (disenchant + re-enchant — idempotent).
+      //
+      // Ordering invariant: EnchantmentPass.Update runs BEFORE the
+      // PendingGoto check below. This is safe because the enchant pass
+      // structurally cannot touch PendingGoto — EnchantmentPass.Update
+      // takes (root, enchantments) with no MacroContext, and the enchant-
+      // path Changer.ApplyTo(container, source) likewise has no
+      // MacroContext parameter. So there is no surface through which an
+      // enchantment can mutate the click's queued navigation. If a future
+      // refactor threads MacroContext into either signature, this ordering
+      // would let enchant-time macro execution clobber the click's goto;
+      // EnchantmentPassCannotMutatePendingGoto in the test suite guards
+      // that regression vector.
       EnchantmentPass.Update(_liveRoot, _liveContext.Enchantments);
 
       // A (goto:) inside the deferred hook navigates now.

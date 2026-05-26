@@ -179,5 +179,33 @@ namespace Harlowe.Tests.Runtime.Macros
       // Nothing applied — the hook's content is untouched.
       Assert.IsType<RenderTextNode>(Assert.Single(hook.Children));
     }
+
+    [Fact]
+    public void EnchantmentPassCannotMutatePendingGoto_StructuralGuard()
+    {
+      // StorySession.DispatchEvent runs EnchantmentPass.Update BEFORE checking
+      // the deferred hook's PendingGoto. That ordering is only safe because
+      // EnchantmentPass.Update has no path to mutate MacroContext.PendingGoto:
+      //
+      //   - EnchantmentPass.Update(root, enchantments) takes no MacroContext.
+      //   - Changer.ApplyTo(container, source) — the enchant-path apply — also
+      //     takes no MacroContext (only Changer.Apply, used by the *render*
+      //     path, does).
+      //
+      // If a future refactor threads MacroContext into either signature, a
+      // changer running inside the enchant pass could clobber the click's
+      // queued (goto:) and the dispatch path would silently navigate to the
+      // wrong target. Pin both signatures here so that regression vector
+      // surfaces as a failing test instead of as a runtime bug.
+      var updateMethod = typeof(EnchantmentPass).GetMethod(nameof(EnchantmentPass.Update));
+      Assert.NotNull(updateMethod);
+      foreach (var p in updateMethod.GetParameters())
+        Assert.NotEqual(typeof(MacroContext), p.ParameterType);
+
+      var applyToMethod = typeof(Changer).GetMethod(nameof(Changer.ApplyTo));
+      Assert.NotNull(applyToMethod);
+      foreach (var p in applyToMethod.GetParameters())
+        Assert.NotEqual(typeof(MacroContext), p.ParameterType);
+    }
   }
 }
