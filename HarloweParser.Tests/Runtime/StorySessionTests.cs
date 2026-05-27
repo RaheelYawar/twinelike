@@ -181,6 +181,47 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
+    public void TurnsIdentifier_StartsAtOneOnFirstRender()
+    {
+      // Reference: turns is 1-indexed and counts the current passage. After
+      // the first render, turns == 1.
+      var session = new StorySession(OnePassage("(print: turns)"));
+      var r = session.Render();
+      Assert.Equal("1", r.Text);
+    }
+
+    [Fact]
+    public void TurnsIdentifier_IncrementsOnGoto()
+    {
+      var session = new StorySession(TwoPassages("(print: turns)", "(print: turns)"));
+      var first = session.Render();
+      Assert.Equal("1", first.Text);
+      var second = session.Goto("P2");
+      Assert.Equal("2", second.Text);
+    }
+
+    [Fact]
+    public void TurnIdentifier_SynonymOfTurns()
+    {
+      // Reference: `turns` and `turn` are aliases.
+      var session = new StorySession(OnePassage("(print: turn)"));
+      var r = session.Render();
+      Assert.Equal("1", r.Text);
+    }
+
+    [Fact]
+    public void TurnsIdentifier_NoStartPassage_IsZero()
+    {
+      // With no start passage configured, _currentPassage stays empty after
+      // construction and turns reports 0. (When a start passage exists,
+      // EnterPassage runs in the constructor — see the "starts at one"
+      // test above.)
+      var session = new StorySession(new Harlowe());
+      var v = ((IEvaluationContext)session).Turns;
+      Assert.Equal(0, v.AsNumber);
+    }
+
+    [Fact]
     public void PassageIdentifier_NameFieldMatchesCurrentPassage()
     {
       // passage's name entry is a datamap; (print: passage's name) round-trips

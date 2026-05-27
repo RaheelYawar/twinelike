@@ -2,10 +2,10 @@ namespace Harlowe.Runtime
 {
   /// <summary>
   /// Read-only view of session-level state that the evaluator needs to resolve
-  /// the built-in identifiers <c>time</c>, <c>visit</c>, <c>visits</c>, and
-  /// <c>passage</c>. Kept as a separate interface so the evaluator does not
-  /// take a hard dependency on <see cref="StorySession"/>; tests can provide a
-  /// static stub.
+  /// the built-in identifiers <c>time</c>, <c>visit</c>, <c>visits</c>,
+  /// <c>passage</c>, <c>turn</c>, and <c>turns</c>. Kept as a separate
+  /// interface so the evaluator does not take a hard dependency on
+  /// <see cref="StorySession"/>; tests can provide a static stub.
   /// </summary>
   public interface IEvaluationContext
   {
@@ -25,5 +25,16 @@ namespace Harlowe.Runtime
     /// <c>(history:)</c> macro.
     /// </summary>
     HarloweValue History { get; }
+
+    /// <summary>
+    /// Total number of passage transitions in the current session, as a
+    /// Number value. Counts the current passage — so the first passage's
+    /// render sees <c>turns = 1</c>, the second sees 2, etc. Zero before any
+    /// passage has been entered. Backs both <c>turn</c> and <c>turns</c>
+    /// identifiers (reference Harlowe treats them as synonyms — see the
+    /// <c>turns</c> getter in <c>ts/section.ts</c> and the matching one in
+    /// <c>ts/state.ts</c>).
+    /// </summary>
+    HarloweValue Turns { get; }
   }
 }

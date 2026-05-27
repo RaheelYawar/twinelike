@@ -359,6 +359,7 @@ namespace Harlowe.Tests.Runtime.Macros
       public HarloweValue Visits => HarloweValue.OfNumber(0);
       public HarloweValue Passage => HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>());
       public HarloweValue History { get; set; }
+      public HarloweValue Turns => HarloweValue.OfNumber(0);
     }
 
     [Fact]

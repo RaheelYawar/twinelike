@@ -137,6 +137,15 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
+    /// Total number of passage transitions in the current session, counting
+    /// the current one. <see cref="_undoStack"/> contains one snapshot per
+    /// past passage (pushed at the start of every <see cref="Goto"/>), so
+    /// the count plus the current-passage-is-live bit gives the total.
+    /// </summary>
+    public HarloweValue Turns =>
+      HarloweValue.OfNumber(_undoStack.Count + (string.IsNullOrEmpty(_currentPassage) ? 0 : 1));
+
+    /// <summary>
     /// Past passage names in visit order, oldest first, excluding the
     /// current passage. Backs the <c>(history:)</c> macro. The undo stack
     /// stores each snapshot's prior passage name, so iterating it
