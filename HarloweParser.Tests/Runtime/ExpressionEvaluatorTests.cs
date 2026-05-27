@@ -37,6 +37,7 @@ namespace Harlowe.Tests.Runtime
       public HarloweValue Visits { get; set; }
       public HarloweValue Passage { get; set; }
       public HarloweValue History { get; set; }
+      public HarloweValue Turns { get; set; }
     }
 
     private class StubInvoker : IMacroInvoker

@@ -76,6 +76,10 @@ namespace Harlowe.Runtime
         case "visits":
           _result = _context != null ? _context.Visits : HarloweValue.OfError("'visits' is unavailable outside a story session");
           break;
+        case "turn":
+        case "turns":
+          _result = _context != null ? _context.Turns : HarloweValue.OfError("'turns' is unavailable outside a story session");
+          break;
         case "passage":
           _result = _context != null ? _context.Passage : HarloweValue.OfError("'passage' is unavailable outside a story session");
           break;
