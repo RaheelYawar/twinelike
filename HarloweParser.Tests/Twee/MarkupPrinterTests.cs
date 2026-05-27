@@ -230,6 +230,66 @@ namespace Harlowe.Tests.Twee
       }));
 
     [Fact]
+    public void Binary_Of_RightAssociative_OmitsParensOnRightChild()
+    {
+      // For right-associative parents, the right child can drop parens at
+      // equal precedence — `name of (person of group)` prints as
+      // `name of person of group`, which re-parses to the same tree because
+      // `of` is right-associative.
+      var tree = new BinaryOpNode
+      {
+        Operator = "of",
+        Left = new IdentifierNode { Name = "name" },
+        Right = new BinaryOpNode
+        {
+          Operator = "of",
+          Left = new IdentifierNode { Name = "person" },
+          Right = new IdentifierNode { Name = "group" }
+        }
+      };
+      Assert.Equal("name of person of group", Print(tree));
+    }
+
+    [Fact]
+    public void Binary_Of_RightAssociative_KeepsParensOnLeftChild()
+    {
+      // The opposite shape `(name of person) of group` is NOT the natural
+      // right-assoc grouping, so the printer must add explicit parens around
+      // the left child to preserve the consumer's tree on round-trip.
+      var tree = new BinaryOpNode
+      {
+        Operator = "of",
+        Left = new BinaryOpNode
+        {
+          Operator = "of",
+          Left = new IdentifierNode { Name = "name" },
+          Right = new IdentifierNode { Name = "person" }
+        },
+        Right = new IdentifierNode { Name = "group" }
+      };
+      Assert.Equal("(name of person) of group", Print(tree));
+    }
+
+    [Fact]
+    public void Binary_Possessive_LeftAssociative_OmitsParensOnLeftChild()
+    {
+      // `'s` is left-associative — the OPPOSITE of `of`. The left child at
+      // equal precedence drops parens; the right child would need them.
+      var tree = new BinaryOpNode
+      {
+        Operator = "'s",
+        Left = new BinaryOpNode
+        {
+          Operator = "'s",
+          Left = new VariableRefNode { Name = "g", IsTemporary = false },
+          Right = new IdentifierNode { Name = "person" }
+        },
+        Right = new IdentifierNode { Name = "name" }
+      };
+      Assert.Equal("$g's person's name", Print(tree));
+    }
+
+    [Fact]
     public void Binary_MultiWord_Is_Not_In()
       => Assert.Equal("$x is not in $arr", Print(new BinaryOpNode
       {

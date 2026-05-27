@@ -389,6 +389,42 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void Of_RightAssociative_ChainGroupsRightward()
+    {
+      // Reference Harlowe marks the `belongingOperator` row rightAssociative
+      // in ts/twinescript/runner.ts's precedenceTable. So `name of person of group`
+      // parses as `name of (person of group)`, NOT `(name of person) of group` —
+      // semantically matches "the name property of (the person property of group)".
+      var b = Assert.IsType<BinaryOpNode>(ParseExpr("name of person of group"));
+      Assert.Equal("of", b.Operator);
+      Assert.Equal("name", ((IdentifierNode)b.Left).Name);
+
+      // Right child should ITSELF be `of`, with `person` on left and `group` on right.
+      var inner = Assert.IsType<BinaryOpNode>(b.Right);
+      Assert.Equal("of", inner.Operator);
+      Assert.Equal("person", ((IdentifierNode)inner.Left).Name);
+      Assert.Equal("group", ((IdentifierNode)inner.Right).Name);
+    }
+
+    [Fact]
+    public void Possessive_LeftAssociative_ChainGroupsLeftward()
+    {
+      // `'s` is the syntactic inverse of `of` but groups the other way:
+      // `$g's person's name` parses as `($g's person)'s name`. Verifies the
+      // asymmetry is preserved (we did NOT accidentally flip `'s` along with
+      // `of`).
+      var b = Assert.IsType<BinaryOpNode>(ParseExpr("$g's person's name"));
+      Assert.Equal("'s", b.Operator);
+      Assert.Equal("name", ((IdentifierNode)b.Right).Name);
+
+      // Left child should ITSELF be `'s`, with `$g` on left and `person` on right.
+      var inner = Assert.IsType<BinaryOpNode>(b.Left);
+      Assert.Equal("'s", inner.Operator);
+      Assert.Equal("g", ((VariableRefNode)inner.Left).Name);
+      Assert.Equal("person", ((IdentifierNode)inner.Right).Name);
+    }
+
+    [Fact]
     public void Possessive_ParsedAsBinaryOp()
     {
       // $a's name → BinaryOp('s, $a, name)

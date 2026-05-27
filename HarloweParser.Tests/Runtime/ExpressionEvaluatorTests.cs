@@ -673,6 +673,16 @@ namespace Harlowe.Tests.Runtime
     public void Property_Datamap_Chained()
       => Assert.Equal(10, EvalP("(dm: \"p\", (dm: \"hp\", 10))'s p's hp").AsNumber);
 
+    [Fact]
+    public void Property_Of_ChainedRightAssoc_NestedDatamap()
+    {
+      // `name of person of group` with right-associative `of` reads as
+      // `name of (person of group)`. `group` is a datamap whose "person"
+      // entry is itself a datamap whose "name" entry is the answer.
+      var v = EvalP("name of person of (dm: \"person\", (dm: \"name\", \"Bob\"))");
+      Assert.Equal("Bob", v.AsString);
+    }
+
     // Array
 
     [Fact]

@@ -120,6 +120,9 @@ namespace Harlowe.Tests.Twee
     [Fact] public void Expr_PrecedenceParens() => AssertExprRoundTripStable("($a + $b) * $c");
     [Fact] public void Expr_PossessiveChain() => AssertExprRoundTripStable("$arr's name");
     [Fact] public void Expr_OfChain() => AssertExprRoundTripStable("name of $arr");
+    [Fact] public void Expr_OfChainRightAssoc() => AssertExprRoundTripStable("name of person of group");
+    [Fact] public void Expr_PossessiveChainLeftAssoc() => AssertExprRoundTripStable("$g's person's name");
+    [Fact] public void Expr_Modulo() => AssertExprRoundTripStable("$a % $b");
     [Fact] public void Expr_PossessiveOrdinal() => AssertExprRoundTripStable("$arr's 1st");
     [Fact] public void Expr_PossessiveNthLast() => AssertExprRoundTripStable("$arr's 2ndlast");
     [Fact] public void Expr_PossessiveLast() => AssertExprRoundTripStable("$arr's last");
