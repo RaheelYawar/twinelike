@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using Harlowe.Ast.Body;
 using Harlowe.Ast.Expression;
+using Harlowe.Parsing;
 
 namespace Harlowe.Twee
 {
@@ -53,7 +54,7 @@ namespace Harlowe.Twee
       { "is a", 10 }, { "is not a", 10 }, { "matches", 10 }, { "does not match", 10 },
       { "<", 9 }, { "<=", 9 }, { ">=", 9 }, { ">", 9 },
       { "+", 8 }, { "-", 8 },
-      { "*", 7 }, { "/", 7 },
+      { "*", 7 }, { "/", 7 }, { "%", 7 },
       { "of", 4 },
       { "'s", 3 },
     };
@@ -231,7 +232,7 @@ namespace Harlowe.Twee
     public void Visit(BinaryOpNode node)
     {
       int ourOrder = BinaryOps[node.Operator];
-      EmitBinaryChild(node.Left, ourOrder, isRight: false);
+      EmitBinaryChild(node.Left, node.Operator, ourOrder, isRight: false);
       if (node.Operator == "'s")
       {
         _sb.Append("'s ");
@@ -240,7 +241,7 @@ namespace Harlowe.Twee
       {
         _sb.Append(' ').Append(node.Operator).Append(' ');
       }
-      EmitBinaryChild(node.Right, ourOrder, isRight: true);
+      EmitBinaryChild(node.Right, node.Operator, ourOrder, isRight: true);
     }
 
     /// <summary>
@@ -396,16 +397,33 @@ namespace Harlowe.Twee
 
     /// <summary>
     /// Wraps a binary child in parens if dropping them would change how the
-    /// printed form re-parses. Left-side: child needs parens iff its operator
-    /// is strictly looser-binding (greater order) than the parent. Right-side:
-    /// equal-order needs parens too because left-associativity would otherwise
-    /// re-group it.
+    /// printed form re-parses. The paren rule depends on the PARENT's
+    /// associativity:
+    ///
+    /// <list type="bullet">
+    /// <item>Left-associative parent (the common case): left-side child can
+    /// drop parens at equal precedence (left-grouping is implicit), right-
+    /// side child needs parens at equal precedence so it doesn't get
+    /// re-grouped into the left.</item>
+    /// <item>Right-associative parent (currently <c>of</c>): right-side
+    /// child can drop parens at equal precedence (right-grouping is
+    /// implicit), left-side child needs parens at equal precedence to
+    /// preserve its explicit grouping.</item>
+    /// </list>
+    ///
+    /// In all cases, a strictly-looser child (greater order) always needs
+    /// parens — the parent must visibly bind tighter.
     /// </summary>
-    private void EmitBinaryChild(IExpressionNode child, int ourOrder, bool isRight)
+    private void EmitBinaryChild(IExpressionNode child, string parentOp, int ourOrder, bool isRight)
     {
       if (child is BinaryOpNode bin && BinaryOps.TryGetValue(bin.Operator, out int childOrder))
       {
-        bool needsParens = isRight ? childOrder >= ourOrder : childOrder > ourOrder;
+        bool parentIsRightAssoc = HarloweExpressionParser.RightAssociativeOps.Contains(parentOp);
+        // Equal-precedence side that does NOT match the parent's
+        // associativity needs explicit parens.
+        bool equalSideNeedsParens = parentIsRightAssoc ? !isRight : isRight;
+        bool needsParens = childOrder > ourOrder
+                           || (childOrder == ourOrder && equalSideNeedsParens);
         if (needsParens)
         {
           _sb.Append('(');

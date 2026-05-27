@@ -58,6 +58,23 @@ namespace Harlowe.Parsing
     };
 
     /// <summary>
+    /// Binary operators that bind to the right when chained at the same
+    /// precedence — so <c>a of b of c</c> parses as <c>a of (b of c)</c>,
+    /// not <c>(a of b) of c</c>. Mirrors reference Harlowe's precedence
+    /// table in <c>ts/twinescript/runner.ts</c>, which marks the
+    /// <c>belongingProperty</c>/<c>belongingOperator</c> row as
+    /// <c>rightAssociative</c>. <c>'s</c> (the possessive sibling of
+    /// <c>of</c>) is intentionally NOT in this set — possessive chains group
+    /// leftward (<c>$cake's name's len</c> = <c>($cake's name)'s len</c>),
+    /// which makes the two operators produce mirror-image trees with the
+    /// same evaluated value.
+    /// </summary>
+    public static readonly HashSet<string> RightAssociativeOps = new HashSet<string>
+    {
+      "of",
+    };
+
+    /// <summary>
     /// Clause keywords that turn the surrounding expression into a lambda. Live
     /// at precedence 15 (between <c>to</c>/<c>into</c> and <c>-type</c>) but are
     /// not modeled as binary operators because the construct has up to three
@@ -265,7 +282,13 @@ namespace Harlowe.Parsing
 
         cursor.Advance();
         // RHS is a sub-expression — assignment is never allowed there.
-        var right = ParseBinary(cursor, order - 1, allowAssignmentAtTop: false);
+        // Right-associative operators (currently just `of`) pull equal-
+        // precedence siblings into the RHS subtree: passing `order` instead
+        // of `order - 1` lets a chained `of` be claimed by the recursive
+        // call. Matches reference Harlowe's rightAssociative row in
+        // ts/twinescript/runner.ts.
+        int rhsMaxOrder = RightAssociativeOps.Contains(t.Value) ? order : order - 1;
+        var right = ParseBinary(cursor, rhsMaxOrder, allowAssignmentAtTop: false);
         if (t.Value == "into" && IsPropertyAccess(right))
           throw new HarloweParseException(
             $"property assignment ('... into $x's ...') is not supported; assign to a whole variable instead",
