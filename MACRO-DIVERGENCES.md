@@ -13,7 +13,7 @@ for the save-model slice (which lands `(history:)` semantics).
 ## Counts
 
 - **High severity (5)**: silent wrong result or breaks documented Harlowe idioms.
-- **Medium severity (8)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
+- **Medium severity (10)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
 - **Low severity (1)**: documented as deliberate or marginal.
 
 ---
@@ -206,11 +206,54 @@ for the save-model slice (which lands `(history:)` semantics).
 - **User-visible**: The reference's documented example errors in ours;
   off-centre alignment is unreachable.
 
+### 14. `(sorted:)` rejects mixed number+string input
+
+- **Ours**: Requires every value to share the first value's kind; a mixed-kind
+  input errors with "(sorted:) can't compare values of different types".
+  Numbers sort numerically, strings via `string.CompareOrdinal`. The docstring
+  claims "Matches stock Harlowe 3.3.8" — that claim is **false** for the
+  mixed-type case. See `HarloweParser\Runtime\Macros\SortedMacro.cs` (the
+  `item.Kind != kind` check). (The ordinal-vs-alphanumeric string ordering is a
+  separate, deliberately-documented divergence — see CLAUDE.md.)
+- **Reference**: Sorts mixed arrays, numbers ahead of strings. The doc's own
+  example `(sorted: ...$a)` over `(a:'A','C','E','G',2,1)` produces
+  `(a:1,2,"A","C","E","G")`. Also accepts an optional leading `via` key-lambda
+  (`(sorted: via its name, ...$creatures)`), which ours doesn't implement at
+  all. See `ts/macrolib/datastructures.ts` (the `(sorted: [Lambda], ...Any)`
+  signature and its mixed-value example).
+- **Trigger**: `(sorted: 'C', 2, 'A', 1)`
+- **User-visible**: The reference's own documented mixed-value example errors in
+  ours; any array mixing numbers and strings can't be sorted.
+
+### 15. `(folded:)` ignores a `where` filter clause
+
+- **Ours**: `EvalFold` honours only `making` + `via` and never consults
+  `WhereClause`. Worse, the parser can't even produce a fold lambda carrying a
+  `where`: `ParseLambdaTail` requires `via` immediately after `making _acc` and
+  doesn't accept a trailing `where`, so
+  `(folded: _item making _total via _total + _item where _item > 0, …)` leaves
+  the `where` stranded and `ParseBinary` re-enters `ParseLambdaTail` with the
+  lambda as `leftAsParam`, throwing "lambda parameter must be a variable". See
+  `HarloweParser\Runtime\LambdaInvoker.cs` (`EvalFold`) and
+  `HarloweParser\Parsing\HarloweExpressionParser.cs` (`ParseLambdaTail` clause
+  ordering). (This is the missing-`where` aspect; the lambda family's arg-shape
+  and `pos` binding were verified separately — see Confirmed non-divergences.)
+- **Reference**: A `where` clause filters the fold — a filtered item leaves the
+  accumulator unchanged (the lambda returns `null` and the reduce keeps the
+  prior `making` value). `(folded: _item making _total via _total + _item where
+  _item > 0, 0, ...$arr)` sums only the positive items. Note: as of 3.3.6 the
+  `where` clause does not apply to the first (seed) value. See
+  `ts/macrolib/datastructures.ts` (the `(folded:)` doc's "where" paragraph and
+  the `null`-filter branch in its `reduce`).
+- **Trigger**: `(folded: _item making _total via _total + _item where _item > 0, 0, ...$arr)`
+- **User-visible**: A `where`-filtered fold (a documented idiom) raises an
+  in-prose parse error in ours instead of summing the filtered subset.
+
 ---
 
 ## Low-severity divergences
 
-### 14. `(random:)` errors on fractional bounds
+### 16. `(random:)` errors on fractional bounds
 
 - **Ours**: `TryAsBound` rejects fractional values explicitly
   (`d != Math.Truncate(d) → error`). See
@@ -240,7 +283,8 @@ something changes.
 - `(text-color:)` / `(text-colour:)` / `(color:)` / `(colour:)` family
 - `(text-style:)` — reset semantics (`"none"`) and unknown-name error path
 - Lambda-consuming family (`(find:)`, `(altered:)`, `(folded:)`, etc.) — arg
-  shape and `pos` binding (already verified in the lambda-pos slice)
+  shape and `pos` binding (already verified in the lambda-pos slice). Caveat:
+  `(folded:)`'s missing `where`-clause filter is a real divergence — see #15.
 - `(history:)` — known divergence filed for save-model slice in
   `SAVE-LOAD-PLAN.md`; not re-flagged here
 
@@ -261,9 +305,11 @@ size:
 - `(for:)` zero-item + `(loop:)` alias (#10) — `MinArgs` change + register.
 - `(num:)` semantics + `(number:)` alias (#12) — refactor + register.
 - `(align:)` regex-based parsing (#13) — replace the four-string lookup.
-- `(random:)` fractional truncation (#14) — relax the `TryAsBound` check.
+- `(sorted:)` mixed-type ordering (#14) — relax the `item.Kind != kind` check;
+  sort numbers ahead of strings in one comparer.
+- `(random:)` fractional truncation (#16) — relax the `TryAsBound` check.
 
-Total: ~9 small slices, sized appropriately for a single PR each, no shared
+Total: ~10 small slices, sized appropriately for a single PR each, no shared
 architecture.
 
 **Medium architectural touches** (interact with deferred slices):
@@ -275,6 +321,9 @@ architecture.
   TODO) or just expand the macro to parse measurement strings inline.
 - `(replace:)`/`(append:)`/`(prepend:)` variadic (#11) — small but touches
   `RevisionChangers.Build` interface for multiple targets.
+- `(folded:)` `where`-clause support (#15) — `ParseLambdaTail` must accept a
+  trailing `where` after `making … via …`, and `EvalFold` must skip filtered
+  items (keep the prior accumulator), excluding the seed value per 3.3.6.
 
 **Blocked on deferred slices**:
 
