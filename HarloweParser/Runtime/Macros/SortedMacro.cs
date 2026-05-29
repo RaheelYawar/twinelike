@@ -4,18 +4,23 @@ namespace Harlowe.Runtime.Macros
 {
   /// <summary>
   /// <c>(sorted: values...)</c>. Returns a new array of the given values in
-  /// ascending order — numerically for numbers, ordinally for strings. The
-  /// input must be all numbers or all strings; a mixed-kind input, or any
-  /// value that isn't a number or string, surfaces as an in-prose error.
+  /// ascending order — numerically for numbers, ordinally for strings.
   ///
   /// <para>
-  /// Matches stock Harlowe 3.3.8: <c>(sorted:)</c> takes only values, no
-  /// lambda. Key-based sorting is done by composing with <c>(altered:)</c>.
+  /// Divergences from reference Harlowe (tracked under the <c>(sorted:)</c>
+  /// entry in <c>MACRO-DIVERGENCES.md</c>): reference sorts a mix of numbers
+  /// and strings (numbers first) and accepts an optional leading <c>via</c>
+  /// key-lambda; ours rejects mixed-kind input with an in-prose error and
+  /// implements no lambda form — key-based sorting is done by composing with
+  /// <c>(altered:)</c>. String ordering is ordinal rather than reference's
+  /// alphanumeric/locale order; that one is deliberate, for the deterministic,
+  /// culture-independent results a cross-platform engine consumer needs.
+  /// </para>
+  ///
+  /// <para>
   /// A single trailing array arg is auto-iterated (see <see cref="FindMacro"/>
   /// for the rationale), so <c>(sorted: (a: 3, 1, 2))</c> sorts the array's
-  /// contents and an empty array sorts to an empty array. String ordering is
-  /// ordinal — deterministic and culture-independent, which a cross-platform
-  /// engine consumer needs.
+  /// contents and an empty array sorts to an empty array.
   /// </para>
   /// </summary>
   public class SortedMacro : IMacro
