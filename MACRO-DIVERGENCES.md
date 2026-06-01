@@ -7,7 +7,7 @@ between our macro implementations and reference Harlowe's, scoped to
 divergences are skipped.
 
 Already-fixed or already-filed items are excluded from this list — see
-`CLAUDE.md` `Known TODOs` for the standing tracking list and `SAVE-LOAD-PLAN.md`
+`TODO.md` `Known TODOs` for the standing tracking list and `SAVE-LOAD-PLAN.md`
 for the save-model slice (which lands `(history:)` semantics).
 
 ## Counts

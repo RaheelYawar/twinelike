@@ -120,8 +120,8 @@ These block progress. Each needs an explicit answer before the slice starts.
 - `HarloweParser/Runtime/Macros/StandardMacros.cs` — register the four new
   macros.
 - `HarloweParser/Twee/JsonWriter.cs` — add `WriteRaw(string)`; minor.
-- `CLAUDE.md` — strike the `(history:)` TODO entry; document the Moment
-  timeline as the fifth load-bearing pivot in `Status`.
+- `TODO.md` — strike the `(history:)` TODO entry. `CLAUDE.md` — document
+  the Moment timeline as the fifth load-bearing pivot in `Status`.
 
 **New files:**
 - `HarloweParser/Runtime/Moment.cs` — the Moment data class (public fields
@@ -201,9 +201,9 @@ Each step is a landable, test-green commit.
    against reference Harlowe save blobs (one fixture file). ~100 LoC.
 
 8. **Docs.** Update CLAUDE.md: add Moment-timeline pivot to the
-   load-bearing list, strike the `(history:)` TODO, add a "Save/load"
-   section under Architecture documenting the `ISaveStorage` contract for
-   consumers.
+   load-bearing list and add a "Save/load" section under Architecture
+   documenting the `ISaveStorage` contract for consumers. Strike the
+   `(history:)` TODO from `TODO.md`.
 
 Total roughly 1500 LoC + tests, split into 7–8 commits.
 

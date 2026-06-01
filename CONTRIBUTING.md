@@ -19,7 +19,8 @@ Before opening a non-trivial PR, skim:
 
 - [`README.md`](./README.md) — public-facing overview, engine-integration story, feature matrix.
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) — full architectural tour with diagrams. Split into integrator-facing (Part 1) and contributor-facing (Part 2) halves.
-- [`CLAUDE.md`](./CLAUDE.md) — terse contributor notes: code conventions, file map, error policy, current roadmap. Originally written as context for AI assistants, but useful to humans too.
+- [`CLAUDE.md`](./CLAUDE.md) — terse contributor notes: code conventions, file map, error policy. Originally written as context for AI assistants, but useful to humans too.
+- [`TODO.md`](./TODO.md) — open bugs, deliberate divergences, and the candidate-next-slices roadmap. See also [`MACRO-DIVERGENCES.md`](./MACRO-DIVERGENCES.md) for per-macro behavioural gaps.
 
 ## Code conventions
 
