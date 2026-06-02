@@ -54,6 +54,16 @@ namespace Harlowe.Runtime
     /// <summary>Text alignment, or <c>null</c> if unset. Set by <c>(align:)</c>.</summary>
     public TextAlignment? Alignment;
 
+    /// <summary>
+    /// For an <em>off-centre</em> <c>(align:)</c> arrow (e.g. <c>"=&gt;&lt;=="</c>),
+    /// the margin-left percentage (0–50) that shifts the centred block; <c>null</c>
+    /// for true centre (the balanced <c>"=&gt;&lt;="</c>) and for every non-centre
+    /// alignment. Only meaningful alongside <see cref="TextAlignment.Center"/>.
+    /// Mirrors reference Harlowe, which renders off-centre alignment as a
+    /// calibrated <c>margin-left</c> on a half-width centred block.
+    /// </summary>
+    public int? AlignCenterOffsetPercent;
+
     /// <summary>Effect names from variadic <c>(text-style:)</c> that don't have a primitive flag — order preserved for diagnostic clarity; engines may ignore unsupported entries. <c>readonly</c> so the non-null invariant is enforced at the type system: callers mutate via <c>Add</c>/<c>Clear</c>/index, never by reassigning the field.</summary>
     public readonly List<TextEffect> Effects = new List<TextEffect>();
 
@@ -62,7 +72,7 @@ namespace Harlowe.Runtime
       !Bold && !Italic && !Underline && !Strikethrough &&
       Color == null && BackgroundColor == null && BackgroundImage == null &&
       FontFamily == null && FontSize == null &&
-      Opacity == null && Alignment == null &&
+      Opacity == null && Alignment == null && AlignCenterOffsetPercent == null &&
       (Effects == null || Effects.Count == 0);
 
     public override bool Equals(object obj)
@@ -78,7 +88,8 @@ namespace Harlowe.Runtime
           || FontFamily != other.FontFamily
           || FontSize != other.FontSize
           || Opacity != other.Opacity
-          || Alignment != other.Alignment)
+          || Alignment != other.Alignment
+          || AlignCenterOffsetPercent != other.AlignCenterOffsetPercent)
         return false;
       return EffectsEqual(Effects, other.Effects);
     }
@@ -97,6 +108,7 @@ namespace Harlowe.Runtime
       h = (h * 397) ^ (FontSize?.GetHashCode() ?? 0);
       h = (h * 397) ^ Opacity.GetHashCode();
       h = (h * 397) ^ Alignment.GetHashCode();
+      h = (h * 397) ^ AlignCenterOffsetPercent.GetHashCode();
       if (Effects != null)
       {
         h = (h * 397) ^ Effects.Count;
@@ -137,6 +149,7 @@ namespace Harlowe.Runtime
         FontSize = FontSize,
         Opacity = Opacity,
         Alignment = Alignment,
+        AlignCenterOffsetPercent = AlignCenterOffsetPercent,
       };
       for (int i = 0; i < Effects.Count; i++) copy.Effects.Add(Effects[i]);
       return copy;

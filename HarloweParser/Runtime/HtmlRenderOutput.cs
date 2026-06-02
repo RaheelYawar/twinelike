@@ -237,6 +237,14 @@ namespace Harlowe.Runtime
       if (style.FontSize != null) AppendCss(sb, ref first, "font-size", style.FontSize, preEscaped: false);
       if (style.Opacity != null) AppendCss(sb, ref first, "opacity", style.Opacity.Value.ToString("R", CultureInfo.InvariantCulture), preEscaped: true);
       if (style.Alignment != null) AppendCss(sb, ref first, "text-align", CssAlignment(style.Alignment.Value), preEscaped: true);
+      if (style.Alignment == TextAlignment.Center && style.AlignCenterOffsetPercent != null)
+      {
+        // Off-centre alignment: a half-width centred block shifted left by the
+        // calibrated margin (mirrors reference Harlowe's off-centre arrows).
+        AppendCss(sb, ref first, "max-width", "50%", preEscaped: true);
+        AppendCss(sb, ref first, "margin-left", style.AlignCenterOffsetPercent.Value.ToString(CultureInfo.InvariantCulture) + "%", preEscaped: true);
+        AppendCss(sb, ref first, "display", "block", preEscaped: true);
+      }
       if (style.Bold) AppendCss(sb, ref first, "font-weight", "bold", preEscaped: true);
       if (style.Italic) AppendCss(sb, ref first, "font-style", "italic", preEscaped: true);
       if (style.Underline || style.Strikethrough)

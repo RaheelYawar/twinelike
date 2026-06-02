@@ -183,6 +183,11 @@ namespace Harlowe.Tests.Runtime.Macros
     [InlineData("==>", TextAlignment.Right)]
     [InlineData("=><=", TextAlignment.Center)]
     [InlineData("<==>", TextAlignment.Justify)]
+    // Arbitrary-length arrows map by shape, matching the reference regex.
+    [InlineData("<======", TextAlignment.Left)]
+    [InlineData("======>", TextAlignment.Right)]
+    [InlineData("<=====>", TextAlignment.Justify)]
+    [InlineData("==><==", TextAlignment.Center)]   // balanced (longer) → centre
     public void Align_ArrowSyntax_MapsToEnum(string arrow, TextAlignment expected)
     {
       var buf = RenderRaw("(align: \"" + arrow + "\")[hi]");
@@ -190,9 +195,39 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
+    public void Align_BalancedCentre_HasNoOffset()
+    {
+      var buf = RenderRaw("(align: \"=><=\")[hi]");
+      var style = FirstPushedStyle(buf);
+      Assert.Equal(TextAlignment.Center, style.Alignment);
+      Assert.Null(style.AlignCenterOffsetPercent);
+    }
+
+    [Theory]
+    // The documented example "=><==" leans left of centre.
+    [InlineData("=><==", 17)]   // round(1/3*50)
+    [InlineData("==><=", 33)]   // round(2/3*50)
+    public void Align_OffCentre_CarriesCalibratedMarginPercent(string arrow, int expectedPercent)
+    {
+      var buf = RenderRaw("(align: \"" + arrow + "\")[hi]");
+      var style = FirstPushedStyle(buf);
+      Assert.Equal(TextAlignment.Center, style.Alignment);
+      Assert.Equal(expectedPercent, style.AlignCenterOffsetPercent);
+    }
+
+    [Fact]
+    public void Align_DocumentedOffCentreExample_DoesNotError()
+    {
+      // Reference's own usage example — used to error in ours.
+      var buf = RenderRaw("(align: \"=><==\")[hi]");
+      Assert.Equal(TextAlignment.Center, FirstPushedStyle(buf).Alignment);
+    }
+
+    [Fact]
     public void Align_UnknownArrow_EmitsError()
     {
-      var buf = RenderRaw("(align: \"==><==\")[hi]");
+      // "===" has no direction marker — rejected by the arrow regex.
+      var buf = RenderRaw("(align: \"===\")[hi]");
       AssertError(buf, "alignment");
     }
 

@@ -13,7 +13,7 @@ for the save-model slice (which lands `(history:)` semantics).
 ## Counts
 
 - **High severity (3 active, 2 fixed)**: silent wrong result or breaks documented Harlowe idioms.
-- **Medium severity (5 active, 5 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
+- **Medium severity (4 active, 6 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
 - **Low severity (0 active, 1 fixed)**: documented as deliberate or marginal.
 
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
@@ -263,7 +263,17 @@ Registered under both `num` and `number`. (One JS edge deliberately skipped:
   `(num: 5)` is a type error in reference but a passthrough in ours.
   `(number:)` is unknown-macro in ours.
 
-### 13. `(align:)` only recognises four arrow forms
+### 13. `(align:)` only recognises four arrow forms — ✅ FIXED (2026-06-02)
+
+**Resolved.** `AlignMacro` now validates arrows with reference's regex
+`^(==+>|<=+|=+><=+|<==+>)$`, so any-length arrows work and map by shape to
+left/right/centre/justify. Off-centre centre arrows (e.g. `=><==`, `==><=`) carry
+a calibrated margin-left percentage in the new `StyleSpec.AlignCenterOffsetPercent`
+(reference's `round(centerIndex / (length - 2) * 50)`; the balanced 25% case is
+true centre and leaves it null); `HtmlRenderOutput` renders off-centre as a
+half-width centred block with `margin-left`/`max-width`/`display:block`. See
+`AlignMacro.cs`, `StyleSpec.cs`, `HtmlRenderOutput.cs`, and the `Align_*` /
+`OffCentreAlignment_*` tests. Original finding below.
 
 - **Ours**: Recognises exactly four spellings: `<==`, `==>`, `=><=`, `<==>`.
   Off-centre and longer arrows error (acknowledged in code comment). See
@@ -384,7 +394,7 @@ size:
 - ~~`(text:)`/`(string:)` variadic + alias (#9) — minor refactor + register.~~ ✅ done.
 - ~~`(for:)` zero-item + `(loop:)` alias (#10) — `MinArgs` change + register.~~ ✅ done.
 - ~~`(num:)` semantics + `(number:)` alias (#12) — refactor + register.~~ ✅ done.
-- `(align:)` regex-based parsing (#13) — replace the four-string lookup.
+- ~~`(align:)` regex-based parsing (#13) — replace the four-string lookup.~~ ✅ done.
 - `(sorted:)` mixed-type ordering (#14) — relax the `item.Kind != kind` check;
   sort numbers ahead of strings in one comparer.
 - ~~`(random:)` fractional truncation (#16) — relax the `TryAsBound` check.~~ ✅ done.

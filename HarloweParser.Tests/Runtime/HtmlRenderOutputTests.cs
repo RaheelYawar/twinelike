@@ -430,6 +430,30 @@ namespace Harlowe.Tests.Runtime
       Assert.Contains("text-align: " + cssValue + ";", buf.Text);
     }
 
+    [Fact]
+    public void OffCentreAlignment_EmitsMarginAndMaxWidth()
+    {
+      var (buf, sink) = NewSink();
+      sink.PushStyle(new StyleSpec { Alignment = TextAlignment.Center, AlignCenterOffsetPercent = 17 });
+      sink.Text("x");
+      sink.PopStyle();
+      Assert.Contains("text-align: center;", buf.Text);
+      Assert.Contains("margin-left: 17%;", buf.Text);
+      Assert.Contains("max-width: 50%;", buf.Text);
+      Assert.Contains("display: block;", buf.Text);
+    }
+
+    [Fact]
+    public void BalancedCentreAlignment_HasNoMargin()
+    {
+      var (buf, sink) = NewSink();
+      sink.PushStyle(new StyleSpec { Alignment = TextAlignment.Center });
+      sink.Text("x");
+      sink.PopStyle();
+      Assert.Contains("text-align: center;", buf.Text);
+      Assert.DoesNotContain("margin-left", buf.Text);
+    }
+
     // --- v3.1: effects ---
 
     [Fact]
