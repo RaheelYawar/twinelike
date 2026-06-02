@@ -197,12 +197,22 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
-    public void Else_AfterIntervening_Set_Skipped()
+    public void Else_AfterIntervening_Set_Errors()
     {
-      // (set:) resets LastConditional, so a following (else:) sees no
-      // preceding conditional and renders nothing.
+      // (set:) resets the conditional pairing, so a following (else:) has
+      // nothing to chain from and surfaces a structural error (matching
+      // reference's "There's nothing before this to do (else:) with.").
       var h = Render("(if: false)[A](set: $x to 1)(else:)[B]");
-      Assert.Equal(string.Empty, h.Buf.Text);
+      Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+      Assert.DoesNotContain("B", h.Buf.Text);
+    }
+
+    [Fact]
+    public void Else_StrayWithNoPrecedingConditional_Errors()
+    {
+      var h = Render("(else:)[B]");
+      Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+      Assert.DoesNotContain("B", h.Buf.Text);
     }
 
     [Fact]

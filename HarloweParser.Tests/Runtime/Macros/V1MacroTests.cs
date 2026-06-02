@@ -158,11 +158,13 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
-    public void Else_WithNoPrecedingConditional_DoesNotRender()
+    public void Else_WithNoPrecedingConditional_Errors()
     {
+      // A stray (else:) with nothing before it is a structural mistake and
+      // surfaces an in-prose error (matching reference Harlowe), rather than
+      // silently no-opping.
       var (reg, ctx) = Setup();
-      var v = Call(reg, ctx, "else");
-      Assert.False(v.AsBool);
+      Assert.True(Call(reg, ctx, "else").IsError);
     }
 
     // goto -------------------------------------------------------------------

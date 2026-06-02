@@ -13,7 +13,7 @@ for the save-model slice (which lands `(history:)` semantics).
 ## Counts
 
 - **High severity (3 active, 2 fixed)**: silent wrong result or breaks documented Harlowe idioms.
-- **Medium severity (10)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
+- **Medium severity (9 active, 1 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
 - **Low severity (1)**: documented as deliberate or marginal.
 
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
@@ -124,7 +124,15 @@ conditional surfaces an in-prose error. See `ElseIfMacro.cs`,
 
 ## Medium-severity divergences
 
-### 6. `(else:)` silently no-ops with no preceding conditional
+### 6. `(else:)` silently no-ops with no preceding conditional — ✅ FIXED (2026-06-01)
+
+**Resolved.** `ElseMacro` now returns an in-prose error
+("There's nothing before this to do (else:) with.") when `LastConditional` is
+null — a stray `(else:)`, or one after an intervening non-conditional macro that
+reset the pairing — instead of silently hiding the hook. Matches reference
+Harlowe's "lastHookShown === undefined" check. (`(else-if:)` already shipped with
+the analogous error in #2.) See `ElseMacro.cs` and the `Else_*Errors` tests.
+Original finding below.
 
 - **Ours**: `ElseMacro` returns `render = (LastConditional == false)`.
   `LastConditional` is `bool?` defaulting to null; `null == false` is false,
@@ -322,7 +330,7 @@ size:
 
 - ~~`(goto:)` validation (#1) — one method, one branch.~~ ✅ done.
 - ~~`(elseif:)` registration (#2) — new macro class + register call.~~ ✅ done.
-- `(else:)` stray-use error (#6) — one branch in `ElseMacro`.
+- ~~`(else:)` stray-use error (#6) — one branch in `ElseMacro`.~~ ✅ done.
 - `(dm:)` duplicate-key error (#8) — one branch in `DmMacro`.
 - `(text:)`/`(string:)` variadic + alias (#9) — minor refactor + register.
 - `(for:)` zero-item + `(loop:)` alias (#10) — `MinArgs` change + register.

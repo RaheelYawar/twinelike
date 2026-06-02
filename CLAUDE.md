@@ -83,7 +83,7 @@ Moved to `TODO.md` — open bugs and deliberate divergences (Known TODOs) plus t
 
 ## Status
 
-**v3.1 + divergence-audit pass shipped, 1311 tests passing.** Full per-version history is in `git log` (commit messages tagged by slice). The audit pass (against `references/harlowe-branch-default.zip`) closed nine concrete divergences (hook-scoped temp variables, `=` as `to`, `%` modulo, polymorphic `+`/`-`, lambda `pos` + `str` alias, `turn`/`turns` identifier, `incorrectOperator` hints, right-associative `of`) and filed the architectural-scale remainder in `TODO.md`. The first compatibility fixes from that backlog — `(else-if:)`/`(elseif:)` registration (#2) and `(goto:)` target validation (#1) — have since landed.
+**v3.1 + divergence-audit pass shipped, 1312 tests passing.** Full per-version history is in `git log` (commit messages tagged by slice). The audit pass (against `references/harlowe-branch-default.zip`) closed nine concrete divergences (hook-scoped temp variables, `=` as `to`, `%` modulo, polymorphic `+`/`-`, lambda `pos` + `str` alias, `turn`/`turns` identifier, `incorrectOperator` hints, right-associative `of`) and filed the architectural-scale remainder in `TODO.md`. Compatibility fixes from that backlog landing since: `(else-if:)`/`(elseif:)` registration (#2), `(goto:)` target validation (#1), and `(else:)` stray-use error (#6).
 
 The current shape rests on four load-bearing architectural pivots; everything else is built atop them and future slices should respect them rather than work around them.
 
