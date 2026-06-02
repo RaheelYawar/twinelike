@@ -120,6 +120,42 @@ namespace Harlowe.Tests.Runtime
     }
 
     // -----------------------------------------------------------------------
+    // Non-ASCII digit loader robustness — a non-ASCII decimal digit (which
+    // char.IsDigit accepts) used where a number is expected must not throw a
+    // FormatException out of double.Parse and abort the whole story load.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void NonAsciiDigit_InExpression_DoesNotCrashLoad_RendersInProseError()
+    {
+      // ٥ is Arabic-Indic five. Constructing the session parses the body;
+      // pre-fix this threw and never returned. Now it loads and the passage
+      // surfaces an in-prose error instead.
+      var session = new StorySession(OnePassage("(print: ٥)"));
+      var r = session.Render();
+      Assert.True(CountKind(r, BufferedRenderOutput.Kind.Error) >= 1);
+    }
+
+    [Fact]
+    public void NonAsciiDigit_InBodyProse_RendersAsText()
+    {
+      var session = new StorySession(OnePassage("You have ٥ coins"));
+      var r = session.Render();
+      Assert.Contains("٥", r.Text);
+    }
+
+    [Fact]
+    public void NonAsciiDigit_InOnePassage_DoesNotBreakSiblingPassages()
+    {
+      // The headline symptom was a whole-load abort: one bad passage took down
+      // the entire story. A sibling passage must remain fully usable.
+      var session = new StorySession(TwoPassages("(set: $x to ５)", "intact"));
+      session.Render();                 // P1 — renders an error, must not throw
+      var r = session.Goto("P2");
+      Assert.Contains("intact", r.Text);
+    }
+
+    // -----------------------------------------------------------------------
     // Visit tracking
     // -----------------------------------------------------------------------
 

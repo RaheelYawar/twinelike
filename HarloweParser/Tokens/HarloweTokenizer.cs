@@ -256,7 +256,7 @@ namespace Harlowe.Tokens
           break;
       }
 
-      if (char.IsDigit(c))
+      if (IsAsciiDigit(c))
       {
         if (c == '2' && TryScanTwoBind(startPos, startLine, startCol)) return;
         if (TryScanOrdinal(startPos, startLine, startCol)) return;
@@ -560,12 +560,12 @@ namespace Harlowe.Tokens
     private void ScanNumberLiteral(int startPos, int startLine, int startCol)
     {
       int start = _pos;
-      while (_pos < _src.Length && char.IsDigit(_src[_pos])) Advance();
+      while (_pos < _src.Length && IsAsciiDigit(_src[_pos])) Advance();
       if (_pos < _src.Length && _src[_pos] == '.'
-          && _pos + 1 < _src.Length && char.IsDigit(_src[_pos + 1]))
+          && _pos + 1 < _src.Length && IsAsciiDigit(_src[_pos + 1]))
       {
         Advance();
-        while (_pos < _src.Length && char.IsDigit(_src[_pos])) Advance();
+        while (_pos < _src.Length && IsAsciiDigit(_src[_pos])) Advance();
       }
       Emit(TokenType.NumberLiteral, _src.Substring(start, _pos - start), startPos, startLine, startCol);
     }
@@ -844,7 +844,7 @@ namespace Harlowe.Tokens
     private bool TryScanOrdinal(int startPos, int startLine, int startCol)
     {
       int look = _pos;
-      while (look < _src.Length && char.IsDigit(_src[look])) look++;
+      while (look < _src.Length && IsAsciiDigit(_src[look])) look++;
       if (look == _pos) return false;
       if (look + 1 >= _src.Length) return false;
       string suffix = _src.Substring(look, 2);
@@ -927,6 +927,21 @@ namespace Harlowe.Tokens
     /// underscore).
     /// </summary>
     private static bool IsIdContinue(char c) => char.IsLetterOrDigit(c) || c == '_';
+
+    /// <summary>
+    /// ASCII digit test (<c>'0'</c>–<c>'9'</c>) for number-literal and ordinal
+    /// scanning. Deliberately narrower than <see cref="char.IsDigit(char)"/>,
+    /// which also matches non-ASCII decimal digits (Arabic-Indic U+0660–0669,
+    /// fullwidth U+FF10–FF19, Devanagari, …). Harlowe's number grammar is
+    /// ASCII-only (the <c>\d</c> in reference's <c>ts/markup/patterns.ts</c>),
+    /// and letting a non-ASCII digit reach a <see cref="TokenType.NumberLiteral"/>
+    /// token would make the parser's <c>double.Parse(…, InvariantCulture)</c>
+    /// throw a <c>FormatException</c> — which escapes the loaders (they catch
+    /// only <c>HarloweParseException</c>) and aborts the whole story load,
+    /// violating the in-prose-errors-never-exceptions policy. With this gate the
+    /// digit falls through to identifier/text handling instead.
+    /// </summary>
+    private static bool IsAsciiDigit(char c) => c >= '0' && c <= '9';
 
     /// <summary>
     /// ASCII-alpha test used for the HTML tag-name lead. WHATWG HTML restricts

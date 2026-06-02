@@ -383,6 +383,45 @@ namespace Harlowe.Tests
         (TokenType.EndOfFile, ""));
     }
 
+    [Theory]
+    [InlineData("٥")]   // Arabic-Indic five
+    [InlineData("５")]   // Fullwidth five
+    [InlineData("१")]   // Devanagari one
+    public void NonAsciiDigit_InExpression_NotTokenizedAsNumber(string digit)
+    {
+      // Precondition: these are genuine Unicode decimal digits that char.IsDigit
+      // accepts — the exact trap the old number gate fell into. (Doubles as an
+      // encoding guard: if the source were misread, this char wouldn't be a
+      // digit and the test would fail here.)
+      Assert.True(char.IsDigit(digit[0]));
+      // The number gate is ASCII-only, so a non-ASCII digit must NOT become a
+      // NumberLiteral (whose value would crash the parser's double.Parse and
+      // abort the load). Tokenizing must not throw and must emit no NumberLiteral.
+      var tokens = Tokenize("(print: " + digit + ")");
+      for (int i = 0; i < tokens.Count; i++)
+        Assert.NotEqual(TokenType.NumberLiteral, tokens[i].Type);
+    }
+
+    [Fact]
+    public void NonAsciiDigit_InBodyProse_StaysText()
+    {
+      // In body prose a non-ASCII digit is ordinary content, not a number.
+      AssertSequence(Tokenize("You have ٥ coins"),
+        (TokenType.Text, "You have ٥ coins"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void AsciiDigits_StillTokenizeAsNumber()
+    {
+      // Guard the happy path: ASCII digits must remain NumberLiterals.
+      AssertSequence(Tokenize("(print: 42)"),
+        (TokenType.MacroOpen, "print"),
+        (TokenType.NumberLiteral, "42"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
     [Fact]
     public void Macro_FalseLiteral_TokenizedAsBool()
     {
