@@ -20,6 +20,8 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new PrintMacro());
       registry.Register(new IfMacro());
       registry.Register(new ElseMacro());
+      registry.Register(new ElseIfMacro("else-if"));
+      registry.Register(new ElseIfMacro("elseif"));
       registry.Register(new UnlessMacro());
       registry.Register(new GotoMacro());
       registry.Register(new DisplayMacro());

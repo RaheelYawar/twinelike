@@ -9,10 +9,10 @@ namespace Harlowe.Runtime
   /// <see cref="IBodyVisitor"/>; the public entry point is <see cref="Render"/>.
   ///
   /// <para>
-  /// <b>Conditional rendering.</b> <c>(if:)</c>, <c>(unless:)</c>, and
-  /// <c>(else:)</c> return a Boolean that decides whether the macro's
-  /// <see cref="MacroNode.AttachedHook"/> renders. Non-conditional macros
-  /// also reset <see cref="MacroContext.LastConditional"/> so an
+  /// <b>Conditional rendering.</b> <c>(if:)</c>, <c>(unless:)</c>,
+  /// <c>(else-if:)</c>, and <c>(else:)</c> return a Boolean that decides whether
+  /// the macro's <see cref="MacroNode.AttachedHook"/> renders. Non-conditional
+  /// macros also reset <see cref="MacroContext.LastConditional"/> so an
   /// <c>(else:)</c> only pairs with the <em>immediately preceding</em>
   /// conditional macro and not across an intervening <c>(set:)</c> or similar.
   /// </para>
@@ -181,7 +181,8 @@ namespace Harlowe.Runtime
         }
       }
 
-      bool isConditional = node.Name == "if" || node.Name == "unless" || node.Name == "else";
+      bool isConditional = node.Name == "if" || node.Name == "unless"
+        || node.Name == "else" || node.Name == "elseif" || node.Name == "else-if";
 
       // Expose the active sink for command macros (e.g. (display:)) that want
       // to render structured output directly into the parent output rather

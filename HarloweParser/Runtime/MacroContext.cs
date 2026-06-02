@@ -61,10 +61,12 @@ namespace Harlowe.Runtime
     public string PendingGoto;
 
     /// <summary>
-    /// Set by <c>(if:)</c>/<c>(unless:)</c> after they evaluate. Read by
-    /// <c>(else:)</c> to decide whether its hook should render. Cleared by the
-    /// body renderer after each non-conditional sibling so an else only ever
-    /// pairs with the immediately preceding if/unless.
+    /// Set by <c>(if:)</c>/<c>(unless:)</c>/<c>(else-if:)</c> after they
+    /// evaluate. Read by <c>(else:)</c>/<c>(else-if:)</c> to decide whether
+    /// their hook should render. Cleared by the body renderer after each
+    /// non-conditional sibling so an else only ever pairs with the immediately
+    /// preceding conditional. (<c>(else-if:)</c> deliberately preserves this
+    /// value when it hides its hook — see <see cref="Macros.ElseIfMacro"/>.)
     /// </summary>
     public bool? LastConditional;
 

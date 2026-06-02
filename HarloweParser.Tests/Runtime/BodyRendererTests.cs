@@ -213,6 +213,112 @@ namespace Harlowe.Tests.Runtime
       Assert.Contains("B", h.Buf.Text);
     }
 
+    // (else-if:) -------------------------------------------------------------
+
+    [Fact]
+    public void ElseIf_AfterFailingIf_TrueCond_Renders()
+    {
+      var h = Render("(if: false)[A](else-if: true)[B]");
+      Assert.Equal("B", h.Buf.Text);
+    }
+
+    [Fact]
+    public void ElseIf_AfterFailingIf_FalseCond_Skipped()
+    {
+      var h = Render("(if: false)[A](else-if: false)[B]");
+      Assert.Equal(string.Empty, h.Buf.Text);
+    }
+
+    [Fact]
+    public void ElseIf_AfterSucceedingIf_Skipped_RegardlessOfCond()
+    {
+      // The (if:) already matched, so the (else-if:) hides even though its own
+      // condition is true.
+      var h = Render("(if: true)[A](else-if: true)[B]");
+      Assert.Equal("A", h.Buf.Text);
+    }
+
+    [Fact]
+    public void ElseIf_HidePreservesChainState_TrailingElseDoesNotRender()
+    {
+      // The load-bearing special case: when (if:) matched and a non-matching
+      // (else-if:) hides, the trailing (else:) must STILL see "a branch already
+      // matched" and stay hidden. Without (else-if:) preserving LastConditional
+      // on hide, this would wrongly render "AC".
+      var h = Render("(if: true)[A](else-if: true)[B](else:)[C]");
+      Assert.Equal("A", h.Buf.Text);
+    }
+
+    [Fact]
+    public void ElseIf_Ladder_MiddleBranchMatches()
+    {
+      var h = Render("(if: false)[A](else-if: true)[B](else:)[C]");
+      Assert.Equal("B", h.Buf.Text);
+    }
+
+    [Fact]
+    public void ElseIf_Ladder_ElseBranchMatches()
+    {
+      var h = Render("(if: false)[A](else-if: false)[B](else:)[C]");
+      Assert.Equal("C", h.Buf.Text);
+    }
+
+    [Fact]
+    public void ElseIf_Ladder_MultipleElseIfs_OnlyFirstTrueRenders()
+    {
+      var h = Render("(if: false)[A](else-if: false)[B](else-if: true)[C](else-if: true)[D](else:)[E]");
+      Assert.Equal("C", h.Buf.Text);
+    }
+
+    [Fact]
+    public void ElseIf_UnhyphenatedSpelling_AlsoWorks()
+    {
+      var h = Render("(if: false)[A](elseif: true)[B]");
+      Assert.Equal("B", h.Buf.Text);
+    }
+
+    [Fact]
+    public void ElseIf_StrayWithNoPrecedingConditional_Errors()
+    {
+      var h = Render("(else-if: true)[B]");
+      Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+      Assert.DoesNotContain("B", h.Buf.Text);
+    }
+
+    [Fact]
+    public void ElseIf_AfterInterveningSet_Errors()
+    {
+      // (set:) clears the conditional pairing, so the (else-if:) has nothing to
+      // chain from and surfaces a structural error (matching (else:)'s reset).
+      var h = Render("(if: false)[A](set: $x to 1)(else-if: true)[B]");
+      Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+      Assert.DoesNotContain("B", h.Buf.Text);
+    }
+
+    [Fact]
+    public void ElseIf_NonBooleanCondition_Errors()
+    {
+      var h = Render("(if: false)[A](else-if: 5)[B]");
+      Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+      Assert.DoesNotContain("B", h.Buf.Text);
+    }
+
+    [Theory]
+    [InlineData("giant", "rumble")]
+    [InlineData("big", "growl")]
+    [InlineData("small", "gurgle")]
+    public void ElseIf_CanonicalDocLadder(string size, string expected)
+    {
+      // The (else-if:) documentation's own worked example.
+      var src =
+        "(set: $size to \"" + size + "\")" +
+        "(if: $size is \"giant\")[rumble]" +
+        "(else-if: $size is \"big\")[growl]" +
+        "(else:)[gurgle]";
+      var h = Render(src);
+      Assert.Equal(expected, h.Buf.Text);
+    }
+
     [Fact]
     public void If_WithVariableCondition()
     {

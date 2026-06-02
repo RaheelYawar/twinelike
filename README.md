@@ -146,7 +146,7 @@ public class ConsoleOutput : IRenderOutput
 | Macro family | Status |
 |---|---|
 | `(set:)`, `(put:)`, `(print:)`, `(display:)` | ✓ |
-| `(if:)`, `(unless:)`, `(else:)` | ✓ |
+| `(if:)`, `(unless:)`, `(else-if:)`, `(else:)` | ✓ |
 | `(random:)`, `(either:)`, `(history:)` | ✓ |
 | `(a:)`, `(dm:)`, `(modulo:)`, `(text:)`, `(num:)` | ✓ |
 | `(find:)`, `(all-pass:)`, `(some-pass:)`, `(none-pass:)`, `(altered:)` | ✓ |

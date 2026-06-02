@@ -12,9 +12,12 @@ for the save-model slice (which lands `(history:)` semantics).
 
 ## Counts
 
-- **High severity (5)**: silent wrong result or breaks documented Harlowe idioms.
+- **High severity (4 active, 1 fixed)**: silent wrong result or breaks documented Harlowe idioms.
 - **Medium severity (10)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
 - **Low severity (1)**: documented as deliberate or marginal.
+
+Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
+items are kept and marked rather than renumbered.
 
 ---
 
@@ -36,7 +39,16 @@ for the save-model slice (which lands `(history:)` semantics).
   Ours silently navigates to an empty result with no diagnostic, so a typo
   becomes a blank screen.
 
-### 2. `(elseif:)` / `(else-if:)` not registered
+### 2. `(elseif:)` / `(else-if:)` not registered — ✅ FIXED (2026-06-01)
+
+**Resolved.** `ElseIfMacro` now ships, registered under both `else-if` and
+`elseif`. It renders iff the preceding conditional hook was hidden AND its
+Boolean argument is true, and — critically — preserves `LastConditional` when it
+hides, so `(if:)…(else-if:)…(else:)` ladders chain correctly (mirrors reference's
+`elseif` special-case in `section.ts`). A stray `(else-if:)` with no preceding
+conditional surfaces an in-prose error. See `ElseIfMacro.cs`,
+`BodyRenderer`'s `isConditional` check, and the `ElseIf_*` tests in
+`BodyRendererTests.cs`. Original finding below for the record.
 
 - **Ours**: Not registered. `StandardMacros.RegisterAll` wires
   `IfMacro`/`ElseMacro`/`UnlessMacro` only. See
@@ -298,7 +310,7 @@ size:
 **Small contained fixes** (1–2 hours each, isolated changes):
 
 - `(goto:)` validation (#1) — one method, one branch.
-- `(elseif:)` registration (#2) — new macro class + register call.
+- ~~`(elseif:)` registration (#2) — new macro class + register call.~~ ✅ done.
 - `(else:)` stray-use error (#6) — one branch in `ElseMacro`.
 - `(dm:)` duplicate-key error (#8) — one branch in `DmMacro`.
 - `(text:)`/`(string:)` variadic + alias (#9) — minor refactor + register.
