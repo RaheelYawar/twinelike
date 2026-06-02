@@ -74,6 +74,62 @@ namespace Harlowe.Tests.Runtime.Macros
       Assert.Equal("true", Call(reg, ctx, "text", HarloweValue.OfBool(true)).AsString);
     }
 
+    [Fact]
+    public void Text_Variadic_JoinsArgsWithNoSeparator()
+    {
+      var (reg, ctx) = Setup();
+      Assert.Equal("You have 10 HP", Call(reg, ctx, "text",
+        HarloweValue.OfString("You have "), HarloweValue.OfNumber(10),
+        HarloweValue.OfString(" HP")).AsString);
+    }
+
+    [Fact]
+    public void Text_ZeroArgs_EmptyString()
+    {
+      var (reg, ctx) = Setup();
+      Assert.Equal(string.Empty, Call(reg, ctx, "text").AsString);
+    }
+
+    [Fact]
+    public void Text_ArrayArg_CommaJoinsElements()
+    {
+      // Reference: (str: (a: 2, "Hot", 4, "U")) is "2,Hot,4,U".
+      var (reg, ctx) = Setup();
+      var arr = HarloweValue.OfArray(new List<HarloweValue>
+      {
+        HarloweValue.OfNumber(2), HarloweValue.OfString("Hot"),
+        HarloweValue.OfNumber(4), HarloweValue.OfString("U"),
+      });
+      Assert.Equal("2,Hot,4,U", Call(reg, ctx, "text", arr).AsString);
+    }
+
+    [Fact]
+    public void Text_RejectsDatamapArgument()
+    {
+      // Only String/Number/Boolean/Array are accepted; a Datamap errors.
+      var (reg, ctx) = Setup();
+      var dm = HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      {
+        { "hp", HarloweValue.OfNumber(10) },
+      });
+      Assert.True(Call(reg, ctx, "text", dm).IsError);
+    }
+
+    [Fact]
+    public void String_AliasRegistered()
+    {
+      var (reg, ctx) = Setup();
+      Assert.Equal("x", Call(reg, ctx, "string", HarloweValue.OfString("x")).AsString);
+    }
+
+    [Fact]
+    public void Str_AliasIsVariadicToo()
+    {
+      var (reg, ctx) = Setup();
+      Assert.Equal("ab", Call(reg, ctx, "str",
+        HarloweValue.OfString("a"), HarloweValue.OfString("b")).AsString);
+    }
+
     // num --------------------------------------------------------------------
 
     [Fact]

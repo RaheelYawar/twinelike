@@ -13,7 +13,7 @@ for the save-model slice (which lands `(history:)` semantics).
 ## Counts
 
 - **High severity (3 active, 2 fixed)**: silent wrong result or breaks documented Harlowe idioms.
-- **Medium severity (8 active, 2 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
+- **Medium severity (7 active, 3 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
 - **Low severity (1)**: documented as deliberate or marginal.
 
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
@@ -176,7 +176,16 @@ case-sensitive, so `"HP"`/`"hp"` are distinct (no false positive). See
 - **User-visible**: Reference flags the bug; ours produces `{hp:5}`, masking
   the lost first value.
 
-### 9. `(text:)` is unary; `(string:)` alias missing
+### 9. `(text:)` is unary; `(string:)` alias missing — ✅ FIXED (2026-06-01)
+
+**Resolved.** `TextMacro` is now variadic (`zeroOrMore`): it concatenates every
+argument's string form with no separator, so `(text: "You have ", $hp, " HP")`
+works and `(text:)` is `""`. Only String/Number/Boolean/Array are accepted (a
+Datamap/Changer/Lambda errors), matching reference's
+`either(String, Number, Boolean, Array, CodeHook)` signature (we have no CodeHook
+type); an Array stringifies to its comma-joined elements. Registered under
+`text`, `str`, and `string`. See `TextMacro.cs`, `StandardMacros.cs`, and the
+`Text_*`/`String_*`/`Str_*` tests. Original finding below.
 
 - **Ours**: `MinArgs=MaxArgs=1`; `ToHarloweString` of any kind. No `(string:)`
   alias registered. See `HarloweParser\Runtime\Macros\TextMacro.cs` and
@@ -338,7 +347,7 @@ size:
 - ~~`(elseif:)` registration (#2) — new macro class + register call.~~ ✅ done.
 - ~~`(else:)` stray-use error (#6) — one branch in `ElseMacro`.~~ ✅ done.
 - ~~`(dm:)` duplicate-key error (#8) — one branch in `DmMacro`.~~ ✅ done.
-- `(text:)`/`(string:)` variadic + alias (#9) — minor refactor + register.
+- ~~`(text:)`/`(string:)` variadic + alias (#9) — minor refactor + register.~~ ✅ done.
 - `(for:)` zero-item + `(loop:)` alias (#10) — `MinArgs` change + register.
 - `(num:)` semantics + `(number:)` alias (#12) — refactor + register.
 - `(align:)` regex-based parsing (#13) — replace the four-string lookup.
