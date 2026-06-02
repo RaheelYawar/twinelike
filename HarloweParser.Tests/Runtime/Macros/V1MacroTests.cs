@@ -140,10 +140,12 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
-    public void Num_NumberPassthrough()
+    public void Num_NumberInput_Errors()
     {
+      // Reference rejects a Number argument ([String] signature); it is not a
+      // passthrough. Authors convert the other direction with (str:).
       var (reg, ctx) = Setup();
-      Assert.Equal(7, Call(reg, ctx, "num", HarloweValue.OfNumber(7)).AsNumber);
+      Assert.True(Call(reg, ctx, "num", HarloweValue.OfNumber(7)).IsError);
     }
 
     [Fact]
@@ -158,6 +160,49 @@ namespace Harlowe.Tests.Runtime.Macros
     {
       var (reg, ctx) = Setup();
       Assert.True(Call(reg, ctx, "num", HarloweValue.OfBool(true)).IsError);
+    }
+
+    [Fact]
+    public void Num_EmptyString_IsZero()
+    {
+      // JS Number(""): empty string coerces to 0.
+      var (reg, ctx) = Setup();
+      Assert.Equal(0, Call(reg, ctx, "num", HarloweValue.OfString("")).AsNumber);
+    }
+
+    [Fact]
+    public void Num_WhitespaceOnlyString_IsZero()
+    {
+      var (reg, ctx) = Setup();
+      Assert.Equal(0, Call(reg, ctx, "num", HarloweValue.OfString("   ")).AsNumber);
+    }
+
+    [Fact]
+    public void Num_LeadingTrailingWhitespace_Parsed()
+    {
+      var (reg, ctx) = Setup();
+      Assert.Equal(42, Call(reg, ctx, "num", HarloweValue.OfString("  42  ")).AsNumber);
+    }
+
+    [Fact]
+    public void Num_ScientificNotation_Parsed()
+    {
+      var (reg, ctx) = Setup();
+      Assert.Equal(1000, Call(reg, ctx, "num", HarloweValue.OfString("1e3")).AsNumber);
+    }
+
+    [Fact]
+    public void Num_NegativeAndDecimal_Parsed()
+    {
+      var (reg, ctx) = Setup();
+      Assert.Equal(-3.5, Call(reg, ctx, "num", HarloweValue.OfString("-3.5")).AsNumber);
+    }
+
+    [Fact]
+    public void Number_AliasRegistered()
+    {
+      var (reg, ctx) = Setup();
+      Assert.Equal(3, Call(reg, ctx, "number", HarloweValue.OfString("3")).AsNumber);
     }
 
     // if / unless / else -----------------------------------------------------

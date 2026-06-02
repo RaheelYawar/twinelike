@@ -13,7 +13,7 @@ for the save-model slice (which lands `(history:)` semantics).
 ## Counts
 
 - **High severity (3 active, 2 fixed)**: silent wrong result or breaks documented Harlowe idioms.
-- **Medium severity (7 active, 3 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
+- **Medium severity (6 active, 4 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
 - **Low severity (1)**: documented as deliberate or marginal.
 
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
@@ -224,7 +224,16 @@ type); an Array stringifies to its comma-joined elements. Registered under
 - **User-visible**: Multi-target form errors with arg-count in ours.
   Empty-string target is silent in ours instead of producing a diagnostic.
 
-### 12. `(num:)` accepts Number passthrough; `(number:)` alias missing
+### 12. `(num:)` accepts Number passthrough; `(number:)` alias missing — ✅ FIXED (2026-06-01)
+
+**Resolved.** `NumMacro` now takes a single `String` and rejects a `Number`
+argument (matching reference's `[String]` signature), and converts with JS-style
+`+expr` coercion: `""`/whitespace → `0`, leading/trailing whitespace ignored,
+decimals / `"1e3"` / signs accepted, `"Infinity"`/`"-Infinity"` → ±∞, and an
+unparseable string errors with `I couldn't convert the string "X" to a number.`.
+Registered under both `num` and `number`. (One JS edge deliberately skipped:
+`0x`/`0o`/`0b` integer literals.) See `NumMacro.cs`, `StandardMacros.cs`, and the
+`Num_*`/`Number_*` tests. Original finding below.
 
 - **Ours**: Accepts Number unchanged AND String-parses. Uses
   `double.TryParse` with `NumberStyles.Float` (rejects empty string,
@@ -349,7 +358,7 @@ size:
 - ~~`(dm:)` duplicate-key error (#8) — one branch in `DmMacro`.~~ ✅ done.
 - ~~`(text:)`/`(string:)` variadic + alias (#9) — minor refactor + register.~~ ✅ done.
 - `(for:)` zero-item + `(loop:)` alias (#10) — `MinArgs` change + register.
-- `(num:)` semantics + `(number:)` alias (#12) — refactor + register.
+- ~~`(num:)` semantics + `(number:)` alias (#12) — refactor + register.~~ ✅ done.
 - `(align:)` regex-based parsing (#13) — replace the four-string lookup.
 - `(sorted:)` mixed-type ordering (#14) — relax the `item.Kind != kind` check;
   sort numbers ahead of strings in one comparer.
