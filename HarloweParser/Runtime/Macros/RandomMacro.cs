@@ -33,12 +33,12 @@ namespace Harlowe.Runtime.Macros
       {
         lo = 0;
         if (!TryAsBound(args[0].AsNumber, out hi))
-          return HarloweValue.OfError("(random:) requires a finite whole-number argument");
+          return HarloweValue.OfError("(random:) requires a finite number argument");
       }
       else
       {
         if (!TryAsBound(args[0].AsNumber, out lo) || !TryAsBound(args[1].AsNumber, out hi))
-          return HarloweValue.OfError("(random:) requires finite whole-number arguments");
+          return HarloweValue.OfError("(random:) requires finite number arguments");
       }
       if (lo > hi) { int tmp = lo; lo = hi; hi = tmp; }
 
@@ -53,17 +53,19 @@ namespace Harlowe.Runtime.Macros
     }
 
     /// <summary>
-    /// Validate <paramref name="d"/> as an Int32 bound: finite, whole, and in
-    /// range. Returns false on NaN/infinity, on a fractional value, or on a
-    /// value outside Int32 — so the (int) cast a successful return precedes
-    /// is always safe.
+    /// Coerce <paramref name="d"/> to an Int32 bound. A fractional value is
+    /// truncated toward zero — matching reference Harlowe's <c>parseInt</c>
+    /// argument coercion, so <c>(random: 1.5, 6.5)</c> behaves like
+    /// <c>(random: 1, 6)</c>. Returns false only on NaN/infinity or a value
+    /// outside Int32 range, so the <c>(int)</c> cast a successful return
+    /// precedes is always safe.
     /// </summary>
     private static bool TryAsBound(double d, out int result)
     {
       result = 0;
       if (double.IsNaN(d) || double.IsInfinity(d)) return false;
+      d = Math.Truncate(d);
       if (d < int.MinValue || d > int.MaxValue) return false;
-      if (d != Math.Truncate(d)) return false;
       result = (int)d;
       return true;
     }

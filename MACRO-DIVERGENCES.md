@@ -14,7 +14,7 @@ for the save-model slice (which lands `(history:)` semantics).
 
 - **High severity (3 active, 2 fixed)**: silent wrong result or breaks documented Harlowe idioms.
 - **Medium severity (5 active, 5 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
-- **Low severity (1)**: documented as deliberate or marginal.
+- **Low severity (0 active, 1 fixed)**: documented as deliberate or marginal.
 
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
 items are kept and marked rather than renumbered.
@@ -323,7 +323,17 @@ Registered under both `num` and `number`. (One JS edge deliberately skipped:
 
 ## Low-severity divergences
 
-### 16. `(random:)` errors on fractional bounds
+### 16. `(random:)` errors on fractional bounds — ✅ FIXED (2026-06-02)
+
+**Resolved.** `TryAsBound` now truncates a fractional bound toward zero instead
+of rejecting it, matching reference's `parseInt` argument coercion — so
+`(random: 1.5, 6.5)` behaves like `(random: 1, 6)` and `(random: -1.9, -1.1)`
+yields `-1` (toward zero, not floor). NaN/infinity and out-of-Int32 bounds still
+error (messages reworded "whole-number" → "number"). See `RandomMacro.cs` and the
+`Random_*Fractional*` / `RandomFractionalBound_*` tests. (Reference's `!b===0`
+one-arg quirk for a literal `0` second bound is intentionally not reproduced; our
+`args.Count` distinction is cleaner and isn't part of this finding.) Original
+finding below.
 
 - **Ours**: `TryAsBound` rejects fractional values explicitly
   (`d != Math.Truncate(d) → error`). See
@@ -377,7 +387,7 @@ size:
 - `(align:)` regex-based parsing (#13) — replace the four-string lookup.
 - `(sorted:)` mixed-type ordering (#14) — relax the `item.Kind != kind` check;
   sort numbers ahead of strings in one comparer.
-- `(random:)` fractional truncation (#16) — relax the `TryAsBound` check.
+- ~~`(random:)` fractional truncation (#16) — relax the `TryAsBound` check.~~ ✅ done.
 
 Total: ~10 small slices, sized appropriately for a single PR each, no shared
 architecture.

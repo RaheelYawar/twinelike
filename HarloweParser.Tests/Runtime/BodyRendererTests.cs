@@ -448,12 +448,14 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
-    public void RandomFractionalBound_EmitsInProseError()
+    public void RandomFractionalBound_TruncatesTowardZero()
     {
-      // The (int) cast used to silently truncate 1.5 to 1. Validate up front.
-      var h = Render("(random: 1.5, 5)");
-      Assert.Contains(h.Buf.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error
-                                       && e.Content.Contains("whole-number"));
+      // Fractional bounds are truncated toward zero (reference's parseInt
+      // coercion), not rejected: (random: 1.5, 1.9) behaves like (random: 1, 1)
+      // → deterministically 1, with no error.
+      var h = Render("(random: 1.5, 1.9)");
+      Assert.Equal("1", h.Buf.Text);
+      Assert.Equal(0, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
     }
 
     [Fact]
@@ -469,11 +471,12 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void RandomHugeBound_EmitsInProseError()
     {
-      // 1e30 is finite but well outside Int32 — the (int) cast would have
-      // produced garbage. The bound validator catches it.
+      // 1e12 is finite but well outside Int32 — the (int) cast would have
+      // produced garbage. The bound validator catches it (truncation toward
+      // zero doesn't bring it back into range).
       var h = Render("(random: 0, 1000000000000)");
       Assert.Contains(h.Buf.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error
-                                       && e.Content.Contains("whole-number"));
+                                       && e.Content.Contains("finite number"));
     }
 
     [Fact]

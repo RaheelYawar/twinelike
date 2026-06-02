@@ -354,6 +354,33 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
+    public void Random_FractionalBounds_TruncatedNotRejected()
+    {
+      // Reference coerces bounds via parseInt; (random: 1.5, 1.9) is (random: 1, 1).
+      var (reg, ctx) = Setup();
+      Assert.Equal(1, Call(reg, ctx, "random",
+        HarloweValue.OfNumber(1.5), HarloweValue.OfNumber(1.9)).AsNumber);
+    }
+
+    [Fact]
+    public void Random_FractionalOneArg_Truncated()
+    {
+      var (reg, ctx) = Setup();
+      // (random: 0.9) → upper bound truncates to 0 → range [0, 0] → 0.
+      Assert.Equal(0, Call(reg, ctx, "random", HarloweValue.OfNumber(0.9)).AsNumber);
+    }
+
+    [Fact]
+    public void Random_NegativeFractional_TruncatesTowardZero()
+    {
+      // Toward zero, not floor: -1.9 and -1.1 both truncate to -1, so the range
+      // is [-1, -1] → -1 (floor would wrongly give -2).
+      var (reg, ctx) = Setup();
+      Assert.Equal(-1, Call(reg, ctx, "random",
+        HarloweValue.OfNumber(-1.9), HarloweValue.OfNumber(-1.1)).AsNumber);
+    }
+
+    [Fact]
     public void Either_ReturnsOneOfTheArgs()
     {
       var (reg, ctx) = Setup(rngSeed: 7);
