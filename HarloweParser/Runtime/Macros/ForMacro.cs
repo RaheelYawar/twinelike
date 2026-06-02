@@ -11,26 +11,37 @@ namespace Harlowe.Runtime.Macros
   ///
   /// <para>
   /// Requires an <c>each</c>-form lambda — <c>where</c>/<c>via</c>/<c>making</c>
-  /// lambdas error in-prose. Auto-iterates a single trailing array arg the
-  /// same way the other lambda-consuming macros do (see <see cref="FindMacro"/>).
+  /// lambdas error in-prose. Accepts zero or more items; with no items the hook
+  /// is simply not printed (matching reference: "if no extra values are given …
+  /// nothing will happen and the attached hook will not be printed at all"),
+  /// which lets authors loop over a possibly-empty array without guarding.
+  /// Auto-iterates a single trailing array arg the same way the other
+  /// lambda-consuming macros do (see <see cref="FindMacro"/>).
   /// </para>
+  ///
+  /// <para>Registered under both <c>for</c> and <c>loop</c>.</para>
   /// </summary>
   public class ForMacro : IMacro
   {
-    public string Name => "for";
-    public int MinArgs => 2;
+    private readonly string _name;
+
+    public ForMacro() : this("for") { }
+    public ForMacro(string name) { _name = name; }
+
+    public string Name => _name;
+    public int MinArgs => 1;
     public int MaxArgs => -1;
 
     public HarloweValue Invoke(List<HarloweValue> args, MacroContext context)
     {
       if (args[0].Kind != HarloweValueKind.Lambda)
-        return HarloweValue.OfError("(for:) first argument must be a lambda");
+        return HarloweValue.OfError($"({_name}:) first argument must be a lambda");
 
       var lambda = args[0].AsLambda;
       if (lambda.Node == null || !lambda.Node.IsEach)
-        return HarloweValue.OfError("(for:) requires an 'each _x' lambda");
+        return HarloweValue.OfError($"({_name}:) requires an 'each _x' lambda");
       if (string.IsNullOrEmpty(lambda.Node.ParameterName))
-        return HarloweValue.OfError("(for:) lambda must name its iteration variable");
+        return HarloweValue.OfError($"({_name}:) lambda must name its iteration variable");
 
       var items = LambdaArgs.ExpandItems(args, startIndex: 1);
 

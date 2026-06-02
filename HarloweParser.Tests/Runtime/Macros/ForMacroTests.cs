@@ -81,6 +81,29 @@ namespace Harlowe.Tests.Runtime.Macros
       Assert.Equal("beforeafter", h.Buf.Text);
     }
 
+    [Fact]
+    public void For_ZeroItemArgs_RendersNothing()
+    {
+      // No items at all after the lambda (the arity reference allows via
+      // zeroOrMore). The hook is simply not printed — no arg-count error.
+      var h = Render("before(for: each _x)[loop ]after");
+      Assert.Equal("beforeafter", h.Buf.Text);
+    }
+
+    [Fact]
+    public void Loop_Alias_IteratesLikeFor()
+    {
+      var h = Render("(loop: each _x, 1, 2, 3)[_x ]");
+      Assert.Equal("1 2 3 ", h.Buf.Text);
+    }
+
+    [Fact]
+    public void Loop_Alias_ZeroItems_RendersNothing()
+    {
+      var h = Render("before(loop: each _x)[x ]after");
+      Assert.Equal("beforeafter", h.Buf.Text);
+    }
+
     // --- Scope hygiene ---
 
     [Fact]

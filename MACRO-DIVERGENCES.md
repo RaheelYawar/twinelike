@@ -13,7 +13,7 @@ for the save-model slice (which lands `(history:)` semantics).
 ## Counts
 
 - **High severity (3 active, 2 fixed)**: silent wrong result or breaks documented Harlowe idioms.
-- **Medium severity (6 active, 4 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
+- **Medium severity (5 active, 5 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
 - **Low severity (1)**: documented as deliberate or marginal.
 
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
@@ -198,7 +198,22 @@ type); an Array stringifies to its comma-joined elements. Registered under
 - **User-visible**: Author-friendly join idiom fails in ours with an
   arg-count error. `(string:)` call is reported as an unknown macro.
 
-### 10. `(for:)` requires ≥1 item; `(loop:)` alias missing
+### 10. `(for:)` requires ≥1 item; `(loop:)` alias missing — ✅ FIXED (2026-06-01)
+
+**Resolved.** `ForMacro` now has `MinArgs=1`, so a lambda with zero trailing
+items (`(for: each _x)[…]`, or `...` over an empty array) is accepted and the
+hook is simply not printed — no arg-count error — letting authors loop over a
+possibly-empty array unguarded. Registered under both `for` and `loop`. See
+`ForMacro.cs`, `StandardMacros.cs`, and the `For_ZeroItemArgs_*`/`Loop_*` tests.
+Original finding below.
+
+> **Related remaining gap (not part of #10, still open):** reference `(for:)`
+> also accepts a `where`-filter lambda — its own documented example is
+> `(for: _ingredient where it contains "petal", ...$reagents)` — filtering the
+> iterated items. Ours requires an `each`-form lambda and rejects the `where`
+> form (pinned by `ForMacroTests.For_NonEachLambda_Errors`). Supporting it means
+> applying the lambda's `where` clause as a filter inside the iteration loop
+> (`Changer.RunIteration` / `IterationSpec`). File as its own slice if wanted.
 
 - **Ours**: `MinArgs=2` (lambda + at least one item). No `loop` alias. See
   `HarloweParser\Runtime\Macros\ForMacro.cs` and `StandardMacros.cs`.
@@ -357,7 +372,7 @@ size:
 - ~~`(else:)` stray-use error (#6) — one branch in `ElseMacro`.~~ ✅ done.
 - ~~`(dm:)` duplicate-key error (#8) — one branch in `DmMacro`.~~ ✅ done.
 - ~~`(text:)`/`(string:)` variadic + alias (#9) — minor refactor + register.~~ ✅ done.
-- `(for:)` zero-item + `(loop:)` alias (#10) — `MinArgs` change + register.
+- ~~`(for:)` zero-item + `(loop:)` alias (#10) — `MinArgs` change + register.~~ ✅ done.
 - ~~`(num:)` semantics + `(number:)` alias (#12) — refactor + register.~~ ✅ done.
 - `(align:)` regex-based parsing (#13) — replace the four-string lookup.
 - `(sorted:)` mixed-type ordering (#14) — relax the `item.Kind != kind` check;
