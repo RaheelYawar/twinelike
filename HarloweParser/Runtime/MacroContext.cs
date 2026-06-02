@@ -43,6 +43,16 @@ namespace Harlowe.Runtime
     public Func<string, IRenderOutput, HarloweValue> RenderPassage;
 
     /// <summary>
+    /// True if a passage with the given name exists in the story. Set by
+    /// <see cref="StorySession"/> so <c>(goto:)</c> can validate its target
+    /// before navigating (reference Harlowe's <c>Passages.hasValid</c> check).
+    /// Null in standalone evaluator/renderer tests with no story behind them —
+    /// callers must null-check and skip validation when it's absent, preserving
+    /// the bare "record the goto" behaviour those tests rely on.
+    /// </summary>
+    public Func<string, bool> PassageExists;
+
+    /// <summary>
     /// The active body-position render sink. <see cref="BodyRenderer"/> sets
     /// this around each macro dispatch and clears it on the way out; the
     /// expression evaluator never sets it. Command macros like

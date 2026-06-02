@@ -297,6 +297,43 @@ namespace Harlowe.Tests.Runtime
       Assert.Equal(1, CountKind(r, BufferedRenderOutput.Kind.Error));
     }
 
+    [Fact]
+    public void PendingGoto_MacroToMissingPassage_EmitsErrorAndStaysPut()
+    {
+      // (goto:) to a passage that doesn't exist surfaces an in-prose error
+      // rather than silently navigating to a blank result. The session stays
+      // on the current passage and the rest of the passage keeps rendering.
+      var session = new StorySession(OnePassage("before (goto: \"Ghost\") after"));
+      var r = session.Render();
+      Assert.Equal(1, CountKind(r, BufferedRenderOutput.Kind.Error));
+      Assert.Equal("P1", session.CurrentPassage);
+      Assert.Contains("before", r.Text);
+      Assert.Contains("after", r.Text);
+    }
+
+    [Fact]
+    public void PendingGoto_MacroToMissingPassage_ErrorNamesTheTarget()
+    {
+      var session = new StorySession(OnePassage("(goto: \"Ghost\")"));
+      var r = session.Render();
+      string errText = null;
+      for (int i = 0; i < r.Entries.Count; i++)
+        if (r.Entries[i].Kind == BufferedRenderOutput.Kind.Error) errText = r.Entries[i].Content;
+      Assert.NotNull(errText);
+      Assert.Contains("Ghost", errText);
+    }
+
+    [Fact]
+    public void PendingGoto_MacroToExistingPassage_StillNavigates()
+    {
+      // Regression guard: validation must not break the happy path.
+      var session = new StorySession(TwoPassages("(goto: \"P2\")", "arrived"));
+      var r = session.Render();
+      Assert.Equal(0, CountKind(r, BufferedRenderOutput.Kind.Error));
+      Assert.Equal("P2", session.CurrentPassage);
+      Assert.Contains("arrived", r.Text);
+    }
+
     // -----------------------------------------------------------------------
     // (display:) integration
     // -----------------------------------------------------------------------

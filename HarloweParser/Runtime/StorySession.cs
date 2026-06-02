@@ -292,6 +292,7 @@ namespace Harlowe.Runtime
         Invoker = _registry
       };
       ctx.RenderPassage = (name, output) => InlineDisplayPassage(name, output, ctx);
+      ctx.PassageExists = name => _story.GetPassage(name) != null;
       _registry.Context = ctx;
 
       // Render into a tree, then flush the finished tree to the buffer the

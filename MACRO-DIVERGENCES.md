@@ -12,7 +12,7 @@ for the save-model slice (which lands `(history:)` semantics).
 
 ## Counts
 
-- **High severity (4 active, 1 fixed)**: silent wrong result or breaks documented Harlowe idioms.
+- **High severity (3 active, 2 fixed)**: silent wrong result or breaks documented Harlowe idioms.
 - **Medium severity (10)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
 - **Low severity (1)**: documented as deliberate or marginal.
 
@@ -23,7 +23,18 @@ items are kept and marked rather than renumbered.
 
 ## High-severity divergences
 
-### 1. `(goto:)` doesn't validate target exists
+### 1. `(goto:)` doesn't validate target exists — ✅ FIXED (2026-06-01)
+
+**Resolved.** `GotoMacro` now checks `MacroContext.PassageExists` (wired by
+`StorySession` to the story's passage lookup) before recording the goto; a
+missing target surfaces `I can't (goto:) to the passage 'X' because it doesn't
+exist.` instead of silently navigating to a blank result. The check is skipped
+when no story is wired (standalone renderer tests leave `PassageExists` null),
+preserving the bare record-the-goto behaviour there. Scoped to the `(goto:)`
+*macro*; the host `StorySession.Goto(name)` API still returns an empty result
+for an unknown name (that's the host's explicit request, not an authoring
+mistake). See `GotoMacro.cs`, `MacroContext.PassageExists`, and the
+`PendingGoto_MacroToMissingPassage_*` tests. Original finding below.
 
 - **Ours**: `GotoMacro` records the requested target via `context.RequestGoto`
   with no existence check. `StorySession.RenderInternal` then calls
@@ -309,7 +320,7 @@ size:
 
 **Small contained fixes** (1–2 hours each, isolated changes):
 
-- `(goto:)` validation (#1) — one method, one branch.
+- ~~`(goto:)` validation (#1) — one method, one branch.~~ ✅ done.
 - ~~`(elseif:)` registration (#2) — new macro class + register call.~~ ✅ done.
 - `(else:)` stray-use error (#6) — one branch in `ElseMacro`.
 - `(dm:)` duplicate-key error (#8) — one branch in `DmMacro`.
