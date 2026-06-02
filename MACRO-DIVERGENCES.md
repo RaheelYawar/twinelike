@@ -13,7 +13,7 @@ for the save-model slice (which lands `(history:)` semantics).
 ## Counts
 
 - **High severity (3 active, 2 fixed)**: silent wrong result or breaks documented Harlowe idioms.
-- **Medium severity (9 active, 1 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
+- **Medium severity (8 active, 2 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
 - **Low severity (1)**: documented as deliberate or marginal.
 
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
@@ -159,7 +159,13 @@ Original finding below.
   Number is accepted, units other than `em` are unreachable; line-height arg
   is silently dropped.
 
-### 8. `(dm:)` silently overwrites duplicate keys
+### 8. `(dm:)` silently overwrites duplicate keys — ✅ FIXED (2026-06-01)
+
+**Resolved.** `DmMacro` now errors when a key appears twice
+("You used the same data name (the string "X") twice in the same (dm:) call.")
+instead of last-write-wins, matching reference's `map.has(key)` check. Keys stay
+case-sensitive, so `"HP"`/`"hp"` are distinct (no false positive). See
+`DmMacro.cs` and the `Dm_DuplicateKey_*` tests. Original finding below.
 
 - **Ours**: Duplicate keys silently overwrite (`map[key] = value`). See
   `HarloweParser\Runtime\Macros\DmMacro.cs`.
@@ -331,7 +337,7 @@ size:
 - ~~`(goto:)` validation (#1) — one method, one branch.~~ ✅ done.
 - ~~`(elseif:)` registration (#2) — new macro class + register call.~~ ✅ done.
 - ~~`(else:)` stray-use error (#6) — one branch in `ElseMacro`.~~ ✅ done.
-- `(dm:)` duplicate-key error (#8) — one branch in `DmMacro`.
+- ~~`(dm:)` duplicate-key error (#8) — one branch in `DmMacro`.~~ ✅ done.
 - `(text:)`/`(string:)` variadic + alias (#9) — minor refactor + register.
 - `(for:)` zero-item + `(loop:)` alias (#10) — `MinArgs` change + register.
 - `(num:)` semantics + `(number:)` alias (#12) — refactor + register.

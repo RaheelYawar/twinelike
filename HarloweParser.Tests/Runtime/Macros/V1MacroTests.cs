@@ -316,6 +316,40 @@ namespace Harlowe.Tests.Runtime.Macros
         HarloweValue.OfNumber(1), HarloweValue.OfString("v")).IsError);
     }
 
+    [Fact]
+    public void Dm_DuplicateKey_Errors()
+    {
+      // Using the same data name twice is an authoring mistake, not a silent
+      // last-write-wins (matches reference Harlowe's map.has(key) check).
+      var (reg, ctx) = Setup();
+      Assert.True(Call(reg, ctx, "dm",
+        HarloweValue.OfString("hp"), HarloweValue.OfNumber(10),
+        HarloweValue.OfString("hp"), HarloweValue.OfNumber(5)).IsError);
+    }
+
+    [Fact]
+    public void Dm_DuplicateKey_ErrorNamesTheKey()
+    {
+      var (reg, ctx) = Setup();
+      var v = Call(reg, ctx, "dm",
+        HarloweValue.OfString("hp"), HarloweValue.OfNumber(10),
+        HarloweValue.OfString("hp"), HarloweValue.OfNumber(5));
+      Assert.True(v.IsError);
+      Assert.Contains("hp", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void Dm_KeysAreCaseSensitive_NoFalseDuplicate()
+    {
+      // "HP" and "hp" are distinct data names — no duplicate-key error.
+      var (reg, ctx) = Setup();
+      var v = Call(reg, ctx, "dm",
+        HarloweValue.OfString("HP"), HarloweValue.OfNumber(1),
+        HarloweValue.OfString("hp"), HarloweValue.OfNumber(2));
+      Assert.Equal(HarloweValueKind.Datamap, v.Kind);
+      Assert.Equal(2, v.AsDatamap.Count);
+    }
+
     // modulo -----------------------------------------------------------------
 
     [Fact]
