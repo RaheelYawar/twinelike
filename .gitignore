@@ -175,3 +175,9 @@ Desktop.ini
 # into top-level folders for convenience — not source).
 dist/
 nupkg-test/
+
+# Reference sources — third-party snapshots (e.g. the Harlowe Zlib-licensed
+# source) used only as a local development reference. Not needed to build or
+# run; contributors fetch their own copy (see CONTRIBUTING.md). Kept out of the
+# repo to avoid vendoring a whole foreign project under our MIT licence.
+references/

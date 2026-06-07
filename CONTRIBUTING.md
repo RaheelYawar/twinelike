@@ -45,7 +45,9 @@ Some tests cover the engine-integration contract (`HtmlRenderOutput`, `IRenderOu
 
 ## Reference impl
 
-Harlowe is the spec we follow. When in doubt about author-facing behaviour, check the reference implementation — the [`modality/harlowe`](https://github.com/modality/harlowe) GitHub mirror is convenient (the canonical Heptapod source is bot-walled). The runtime sometimes simplifies versus the reference (e.g., string colour heuristics instead of a typed `Colour` value); call these out in the PR description so reviewers know it's intentional.
+Harlowe is the spec we follow. When in doubt about author-facing behaviour, check the reference implementation — the [`modality/harlowe`](https://github.com/modality/harlowe) GitHub mirror is convenient (the canonical [Heptapod source](https://foss.heptapod.net/games/harlowe) is bot-walled). The runtime sometimes simplifies versus the reference (e.g., string colour heuristics instead of a typed `Colour` value); call these out in the PR description so reviewers know it's intentional.
+
+Several internal docs (`CLAUDE.md`, `MACRO-DIVERGENCES.md`, `SAVE-LOAD-PLAN.md`) cite reference paths under `references/harlowe-branch-default.zip`. That snapshot is **not** committed — Harlowe is a separate Zlib-licensed project, so `references/` is gitignored to keep a foreign codebase out of this MIT repo. If you want local grep access, download a `branch default` snapshot from the mirror or Heptapod and drop it at `references/harlowe-branch-default.zip`; nothing in the build or test pipeline depends on it.
 
 ## Filing issues
 

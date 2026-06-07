@@ -352,7 +352,7 @@ For someone picking this up cold:
 - `E:\Git\twinelike\HarloweParser\Runtime\Saving\ISaveStorage.cs` — new
 - `E:\Git\twinelike\HarloweParser\Runtime\MulberryRng.cs` — new
 - `C:\temp\harlowe-ref\harlowe-branch-default\ts\state.ts` — reference
-  model (unzip `references/harlowe-branch-default.zip` first; or use the
-  in-repo zip directly via `unzip -p`)
+  model (unzip your local `references/harlowe-branch-default.zip` first —
+  that file is **not** committed; see CONTRIBUTING.md for where to fetch it)
 - `C:\temp\harlowe-ref\harlowe-branch-default\ts\macrolib\commands.ts` —
   reference macro implementations and doc comments

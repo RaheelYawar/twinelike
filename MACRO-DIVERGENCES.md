@@ -433,6 +433,7 @@ architecture.
   macro registration; the `RegisterAll` site for new aliases.
 - `C:\temp\harlowe-ref\harlowe-branch-default\ts\macrolib\` — reference
   macros, grouped by category (`commands.ts`, `datastructures.ts`,
-  `stylechangers.ts`, `enchantments.ts`, `values.ts`, etc.). Unzip
-  `references/harlowe-branch-default.zip` first; or use the in-repo zip
-  directly via `unzip -p`.
+  `stylechangers.ts`, `enchantments.ts`, `values.ts`, etc.). Unzip your
+  local `references/harlowe-branch-default.zip` first — that file is **not**
+  committed (third-party Zlib source, gitignored); see CONTRIBUTING.md /
+  CLAUDE.md for where to fetch it.
