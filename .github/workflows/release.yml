@@ -83,7 +83,7 @@ jobs:
           BUNDLE_DIR="Twinelike-${VERSION}"
           mkdir -p "$BUNDLE_DIR"
           cp "bin/Release/netstandard2.0/Twinelike.dll" "$BUNDLE_DIR/"
-          cp README.md LICENSE "$BUNDLE_DIR/"
+          cp README.md LICENSE THIRD-PARTY-NOTICES.txt "$BUNDLE_DIR/"
           zip -r "release-staging/Twinelike-${VERSION}.zip" "$BUNDLE_DIR"
           echo "--- staged artifacts ---"
           ls -la release-staging/
