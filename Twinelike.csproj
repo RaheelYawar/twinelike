@@ -3,7 +3,11 @@
         <OutputType>Library</OutputType>
         <TargetFramework>netstandard2.0</TargetFramework>
         <RootNamespace>Harlowe</RootNamespace>
-        <AssemblyName>Twinelike</AssemblyName>
+        <!-- Lower-case on purpose: the output is twinelike.dll. A mixed-case
+             filename trips case-sensitive filesystems (Linux CI runners, IL2CPP
+             pipelines) when paths are referenced literally. The NuGet PackageId
+             stays PascalCase "Twinelike"; package ids are case-insensitive. -->
+        <AssemblyName>twinelike</AssemblyName>
         <DefaultItemExcludes>$(DefaultItemExcludes);HarloweParser.Tests\**</DefaultItemExcludes>
         <LangVersion>latest</LangVersion>
         <!-- Required for ILRepack: copies transitive deps (HtmlAgilityPack)
@@ -30,14 +34,14 @@
 
     <ItemGroup>
         <None Include="README.md" Pack="true" PackagePath="\" />
-        <!-- HtmlAgilityPack (MIT) is ILRepack-merged into Twinelike.dll, so its
+        <!-- HtmlAgilityPack (MIT) is ILRepack-merged into twinelike.dll, so its
              licence + copyright notice must travel with the package. -->
         <None Include="THIRD-PARTY-NOTICES.txt" Pack="true" PackagePath="\" />
     </ItemGroup>
 
     <ItemGroup>
         <!-- HtmlAgilityPack is consumed by Layer 1 (the Twine 2 HTML loader)
-             and merged into Twinelike.dll at build time by the ILRepack target
+             and merged into twinelike.dll at build time by the ILRepack target
              below. PrivateAssets=all keeps it out of the produced NuGet
              package's dependency list so consumers see a single self-contained
              DLL with zero external deps. -->
@@ -54,7 +58,7 @@
 
     <!-- ILRepack merge logic lives in ./ILRepack.targets — the package's own
          override mechanism (its default target is skipped when that file
-         exists). That file merges HtmlAgilityPack into Twinelike.dll on
+         exists). That file merges HtmlAgilityPack into twinelike.dll on
          Release builds with HAP types internalized so they don't pollute
          the public API or conflict with a consumer's own HAP reference. -->
 </Project>

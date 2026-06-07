@@ -9,7 +9,7 @@ A C# library (netstandard2.0) for parsing and running Twine/Harlowe interactive 
 - **Framework:** Library targets `netstandard2.0` for maximum consumer reach (Unity 2018.1+, Godot 3/4, .NET Framework 4.6.1+, .NET 5+, Mono, Xamarin). Test project multi-targets `net48` + `net8.0`. Both SDK-style csprojs.
 - **Build:** `dotnet build Twinelike.sln`
 - **Test:** `dotnet test Twinelike.sln`
-- **Output:** Library DLL (`harlowe_parser.dll`)
+- **Output:** Library DLL (`twinelike.dll`) — `AssemblyName` is lower-case `twinelike` (avoids case-sensitive-filesystem breakage on Linux CI / IL2CPP). The NuGet `PackageId` stays PascalCase `Twinelike`; the in-code namespace stays `Harlowe.*`.
 - The library csproj sits at the repo root and uses `<DefaultItemExcludes>` to keep it from globbing the test folder.
 
 ## Spec & reference sources

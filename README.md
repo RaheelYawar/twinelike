@@ -227,21 +227,21 @@ Library targets `netstandard2.0`. Test project multi-targets `net48` + `net8.0` 
 To produce the distributable DLL:
 
 ```sh
-# Release build merges HtmlAgilityPack into Twinelike.dll via ILRepack
+# Release build merges HtmlAgilityPack into twinelike.dll via ILRepack
 # (Debug builds skip the merge for fast dev cycles).
 dotnet build Twinelike.sln -c Release
-# → bin/Release/netstandard2.0/Twinelike.dll  (self-contained, ~270 KB)
+# → bin/Release/netstandard2.0/twinelike.dll  (self-contained, ~270 KB)
 
 # Or for a clean publish folder:
 dotnet publish Twinelike.csproj -c Release -o ./dist/Twinelike
-# → dist/Twinelike/Twinelike.dll
+# → dist/Twinelike/twinelike.dll
 
 # Or for the NuGet package:
 dotnet pack Twinelike.csproj -c Release -o ./dist
 # → dist/Twinelike.0.1.1.nupkg
 ```
 
-Drop the produced `Twinelike.dll` into Unity's `Assets/Plugins/` or reference it from any .NET project — no other DLLs required.
+Drop the produced `twinelike.dll` into Unity's `Assets/Plugins/` or reference it from any .NET project — no other DLLs required.
 
 ## Architecture
 
@@ -255,7 +255,7 @@ For implementation depth — file layout, the descriptor-patch changer model, de
 
 ## Dependencies
 
-None at runtime. The shipped `Twinelike.dll` is a single self-contained assembly — [HtmlAgilityPack](https://www.nuget.org/packages/HtmlAgilityPack) (used by the Twine 2 HTML loader) is merged into it at build time via ILRepack with its types internalized, so it doesn't propagate as a NuGet dependency and doesn't conflict if your project already references HAP for its own purposes.
+None at runtime. The shipped `twinelike.dll` is a single self-contained assembly — [HtmlAgilityPack](https://www.nuget.org/packages/HtmlAgilityPack) (used by the Twine 2 HTML loader) is merged into it at build time via ILRepack with its types internalized, so it doesn't propagate as a NuGet dependency and doesn't conflict if your project already references HAP for its own purposes.
 
 ## Errors are inline, not exceptional
 

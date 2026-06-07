@@ -11,18 +11,20 @@
     <Target Name="ILRepacker" AfterTargets="Build"
             Condition="'$(Configuration)' == 'Release' AND Exists('$(OutputPath)HtmlAgilityPack.dll')">
         <ItemGroup>
-            <InputAssemblies Include="$(OutputPath)Twinelike.dll" />
+            <!-- $(TargetFileName) (= twinelike.dll) instead of a literal name so
+                 these targets track AssemblyName and don't break on a rename. -->
+            <InputAssemblies Include="$(OutputPath)$(TargetFileName)" />
             <InputAssemblies Include="$(OutputPath)HtmlAgilityPack.dll" />
         </ItemGroup>
         <ILRepack
             Parallel="true"
             Internalize="true"
             InputAssemblies="@(InputAssemblies)"
-            OutputFile="$(OutputPath)Twinelike.dll"
+            OutputFile="$(OutputPath)$(TargetFileName)"
             TargetKind="Dll"
             LibraryPath="$(OutputPath)"
         />
-        <!-- Remove the source HAP DLL — the merged Twinelike.dll has everything
+        <!-- Remove the source HAP DLL — the merged twinelike.dll has everything
              so consumers of bin/Release shouldn't think they need to ship it.
              The Exists() guard above keeps re-builds (e.g. when the test
              project rebuilds Twinelike transitively) from failing once HAP
@@ -30,13 +32,13 @@
         <Delete Files="$(OutputPath)HtmlAgilityPack.dll" />
     </Target>
 
-    <!-- `dotnet publish` produces its own copy of Twinelike.dll from obj/, which
+    <!-- `dotnet publish` produces its own copy of twinelike.dll from obj/, which
          is the pre-merge artifact. Overlay the merged bin/Release version on
          top so publish output also gets the self-contained DLL. -->
     <Target Name="ILRepackerOverlayPublish" AfterTargets="Publish"
-            Condition="'$(Configuration)' == 'Release' AND Exists('$(OutputPath)Twinelike.dll')">
-        <Copy SourceFiles="$(OutputPath)Twinelike.dll"
-              DestinationFiles="$(PublishDir)Twinelike.dll"
+            Condition="'$(Configuration)' == 'Release' AND Exists('$(OutputPath)$(TargetFileName)')">
+        <Copy SourceFiles="$(OutputPath)$(TargetFileName)"
+              DestinationFiles="$(PublishDir)$(TargetFileName)"
               OverwriteReadOnlyFiles="true" />
     </Target>
 </Project>

@@ -75,14 +75,14 @@ jobs:
         run: |
           VERSION="${{ steps.ver.outputs.version }}"
           mkdir -p release-staging
-          cp "bin/Release/netstandard2.0/Twinelike.dll" "release-staging/Twinelike-${VERSION}.dll"
+          cp "bin/Release/netstandard2.0/twinelike.dll" "release-staging/twinelike-${VERSION}.dll"
           cp dist/*.nupkg release-staging/
           if ls dist/*.snupkg >/dev/null 2>&1; then
             cp dist/*.snupkg release-staging/
           fi
           BUNDLE_DIR="Twinelike-${VERSION}"
           mkdir -p "$BUNDLE_DIR"
-          cp "bin/Release/netstandard2.0/Twinelike.dll" "$BUNDLE_DIR/"
+          cp "bin/Release/netstandard2.0/twinelike.dll" "$BUNDLE_DIR/"
           cp README.md LICENSE THIRD-PARTY-NOTICES.txt "$BUNDLE_DIR/"
           zip -r "release-staging/Twinelike-${VERSION}.zip" "$BUNDLE_DIR"
           echo "--- staged artifacts ---"
