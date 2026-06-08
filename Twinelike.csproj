@@ -28,8 +28,12 @@
         <RepositoryUrl>https://github.com/RaheelYawar/twinelike</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <PackageReadmeFile>README.md</PackageReadmeFile>
-        <IncludeSymbols>true</IncludeSymbols>
-        <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+        <!-- No symbol package. ILRepack rewrites twinelike.dll during the merge,
+             so the compiler-emitted PDB no longer matches the shipped DLL's debug
+             signature; nuget.org rejects the resulting .snupkg ("pdb for a dll not
+             found in the package"). Local Release builds still produce a PDB for
+             debugging — it's just not packed or published. -->
+        <IncludeSymbols>false</IncludeSymbols>
     </PropertyGroup>
 
     <ItemGroup>

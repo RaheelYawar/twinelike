@@ -77,17 +77,16 @@ jobs:
 
       # Stage three artifacts for the release:
       #   - the bare versioned DLL (drop straight into Unity/Godot/etc.)
-      #   - the .nupkg + .snupkg (for offline NuGet consumers and symbols)
+      #   - the .nupkg (for offline NuGet consumers)
       #   - a zip bundle with DLL + README + LICENSE (one-download, all context)
+      # No .snupkg: ILRepack's merge invalidates the PDB↔DLL signature match, so
+      # a symbol package fails nuget.org validation (see Twinelike.csproj).
       - name: Stage release artifacts
         run: |
           VERSION="${{ steps.ver.outputs.version }}"
           mkdir -p release-staging
           cp "bin/Release/netstandard2.0/twinelike.dll" "release-staging/twinelike-${VERSION}.dll"
           cp dist/*.nupkg release-staging/
-          if ls dist/*.snupkg >/dev/null 2>&1; then
-            cp dist/*.snupkg release-staging/
-          fi
           BUNDLE_DIR="Twinelike-${VERSION}"
           mkdir -p "$BUNDLE_DIR"
           cp "bin/Release/netstandard2.0/twinelike.dll" "$BUNDLE_DIR/"
@@ -131,9 +130,9 @@ jobs:
 
   # ──────────────────────────────────────────────────────────────────────────
   # Publish to NuGet — runs only when a drafted GitHub Release is *published*
-  # (you click "Publish release"). Pushes the exact .nupkg/.snupkg that were
-  # attached to and reviewed on the release — no rebuild — so what lands on
-  # nuget.org is byte-identical to what you approved.
+  # (you click "Publish release"). Pushes the exact .nupkg that was attached to
+  # and reviewed on the release — no rebuild — so what lands on nuget.org is
+  # byte-identical to what you approved.
   #
   # Requires a repo secret NUGET_API_KEY (Settings → Secrets and variables →
   # Actions → New repository secret). Create the key at nuget.org → API Keys,
@@ -150,20 +149,19 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      # Pull the package + symbols that this release attached.
-      - name: Download package assets from the release
+      # Pull the package that this release attached.
+      - name: Download package asset from the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p nuget-push
           gh release download "${{ github.event.release.tag_name }}" \
             --repo "${{ github.repository }}" \
-            --pattern '*.nupkg' --pattern '*.snupkg' \
+            --pattern '*.nupkg' \
             --dir nuget-push
           echo "--- downloaded ---"
           ls -la nuget-push
 
-      # Pushing the .nupkg also pushes the matching .snupkg in the same folder.
       # --skip-duplicate turns a re-run into a no-op instead of a hard failure
       # if that version is already live on nuget.org.
       - name: Push to nuget.org

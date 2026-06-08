@@ -55,7 +55,7 @@ gh run watch --exit-status            # blocks on the most recent run
 gh run list --limit 3
 ```
 
-The job builds, runs tests as a release gate, packs the `.nupkg`, stages four artifacts (bare DLL, zipped bundle, `.nupkg`, `.snupkg`), extracts release notes from the changelog, and creates a **draft** GitHub Release.
+The job builds, runs tests as a release gate, packs the `.nupkg`, stages three artifacts (bare DLL, zipped bundle, `.nupkg`), extracts release notes from the changelog, and creates a **draft** GitHub Release.
 
 ## 6. Review the draft and publish
 
@@ -63,7 +63,7 @@ Open the draft from the [Releases page](https://github.com/RaheelYawar/twinelike
 
 - Title is `Twinelike X.Y.Z`.
 - Body matches your `## [X.Y.Z]` CHANGELOG section.
-- All four assets are attached: `twinelike-X.Y.Z.dll`, `Twinelike-X.Y.Z.zip`, `Twinelike.X.Y.Z.nupkg`, `Twinelike.X.Y.Z.snupkg`.
+- All three assets are attached: `twinelike-X.Y.Z.dll`, `Twinelike-X.Y.Z.zip`, `Twinelike.X.Y.Z.nupkg`.
 
 **Publish is a manual click in the GitHub UI** — `release.yml` deliberately drafts the release (`draft: true`) so this step is the human review gate. Drafts are invisible to non-collaborators and don't appear in the public release feed, so nothing is exposed until you click.
 
