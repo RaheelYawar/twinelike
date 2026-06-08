@@ -11,6 +11,11 @@ on:
       version:
         description: 'Version (e.g. 0.1.0) — creates a draft release named v<version>'
         required: true
+  # Publishing a drafted release (clicking "Publish release" in the UI) fires
+  # the publish-nuget job below — so the irreversible push to nuget.org sits
+  # behind the same human approval gate as making the GitHub Release public.
+  release:
+    types: [published]
 
 permissions:
   contents: write
@@ -18,6 +23,9 @@ permissions:
 jobs:
   release:
     name: Build, pack, and draft a GitHub Release
+    # Only the draft-creation path (tag push / manual dispatch). Skipped when the
+    # trigger is a release being published — that path runs publish-nuget only.
+    if: github.event_name != 'release'
     runs-on: ubuntu-latest
 
     steps:
@@ -120,3 +128,47 @@ jobs:
           prerelease: ${{ steps.ver.outputs.prerelease }}
           files: |
             release-staging/*
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Publish to NuGet — runs only when a drafted GitHub Release is *published*
+  # (you click "Publish release"). Pushes the exact .nupkg/.snupkg that were
+  # attached to and reviewed on the release — no rebuild — so what lands on
+  # nuget.org is byte-identical to what you approved.
+  #
+  # Requires a repo secret NUGET_API_KEY (Settings → Secrets and variables →
+  # Actions → New repository secret). Create the key at nuget.org → API Keys,
+  # scoped to push for the Twinelike package (glob `Twinelike` or `*`).
+  # ──────────────────────────────────────────────────────────────────────────
+  publish-nuget:
+    name: Publish to NuGet
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set up .NET 8 SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+
+      # Pull the package + symbols that this release attached.
+      - name: Download package assets from the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p nuget-push
+          gh release download "${{ github.event.release.tag_name }}" \
+            --repo "${{ github.repository }}" \
+            --pattern '*.nupkg' --pattern '*.snupkg' \
+            --dir nuget-push
+          echo "--- downloaded ---"
+          ls -la nuget-push
+
+      # Pushing the .nupkg also pushes the matching .snupkg in the same folder.
+      # --skip-duplicate turns a re-run into a no-op instead of a hard failure
+      # if that version is already live on nuget.org.
+      - name: Push to nuget.org
+        run: |
+          dotnet nuget push "nuget-push/*.nupkg" \
+            --api-key "${{ secrets.NUGET_API_KEY }}" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate

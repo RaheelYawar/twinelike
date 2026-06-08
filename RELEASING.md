@@ -63,11 +63,11 @@ Open the draft from the [Releases page](https://github.com/RaheelYawar/twinelike
 
 - Title is `Twinelike X.Y.Z`.
 - Body matches your `## [X.Y.Z]` CHANGELOG section.
-- All four assets are attached: `Twinelike-X.Y.Z.dll`, `Twinelike-X.Y.Z.zip`, `Twinelike.X.Y.Z.nupkg`, `Twinelike.X.Y.Z.snupkg`.
+- All four assets are attached: `twinelike-X.Y.Z.dll`, `Twinelike-X.Y.Z.zip`, `Twinelike.X.Y.Z.nupkg`, `Twinelike.X.Y.Z.snupkg`.
 
 **Publish is a manual click in the GitHub UI** — `release.yml` deliberately drafts the release (`draft: true`) so this step is the human review gate. Drafts are invisible to non-collaborators and don't appear in the public release feed, so nothing is exposed until you click.
 
-When the checks above pass, click **Publish release**. The tag is already in place from step 5; the publish click is purely the visibility flip — GitHub doesn't create a new tag here.
+When the checks above pass, click **Publish release**. The tag is already in place from step 5; the publish click is purely the visibility flip — GitHub doesn't create a new tag here. **Publishing also fires the NuGet push** (see below) — so this one click both makes the GitHub Release public and ships the package to nuget.org.
 
 ## Manual dispatch (without a tag)
 
@@ -79,6 +79,8 @@ The `workflow_dispatch` trigger on `release.yml` lets you draft a release withou
 - **Workflow run failed.** Re-run from the Actions tab once the underlying issue is fixed. If the build/test step regressed, fix on `main` first, then re-trigger.
 - **Already published a bad release.** GitHub releases can be edited or deleted post-publish, but deleting does not yank consumers who already downloaded. Prefer cutting an `X.Y.Z+1` patch over deleting.
 
-## Future: NuGet.org auto-publish
+## NuGet.org publishing
 
-The release currently produces a `.nupkg` but does not push it to nuget.org — consumers who want the package can download it from the GitHub Release. To automate publishing, add a `dotnet nuget push` step to `release.yml` and store a `NUGET_API_KEY` secret on the repo.
+Publishing to nuget.org is automated and gated on the same human click as the GitHub Release. When you click **Publish release** (step 6), the `release: published` event triggers the `publish-nuget` job in `release.yml`, which downloads the `.nupkg`/`.snupkg` attached to that release and `dotnet nuget push`es them. It pushes the *reviewed* artifact — no rebuild — uses `--skip-duplicate` so a re-run is a no-op, and the `.snupkg` symbols upload alongside the `.nupkg` automatically. There's no separate manual push for normal releases.
+
+This needs a repo secret **`NUGET_API_KEY`** (Settings → Secrets and variables → Actions) — create it at nuget.org → API Keys, scoped to **Push** with glob `Twinelike`. **These keys expire (365-day max); when one lapses the push job fails while the draft still succeeds — regenerate the key, update the secret, and re-run the job.**
