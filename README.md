@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/RaheelYawar/twinelike/actions/workflows/ci.yml/badge.svg)](https://github.com/RaheelYawar/twinelike/actions/workflows/ci.yml)
 [![NuGet](https://img.shields.io/nuget/v/Twinelike.svg)](https://www.nuget.org/packages/Twinelike/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/RaheelYawar/twinelike/blob/main/LICENSE)
 
 A C# library for parsing and running [Twine/Harlowe](https://twinery.org/) interactive fiction, designed to embed inside game engines — Unity, Godot, anything that runs .NET, Mono, or IL2CPP.
 
@@ -251,7 +251,7 @@ Two parsing layers, then a runtime. Briefly:
 - **Layer 2 — Harlowe markup.** Shared between both front-ends: `HarloweTokenizer` → `HarloweBodyParser` (which hands off to `HarloweExpressionParser` at every macro) → `PassageBody` AST.
 - **Runtime.** `StorySession` owns the variable store, macro registry, and render-tree state. `BodyRenderer` walks an AST into a `RenderTreeBuilder` (an `IRenderOutput`-shaped tree-of-nodes); `RenderTreeFlusher` replays the finished tree as the flat event stream your `IRenderOutput` receives. Revision macros (`(replace:)`, `(append:)`, `(prepend:)`) mutate the tree in place; enchantment macros (`(change:)`, `(enchant:)`) re-wrap matched nodes; interaction macros (`(click:)` family) wrap targets in `InteractiveRegion` brackets and register handlers that fire on `DispatchEvent`.
 
-For implementation depth — file layout, the descriptor-patch changer model, design rationale, conventions — see [`CLAUDE.md`](./CLAUDE.md).
+For implementation depth — file layout, the descriptor-patch changer model, design rationale, conventions — see [`CLAUDE.md`](https://github.com/RaheelYawar/twinelike/blob/main/CLAUDE.md).
 
 ## Dependencies
 
@@ -263,4 +263,4 @@ The runtime never throws on the render hot path. A bad expression renders an inl
 
 ## License
 
-[MIT](./LICENSE). Use it in commercial games, open-source projects, anything — just keep the copyright notice with the source.
+[MIT](https://github.com/RaheelYawar/twinelike/blob/main/LICENSE). Use it in commercial games, open-source projects, anything — just keep the copyright notice with the source.
