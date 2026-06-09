@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-06-08
+
+A large correctness pass against reference Harlowe (the "divergence audit"), parse-error recovery so a single malformed passage no longer aborts a load, several new operators and macro aliases, and packaging changes. **Note:** the distributed DLL is now lower-case `twinelike.dll` — see *Changed*.
+
+### Added
+
+- **`(else-if:)` / `(elseif:)`** conditional macro.
+- **Macro aliases.** `(loop:)` for `(for:)`, `(number:)` for `(num:)`, and `(str:)` / `(string:)` for `(text:)`. The `(text:)` family is now **variadic** — it joins all of its arguments.
+- **Operators.** `%` modulo; polymorphic `+` (arrays, datamaps, booleans) and `-` (strings, arrays); `=` accepted as shorthand for `to` in `(set:)` / `(put:)` assignments.
+- **Lambda `pos`** — a 1-indexed position identifier bound on each iteration.
+- **`turn` / `turns`** identifiers in the evaluation context (count of passage transitions).
+- **Parse-error recovery.** A malformed passage now renders an in-prose error and the rest of the story stays usable, instead of failing the whole load. Recovery is per-node, so well-formed siblings still parse, and the original source is retained so `TweeWriter` round-trips the broken passage verbatim.
+- **Corrective hints for mistyped operators** — common misspellings and reversed forms surface a targeted parse error suggesting the right form.
+
+### Changed
+
+- **The distributed library DLL is now `twinelike.dll` (lower-case), previously `Twinelike.dll`.** Update anything that loads the assembly by filename (e.g. Unity `Assets/Plugins`). The NuGet package id (`Twinelike`) and the in-code namespace (`Harlowe.*`) are unchanged.
+- **Hook-scoped temp variables.** `_temp` variables now live in a per-hook scope stack, and `set` walks outer-to-inner (an inner hook updates the outermost existing declaration), matching reference Harlowe; each `(for:)` iteration and lambda gets a fresh scope.
+- **`of` is now right-associative**, matching reference precedence for chained `of` / `'s`.
+- **Reference-aligned macro behaviour.** `(num:)` / `(number:)` use JS-style string coercion and reject a `number` argument; `(random:)` truncates fractional bounds instead of erroring; `(for:)` / `(loop:)` accept zero items; `(align:)` accepts arbitrary-length and off-centre arrows; `(background:)` trims its input and aligns its image-vs-colour heuristic with reference.
+- **Stricter, spec-aligned validation** — these now raise an in-prose error where they were previously lenient: `(goto:)` to a non-existent passage, `(dm:)` with duplicate keys, and a stray `(else:)` with no preceding conditional.
+- **Twee read/write uses an LF-only line-break model**, consistent with the Twee ecosystem.
+- **Link/anchor output standardised to a single shape** — focusable, accessible anchors, with empty attributes for null regions.
+- **No symbol package (`.snupkg`) is published.** ILRepack's assembly merge invalidates the PDB↔DLL signature match, so a symbol package fails nuget.org validation. Local Release builds still emit a PDB for your own debugging.
+
+### Fixed
+
+- **Loader crash on non-ASCII Unicode digits** — the tokenizer's number scan is now gated to ASCII digits.
+- **Navigation-bug guard** — `PendingGoto` can no longer be mutated during the enchantment pass.
+
+### Security
+
+- **Hardened the CSS value validator.** It now blocks structural characters and disallowed keywords across Unicode (NFKC) equivalence forms, rejects unpaired surrogates that could bypass the NFKC defence, and trims `(background:)` input so stray whitespace can't smuggle malformed CSS.
+- **Absolute depth ceiling on `(display:)`** recursion, complementing the existing cyclic-embedding guard.
+
 ## [0.1.1] — 2026-05-22
 
 ### Added
@@ -52,6 +87,7 @@ First public release. Tracks Harlowe 3.3.8 to the extent listed in the [README f
 - `(link:)`, `(live:)`, `(event:)`, `(trigger:)`, `(t8n:)` / transitions, custom `(macro:)` / `(output:)`, storylets, and `(unpack:)` / `...` spread are not yet implemented; they emit an "unknown macro" in-prose error.
 - Tokenizer string literals do not handle escape sequences. A string containing both `"` and `'` cannot be round-tripped through `MarkupPrinter`.
 
-[Unreleased]: https://github.com/RaheelYawar/twinelike/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/RaheelYawar/twinelike/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/RaheelYawar/twinelike/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/RaheelYawar/twinelike/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/RaheelYawar/twinelike/releases/tag/v0.1.0
