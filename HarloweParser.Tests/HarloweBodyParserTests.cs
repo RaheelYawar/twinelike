@@ -292,6 +292,33 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void MalformedArgumentList_EmitsParseErrorInsteadOfSilentDrop()
+    {
+      // (if: $x $y) — the expression ends at $x but the cursor lands on $y,
+      // neither ',' nor ')'. ParseArgumentList used to bail silently: the
+      // partial (if:) lost its hook attachment, [secret] became a free
+      // anonymous hook, and guarded content rendered unconditionally.
+      var body = Parse("(if: $x $y)[secret]");
+      ParseErrorNode err = null;
+      for (int i = 0; i < body.Children.Count; i++)
+        if (body.Children[i] is ParseErrorNode n) { err = n; break; }
+      Assert.NotNull(err);
+      Assert.Contains("expected ',' or ')'", err.Message);
+    }
+
+    [Fact]
+    public void MalformedArgumentList_StrayTokenAfterAssignment_EmitsParseError()
+    {
+      // (set: $x to 5 6) used to assign 5 and silently discard the 6.
+      var body = Parse("(set: $x to 5 6)");
+      ParseErrorNode err = null;
+      for (int i = 0; i < body.Children.Count; i++)
+        if (body.Children[i] is ParseErrorNode n) { err = n; break; }
+      Assert.NotNull(err);
+      Assert.Contains("got '6'", err.Message);
+    }
+
+    [Fact]
     public void ParseError_PreservesValidPrefix()
     {
       // Per-node parser recovery: when one node throws partway through, the

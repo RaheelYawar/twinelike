@@ -164,7 +164,10 @@ namespace Harlowe.Parsing
     /// Tolerates an empty list (<c>(foo:)</c>) and a single trailing comma
     /// (per the Harlowe manual, "trailing commas in macro calls are valid").
     /// Consumes the terminating <c>MacroClose</c> so the caller is left just
-    /// past the macro.
+    /// past the macro. Throws <see cref="HarloweParseException"/> when an
+    /// argument is followed by neither <c>,</c> nor <c>)</c> (e.g.
+    /// <c>(if: $x $y)</c>) so malformed lists surface as in-prose parse
+    /// errors instead of silently dropping tokens.
     /// </summary>
     public List<IExpressionNode> ParseArgumentList(TokenCursor cursor)
       => ParseArgumentList(cursor, allowAssignment: false);
@@ -200,12 +203,18 @@ namespace Harlowe.Parsing
           return args;
         }
 
-        // Malformed input — bail to avoid an infinite loop. The body parser
-        // will surface this as a diagnostic at a higher level.
-        break;
+        // The expression ended but the cursor is on neither ',' nor ')'.
+        // Throw rather than bail silently: the body parser's per-node
+        // recovery turns this into an in-prose ParseErrorNode, whereas
+        // returning partial args would silently drop the stray tokens and
+        // detach any hook that followed the macro (rendering it
+        // unconditionally).
+        var stray = cursor.Current;
+        string got = string.IsNullOrEmpty(stray.Value) ? stray.Type.ToString() : stray.Value;
+        throw new HarloweParseException(
+          $"expected ',' or ')' in macro argument list; got '{got}'",
+          stray.Line, stray.Column);
       }
-
-      return args;
     }
 
     /// <summary>
