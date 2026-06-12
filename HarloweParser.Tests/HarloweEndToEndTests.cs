@@ -364,6 +364,28 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void Constructor_EntityEncodedAttributes_DecodesNamesTagsAndMetadata()
+    {
+      // Twine 2 entity-encodes attribute values on export. The loader must
+      // decode them the same way it decodes bodies, or the passage index key
+      // ("Cake &amp; Tea") diverges from the decoded link target ("Cake & Tea")
+      // and the link errors "doesn't exist" on a story that works in Twine.
+      const string html = "<html><body><tw-storydata name=\"Tea &amp; Cakes\" startnode=\"1\">"
+        + "<tw-passagedata pid=\"1\" name=\"Start\" tags=\"spooky&amp;dark\">Visit [[Cake &amp; Tea]]</tw-passagedata>"
+        + "<tw-passagedata pid=\"2\" name=\"Cake &amp; Tea\">yum</tw-passagedata>"
+        + "</tw-storydata></body></html>";
+      var story = new Harlowe(html);
+
+      Assert.Equal("Tea & Cakes", story.StoryName);
+      var start = story.GetPassage("Start");
+      Assert.Contains("spooky&dark", start.Tags);
+      // The decoded link target resolves against the decoded passage name.
+      var branch = Assert.Single(start.Branches);
+      Assert.Equal("Cake & Tea", branch.Name);
+      Assert.NotNull(story.GetPassage(branch.Name));
+    }
+
+    [Fact]
     public void Passage_Tags_EmptyWhenAttributeMissing()
     {
       const string html = "<html><body><tw-storydata name=\"T\" startnode=\"1\">"

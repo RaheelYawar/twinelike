@@ -361,13 +361,16 @@ namespace Harlowe
     /// </summary>
     private void ParseStoryData(ref HapHtmlNode storyNode)
     {
-      StoryName = storyNode.GetAttributeValue("name", "");
-      StartNode = storyNode.GetAttributeValue("startnode", "0");
-      Creator = storyNode.GetAttributeValue("creator", "");
-      CreatorVersion = storyNode.GetAttributeValue("creator-version", "");
-      Ifid = storyNode.GetAttributeValue("ifid", "");
-      Format = storyNode.GetAttributeValue("format", "");
-      FormatVersion = storyNode.GetAttributeValue("format-version", "");
+      // Attribute values arrive entity-encoded (name="Cake &amp; Tea") and must
+      // be decoded like the body is, or names diverge from the decoded link
+      // targets that reference them.
+      StoryName = HtmlEntity.DeEntitize(storyNode.GetAttributeValue("name", ""));
+      StartNode = HtmlEntity.DeEntitize(storyNode.GetAttributeValue("startnode", "0"));
+      Creator = HtmlEntity.DeEntitize(storyNode.GetAttributeValue("creator", ""));
+      CreatorVersion = HtmlEntity.DeEntitize(storyNode.GetAttributeValue("creator-version", ""));
+      Ifid = HtmlEntity.DeEntitize(storyNode.GetAttributeValue("ifid", ""));
+      Format = HtmlEntity.DeEntitize(storyNode.GetAttributeValue("format", ""));
+      FormatVersion = HtmlEntity.DeEntitize(storyNode.GetAttributeValue("format-version", ""));
     }
 
     /// <summary>
@@ -473,7 +476,9 @@ namespace Harlowe
         if (nameAttr == null)
           throw new HarloweParseException(
             "<tw-passagedata> is missing required 'name' attribute", -1, -1, null);
-        string passageName = nameAttr.Value;
+        // Decode entities in the name so the passage index key matches link
+        // targets, which are decoded along with the body below.
+        string passageName = HtmlEntity.DeEntitize(nameAttr.Value);
 
         var pidAttr = passageNode.Attributes["pid"];
         if (pidAttr == null)
@@ -505,9 +510,9 @@ namespace Harlowe
 
         var passage = new HarlowePassage
         {
-          Pid = pidAttr.Value,
+          Pid = HtmlEntity.DeEntitize(pidAttr.Value),
           Name = passageName,
-          Tags = ParseTags(passageNode.GetAttributeValue("tags", string.Empty)),
+          Tags = ParseTags(HtmlEntity.DeEntitize(passageNode.GetAttributeValue("tags", string.Empty))),
           Ast = ast,
           Branches = BranchCollector.Collect(ast),
           // Body holds the raw author source verbatim, matching AddPassage's
