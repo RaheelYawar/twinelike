@@ -112,9 +112,9 @@ namespace Harlowe.Tests
     [Fact]
     public void AddPassage_DoesNotMutateCallerBodyFromMacroSource()
     {
-      // The caller's Body source is authoritative. Hydration must not rewrite
-      // it to BodyTextRenderer's macro-stripped view — that would silently
-      // drop macros on round-trip through (passage.Body → AddPassage).
+      // The caller's body source is authoritative. Hydration must not rewrite
+      // it to a macro-stripped prose view — that would silently drop macros on
+      // round-trip through (passage.Body → AddPassage).
       var story = new Harlowe();
       var p = new HarlowePassage { Name = "X", Body = "(set: $x to 1)Hello" };
       story.AddPassage(p);

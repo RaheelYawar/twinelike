@@ -283,37 +283,6 @@ namespace Harlowe.Twee
       }
     }
 
-    public void Visit(ArrayNode node)
-    {
-      _sb.Append("(a:");
-      EmitArgList(node.Items);
-      _sb.Append(')');
-    }
-
-    public void Visit(DatamapNode node)
-    {
-      _sb.Append("(dm:");
-      if (node.Keys != null && node.Keys.Count > 0)
-      {
-        _sb.Append(' ');
-        for (int i = 0; i < node.Keys.Count; i++)
-        {
-          if (i > 0) _sb.Append(", ");
-          node.Keys[i].Accept(this);
-          _sb.Append(", ");
-          node.Values[i].Accept(this);
-        }
-      }
-      _sb.Append(')');
-    }
-
-    public void Visit(DatasetNode node)
-    {
-      _sb.Append("(ds:");
-      EmitArgList(node.Items);
-      _sb.Append(')');
-    }
-
     /// <summary>
     /// Emits canonical lambda shapes: <c>_x where _x &gt; 5</c>,
     /// <c>where it &gt; 5</c> (implicit-it), <c>_x via _x * 2</c>,

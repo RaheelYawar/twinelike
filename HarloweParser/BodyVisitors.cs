@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Text;
 using Harlowe.Ast.Body;
 
 namespace Harlowe
@@ -51,51 +50,6 @@ namespace Harlowe
       var visitor = new BranchCollector();
       foreach (var child in ast.Children) child.Accept(visitor);
       return visitor.Branches;
-    }
-  }
-
-  /// <summary>
-  /// Renders a body AST back to a plain-prose string with link markup stripped
-  /// and macros omitted. Variables are re-emitted with their sigil so prose
-  /// like "Hello $name." round-trips. Used by both loaders to populate
-  /// <see cref="HarlowePassage.Body"/> as a flat-prose convenience view of
-  /// <see cref="HarlowePassage.Ast"/>.
-  ///
-  /// <para>Internal for the same reason as
-  /// <see cref="BranchCollector"/> — implementation detail of populating the
-  /// passage model from AST, not engine-facing.</para>
-  /// </summary>
-  internal class BodyTextRenderer : IBodyVisitor
-  {
-    private readonly StringBuilder _sb = new StringBuilder();
-
-    public string Result => _sb.ToString();
-
-    public void Visit(TextNode node) => _sb.Append(node.Content);
-    public void Visit(NewlineNode node) => _sb.Append('\n');
-    public void Visit(VariableNode node) => _sb.Append(node.IsTemporary ? '_' : '$').Append(node.Name);
-    public void Visit(Ast.Body.HtmlNode node) => _sb.Append(node.RawHtml);
-    public void Visit(LinkNode node) { }
-    public void Visit(MacroNode node) { }
-    public void Visit(ParseErrorNode node) { }
-
-    public void Visit(HookNode node)
-    {
-      if (node.Children == null) return;
-      foreach (var child in node.Children) child.Accept(this);
-    }
-
-    public void Visit(ChangerChainNode node)
-    {
-      if (node.AttachedHook != null) node.AttachedHook.Accept(this);
-    }
-
-    /// <summary>One-shot helper: walks <paramref name="ast"/> and returns the rendered text.</summary>
-    public static string Render(PassageBody ast)
-    {
-      var visitor = new BodyTextRenderer();
-      foreach (var child in ast.Children) child.Accept(visitor);
-      return visitor.Result;
     }
   }
 }
