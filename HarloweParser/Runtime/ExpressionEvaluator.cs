@@ -277,10 +277,6 @@ namespace Harlowe.Runtime
       _result = _macros.Invoke(node.Name, args) ?? HarloweValue.OfError($"macro '{node.Name}' returned no value");
     }
 
-    public void Visit(ArrayNode node) => _result = HarloweValue.OfError("array literal not supported");
-    public void Visit(DatamapNode node) => _result = HarloweValue.OfError("datamap literal not supported");
-    public void Visit(DatasetNode node) => _result = HarloweValue.OfError("dataset literal not supported");
-
     /// <summary>
     /// Lambdas are opaque at construction time — no scope work happens here.
     /// The runtime wrapper just pins the AST so <see cref="LambdaInvoker"/> can

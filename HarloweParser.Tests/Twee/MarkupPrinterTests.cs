@@ -515,39 +515,6 @@ namespace Harlowe.Tests.Twee
         }
       }));
 
-    [Fact]
-    public void ArrayNode_Empty() => Assert.Equal("(a:)", Print(new ArrayNode { Items = new List<IExpressionNode>() }));
-
-    [Fact]
-    public void ArrayNode_WithItems()
-      => Assert.Equal("(a: 1, 2)", Print(new ArrayNode
-      {
-        Items = new List<IExpressionNode>
-        {
-          new LiteralNode { Kind = LiteralKind.Number, Value = 1.0 },
-          new LiteralNode { Kind = LiteralKind.Number, Value = 2.0 },
-        }
-      }));
-
-    [Fact]
-    public void DatamapNode_PairsJoined()
-      => Assert.Equal("(dm: \"name\", \"Bob\")", Print(new DatamapNode
-      {
-        Keys = new List<IExpressionNode> { new LiteralNode { Kind = LiteralKind.String, Value = "name" } },
-        Values = new List<IExpressionNode> { new LiteralNode { Kind = LiteralKind.String, Value = "Bob" } },
-      }));
-
-    [Fact]
-    public void DatasetNode_Items()
-      => Assert.Equal("(ds: 1, 2)", Print(new DatasetNode
-      {
-        Items = new List<IExpressionNode>
-        {
-          new LiteralNode { Kind = LiteralKind.Number, Value = 1.0 },
-          new LiteralNode { Kind = LiteralKind.Number, Value = 2.0 },
-        }
-      }));
-
     // ----- Hook references -----
 
     [Fact]

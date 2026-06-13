@@ -198,9 +198,6 @@ classDiagram
   IExpressionNode <|.. BinaryOpNode
   IExpressionNode <|.. UnaryOpNode
   IExpressionNode <|.. MacroCallNode
-  IExpressionNode <|.. ArrayNode
-  IExpressionNode <|.. DatamapNode
-  IExpressionNode <|.. DatasetNode
 
   MacroNode --> "*" IExpressionNode : Arguments
   MacroNode --> "0..1" HookNode : AttachedHook
@@ -225,9 +222,8 @@ Both trees use the visitor pattern. Adding a new node type means a `Visit(NewNod
 | `ExpressionEvaluator` | Expression | Reduces a tree to one `HarloweValue` |
 | `MarkupPrinter` | Both | Canonical Harlowe-source emission for Twee write-out |
 | `BranchCollector` (internal) | Body | Derives `HarlowePassage.Branches` from `LinkNode`s |
-| `BodyTextRenderer` (internal) | Body | Derives `HarlowePassage.Body` flat-prose view |
 
-The two internal collectors live in `BodyVisitors.cs` (deduplicated from earlier per-loader copies). When a new body node lands, every `IBodyVisitor` implementation needs a `Visit` override — usually a no-op or a recurse-into-children.
+`BranchCollector` lives in `BodyVisitors.cs` (deduplicated from earlier per-loader copies). When a new body node lands, every `IBodyVisitor` implementation needs a `Visit` override — usually a no-op or a recurse-into-children.
 
 ## Runtime composition
 
@@ -375,7 +371,7 @@ Equality is structural and recurses into arrays + datamaps. Errors propagate thr
 | **A new value-producing macro** (e.g., `(upper:)`) | Subclass `IMacro` in `Runtime/Macros/`, register in `StandardMacros.RegisterAll`. |
 | **A new changer macro** (e.g., `(text-color:)`) | Same, but return a `Changer.FromStyle(new StyleSpec { Color = ... })`. Engine integrations decide rendering. |
 | **A new `HarloweValue` kind** | Extend `HarloweValueKind` enum, add factory + accessor on `HarloweValue`, update `Equals`/`GetHashCode`/`ToHarloweString`/`IsTruthy`. |
-| **A new body AST node** | Add the class under `Ast/Body/`, add `Visit` to `IBodyVisitor`, implement on every visitor (`BodyRenderer`, `MarkupPrinter`, `BranchCollector`, `BodyTextRenderer`). Body parser needs a recognizer. |
+| **A new body AST node** | Add the class under `Ast/Body/`, add `Visit` to `IBodyVisitor`, implement on every visitor (`BodyRenderer`, `MarkupPrinter`, `BranchCollector`). Body parser needs a recognizer. |
 | **A new expression AST node** | Same, against `IExpressionVisitor` (only `ExpressionEvaluator` and `MarkupPrinter`). |
 | **A new operator** | Add to `WordOperators` (or scanner) in `HarloweTokenizer`, add precedence entry to `HarloweExpressionParser.BinaryOps` / `UnaryPrefixOps`, handle in `ExpressionEvaluator.Visit(BinaryOpNode/UnaryOpNode)`, mirror precedence in `MarkupPrinter`. |
 | **A new render channel** | Add to `IRenderOutput`, implement on `BufferedRenderOutput` + `HtmlRenderOutput`, emit from wherever produces it. |

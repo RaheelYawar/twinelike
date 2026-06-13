@@ -24,9 +24,6 @@ namespace Harlowe.Ast.Expression
     void Visit(BinaryOpNode node);
     void Visit(UnaryOpNode node);
     void Visit(MacroCallNode node);
-    void Visit(ArrayNode node);
-    void Visit(DatamapNode node);
-    void Visit(DatasetNode node);
     void Visit(LambdaNode node);
     void Visit(HookRefNode node);
   }
