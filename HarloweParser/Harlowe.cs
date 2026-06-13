@@ -118,12 +118,10 @@ namespace Harlowe
     /// passage that actually renders and serializes. Callers that supply a
     /// pre-populated <see cref="HarlowePassage.Ast"/> (the HTML and Twee
     /// loaders, test fixtures with a hand-built AST) bypass this step.
-    /// <see cref="HarlowePassage.RawBody"/> is filled from the body source if
-    /// not already set, and <see cref="HarlowePassage.Branches"/> is collected
-    /// from the AST if not already set. The caller's
-    /// <see cref="HarlowePassage.Body"/> is left untouched so its source
-    /// representation round-trips intact — the loader-set shape is reserved
-    /// for the bulk-loader code paths that own the input string.</para>
+    /// <see cref="HarlowePassage.Branches"/> is collected from the AST if not
+    /// already set; the source body (<see cref="HarlowePassage.Body"/> /
+    /// <see cref="HarlowePassage.RawBody"/>, one and the same string) is left
+    /// untouched so it round-trips intact.</para>
     /// </summary>
     public void AddPassage(HarlowePassage passage)
     {
@@ -136,9 +134,10 @@ namespace Harlowe
     }
 
     /// <summary>
-    /// Parse <see cref="HarlowePassage.Body"/> into <see cref="HarlowePassage.Ast"/>
-    /// (and derived <see cref="HarlowePassage.RawBody"/>/
-    /// <see cref="HarlowePassage.Branches"/>) for passages that were
+    /// Parse the passage's source body (<see cref="HarlowePassage.RawBody"/>,
+    /// a.k.a. <see cref="HarlowePassage.Body"/>) into
+    /// <see cref="HarlowePassage.Ast"/> and the derived
+    /// <see cref="HarlowePassage.Branches"/>, for passages that were
     /// constructed by hand without going through the HTML or Twee loaders.
     /// Skips passages that already have an AST or whose body is null — both
     /// cases mean the caller is responsible for their own shape
@@ -154,28 +153,25 @@ namespace Harlowe
     private static void HydratePassageFromBody(HarlowePassage passage)
     {
       if (passage.Ast != null) return;
-      if (passage.Body == null) return;
+      if (passage.RawBody == null) return;
 
       var tokenizer = new HarloweTokenizer();
       var bodyParser = new HarloweBodyParser();
       Ast.Body.PassageBody ast;
       try
       {
-        var tokens = tokenizer.Tokenize(passage.Body);
-        ast = bodyParser.Parse(tokens, passage.Body);
+        var tokens = tokenizer.Tokenize(passage.RawBody);
+        ast = bodyParser.Parse(tokens, passage.RawBody);
       }
       catch (HarloweParseException ex)
       {
-        ast = MakeParseErrorAst(passage.Name, ex, passage.Body);
+        ast = MakeParseErrorAst(passage.Name, ex, passage.RawBody);
       }
       DecorateParseErrors(ast, passage.Name);
-      EnsureWholeStubOriginalSource(ast, passage.Body);
+      EnsureWholeStubOriginalSource(ast, passage.RawBody);
 
       passage.Ast = ast;
-      if (passage.RawBody == null) passage.RawBody = passage.Body;
       if (passage.Branches == null) passage.Branches = BranchCollector.Collect(ast);
-      // passage.Body is left untouched — the caller's source representation is
-      // authoritative.
     }
 
     /// <summary>
@@ -430,10 +426,10 @@ namespace Harlowe
     {
       if (passageName == null) return string.Empty;
       if (!_passages.TryGetValue(passageName, out var passage)) return string.Empty;
-      // A hand-built passage may have Body left null (the caller supplied a
-      // pre-parsed Ast and never set Body). Coerce so the documented
+      // A hand-built passage may have its body left null (the caller supplied a
+      // pre-parsed Ast and never set it). Coerce so the documented
       // "never-null" return contract holds for those too.
-      return passage.Body ?? string.Empty;
+      return passage.RawBody ?? string.Empty;
     }
 
     /// <summary>
@@ -455,7 +451,7 @@ namespace Harlowe
     /// through entity decoding → tokenizer → body parser, and indexes the
     /// resulting <see cref="HarlowePassage"/> by name. <see cref="HarlowePassage.Branches"/>
     /// is filled by collecting every <see cref="LinkNode"/> in the AST;
-    /// <see cref="HarlowePassage.Body"/> holds the raw author source.
+    /// <see cref="HarlowePassage.RawBody"/> holds the raw author source.
     ///
     /// <para>Null/missing structural pieces — no passages at all, a passage
     /// missing its <c>name</c> or <c>pid</c> attribute — surface as
@@ -520,11 +516,9 @@ namespace Harlowe
           Tags = ParseTags(HtmlEntity.DeEntitize(passageNode.GetAttributeValue("tags", string.Empty))),
           Ast = ast,
           Branches = BranchCollector.Collect(ast),
-          // Body holds the raw author source verbatim, matching AddPassage's
-          // contract. The previous "macro-stripped prose" shape diverged from
-          // AddPassage and returned an empty string for parse-error-recovered
-          // passages (indistinguishable from a missing passage).
-          Body = raw,
+          // RawBody holds the raw author source verbatim (Body is its alias),
+          // so write-out round-trips clean passages and GetPassageBody returns
+          // real source even for parse-error-recovered passages.
           RawBody = raw,
         };
 

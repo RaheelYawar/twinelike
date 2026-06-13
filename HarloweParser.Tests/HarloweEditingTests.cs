@@ -125,6 +125,27 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void Body_AndRawBody_ShareOneBackingValue()
+    {
+      // Body and RawBody are one underlying string. Editing either must be
+      // visible through the other and reach Twee write-out — previously they
+      // were independent fields, so a Body edit left RawBody (what the writer
+      // emits) stale, and vice versa.
+      var story = new Harlowe();
+      story.AddPassage(new HarlowePassage { Name = "P", Body = "original" });
+      var p = story.GetPassage("P");
+
+      p.Body = "edited via Body";
+      Assert.Equal("edited via Body", p.RawBody);
+
+      p.RawBody = "edited via RawBody";
+      Assert.Equal("edited via RawBody", p.Body);
+
+      // The edit reaches the writer (clean passage emits its source verbatim).
+      Assert.Contains("edited via RawBody", new TweeWriter().Write(story));
+    }
+
+    [Fact]
     public void AddPassage_HydrationDoesNotOverwritePrebuiltAst()
     {
       // Test fixtures (and the HTML/Twee loaders) construct the AST by hand and

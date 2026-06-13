@@ -21,7 +21,14 @@ namespace Harlowe
     /// </summary>
     public string Name;
 
-    public string Body;
+    /// <summary>
+    /// The passage's source body text. An alias of <see cref="RawBody"/>: the
+    /// two are one underlying string, so editing either is reflected by the
+    /// other and by Twee write-out. Kept as the consumer-facing name and the
+    /// input for the from-scratch <see cref="Harlowe.AddPassage"/> shorthand.
+    /// </summary>
+    public string Body { get => RawBody; set => RawBody = value; }
+
     public List<string> Tags;
     public List<Branch> Branches;
 
@@ -29,18 +36,17 @@ namespace Harlowe
     /// The parsed Harlowe body as a tree of <see cref="IBodyNode"/>s. Produced
     /// by the tokenizer + body-parser pipeline. Consumers that need structural
     /// access (rendering with macro effects, evaluation, static analysis)
-    /// should walk this tree; <see cref="Body"/> is a flattened-prose
-    /// convenience derived from the same AST.
+    /// should walk this tree.
     /// </summary>
     public PassageBody Ast;
 
     /// <summary>
-    /// The original source text of the passage body, captured before
-    /// tokenization. Used by Twee write-out for lazy reserialization: clean
-    /// passages emit their <see cref="RawBody"/> verbatim so a Twee file
-    /// round-tripped through the library only diverges on passages a consumer
-    /// actually edited. Populated by both the HTML constructor (post
-    /// HTML-entity decoding) and <see cref="Twee.TweeReader"/>.
+    /// The passage's source body text, captured before tokenization. Twee
+    /// write-out reuses it verbatim for non-dirty passages, so a round-tripped
+    /// file only diverges on passages a consumer actually edited (mark
+    /// <see cref="IsDirty"/> to re-emit from the <see cref="Ast"/> instead).
+    /// Populated by the HTML constructor (post HTML-entity decoding) and
+    /// <see cref="Twee.TweeReader"/>. <see cref="Body"/> is an alias.
     /// </summary>
     public string RawBody;
 

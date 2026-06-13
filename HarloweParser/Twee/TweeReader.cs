@@ -96,11 +96,8 @@ namespace Harlowe.Twee
           Position = block.Position,
           Ast = ast,
           Branches = BranchCollector.Collect(ast),
-          // Body holds the raw author source verbatim, matching the HTML
-          // loader and AddPassage. The previous "macro-stripped prose" shape
-          // diverged from those paths and returned an empty string for
-          // parse-error-recovered passages (indistinguishable from missing).
-          Body = block.Body,
+          // RawBody holds the raw author source verbatim (Body is its alias),
+          // matching the HTML loader and AddPassage.
           RawBody = block.Body,
         };
         try { story.AddPassage(passage); }
