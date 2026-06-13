@@ -145,6 +145,18 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
+    public void UnterminatedLink_FollowingMacrosStillExecute()
+    {
+      // A single missing `]]` must not disable the rest of the passage. The
+      // (set:) and (print:) after the unterminated `[[` should run, so the
+      // rendered text shows the assigned value. Pre-fix, everything after `[[`
+      // became one phantom-link Text token and no macro executed.
+      var session = new StorySession(OnePassage("[[Shop\n(set: $g to 7)(print: $g)"));
+      var r = session.Render();
+      Assert.Contains("7", r.Text);
+    }
+
+    [Fact]
     public void NonAsciiDigit_InOnePassage_DoesNotBreakSiblingPassages()
     {
       // The headline symptom was a whole-load abort: one bad passage took down

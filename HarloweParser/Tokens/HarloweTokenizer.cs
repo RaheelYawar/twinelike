@@ -104,13 +104,18 @@ namespace Harlowe.Tokens
           if (TryScanMacroOpen(startPos, startLine, startCol)) return;
           break;
         case '[':
-          if (Peek(1) == '[')
+          if (Peek(1) == '[' && HasLinkCloserAhead())
           {
             AdvanceN(2);
             _inLink = true;
             Emit(TokenType.LinkOpen, "[[", startPos, startLine, startCol);
             return;
           }
+          // A `[[` with no `]]` closer ahead is NOT a link (reference's
+          // passageLink pattern requires the closer); fall back to a single
+          // hook opener so the second `[` and the rest of the passage —
+          // newlines, macros — still tokenize instead of being swallowed into
+          // one phantom link.
           Advance();
           Emit(TokenType.HookOpen, "[", startPos, startLine, startCol);
           return;
@@ -134,6 +139,24 @@ namespace Harlowe.Tokens
       }
 
       ScanText(startPos, startLine, startCol);
+    }
+
+    /// <summary>
+    /// Lookahead from a <c>[[</c> opener for a <c>]]</c> closer, matching
+    /// reference Harlowe's <c>passageLink</c> pattern (<c>[^\]]*\]\]</c>): the
+    /// interior admits any character except <c>]</c>, so the first <c>]</c>
+    /// encountered must begin the closer. Returns false (not a link) when the
+    /// closer is absent or a lone <c>]</c> appears first, so an unterminated
+    /// <c>[[</c> degrades to hook openers rather than swallowing the passage.
+    /// </summary>
+    private bool HasLinkCloserAhead()
+    {
+      for (int i = _pos + 2; i < _src.Length; i++)
+      {
+        if (_src[i] == ']')
+          return i + 1 < _src.Length && _src[i + 1] == ']';
+      }
+      return false;
     }
 
     /// <summary>

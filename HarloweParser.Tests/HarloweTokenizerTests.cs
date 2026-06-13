@@ -132,6 +132,37 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void UnterminatedLink_FallsBackToHookOpeners_RestStillTokenizes()
+    {
+      // `[[Shop` with no `]]` closer is not a link. It must degrade to hook
+      // openers so the newline and the (set:) after it still tokenize, instead
+      // of being swallowed into one phantom link Text run that never executes.
+      AssertSequence(Tokenize("[[Shop\n(set: $g to 1)"),
+        (TokenType.HookOpen, "["),
+        (TokenType.HookOpen, "["),
+        (TokenType.Text, "Shop"),
+        (TokenType.Newline, "\n"),
+        (TokenType.MacroOpen, "set"),
+        (TokenType.Variable, "g"),
+        (TokenType.Operator, "to"),
+        (TokenType.NumberLiteral, "1"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void MultilineLink_WithCloserAhead_StillTokenizesAsLink()
+    {
+      // The closer may sit on a later line — the interior admits newlines — so
+      // a `[[` with a `]]` ahead is still a link.
+      AssertSequence(Tokenize("[[Go\nhere]]"),
+        (TokenType.LinkOpen, "[["),
+        (TokenType.Text, "Go\nhere"),
+        (TokenType.LinkClose, "]]"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
     public void Hook_OpenAndClose_TokenizedAsHookBrackets()
     {
       AssertSequence(Tokenize("[hello]"),
