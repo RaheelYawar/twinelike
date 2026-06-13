@@ -4,6 +4,7 @@ using System.Text;
 using Harlowe.Ast.Body;
 using Harlowe.Ast.Expression;
 using Harlowe.Parsing;
+using Harlowe.Runtime;
 
 namespace Harlowe.Twee
 {
@@ -203,7 +204,10 @@ namespace Harlowe.Twee
       switch (node.Kind)
       {
         case LiteralKind.Number:
-          _sb.Append(((double)node.Value).ToString(CultureInfo.InvariantCulture));
+          // Round-trip precision (shared with value display) so a dirty
+          // passage's numeric literals reserialize without truncation; the
+          // tokenizer accepts the exponent forms this can emit.
+          _sb.Append(HarloweValue.FormatNumber((double)node.Value));
           break;
         case LiteralKind.String:
           AppendStringLiteral((string)node.Value);

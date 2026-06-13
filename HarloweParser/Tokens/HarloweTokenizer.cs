@@ -567,6 +567,22 @@ namespace Harlowe.Tokens
         Advance();
         while (_pos < _src.Length && IsAsciiDigit(_src[_pos])) Advance();
       }
+      // Optional exponent: [eE][+-]?[0-9]+. Reference Harlowe's number pattern
+      // (the `number` rule in ts/markup/patterns.ts) permits exponents, and
+      // our serializer emits them for very small/large magnitudes — so this is
+      // required for round-trip as well as for authoring `1e10`. Only consume
+      // when at least one digit follows, so a bare `e`/`e+` is left for
+      // identifier lexing (e.g. `1east` stays `1` + `east`).
+      if (_pos < _src.Length && (_src[_pos] == 'e' || _src[_pos] == 'E'))
+      {
+        int look = _pos + 1;
+        if (look < _src.Length && (_src[look] == '+' || _src[look] == '-')) look++;
+        if (look < _src.Length && IsAsciiDigit(_src[look]))
+        {
+          AdvanceN(look - _pos); // `e` and optional sign
+          while (_pos < _src.Length && IsAsciiDigit(_src[_pos])) Advance();
+        }
+      }
       Emit(TokenType.NumberLiteral, _src.Substring(start, _pos - start), startPos, startLine, startCol);
     }
 

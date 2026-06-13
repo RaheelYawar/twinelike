@@ -176,12 +176,29 @@ namespace Harlowe.Runtime
     /// <see cref="IRenderOutput.Error"/> rather than print this directly, but
     /// returning the message keeps debugging easy.
     /// </summary>
+    /// <summary>
+    /// Canonical number → string for both value display and Twee
+    /// reserialization: the shortest representation in invariant culture that
+    /// re-parses to the same <see cref="double"/>, so a parsed literal survives
+    /// a print/re-parse cycle. The "R" specifier is shortest but can
+    /// occasionally under-round on .NET Framework, so we verify the round trip
+    /// and fall back to "G17" (which always round-trips). Exponent forms like
+    /// <c>1E-07</c> are fine — the tokenizer's number rule accepts exponents.
+    /// </summary>
+    public static string FormatNumber(double d)
+    {
+      string s = d.ToString("R", CultureInfo.InvariantCulture);
+      if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var back) && back.Equals(d))
+        return s;
+      return d.ToString("G17", CultureInfo.InvariantCulture);
+    }
+
     public string ToHarloweString()
     {
       switch (Kind)
       {
         case HarloweValueKind.Number:
-          return ((double)Raw).ToString("R", CultureInfo.InvariantCulture);
+          return FormatNumber((double)Raw);
         case HarloweValueKind.String:
           return (string)Raw;
         case HarloweValueKind.Bool:

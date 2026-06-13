@@ -374,6 +374,33 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void Macro_ExponentNumberLiteral_TokenizedAsSingleNumber()
+    {
+      // Reference Harlowe's number rule permits exponents; our serializer also
+      // emits them for very small/large magnitudes, so they must lex as one
+      // NumberLiteral (signed exponent included).
+      AssertSequence(Tokenize("(set: $x to 1e-7)"),
+        (TokenType.MacroOpen, "set"),
+        (TokenType.Variable, "x"),
+        (TokenType.Operator, "to"),
+        (TokenType.NumberLiteral, "1e-7"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void Macro_ExponentWithoutDigits_LeavesEForIdentifier()
+    {
+      // A bare `e` after the digits (no exponent digits) must NOT be consumed
+      // into the number — `1east` is `1` followed by the identifier `east`.
+      var tokens = Tokenize("(print: 1east)");
+      Assert.Equal(TokenType.NumberLiteral, tokens[1].Type);
+      Assert.Equal("1", tokens[1].Value);
+      Assert.Equal(TokenType.Identifier, tokens[2].Type);
+      Assert.Equal("east", tokens[2].Value);
+    }
+
+    [Fact]
     public void Macro_TrueLiteral_TokenizedAsBool()
     {
       AssertSequence(Tokenize("(if: true)"),

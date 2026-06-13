@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using Harlowe.Ast.Body;
 using Harlowe.Ast.Expression;
+using Harlowe.Parsing;
+using Harlowe.Tokens;
 using Harlowe.Twee;
 using Xunit;
 
@@ -132,6 +134,26 @@ namespace Harlowe.Tests.Twee
     [Fact]
     public void Literal_Number_Negative()
       => Assert.Equal("-5", Print(new LiteralNode { Kind = LiteralKind.Number, Value = -5.0 }));
+
+    [Theory]
+    [InlineData(0.0000001)]            // would print as 1E-07 — must re-lex
+    [InlineData(1e16)]                 // would print as 1E+16
+    [InlineData(1.0000000000000002)]   // 17 significant digits; G15 truncates to 1
+    [InlineData(3.14)]
+    [InlineData(10.0)]
+    public void Literal_Number_RoundTripsThroughTokenizerAndParser(double value)
+    {
+      // Print a numeric literal, then re-tokenize and re-parse it: the value
+      // must survive. Guards both the net48 precision-truncation bug (default
+      // 'G' format) and the unlexable-scientific-notation bug.
+      string printed = Print(new LiteralNode { Kind = LiteralKind.Number, Value = value });
+      var tokens = new HarloweTokenizer().Tokenize("(set:" + printed + ")");
+      var cursor = new TokenCursor(tokens);
+      cursor.Advance(); // consume MacroOpen
+      var node = new HarloweExpressionParser().ParseExpression(cursor);
+      var lit = Assert.IsType<LiteralNode>(node);
+      Assert.Equal(value, (double)lit.Value);
+    }
 
     [Fact]
     public void Literal_Bool_True()
