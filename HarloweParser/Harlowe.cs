@@ -75,7 +75,12 @@ namespace Harlowe
       }
 
       ParseStoryData(ref storyNode);
-      Parse(storyNode.SelectNodes("//tw-passagedata"));
+      // Relative XPath (".//") scopes the search to the selected story. A bare
+      // "//tw-passagedata" is document-absolute and would pull in every story's
+      // passages from a multi-story archive (Twine's "Archive" export), merging
+      // them under the first story's metadata or aborting on a cross-story
+      // duplicate name.
+      Parse(storyNode.SelectNodes(".//tw-passagedata"));
     }
 
     /// <summary>

@@ -135,6 +135,31 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void Constructor_MultiStoryArchive_LoadsOnlyFirstStorysPassages()
+    {
+      // Twine's "Archive" export concatenates several <tw-storydata> blocks.
+      // The loader selects the first story; its passage search must be scoped
+      // to that story (relative XPath), not pull in the second story's
+      // passages — both of which here share the common name "Start".
+      const string html = "<html><body>"
+        + "<tw-storydata name=\"A\" startnode=\"1\">"
+        + "<tw-passagedata pid=\"1\" name=\"Start\">story A</tw-passagedata>"
+        + "<tw-passagedata pid=\"2\" name=\"OnlyInA\">a</tw-passagedata>"
+        + "</tw-storydata>"
+        + "<tw-storydata name=\"B\" startnode=\"1\">"
+        + "<tw-passagedata pid=\"1\" name=\"Start\">story B</tw-passagedata>"
+        + "<tw-passagedata pid=\"2\" name=\"OnlyInB\">b</tw-passagedata>"
+        + "</tw-storydata>"
+        + "</body></html>";
+      var story = new Harlowe(html);
+      Assert.Equal("A", story.StoryName);
+      Assert.Equal(2, story.PassageCount);
+      Assert.NotNull(story.GetPassage("OnlyInA"));
+      Assert.Null(story.GetPassage("OnlyInB"));
+      Assert.Equal("story A", story.GetPassageBody("Start"));
+    }
+
+    [Fact]
     public void Constructor_PassageMissingNameAttribute_ThrowsHarloweParseException()
     {
       // Missing 'name' was dereferenced directly before; verify it now
