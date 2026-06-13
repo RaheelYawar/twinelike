@@ -420,6 +420,19 @@ namespace Harlowe.Twee
     /// </summary>
     private void EmitBinaryChild(IExpressionNode child, string parentOp, int ourOrder, bool isRight)
     {
+      // A `not` unary on the right of `is` would re-tokenize as the single
+      // fused operator `is not` (the tokenizer fuses `is` + `not`), silently
+      // inverting the expression. `3 is (not false)` must print with parens so
+      // it does not become `3 is not false`. `not` is the only word-unary, and
+      // `is` is the only binary operator that fuses with a following `not`.
+      if (isRight && child is UnaryOpNode notUnary && notUnary.Operator == "not" && parentOp == "is")
+      {
+        _sb.Append('(');
+        child.Accept(this);
+        _sb.Append(')');
+        return;
+      }
+
       if (child is BinaryOpNode bin && BinaryOps.TryGetValue(bin.Operator, out int childOrder))
       {
         bool parentIsRightAssoc = HarloweExpressionParser.RightAssociativeOps.Contains(parentOp);

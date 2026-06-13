@@ -129,6 +129,18 @@ namespace Harlowe.Tests.Twee
     [Fact] public void Expr_Comparison() => AssertExprRoundTripStable("$hp >= 10");
     [Fact] public void Expr_IsEqual() => AssertExprRoundTripStable("$x is 5");
     [Fact] public void Expr_IsNot() => AssertExprRoundTripStable("$x is not 5");
+
+    [Fact]
+    public void Expr_IsNotUnary_KeepsParens()
+    {
+      // `3 is (not false)` (an `is` comparison against a negated value) must
+      // keep its parens — printing `3 is not false` would re-fuse into the
+      // `is not` operator and invert the meaning. A plain stability check
+      // can't catch this (both spellings are individually print-stable), so
+      // assert the parenthesized form directly.
+      Assert.Equal("3 is (not false)", PrintExpr("3 is (not false)"));
+      AssertExprRoundTripStable("3 is (not false)");
+    }
     [Fact] public void Expr_Logical() => AssertExprRoundTripStable("$brave and $found");
     [Fact] public void Expr_LogicalChain() => AssertExprRoundTripStable("$a or $b and $c");
     [Fact] public void Expr_Contains() => AssertExprRoundTripStable("$arr contains 5");
