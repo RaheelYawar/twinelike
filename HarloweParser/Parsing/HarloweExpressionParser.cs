@@ -221,9 +221,14 @@ namespace Harlowe.Parsing
     /// The macro names whose argument lists may carry top-level
     /// <c>to</c>/<c>into</c> assignment expressions. Hardcoded — there is no
     /// extension point for user-defined assignment macros in Harlowe.
+    /// Name-normalized so case/dash variants ((Set:), (PUT:)) still permit the
+    /// assignment form, matching the registry's case/dash-insensitive dispatch.
     /// </summary>
     public static bool IsAssignmentMacro(string name)
-      => name == "set" || name == "put";
+    {
+      string n = MacroNames.Normalize(name);
+      return n == "set" || n == "put";
+    }
 
     /// <summary>
     /// True if <paramref name="node"/> is a `'s` chain (the AST shape for

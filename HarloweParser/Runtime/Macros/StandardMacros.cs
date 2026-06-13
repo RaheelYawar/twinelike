@@ -20,8 +20,9 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new PrintMacro());
       registry.Register(new IfMacro());
       registry.Register(new ElseMacro());
+      // One registration covers both spellings: "else-if" and "elseif"
+      // normalize to the same key (the dash is stripped).
       registry.Register(new ElseIfMacro("else-if"));
-      registry.Register(new ElseIfMacro("elseif"));
       registry.Register(new UnlessMacro());
       registry.Register(new GotoMacro());
       registry.Register(new DisplayMacro());

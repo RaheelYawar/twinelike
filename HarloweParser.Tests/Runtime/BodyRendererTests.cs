@@ -152,6 +152,35 @@ namespace Harlowe.Tests.Runtime
       Assert.Equal("42", h.Buf.Text);
     }
 
+    // Case/dash-insensitive macro names -------------------------------------
+
+    [Fact]
+    public void MacroNames_CaseInsensitiveConditionalPairing()
+    {
+      // (If:)/(Else:) must dispatch AND pair like (if:)/(else:) — name
+      // normalization applies to the renderer's conditional detection too.
+      var h = Render("(If: false)[A](Else:)[B]");
+      Assert.Equal("B", h.Buf.Text);
+    }
+
+    [Fact]
+    public void MacroNames_CaseInsensitiveAssignmentMacro()
+    {
+      // (SET:) is recognized as an assignment macro (so `to` parses) and
+      // dispatches to SetMacro.
+      var h = Render("(SET: $x to 5)(print: $x)");
+      Assert.Equal("5", h.Buf.Text);
+    }
+
+    [Fact]
+    public void MacroNames_DashInsensitiveGoto()
+    {
+      // (go-to:) is the manual's spelling; it normalizes to the registered
+      // "goto" and sets the pending navigation.
+      var h = Render("(go-to: \"Next\")");
+      Assert.Equal("Next", h.Ctx.PendingGoto);
+    }
+
     // Conditionals -----------------------------------------------------------
 
     [Fact]

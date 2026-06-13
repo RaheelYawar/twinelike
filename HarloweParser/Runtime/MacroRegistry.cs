@@ -17,14 +17,14 @@ namespace Harlowe.Runtime
     /// <summary>The context handed to every macro the registry dispatches. Set by the session before each render; tests set it directly.</summary>
     public MacroContext Context;
 
-    /// <summary>Add or replace a macro under its declared <see cref="IMacro.Name"/>. Re-registration is allowed so tests can swap implementations.</summary>
+    /// <summary>Add or replace a macro under its declared <see cref="IMacro.Name"/>, normalized so case/dash/underscore variants resolve to it. Re-registration is allowed so tests can swap implementations.</summary>
     public void Register(IMacro macro)
     {
-      _macros[macro.Name] = macro;
+      _macros[MacroNames.Normalize(macro.Name)] = macro;
     }
 
-    /// <summary>True if a macro with this name is registered. Used by the body renderer to disambiguate command macros from "macro-shaped" prose.</summary>
-    public bool Contains(string name) => _macros.ContainsKey(name);
+    /// <summary>True if a macro with this name is registered (case/dash-insensitive). Used by the body renderer to disambiguate command macros from "macro-shaped" prose.</summary>
+    public bool Contains(string name) => _macros.ContainsKey(MacroNames.Normalize(name));
 
     /// <summary>
     /// Dispatch a macro call using the context most recently assigned to
@@ -56,7 +56,7 @@ namespace Harlowe.Runtime
     /// </summary>
     public HarloweValue Invoke(string name, List<HarloweValue> args, MacroContext context)
     {
-      if (!_macros.TryGetValue(name, out var macro))
+      if (!_macros.TryGetValue(MacroNames.Normalize(name), out var macro))
         return HarloweValue.OfError($"unknown macro '{name}'");
 
       int got = args != null ? args.Count : 0;

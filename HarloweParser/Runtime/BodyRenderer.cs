@@ -195,8 +195,11 @@ namespace Harlowe.Runtime
         }
       }
 
-      bool isConditional = node.Name == "if" || node.Name == "unless"
-        || node.Name == "else" || node.Name == "elseif" || node.Name == "else-if";
+      // Normalize so case/dash variants ((If:), (Else-If:)) pair correctly;
+      // "else-if" normalizes to "elseif".
+      string macroName = MacroNames.Normalize(node.Name);
+      bool isConditional = macroName == "if" || macroName == "unless"
+        || macroName == "else" || macroName == "elseif";
 
       // Expose the active sink for command macros (e.g. (display:)) that want
       // to render structured output directly into the parent output rather

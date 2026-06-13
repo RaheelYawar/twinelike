@@ -9,10 +9,11 @@ namespace Harlowe.Runtime.Macros
   /// Stores the render decision on <see cref="MacroContext.LastConditional"/>
   /// so a following <c>(else-if:)</c>/<c>(else:)</c> chains correctly.
   ///
-  /// <para>Registered under both <c>else-if</c> (the documented spelling) and
-  /// <c>elseif</c> — this codebase does no macro-name normalization, so each
-  /// spelling is wired explicitly, the same way <c>text-colour</c>/<c>colour</c>
-  /// are.</para>
+  /// <para>Registered once under <c>else-if</c> (the documented spelling); the
+  /// registry normalizes names case- and dash/underscore-insensitively
+  /// (<see cref="MacroNames"/>), so <c>(elseif:)</c> resolves to the same entry.
+  /// Genuinely different spellings like <c>text-colour</c>/<c>colour</c> still
+  /// need explicit aliases since they don't differ only by dashes.</para>
   ///
   /// <para><b>The hide-preserves-state special case.</b> When an
   /// <c>(else-if:)</c> hides its hook it deliberately <em>does not</em> overwrite
