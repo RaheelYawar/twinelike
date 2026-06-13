@@ -477,10 +477,14 @@ namespace Harlowe.Runtime
           }
           return HarloweValue.OfError($"array has no property '{name}'");
         case HarloweValueKind.String:
-          if (name == "length") return HarloweValue.OfNumber(container.AsString.Length);
+          // Strings count and index by Unicode code point, not UTF-16 code
+          // unit — reference Harlowe spreads strings into code points (JS
+          // `[...str]`), so an astral character (surrogate pair) is one
+          // character, not two.
+          if (name == "length") return HarloweValue.OfNumber(CodePointCount(container.AsString));
           if (TryParseOrdinal(name, out int sIdx, out bool sFromEnd))
           {
-            int target = sFromEnd ? container.AsString.Length - sIdx + 1 : sIdx;
+            int target = sFromEnd ? CodePointCount(container.AsString) - sIdx + 1 : sIdx;
             return IndexString(container.AsString, target);
           }
           return HarloweValue.OfError($"string has no property '{name}'");
@@ -556,9 +560,36 @@ namespace Harlowe.Runtime
       if (idx != System.Math.Floor(idx))
         return HarloweValue.OfError($"string index must be a whole number; got {idx}");
       int i = (int)idx;
-      if (i < 1 || i > s.Length)
-        return HarloweValue.OfError($"string index {i} is out of range (1..{s.Length})");
-      return HarloweValue.OfString(s[i - 1].ToString());
+      int count = CodePointCount(s);
+      if (i < 1 || i > count)
+        return HarloweValue.OfError($"string index {i} is out of range (1..{count})");
+      // Walk to the i-th code point (1-based), returning the whole code point
+      // — both halves of a surrogate pair — rather than a lone surrogate.
+      int seen = 0;
+      for (int p = 0; p < s.Length; p++)
+      {
+        bool pair = char.IsHighSurrogate(s[p]) && p + 1 < s.Length && char.IsLowSurrogate(s[p + 1]);
+        if (++seen == i)
+          return HarloweValue.OfString(pair ? s.Substring(p, 2) : s[p].ToString());
+        if (pair) p++;
+      }
+      return HarloweValue.OfError($"string index {i} is out of range (1..{count})");
+    }
+
+    /// <summary>
+    /// Counts Unicode code points in <paramref name="s"/> (surrogate pairs as
+    /// one), matching reference Harlowe's code-point string model rather than
+    /// .NET's UTF-16 code-unit <see cref="string.Length"/>.
+    /// </summary>
+    private static int CodePointCount(string s)
+    {
+      int count = 0;
+      for (int p = 0; p < s.Length; p++)
+      {
+        if (char.IsHighSurrogate(s[p]) && p + 1 < s.Length && char.IsLowSurrogate(s[p + 1])) p++;
+        count++;
+      }
+      return count;
     }
   }
 }

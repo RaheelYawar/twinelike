@@ -751,6 +751,28 @@ namespace Harlowe.Tests.Runtime
     public void Property_String_OutOfRange_Errors()
       => Assert.True(EvalP("\"hello\"'s 6").IsError);
 
+    // Surrogate-pair (astral) characters count and index as one code point,
+    // matching reference Harlowe's code-point string model. U+1F40E is 🐎.
+    [Fact]
+    public void Property_String_Length_CountsAstralCharAsOne()
+      => Assert.Equal(2, EvalP("\"a🐎\"'s length").AsNumber);
+
+    [Fact]
+    public void Property_String_Index_ReturnsWholeAstralChar()
+      => Assert.Equal("🐎", EvalP("\"a🐎\"'s 2nd").AsString);
+
+    [Fact]
+    public void Property_String_FirstChar_AstralLeading()
+      => Assert.Equal("🐎", EvalP("\"🐎b\"'s 1st").AsString);
+
+    [Fact]
+    public void Property_String_LastChar_PastAstral()
+      => Assert.Equal("b", EvalP("\"a🐎b\"'s last").AsString);
+
+    [Fact]
+    public void Property_String_SecondLast_IsAstralChar()
+      => Assert.Equal("🐎", EvalP("\"a🐎b\"'s 2ndlast").AsString);
+
     [Fact]
     public void Property_String_UnknownIdentifier_Errors()
       => Assert.True(EvalP("\"hello\"'s notalength").IsError);
