@@ -61,7 +61,20 @@ namespace Harlowe.Runtime.Rendering
 
     private IRenderContainer Current => _stack.Peek();
 
-    public void Text(string content) => Current.Children.Add(new RenderTextNode { Content = content });
+    public void Text(string content)
+    {
+      // Coalesce consecutive prose into a single text node. The tokenizer
+      // splits a logical run at every ( [ ] < | $ _ and newline, so a line
+      // like "Hello (world)" arrives as several Text() calls; merging them
+      // lets string-target revision (TextOccurrenceFinder) match needles that
+      // span those boundaries — including across newlines — and trims node
+      // count on the render hot path.
+      var children = Current.Children;
+      if (children.Count > 0 && children[children.Count - 1] is RenderTextNode last)
+        last.Content += content;
+      else
+        children.Add(new RenderTextNode { Content = content });
+    }
 
     public void Html(string rawHtml) => Current.Children.Add(new RenderHtmlNode { RawHtml = rawHtml });
 

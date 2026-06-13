@@ -129,6 +129,19 @@ namespace Harlowe.Tests.Runtime.Macros
     public void Replace_StringNotPresent_IsNoOp()
       => Assert.Equal("the fox", RenderText("the fox(replace: \"cat\")[dog]"));
 
+    [Fact]
+    public void Replace_StringSpanningSpecialChar_StillFound()
+      // The tokenizer splits the prose at '(', so "Hello (world)" used to land
+      // in two adjacent render-text nodes and the needle was never found.
+      // Coalescing text nodes lets the cross-boundary needle match.
+      => Assert.Equal("Bye", RenderText("Hello (world)(replace: \"Hello (world)\")[Bye]"));
+
+    [Fact]
+    public void Replace_StringSpanningNewline_StillFound()
+      // Newlines render as their own Text("\n") call; merging means a needle
+      // containing the line break is matchable.
+      => Assert.Equal("two", RenderText("one\ntwo(replace: \"one\ntwo\")[two]"));
+
     // --- Composition with style changers ---
 
     [Fact]
