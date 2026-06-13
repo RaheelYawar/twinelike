@@ -172,6 +172,17 @@ namespace Harlowe.Tests.Runtime.Macros
       Assert.Contains(buf.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error);
     }
 
+    [Fact]
+    public void Revision_ComposedWithIteration_EmitsErrorNotSilentDrop()
+    {
+      // (replace: ?x) + (for: ...) combines two mutually-exclusive
+      // hook-consuming changers. The engine runs only one; rather than silently
+      // dropping the (for:) loop, it surfaces an in-prose error.
+      var buf = Render("|x>[old](replace: ?x)+(for: each _i, 1, 2, 3)[_i]", out _);
+      Assert.Contains(buf.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error
+                                     && e.Content.Contains("can't be combined"));
+    }
+
     // --- Changer primitive ---
 
     [Fact]

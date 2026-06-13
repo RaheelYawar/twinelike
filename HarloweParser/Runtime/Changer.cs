@@ -131,6 +131,22 @@ namespace Harlowe.Runtime
       var descriptor = new HookDescriptor();
       for (int i = 0; i < _patches.Count; i++) _patches[i].Apply(descriptor);
 
+      // Interaction, Revision, and Iteration are mutually-exclusive ways of
+      // consuming the hook (wrap-and-defer, splice-elsewhere, loop-in-place);
+      // this engine executes exactly one. Composing two — e.g. (replace: ?x) +
+      // (for: each _i, ...) — used to silently drop the lower-priority one.
+      // Surface an in-prose error instead so the author sees the unsupported
+      // combination rather than half of it. (Styles compose with any single
+      // one of the three and are unaffected.)
+      int exclusiveCount = (descriptor.Interaction != null ? 1 : 0)
+                         + (descriptor.Revision != null ? 1 : 0)
+                         + (descriptor.Iteration != null ? 1 : 0);
+      if (exclusiveCount > 1)
+      {
+        output.Error("changers can't be combined here: (click:)/revision/(for:) each consume the hook differently");
+        return;
+      }
+
       if (descriptor.Interaction != null)
       {
         RunInteraction(descriptor, output, renderHook, ctx);
