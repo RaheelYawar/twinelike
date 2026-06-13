@@ -157,6 +157,34 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
+    public void Random_SameSeed_ReproducibleAcrossSessions()
+    {
+      // A seeded session must produce a reproducible RNG sequence. Pre-fix the
+      // session created a fresh tick-seeded Random per render leg, so even with
+      // a seed the output wasn't controllable.
+      var story = OnePassage("(print: (random: 1, 1000000000))");
+      var a = new StorySession(story, 12345).Render().Text;
+      var b = new StorySession(story, 12345).Render().Text;
+      Assert.Equal(a, b);
+    }
+
+    [Fact]
+    public void Random_AcrossGotoChain_DrawsFromOneContinuousStream()
+    {
+      // The (random:) in the goto'd passage continues the same stream as the
+      // first passage's draw, so the two values differ. Pre-fix each leg got a
+      // fresh Random; on a tick-seeded runtime both legs in the same tick drew
+      // the identical first value, making $a equal the second draw.
+      var story = TwoPassages(
+        "(set: $a to (random: 1, 1000000000))(goto: \"P2\")",
+        "(print: $a)/(print: (random: 1, 1000000000))");
+      var text = new StorySession(story, 12345).Render().Text;
+      var parts = text.Split('/');
+      Assert.Equal(2, parts.Length);
+      Assert.NotEqual(parts[0], parts[1]);
+    }
+
+    [Fact]
     public void NonAsciiDigit_InOnePassage_DoesNotBreakSiblingPassages()
     {
       // The headline symptom was a whole-load abort: one bad passage took down
