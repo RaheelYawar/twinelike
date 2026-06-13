@@ -125,20 +125,32 @@ namespace Harlowe.Runtime
       return dst;
     }
 
-    private static HarloweValue DeepCopyValue(HarloweValue v)
+    // Ceiling on value-nesting depth copied per snapshot. Real data nests only
+    // a few levels; the cap exists so a self-deepening value — e.g.
+    // `(set: $a to (a: $a))` re-run each turn — can't overflow the stack during
+    // Snapshot/Restore. This path runs at runtime under the no-throw policy, so
+    // past the ceiling we stop recursing and alias the remaining subtree rather
+    // than throwing; the aliasing is only reachable by already-degenerate
+    // nesting and is far better than an uncatchable StackOverflowException.
+    private const int MaxCopyDepth = 256;
+
+    private static HarloweValue DeepCopyValue(HarloweValue v) => DeepCopyValue(v, 0);
+
+    private static HarloweValue DeepCopyValue(HarloweValue v, int depth)
     {
       if (v == null) return null;
+      if (depth >= MaxCopyDepth) return v;
       switch (v.Kind)
       {
         case HarloweValueKind.Array:
           var srcArr = v.AsArray;
           var dstArr = new List<HarloweValue>(srcArr.Count);
-          for (int i = 0; i < srcArr.Count; i++) dstArr.Add(DeepCopyValue(srcArr[i]));
+          for (int i = 0; i < srcArr.Count; i++) dstArr.Add(DeepCopyValue(srcArr[i], depth + 1));
           return HarloweValue.OfArray(dstArr);
         case HarloweValueKind.Datamap:
           var srcMap = v.AsDatamap;
           var dstMap = new Dictionary<string, HarloweValue>(srcMap.Count);
-          foreach (var kv in srcMap) dstMap[kv.Key] = DeepCopyValue(kv.Value);
+          foreach (var kv in srcMap) dstMap[kv.Key] = DeepCopyValue(kv.Value, depth + 1);
           return HarloweValue.OfDatamap(dstMap);
         default:
           return v;

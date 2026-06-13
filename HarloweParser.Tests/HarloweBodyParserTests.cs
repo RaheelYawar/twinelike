@@ -319,6 +319,41 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void DeeplyNestedParens_SurfaceParseError_NotStackOverflow()
+    {
+      // Thousands of nested '(' would otherwise recurse the expression parser
+      // into an uncatchable StackOverflowException. The depth cap converts it
+      // into an in-prose parse error; the macro recovers as a ParseErrorNode.
+      var src = "(print: " + new string('(', 5000) + "1" + new string(')', 5000) + ")";
+      var body = Parse(src);
+      bool sawError = false;
+      for (int i = 0; i < body.Children.Count; i++)
+        if (body.Children[i] is ParseErrorNode) { sawError = true; break; }
+      Assert.True(sawError);
+    }
+
+    [Fact]
+    public void DeeplyNestedHooks_DoNotStackOverflow()
+    {
+      // Thousands of nested '[' with no closers would otherwise recurse the
+      // body parser into a StackOverflowException. The depth cap keeps the
+      // load alive (returns a tree rather than crashing the host).
+      var body = Parse(new string('[', 5000));
+      Assert.NotNull(body);
+    }
+
+    [Fact]
+    public void ModeratelyNestedParens_ParseWithoutError()
+    {
+      // Nesting well under the cap must still parse cleanly — the ceiling only
+      // guards against degenerate depth, not ordinary grouping.
+      var src = "(print: " + new string('(', 40) + "1" + new string(')', 40) + ")";
+      var body = Parse(src);
+      for (int i = 0; i < body.Children.Count; i++)
+        Assert.IsNotType<ParseErrorNode>(body.Children[i]);
+    }
+
+    [Fact]
     public void ParseError_PreservesValidPrefix()
     {
       // Per-node parser recovery: when one node throws partway through, the

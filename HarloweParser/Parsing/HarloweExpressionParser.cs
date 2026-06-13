@@ -23,6 +23,14 @@ namespace Harlowe.Parsing
   /// </summary>
   public class HarloweExpressionParser : IExpressionParser
   {
+    // Current expression-recursion depth and its ceiling. Real authored
+    // expressions nest only a handful deep; the cap exists solely to convert
+    // adversarial/degenerate nesting into an in-prose parse error instead of a
+    // host-killing StackOverflowException. Restored via finally, so it stays
+    // balanced across the body parser's per-node recovery.
+    private int _depth;
+    private const int MaxDepth = 128;
+
     /// <summary>
     /// Binary operator → precedence order. Lower order = tighter binding.
     /// Mirrors the manual's table; entries that look unary (e.g. <c>-</c>)
@@ -258,6 +266,20 @@ namespace Harlowe.Parsing
     /// </summary>
     private IExpressionNode ParseBinary(TokenCursor cursor, int maxOrder, bool allowAssignmentAtTop)
     {
+      // Depth ceiling: ParseBinary sits on every expression recursion path
+      // (parenthesised/nested-macro descent, right-associative RHS, and unary
+      // chains), so capping it here bounds them all. Throwing keeps degenerate
+      // input — thousands of nested '(' or 'not' — from blowing the C# stack
+      // with an uncatchable StackOverflowException; the loader/per-node
+      // recovery turns the throw into an in-prose error.
+      if (++_depth > MaxDepth)
+      {
+        _depth--;
+        var deep = cursor.Current;
+        throw new HarloweParseException("expression nested too deeply", deep.Line, deep.Column);
+      }
+      try
+      {
       var left = ParseUnary(cursor);
 
       while (true)
@@ -311,6 +333,8 @@ namespace Harlowe.Parsing
       }
 
       return left;
+      }
+      finally { _depth--; }
     }
 
     /// <summary>

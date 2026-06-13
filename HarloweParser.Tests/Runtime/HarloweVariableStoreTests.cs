@@ -52,6 +52,23 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
+    public void Snapshot_DeeplyNestedValue_DoesNotStackOverflow()
+    {
+      // A pathologically deep value (the runtime shape of `(set: $a to (a: $a))`
+      // re-run thousands of times) must not overflow the stack when Snapshot
+      // deep-copies it. The copy depth is bounded; past the ceiling the
+      // remaining subtree is aliased rather than crashing the host.
+      var store = new HarloweVariableStore();
+      var v = HarloweValue.OfNumber(1);
+      for (int i = 0; i < 5000; i++)
+        v = HarloweValue.OfArray(new List<HarloweValue> { v });
+      store.Set("a", isTemporary: false, value: v);
+
+      var snap = store.Snapshot();
+      Assert.NotNull(snap);
+    }
+
+    [Fact]
     public void It_TracksMostRecentSet()
     {
       var store = new HarloweVariableStore();

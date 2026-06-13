@@ -16,6 +16,12 @@ namespace Harlowe.Parsing
   {
     private readonly IExpressionParser _expressionParser;
 
+    // Current hook-nesting depth and its ceiling. Bounds runaway `[[[…]]]`
+    // nesting to an in-prose parse error rather than a StackOverflowException;
+    // restored via finally so it stays balanced across per-node recovery.
+    private int _depth;
+    private const int MaxDepth = 128;
+
     public HarloweBodyParser() : this(new HarloweExpressionParser()) { }
 
     public HarloweBodyParser(IExpressionParser expressionParser)
@@ -416,17 +422,31 @@ namespace Harlowe.Parsing
     /// </summary>
     private HookNode ParseHookContents(TokenCursor cursor, HookAnchor anchor, string name)
     {
-      var children = ParseNodes(cursor, terminator: TokenType.HookClose);
-      if (cursor.Current.Type == TokenType.HookClose) cursor.Advance();
-
-      if (anchor == HookAnchor.None && cursor.Current.Type == TokenType.HookNameLeft)
+      // Depth ceiling for nested hooks (`[[[…]]]`). Throwing past the cap keeps
+      // thousands of nested '[' from blowing the C# stack with an uncatchable
+      // StackOverflowException; the per-node recovery / loader catch turns it
+      // into an in-prose error. Restored via finally so it stays balanced.
+      if (++_depth > MaxDepth)
       {
-        name = cursor.Current.Value;
-        anchor = HookAnchor.Left;
-        cursor.Advance();
+        _depth--;
+        var deep = cursor.Current;
+        throw new HarloweParseException("hooks nested too deeply", deep.Line, deep.Column);
       }
+      try
+      {
+        var children = ParseNodes(cursor, terminator: TokenType.HookClose);
+        if (cursor.Current.Type == TokenType.HookClose) cursor.Advance();
 
-      return new HookNode { Name = name, Anchor = anchor, Children = children };
+        if (anchor == HookAnchor.None && cursor.Current.Type == TokenType.HookNameLeft)
+        {
+          name = cursor.Current.Value;
+          anchor = HookAnchor.Left;
+          cursor.Advance();
+        }
+
+        return new HookNode { Name = name, Anchor = anchor, Children = children };
+      }
+      finally { _depth--; }
     }
 
     /// <summary>
