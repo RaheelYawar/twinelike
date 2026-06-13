@@ -120,10 +120,18 @@ namespace Harlowe.Runtime
     {
       var builder = _output as Rendering.RenderTreeBuilder;
       builder?.BeginHook(node.Name, node.Anchor);
+      // A hook is its own conditional scope. Reference Harlowe renders each
+      // hook in a fresh stack frame whose lastHookShown starts unset, so a
+      // conditional inside a hook can neither pair with an (else:) outside it
+      // nor leak its show/hide decision back out. Start the hook body with a
+      // cleared pairing and restore the outer value on exit.
+      var priorConditional = _context.LastConditional;
+      _context.LastConditional = null;
       using (_context.Store.PushTempScope())
       {
         if (node.Children != null) RenderChildren(node.Children);
       }
+      _context.LastConditional = priorConditional;
       builder?.EndHook();
     }
 
@@ -144,7 +152,13 @@ namespace Harlowe.Runtime
       if (result.Kind == HarloweValueKind.Changer)
       {
         if (node.AttachedHook != null)
+        {
           result.AsChanger.Apply(_output, target => RenderHookInto(node.AttachedHook, target), _context);
+          // Symmetric with the changer branch in Visit(MacroNode): a shown
+          // changer hook records that a hook was shown so a following (else:)
+          // pairs against it rather than the conditional before the changer.
+          _context.LastConditional = true;
+        }
         return;
       }
 
@@ -196,11 +210,13 @@ namespace Harlowe.Runtime
       try { result = _registry.Invoke(node.Name, args, _context); }
       finally { _context.Output = priorOutput; }
 
-      // Reset the conditional pairing only after non-conditional macros, so
-      // intervening prose between (if:) and (else:) does not break the pair
-      // but an intervening (set:) does.
-      if (!isConditional) _context.LastConditional = null;
-
+      // The conditional pairing (LastConditional, reference's lastHookShown)
+      // is only touched when a hook is shown or hidden by an attached
+      // expression — never reset by a plain command macro or by intervening
+      // prose. So an intervening (set:)/(print:) leaves the pairing intact and
+      // a following (else:) still pairs with the original (if:), matching
+      // reference Harlowe. A non-conditional changer that shows its hook sets
+      // the pairing below (after the hook renders).
       if (result != null && result.IsError) { _output.Error(result.ErrorMessage); return; }
 
       // (goto:) and any macro that triggered a navigation aborts now.
@@ -219,7 +235,13 @@ namespace Harlowe.Runtime
       if (result != null && result.Kind == HarloweValueKind.Changer)
       {
         if (node.AttachedHook != null)
+        {
           result.AsChanger.Apply(_output, target => RenderHookInto(node.AttachedHook, target), _context);
+          // A shown changer hook counts as "a hook was shown" for a following
+          // (else:) — reference sets lastHookShown=true for any enabled
+          // attached-expression hook, not just conditionals.
+          _context.LastConditional = true;
+        }
         return;
       }
 

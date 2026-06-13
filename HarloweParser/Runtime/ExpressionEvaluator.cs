@@ -146,9 +146,11 @@ namespace Harlowe.Runtime
     {
       // 'to' and 'into' are assignment forms — the target side must be a
       // variable reference, not an evaluated value. Handle them before either
-      // side is evaluated.
-      if (node.Operator == "to") { AssignTo(node.Left, node.Right); return; }
-      if (node.Operator == "into") { AssignTo(node.Right, node.Left); return; }
+      // side is evaluated. Only 'to' rebinds `it` to the target before the
+      // value runs (reference runner.ts: the `to` arm calls
+      // `setIt(run(before))` on the destination, the `into` arm does not).
+      if (node.Operator == "to") { AssignTo(node.Left, node.Right, bindItToTarget: true); return; }
+      if (node.Operator == "into") { AssignTo(node.Right, node.Left, bindItToTarget: false); return; }
 
       // Property access keeps the accessor side as a node so an IdentifierNode
       // is treated as a key/property name rather than evaluated as an unknown
@@ -218,14 +220,30 @@ namespace Harlowe.Runtime
       }
     }
 
-    private void AssignTo(IExpressionNode targetNode, IExpressionNode valueNode)
+    private void AssignTo(IExpressionNode targetNode, IExpressionNode valueNode, bool bindItToTarget)
     {
       if (!(targetNode is VariableRefNode target))
       {
         _result = HarloweValue.OfError("assignment target must be a variable");
         return;
       }
-      var value = Evaluate(valueNode);
+      HarloweValue value;
+      if (bindItToTarget)
+      {
+        // Reference binds `it` to the assignment target's CURRENT value before
+        // the right-hand side runs, so `(set: $x to it + 1)` reads $x rather
+        // than the globally last-set variable. A null (target never set)
+        // surfaces as "'it' is not yet set" only if the RHS actually reads it;
+        // the binding is restored on dispose, then Set rebinds `it` to the new
+        // value as usual.
+        var current = _store.Get(target.Name, target.IsTemporary);
+        using (_store.PushItBinding(current))
+          value = Evaluate(valueNode);
+      }
+      else
+      {
+        value = Evaluate(valueNode);
+      }
       if (value.IsError) { _result = value; return; }
       _store.Set(target.Name, target.IsTemporary, value);
       _result = value;

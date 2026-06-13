@@ -470,6 +470,30 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
+    public void To_ItBindsToAssignmentTarget_NotLastSetVariable()
+    {
+      // `(set: $a to it + 1)` must read $a's current value, not whatever the
+      // most recent Set of any variable stored. An intervening set to a
+      // different variable used to leak its value into `it`.
+      var store = new HarloweVariableStore();
+      Eval("$a to 1", store);
+      Eval("$hp to 50", store);
+      Eval("$a to it + 1", store);
+      Assert.Equal(2, store.Get("a", false).AsNumber);
+    }
+
+    [Fact]
+    public void To_ItOnUnsetTarget_Errors()
+    {
+      // First-ever `(set: $hp to it - 10)` reads $hp's (absent) value through
+      // `it`, which must surface "'it' is not yet set" rather than silently
+      // using an unrelated variable's value.
+      var store = new HarloweVariableStore();
+      var result = Eval("$hp to it - 10", store);
+      Assert.True(result.IsError);
+    }
+
+    [Fact]
     public void To_RhsIsLiteralExpression()
     {
       var store = new HarloweVariableStore();

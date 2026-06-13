@@ -197,14 +197,52 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
-    public void Else_AfterIntervening_Set_Errors()
+    public void Else_AfterIntervening_Set_StillPairs()
     {
-      // (set:) resets the conditional pairing, so a following (else:) has
-      // nothing to chain from and surfaces a structural error (matching
-      // reference's "There's nothing before this to do (else:) with.").
+      // Reference Harlowe only updates the conditional pairing when a hook is
+      // shown/hidden by an attached expression; a plain command macro like
+      // (set:) leaves it untouched, so the (else:) still pairs with the
+      // failing (if:) and renders.
       var h = Render("(if: false)[A](set: $x to 1)(else:)[B]");
-      Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
-      Assert.DoesNotContain("B", h.Buf.Text);
+      Assert.Equal(0, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+      Assert.Contains("B", h.Buf.Text);
+    }
+
+    [Fact]
+    public void Else_AfterIntervening_ErroringMacro_StillPairs()
+    {
+      // An intervening macro whose argument errors must behave the same as one
+      // that succeeds: neither breaks the pairing. Previously the error path
+      // early-returned before a reset, making the outcome depend on whether
+      // the intervening macro happened to error.
+      var h = Render("(if: false)[A](print: $undef)(else:)[B]");
+      Assert.Contains("B", h.Buf.Text);
+    }
+
+    [Fact]
+    public void Else_AfterInterveningChangerHook_Hidden()
+    {
+      // A non-conditional changer that SHOWS its hook records "a hook was
+      // shown", so a following (else:) sees a shown hook and hides — matching
+      // reference, where any enabled attached-expression hook sets
+      // lastHookShown=true.
+      var h = Render("(if: false)[A](text-style: \"bold\")[B](else:)[C]");
+      Assert.Contains("B", h.Buf.Text);
+      Assert.DoesNotContain("C", h.Buf.Text);
+    }
+
+    [Fact]
+    public void Else_NestedConditionalInHook_DoesNotLeak()
+    {
+      // A conditional nested inside a shown hook is its own scope: it must not
+      // pair with an (else:) outside that hook. Here the outer (if: true) shows
+      // its hook, so the trailing (else:) must hide regardless of the inner
+      // (if: false).
+      var h = Render("(if: true)[before(if: false)[X]after](else:)[Y]");
+      Assert.Contains("before", h.Buf.Text);
+      Assert.Contains("after", h.Buf.Text);
+      Assert.DoesNotContain("X", h.Buf.Text);
+      Assert.DoesNotContain("Y", h.Buf.Text);
     }
 
     [Fact]
@@ -296,13 +334,14 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
-    public void ElseIf_AfterInterveningSet_Errors()
+    public void ElseIf_AfterInterveningSet_StillChains()
     {
-      // (set:) clears the conditional pairing, so the (else-if:) has nothing to
-      // chain from and surfaces a structural error (matching (else:)'s reset).
+      // A plain (set:) between (if:) and (else-if:) does not break the chain
+      // (reference only updates the pairing on hook show/hide), so the
+      // (else-if: true) chains off the failing (if:) and renders.
       var h = Render("(if: false)[A](set: $x to 1)(else-if: true)[B]");
-      Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
-      Assert.DoesNotContain("B", h.Buf.Text);
+      Assert.Equal(0, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+      Assert.Contains("B", h.Buf.Text);
     }
 
     [Fact]
