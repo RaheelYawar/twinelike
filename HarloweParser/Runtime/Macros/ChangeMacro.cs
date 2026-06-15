@@ -25,7 +25,7 @@ namespace Harlowe.Runtime.Macros
       // renderer's output, so a (change:) inside a deferred dispatch hook
       // (whose output is a detached builder) still targets the live tree.
       // Without a live tree (a plain buffer unit test) — no-op.
-      var liveRoot = context.LiveRoot ?? (context.Output as RenderTreeBuilder)?.Root;
+      var liveRoot = MacroContext.ResolveLiveRoot(context, context.Output);
       if (liveRoot != null)
       {
         var targets = HookResolver.Resolve(liveRoot, target);

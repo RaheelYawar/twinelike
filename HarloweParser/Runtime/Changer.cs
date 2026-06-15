@@ -216,7 +216,7 @@ namespace Harlowe.Runtime
       for (int i = d.Styles.Count - 1; i >= 0; i--) detached.PopStyle();
       var source = detached.Root.Children;
 
-      var liveRoot = ctx?.LiveRoot ?? (output as RenderTreeBuilder)?.Root;
+      var liveRoot = MacroContext.ResolveLiveRoot(ctx, output);
       if (liveRoot == null) return;
 
       var rev = d.Revision;
@@ -255,7 +255,7 @@ namespace Harlowe.Runtime
     {
       if (ctx == null) { output.Error("interaction changers require a render context"); return; }
 
-      var liveRoot = ctx.LiveRoot ?? (output as RenderTreeBuilder)?.Root;
+      var liveRoot = MacroContext.ResolveLiveRoot(ctx, output);
       if (liveRoot == null) return;
 
       var spec = d.Interaction;

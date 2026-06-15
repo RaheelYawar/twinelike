@@ -112,6 +112,21 @@ namespace Harlowe.Runtime
     public RenderRoot LiveRoot;
 
     /// <summary>
+    /// Resolves the render tree that tree-targeting macros (<c>(replace:)</c>,
+    /// <c>(change:)</c>, <c>(click:)</c>, …) operate on: the session's
+    /// <see cref="LiveRoot"/> if set, otherwise the root of
+    /// <paramref name="output"/> when it is itself a
+    /// <see cref="RenderTreeBuilder"/>. Preferring <see cref="LiveRoot"/> lets a
+    /// deferred-dispatch hook (whose own output is a detached builder) still
+    /// target the passage's live tree. Null-safe in <paramref name="ctx"/> so a
+    /// pure revision changer may pass a null context; returns null when there
+    /// is no tree to target (a plain buffer). Centralized here so every
+    /// tree-targeting path shares one rule.
+    /// </summary>
+    public static RenderRoot ResolveLiveRoot(MacroContext ctx, IRenderOutput output)
+      => ctx?.LiveRoot ?? (output as RenderTreeBuilder)?.Root;
+
+    /// <summary>
     /// Counter for generating fresh <see cref="InteractiveRegion"/> ids
     /// (rendered as <c>"r-N"</c>). Stays unique across the main render and any
     /// dispatch re-renders within the same session render cycle.
