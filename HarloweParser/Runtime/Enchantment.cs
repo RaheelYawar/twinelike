@@ -76,25 +76,6 @@ namespace Harlowe.Runtime
     /// <c>(change:)</c> have a null source tag and stay intact.
     /// </summary>
     public static void Disenchant(IRenderContainer container)
-    {
-      if (container == null) return;
-      var children = container.Children;
-
-      // Recurse first so descendants are processed before we rebuild this
-      // level's list — symmetric with TextOccurrenceFinder.
-      for (int i = 0; i < children.Count; i++)
-        if (children[i] is IRenderContainer c) Disenchant(c);
-
-      var rebuilt = new List<RenderNode>(children.Count);
-      for (int i = 0; i < children.Count; i++)
-      {
-        if (children[i] is RenderStyleNode style && style.SourceEnchantment != null)
-          rebuilt.AddRange(style.Children);
-        else
-          rebuilt.Add(children[i]);
-      }
-      children.Clear();
-      children.AddRange(rebuilt);
-    }
+      => RenderNodes.UnwrapWhere(container, n => n is RenderStyleNode style && style.SourceEnchantment != null);
   }
 }

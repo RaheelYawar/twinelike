@@ -135,25 +135,7 @@ namespace Harlowe.Runtime
     /// (symmetric with <see cref="EnchantmentPass.Disenchant"/>).
     /// </summary>
     public static void StripWraps(IRenderContainer container)
-    {
-      if (container == null) return;
-      var children = container.Children;
-
-      for (int i = 0; i < children.Count; i++)
-        if (children[i] is IRenderContainer c) StripWraps(c);
-
-      var rebuilt = new List<RenderNode>(children.Count);
-      for (int i = 0; i < children.Count; i++)
-      {
-        if (children[i] is RenderInteractiveNode iv)
-          rebuilt.AddRange(iv.Children);
-        else if (children[i] is RenderStyleNode sn && sn.SourceRegionId != null)
-          rebuilt.AddRange(sn.Children);
-        else
-          rebuilt.Add(children[i]);
-      }
-      children.Clear();
-      children.AddRange(rebuilt);
-    }
+      => RenderNodes.UnwrapWhere(container, n =>
+           n is RenderInteractiveNode || (n is RenderStyleNode sn && sn.SourceRegionId != null));
   }
 }

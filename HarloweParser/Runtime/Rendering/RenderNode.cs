@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Harlowe.Ast.Body;
 
@@ -232,6 +233,35 @@ namespace Harlowe.Runtime.Rendering
           target.Children.InsertRange(0, copy);
           break;
       }
+    }
+
+    /// <summary>
+    /// Depth-first sweep that replaces every node where <paramref name="unwrap"/>
+    /// returns true with its children, hoisting them into the parent. Recurses
+    /// before rebuilding each level so descendants are unwrapped first (so a
+    /// hoisted child is never re-scanned at this level). The shared skeleton
+    /// behind the disenchant / interaction-strip passes — each supplies only
+    /// the match predicate. A matched node that isn't a container is left in
+    /// place (nothing to hoist).
+    /// </summary>
+    public static void UnwrapWhere(IRenderContainer container, Func<RenderNode, bool> unwrap)
+    {
+      if (container == null) return;
+      var children = container.Children;
+
+      for (int i = 0; i < children.Count; i++)
+        if (children[i] is IRenderContainer c) UnwrapWhere(c, unwrap);
+
+      var rebuilt = new List<RenderNode>(children.Count);
+      for (int i = 0; i < children.Count; i++)
+      {
+        if (unwrap(children[i]) && children[i] is IRenderContainer wrap)
+          rebuilt.AddRange(wrap.Children);
+        else
+          rebuilt.Add(children[i]);
+      }
+      children.Clear();
+      children.AddRange(rebuilt);
     }
   }
 }
