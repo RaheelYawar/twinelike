@@ -432,7 +432,7 @@ namespace Harlowe.Runtime
       for (int i = 0; i < targets.Count; i++)
       {
         if (targets[i] is Rendering.IRenderContainer container)
-          SpliceInto(container, source, handler.Mode);
+          Rendering.RenderNodes.Splice(container, source, handler.Mode);
       }
 
       // Re-run both passes (strip + re-apply — idempotent). The interaction
@@ -475,24 +475,6 @@ namespace Harlowe.Runtime
       };
     }
 
-    /// <summary>Splice deep clones of <paramref name="source"/> into <paramref name="target"/>'s children according to <paramref name="mode"/>. Mirrors <c>Changer.Splice</c>; kept here so dispatch doesn't need internal access into the changer.</summary>
-    private static void SpliceInto(Rendering.IRenderContainer target, List<Rendering.RenderNode> source, RevisionMode mode)
-    {
-      var copy = Rendering.RenderNodes.CloneAll(source);
-      switch (mode)
-      {
-        case RevisionMode.Replace:
-          target.Children.Clear();
-          target.Children.AddRange(copy);
-          break;
-        case RevisionMode.Append:
-          target.Children.AddRange(copy);
-          break;
-        case RevisionMode.Prepend:
-          target.Children.InsertRange(0, copy);
-          break;
-      }
-    }
 
     /// <summary>
     /// Renders the named passage into <paramref name="output"/>, which the

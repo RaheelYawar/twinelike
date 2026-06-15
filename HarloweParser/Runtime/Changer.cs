@@ -238,7 +238,8 @@ namespace Harlowe.Runtime
       }
 
       for (int i = 0; i < targets.Count; i++)
-        Splice(targets[i], source, rev.Mode);
+        if (targets[i] is IRenderContainer container)
+          RenderNodes.Splice(container, source, rev.Mode);
     }
 
     /// <summary>
@@ -272,31 +273,6 @@ namespace Harlowe.Runtime
         RenderDeferredHook = renderHook,
         RegionId = ctx.AllocateRegionId()
       });
-    }
-
-    /// <summary>
-    /// Splice a deep clone of <paramref name="source"/> into
-    /// <paramref name="target"/>. Non-container targets are skipped — there is
-    /// nowhere to put content. <see cref="RevisionMode.Replace"/> clears the
-    /// target's children first; append/prepend add at the end/start.
-    /// </summary>
-    private static void Splice(RenderNode target, List<RenderNode> source, RevisionMode mode)
-    {
-      if (!(target is IRenderContainer container)) return;
-      var copy = RenderNodes.CloneAll(source);
-      switch (mode)
-      {
-        case RevisionMode.Replace:
-          container.Children.Clear();
-          container.Children.AddRange(copy);
-          break;
-        case RevisionMode.Append:
-          container.Children.AddRange(copy);
-          break;
-        case RevisionMode.Prepend:
-          container.Children.InsertRange(0, copy);
-          break;
-      }
     }
 
     /// <summary>

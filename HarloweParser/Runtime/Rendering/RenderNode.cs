@@ -207,5 +207,31 @@ namespace Harlowe.Runtime.Rendering
       CloneInto(source, copy);
       return copy;
     }
+
+    /// <summary>
+    /// Splice deep clones of <paramref name="source"/> into
+    /// <paramref name="target"/>'s children per <paramref name="mode"/>:
+    /// <see cref="RevisionMode.Replace"/> clears the target first; append /
+    /// prepend add at the end / start. The single revision-splice primitive
+    /// shared by <c>(replace:)</c>/<c>(append:)</c>/<c>(prepend:)</c> and the
+    /// click/hover dispatch path, so both stay in lockstep.
+    /// </summary>
+    public static void Splice(IRenderContainer target, List<RenderNode> source, RevisionMode mode)
+    {
+      var copy = CloneAll(source);
+      switch (mode)
+      {
+        case RevisionMode.Replace:
+          target.Children.Clear();
+          target.Children.AddRange(copy);
+          break;
+        case RevisionMode.Append:
+          target.Children.AddRange(copy);
+          break;
+        case RevisionMode.Prepend:
+          target.Children.InsertRange(0, copy);
+          break;
+      }
+    }
   }
 }
