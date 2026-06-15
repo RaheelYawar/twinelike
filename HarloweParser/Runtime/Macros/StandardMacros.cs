@@ -64,18 +64,18 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new PrependMacro());
       registry.Register(new ChangeMacro());
       registry.Register(new EnchantMacro());
-      registry.Register(new ClickMacro());
-      registry.Register(new ClickReplaceMacro());
-      registry.Register(new ClickAppendMacro());
-      registry.Register(new ClickPrependMacro());
-      registry.Register(new MouseOverMacro());
-      registry.Register(new MouseOverReplaceMacro());
-      registry.Register(new MouseOverAppendMacro());
-      registry.Register(new MouseOverPrependMacro());
-      registry.Register(new MouseOutMacro());
-      registry.Register(new MouseOutReplaceMacro());
-      registry.Register(new MouseOutAppendMacro());
-      registry.Register(new MouseOutPrependMacro());
+      registry.Register(new InteractionMacro("click", InteractionKind.Click, RevisionMode.Replace));
+      registry.Register(new InteractionMacro("click-replace", InteractionKind.Click, RevisionMode.Replace));
+      registry.Register(new InteractionMacro("click-append", InteractionKind.Click, RevisionMode.Append));
+      registry.Register(new InteractionMacro("click-prepend", InteractionKind.Click, RevisionMode.Prepend));
+      registry.Register(new InteractionMacro("mouseover", InteractionKind.MouseOver, RevisionMode.Replace));
+      registry.Register(new InteractionMacro("mouseover-replace", InteractionKind.MouseOver, RevisionMode.Replace));
+      registry.Register(new InteractionMacro("mouseover-append", InteractionKind.MouseOver, RevisionMode.Append));
+      registry.Register(new InteractionMacro("mouseover-prepend", InteractionKind.MouseOver, RevisionMode.Prepend));
+      registry.Register(new InteractionMacro("mouseout", InteractionKind.MouseOut, RevisionMode.Replace));
+      registry.Register(new InteractionMacro("mouseout-replace", InteractionKind.MouseOut, RevisionMode.Replace));
+      registry.Register(new InteractionMacro("mouseout-append", InteractionKind.MouseOut, RevisionMode.Append));
+      registry.Register(new InteractionMacro("mouseout-prepend", InteractionKind.MouseOut, RevisionMode.Prepend));
     }
   }
 }
