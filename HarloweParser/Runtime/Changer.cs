@@ -242,75 +242,36 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
-    /// Execute an interaction changer. Resolves the target, wraps every match's
-    /// content in a <see cref="RenderInteractiveNode"/> (with any composed
-    /// style layers between the wrap and the original content), and registers
-    /// a single <see cref="ClickHandler"/> on
-    /// <see cref="MacroContext.ClickHandlers"/> keyed by the wrap's region id.
-    /// All matches share one region id so re-resolution at dispatch time hits
-    /// every current match — matching Harlowe's "hook name is a query" rule.
-    /// No-op without a live render tree.
+    /// Execute an interaction changer. Records a persistent
+    /// <see cref="Interaction"/> on <see cref="MacroContext.Interactions"/>
+    /// (target query, composed style layers, deferred-hook renderer, mode,
+    /// kind, and a stable region id) rather than resolving and wrapping inline.
+    /// <see cref="InteractionPass"/> re-resolves and re-wraps it after the body
+    /// render and after every dispatch, so a target declared later in the
+    /// passage — or created by a click-deferred hook — is still caught. (Eager
+    /// apply-time resolution used to miss those; see TODO #24.)
     /// </summary>
     private static void RunInteraction(HookDescriptor d, IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx)
     {
       if (ctx == null) { output.Error("interaction changers require a render context"); return; }
 
-      var liveRoot = MacroContext.ResolveLiveRoot(ctx, output);
-      if (liveRoot == null) return;
-
       var spec = d.Interaction;
       if (spec?.HookTarget == null) return;
 
-      var targets = HookResolver.Resolve(liveRoot, spec.HookTarget);
+      // Snapshot the composed style layers; InteractionPass clones them again
+      // per match, so these stay an immutable template across passes.
+      var styles = new List<StyleSpec>(d.Styles.Count);
+      for (int i = 0; i < d.Styles.Count; i++) styles.Add(d.Styles[i]?.Clone());
 
-      var regionId = ctx.AllocateRegionId();
-
-      bool wrappedAny = false;
-      for (int i = 0; i < targets.Count; i++)
+      ctx.Interactions.Add(new Interaction
       {
-        if (!(targets[i] is IRenderContainer container)) continue;
-        wrappedAny = true;
-
-        var content = new List<RenderNode>(container.Children);
-        // Each wrap gets its own InteractiveRegion instance (sharing the same
-        // id and kind) so a future in-place mutation on one node's region
-        // doesn't propagate to its siblings. Identity for matching is the
-        // region id string, not the InteractiveRegion reference.
-        var interactiveNode = new RenderInteractiveNode
-        {
-          Region = new InteractiveRegion { Id = regionId, Kind = spec.Kind }
-        };
-        interactiveNode.Children.AddRange(content);
-
-        // Wrap any composed style layers around the interactive node,
-        // innermost = last layer. Each wrap clones the descriptor's style so
-        // sibling wraps stay independent (the descriptor's Styles list is
-        // shared across all matches of this changer application). Wrap is
-        // tagged with the region id so StorySession's UnwrapInteractive pass
-        // strips it alongside the interactive node.
-        RenderNode wrapped = interactiveNode;
-        for (int s = d.Styles.Count - 1; s >= 0; s--)
-        {
-          var styleNode = new RenderStyleNode { Style = d.Styles[s]?.Clone(), SourceRegionId = regionId };
-          styleNode.Children.Add(wrapped);
-          wrapped = styleNode;
-        }
-
-        container.Children.Clear();
-        container.Children.Add(wrapped);
-      }
-
-      // No wrap → no event will ever fire, so don't register a stale handler.
-      if (wrappedAny)
-      {
-        ctx.ClickHandlers[regionId] = new ClickHandler
-        {
-          RenderDeferredHook = renderHook,
-          Target = spec.HookTarget,
-          Mode = spec.Mode,
-          Kind = spec.Kind
-        };
-      }
+        Target = spec.HookTarget,
+        Kind = spec.Kind,
+        Mode = spec.Mode,
+        Styles = styles,
+        RenderDeferredHook = renderHook,
+        RegionId = ctx.AllocateRegionId()
+      });
     }
 
     /// <summary>

@@ -91,12 +91,21 @@ namespace Harlowe.Runtime
     public List<Enchantment> Enchantments = new List<Enchantment>();
 
     /// <summary>
+    /// Persistent interactions registered by the <c>(click:)</c>/<c>(mouseover:)</c>
+    /// family. The session runs <see cref="InteractionPass.Update"/> over the
+    /// finished tree after the main render and after every dispatch, so an
+    /// interaction catches hooks declared after the macro and content spliced in
+    /// by a click — the analogue of <see cref="Enchantments"/>. Fresh per render.
+    /// </summary>
+    public List<Interaction> Interactions = new List<Interaction>();
+
+    /// <summary>
     /// Registered interaction handlers keyed by <see cref="InteractiveRegion"/>
-    /// id. Populated by <c>(click:)</c>-family changers when they wrap a
-    /// target; consumed by <see cref="StorySession.DispatchEvent"/>. Shared
-    /// with the session — the same dictionary is reused across the main render
-    /// and any subsequent dispatch re-renders, so a deferred hook that itself
-    /// registers new clicks contributes them to the live registry.
+    /// id. Rebuilt from <see cref="Interactions"/> by
+    /// <see cref="InteractionPass.Update"/> each pass; consumed by
+    /// <see cref="StorySession.DispatchEvent"/>. Shared with the session — the
+    /// same dictionary is reused across the main render and any subsequent
+    /// dispatch re-renders.
     /// </summary>
     public Dictionary<string, ClickHandler> ClickHandlers = new Dictionary<string, ClickHandler>();
 

@@ -246,13 +246,80 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
-    public void Click_TargetNotYetRendered_IsNoOp()
+    public void Click_TargetDeclaredLater_IsClickable()
     {
-      // ?cake is declared after the macro — no wrap registered.
+      // ?cake is declared AFTER the macro. The persistent interaction pass
+      // re-resolves the target against the finished tree, so the forward
+      // reference is caught (eager apply-time resolution used to miss it) and
+      // dispatching the region replaces "late" with "surprise".
       var session = Session("(click: ?cake)[surprise]|cake>[late]");
       var result = session.Render();
-      Assert.Equal(0, CountKind(result, BufferedRenderOutput.Kind.BeginInteractive));
+      Assert.Equal(1, CountKind(result, BufferedRenderOutput.Kind.BeginInteractive));
       Assert.Equal("late", result.Text);
+
+      var after = session.DispatchEvent(FirstRegionId(result));
+      Assert.Equal("surprise", after.Text);
+    }
+
+    [Fact]
+    public void MouseOver_TargetDeclaredLater_IsHoverable()
+    {
+      // The forward-reference fix applies to the whole interaction family.
+      var session = Session("(mouseover: ?late)[hi]|late>[t]");
+      var result = session.Render();
+      var region = Assert.Single(Regions(result));
+      Assert.Equal(InteractionKind.MouseOver, region.Kind);
+
+      var after = session.DispatchEvent(FirstRegionId(result));
+      Assert.Equal("hi", after.Text);
+    }
+
+    [Fact]
+    public void Click_ComposedStyle_ForwardRef_WrapsWithStyleOutside()
+    {
+      // Composed style + a forward-referenced target: the style layer wraps
+      // outside the interactive region, same as the in-order case.
+      var session = Session("(click: ?late) + (text-style: \"bold\")[after]|late>[t]");
+      var result = session.Render();
+      Assert.Collection(result.Entries,
+        e => Assert.Equal(BufferedRenderOutput.Kind.PushStyle, e.Kind),
+        e => Assert.Equal(BufferedRenderOutput.Kind.BeginInteractive, e.Kind),
+        e => { Assert.Equal(BufferedRenderOutput.Kind.Text, e.Kind); Assert.Equal("t", e.Content); },
+        e => Assert.Equal(BufferedRenderOutput.Kind.EndInteractive, e.Kind),
+        e => Assert.Equal(BufferedRenderOutput.Kind.PopStyle, e.Kind));
+    }
+
+    [Fact]
+    public void Dispatch_ClickChain_NestedClickInDeferredHook_Fires()
+    {
+      // A (click:) inside a click-deferred hook must itself become clickable
+      // after the first dispatch — the deferred render records the interaction,
+      // and the pass re-resolves its now-spliced-in target. Previously the
+      // chain broke after the first dispatch.
+      var session = Session("|a>[start](click: ?a)[done |b>[bee](click: ?b)[final]]");
+      var first = session.Render();
+      Assert.Equal("start", first.Text);
+
+      var second = session.DispatchEvent(FirstRegionId(first));
+      Assert.Contains("bee", second.Text);
+      Assert.Equal(1, CountKind(second, BufferedRenderOutput.Kind.BeginInteractive));
+
+      var third = session.DispatchEvent(FirstRegionId(second));
+      Assert.Contains("final", third.Text);
+    }
+
+    [Fact]
+    public void Dispatch_OneRegion_LeavesOtherSingleWrapped()
+    {
+      // Firing one of two interactions strips all wraps and re-wraps only the
+      // survivor — exactly one region, single-wrapped (the pass is idempotent,
+      // no doubling).
+      var session = Session("|a>[A](click: ?a)[x]|b>[B](click: ?b)[y]");
+      var first = session.Render();
+      Assert.Equal(2, CountKind(first, BufferedRenderOutput.Kind.BeginInteractive));
+
+      var after = session.DispatchEvent(FirstRegionId(first));
+      Assert.Equal(1, CountKind(after, BufferedRenderOutput.Kind.BeginInteractive));
     }
 
     [Fact]

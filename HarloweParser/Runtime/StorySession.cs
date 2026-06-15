@@ -362,11 +362,15 @@ namespace Harlowe.Runtime
         return RenderInternal(depth + 1);
       }
 
-      // Run registered (enchant:) enchantments over the finished tree. By now
-      // every later-declared hook is in the tree and every revision mutation
-      // has happened, so the first pass catches everything. The pass is
-      // idempotent (disenchant + re-enchant) so DispatchEvent can re-run it
-      // after click-driven mutations without double-wrapping.
+      // Re-resolve interactions ((click:)/(mouseover:)) then enchantments over
+      // the finished tree. By now every later-declared hook is in the tree and
+      // every revision mutation has happened, so the first pass catches
+      // everything — including forward-referenced (click: ?b) targets that the
+      // old eager apply-time resolution missed. Both passes are idempotent
+      // (strip + re-apply), so DispatchEvent re-runs them after click-driven
+      // mutations without double-wrapping. Interactions first so enchantment
+      // restylings layer outside the interactive wraps, matching prior nesting.
+      InteractionPass.Update(builder.Root, ctx.Interactions, ctx.ClickHandlers);
       EnchantmentPass.Update(builder.Root, ctx.Enchantments);
 
       // Remember the live tree + context for DispatchEvent.
@@ -399,23 +403,31 @@ namespace Harlowe.Runtime
       if (regionId == null || !_liveContext.ClickHandlers.TryGetValue(regionId, out var handler))
         return BuildResultFromLiveTree();
 
-      // Consume — single-use. Remove from the registry before running so a
-      // re-entrant dispatch can't double-fire.
-      _liveContext.ClickHandlers.Remove(regionId);
-
-      // Unwrap every interactive node with this id so the wrap stops being
-      // clickable (and so append/prepend don't leave a stale wrap behind).
-      UnwrapInteractive(_liveRoot, regionId);
+      // Consume — single-use. Remove the fired interaction from the persistent
+      // list so the interaction pass below won't re-wrap or re-register it.
+      // (The handler dictionary is rebuilt from the list by the pass, so there
+      // is no separate registry entry to remove.)
+      for (int i = 0; i < _liveContext.Interactions.Count; i++)
+      {
+        if (_liveContext.Interactions[i].RegionId == regionId)
+        {
+          _liveContext.Interactions.RemoveAt(i);
+          break;
+        }
+      }
 
       // Render the deferred hook into a detached subtree using the live
       // context — so inner (click:)/(enchant:)/(replace:) calls inside the
-      // deferred hook register against the live session state.
+      // deferred hook register against the live session state (e.g. a nested
+      // (click:) appends to _liveContext.Interactions and is picked up below).
       var detached = new Rendering.RenderTreeBuilder();
       handler.RenderDeferredHook?.Invoke(detached);
       var source = detached.Root.Children;
 
       // Splice the source into every node the target re-resolves to right
       // now — the query is fresh, matching Harlowe's "?name is a query" rule.
+      // The consumed region's leftover wrap (still present for append/prepend)
+      // is harmless: the interaction pass strips all wraps next.
       var targets = Rendering.HookResolver.Resolve(_liveRoot, handler.Target);
       for (int i = 0; i < targets.Count; i++)
       {
@@ -423,19 +435,19 @@ namespace Harlowe.Runtime
           SpliceInto(container, source, handler.Mode);
       }
 
-      // Re-run the enchantment pass (disenchant + re-enchant — idempotent).
+      // Re-run both passes (strip + re-apply — idempotent). The interaction
+      // pass strips every interactive wrap (including the consumed region's)
+      // and re-wraps the surviving interactions, re-registering their handlers;
+      // then enchantments re-layer.
       //
-      // Ordering invariant: EnchantmentPass.Update runs BEFORE the
-      // PendingGoto check below. This is safe because the enchant pass
-      // structurally cannot touch PendingGoto — EnchantmentPass.Update
-      // takes (root, enchantments) with no MacroContext, and the enchant-
-      // path Changer.ApplyTo(container, source) likewise has no
-      // MacroContext parameter. So there is no surface through which an
-      // enchantment can mutate the click's queued navigation. If a future
-      // refactor threads MacroContext into either signature, this ordering
-      // would let enchant-time macro execution clobber the click's goto;
-      // EnchantmentPassCannotMutatePendingGoto in the test suite guards
-      // that regression vector.
+      // Ordering invariant: both passes run BEFORE the PendingGoto check below.
+      // Safe because neither takes a MacroContext — InteractionPass.Update and
+      // EnchantmentPass.Update both operate on (root, …) only, with no surface
+      // through which they could mutate the click's queued navigation. If a
+      // future refactor threads MacroContext into either, this ordering would
+      // let pass-time macro execution clobber the click's goto;
+      // EnchantmentPassCannotMutatePendingGoto in the test suite guards that.
+      InteractionPass.Update(_liveRoot, _liveContext.Interactions, _liveContext.ClickHandlers);
       EnchantmentPass.Update(_liveRoot, _liveContext.Enchantments);
 
       // A (goto:) inside the deferred hook navigates now.
@@ -461,43 +473,6 @@ namespace Harlowe.Runtime
         Text = buf.Text,
         Entries = buf.Entries
       };
-    }
-
-    /// <summary>
-    /// Walk <paramref name="container"/> and splice out every
-    /// <see cref="Rendering.RenderInteractiveNode"/> whose region matches
-    /// <paramref name="regionId"/>, replacing each with its children. Also
-    /// strips any <see cref="Rendering.RenderStyleNode"/> tagged with the same
-    /// region id — those are the composed style layers a changer like
-    /// <c>(click-append: ?m) + (text-style: "bold")</c> wraps around the
-    /// interactive node, and they need to disappear with the wrap so the
-    /// target returns to its pre-interaction styling once the handler fires.
-    /// Used by <see cref="DispatchEvent"/> to consume the fired region so it
-    /// can't be re-clicked and so the post-splice tree doesn't carry a stale
-    /// wrap.
-    /// </summary>
-    private static void UnwrapInteractive(Rendering.IRenderContainer container, string regionId)
-    {
-      if (container == null) return;
-      var children = container.Children;
-
-      // Recurse first, then rebuild this level — symmetric with the
-      // disenchant sweep and the text-occurrence finder.
-      for (int i = 0; i < children.Count; i++)
-        if (children[i] is Rendering.IRenderContainer c) UnwrapInteractive(c, regionId);
-
-      var rebuilt = new List<Rendering.RenderNode>(children.Count);
-      for (int i = 0; i < children.Count; i++)
-      {
-        if (children[i] is Rendering.RenderInteractiveNode iv && iv.Region?.Id == regionId)
-          rebuilt.AddRange(iv.Children);
-        else if (children[i] is Rendering.RenderStyleNode sn && sn.SourceRegionId == regionId)
-          rebuilt.AddRange(sn.Children);
-        else
-          rebuilt.Add(children[i]);
-      }
-      children.Clear();
-      children.AddRange(rebuilt);
     }
 
     /// <summary>Splice deep clones of <paramref name="source"/> into <paramref name="target"/>'s children according to <paramref name="mode"/>. Mirrors <c>Changer.Splice</c>; kept here so dispatch doesn't need internal access into the changer.</summary>
