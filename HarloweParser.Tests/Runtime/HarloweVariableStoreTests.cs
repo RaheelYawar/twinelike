@@ -162,6 +162,93 @@ namespace Harlowe.Tests.Runtime
       Assert.Equal(1, restored[0].AsNumber);
     }
 
+    // --- Delta tracking (#5 — per-turn forward deltas) ---
+
+    [Fact]
+    public void TakeStoryDelta_ReturnsChangedStoryVars_ThenClears()
+    {
+      var store = new HarloweVariableStore();
+      store.Set("a", isTemporary: false, value: HarloweValue.OfNumber(1));
+      store.Set("b", isTemporary: false, value: HarloweValue.OfNumber(2));
+
+      var d = store.TakeStoryDelta();
+      Assert.Equal(2, d.Count);
+      Assert.Equal(1, d["a"].AsNumber);
+      Assert.Equal(2, d["b"].AsNumber);
+
+      // No Set since the last take → empty delta (dirty state was cleared).
+      Assert.Empty(store.TakeStoryDelta());
+    }
+
+    [Fact]
+    public void TakeStoryDelta_ExcludesTempVars()
+    {
+      var store = new HarloweVariableStore();
+      store.Set("s", isTemporary: false, value: HarloweValue.OfNumber(1));
+      store.Set("t", isTemporary: true, value: HarloweValue.OfNumber(2));
+
+      var d = store.TakeStoryDelta();
+      Assert.True(d.ContainsKey("s"));
+      Assert.False(d.ContainsKey("t"));
+    }
+
+    [Fact]
+    public void TakeStoryDelta_DoesNotRecaptureUntouchedVars()
+    {
+      // The memory win: a var set in an earlier turn is not re-copied into a
+      // later turn's delta if that turn doesn't touch it.
+      var store = new HarloweVariableStore();
+      store.Set("big", isTemporary: false, value: HarloweValue.OfNumber(1));
+      store.TakeStoryDelta();                       // turn 1 delta = { big }
+
+      store.Set("small", isTemporary: false, value: HarloweValue.OfNumber(2));
+      var d2 = store.TakeStoryDelta();              // turn 2 delta
+      Assert.True(d2.ContainsKey("small"));
+      Assert.False(d2.ContainsKey("big"));
+    }
+
+    [Fact]
+    public void TakeStoryDelta_DeepCopiesArrays_SoLaterMutationDoesNotLeak()
+    {
+      var store = new HarloweVariableStore();
+      var inner = new List<HarloweValue> { HarloweValue.OfNumber(1) };
+      store.Set("xs", isTemporary: false, value: HarloweValue.OfArray(inner));
+
+      var d = store.TakeStoryDelta();
+      inner.Add(HarloweValue.OfNumber(2));          // mutate the live list after capture
+
+      var captured = d["xs"].AsArray;
+      Assert.Single(captured);
+      Assert.Equal(1, captured[0].AsNumber);
+    }
+
+    [Fact]
+    public void ResetStoryVars_ReplacesStoryAndClearsTempAndDirty()
+    {
+      var store = new HarloweVariableStore();
+      store.Set("old", isTemporary: false, value: HarloweValue.OfNumber(1));
+      store.Set("t", isTemporary: true, value: HarloweValue.OfNumber(9));
+
+      store.ResetStoryVars(new Dictionary<string, HarloweValue> { ["fresh"] = HarloweValue.OfNumber(5) });
+
+      Assert.Equal(5, store.Get("fresh", isTemporary: false).AsNumber);
+      Assert.Null(store.Get("old", isTemporary: false));   // story namespace replaced
+      Assert.Null(store.Get("t", isTemporary: true));      // temp stack reset
+      Assert.Empty(store.TakeStoryDelta());                // dirty state cleared
+    }
+
+    [Fact]
+    public void ResetStoryVars_DeepCopiesInput_SoCallerMutationDoesNotLeak()
+    {
+      var store = new HarloweVariableStore();
+      var inner = new List<HarloweValue> { HarloweValue.OfNumber(1) };
+      store.ResetStoryVars(new Dictionary<string, HarloweValue> { ["xs"] = HarloweValue.OfArray(inner) });
+
+      inner.Add(HarloweValue.OfNumber(2));
+
+      Assert.Single(store.Get("xs", isTemporary: false).AsArray);
+    }
+
     [Fact]
     public void Snapshot_DeepCopiesDatamaps()
     {

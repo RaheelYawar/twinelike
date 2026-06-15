@@ -4,6 +4,16 @@ Captures the design plan plus the pressure-test critique that surfaced gaps in
 the first pass. Not started yet — items 1–6 in [Prerequisite decisions](#prerequisite-decisions)
 must be answered before step 1 begins.
 
+> **Update (delta-compression landed early, review finding #5).** The per-turn
+> undo record already carries a **forward delta** of changed `$`-vars rather
+> than a full store snapshot (`HarloweVariableStore.TakeStoryDelta`/
+> `ResetStoryVars`, `StorySession`'s `List<SessionSnapshot>` + `Flatten`). So
+> prerequisite-decision 6 / the "delta compression" follow-up is **done**, and
+> step 2's `Moment` should carry `StoreDelta` (changed vars) instead of a full
+> `StoreSnapshot`; the eventual serializer writes per-turn deltas (smaller
+> blobs, closer to reference). Redo, per-redirect Moments, PRNG-state capture,
+> and the `IVariableStore` serialization surface remain this slice's scope.
+
 ## Prerequisite decisions
 
 These block progress. Each needs an explicit answer before the slice starts.
@@ -338,7 +348,9 @@ above; preserved for traceability.
 - **`(mock-visits:)`/`(mock-turns:)`** — the reserved fields on `Moment`
   let these land cleanly.
 - **`(seed:)` macro** — if not bundled into this slice per decision (2).
-- **Delta compression** for save-blob size, per reference's `valueRef.ts`.
+- ~~**Delta compression** for save-blob size, per reference's `valueRef.ts`.~~
+  **Done early** (review finding #5) — the in-memory undo record is now a
+  forward delta; see the note at the top.
 
 ---
 

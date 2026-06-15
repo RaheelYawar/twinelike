@@ -675,6 +675,29 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
+    public void Undo_RestoresVarFromEarlierTurn_AcrossUntouchedTurns()
+    {
+      // $x is set in P2 and never touched in P3/P4. Undoing back through P4 and
+      // P3 must still see $x = 7 — reconstruction flattens P2's delta even
+      // though the intervening turns changed nothing (the delta-compression
+      // path that a full per-turn snapshot got for free).
+      var session = new StorySession(Story("1",
+        ("1", "P1", "$x"),
+        ("2", "P2", "(set: $x to 7)$x"),
+        ("3", "P3", "$x"),
+        ("4", "P4", "$x")));
+      session.Render();
+      session.Goto("P2");           // $x = 7
+      session.Goto("P3");           // $x untouched
+      session.Goto("P4");           // $x untouched
+
+      session.Undo();               // back to P3
+      Assert.Equal("7", session.Render().Text);
+      session.Undo();               // back to P2
+      Assert.Equal("7", session.Render().Text);
+    }
+
+    [Fact]
     public void Undo_RestoresVisitCountsAcrossMultipleSteps()
     {
       // Visit P2, P3, P2 — visits[P2]=2. Undo three times, then revisit P2 fresh.

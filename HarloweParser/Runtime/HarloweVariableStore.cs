@@ -41,6 +41,13 @@ namespace Harlowe.Runtime
     private HarloweValue _it;
     private HarloweValue _pos;
 
+    // Names of story ($) variables written since the last TakeStoryDelta. Lets
+    // the session record one undo point as a per-turn forward delta instead of
+    // a full store clone. Only real author mutations (the story branch of Set)
+    // are tracked — temp vars and transient lambda bindings bypass Set's story
+    // branch, so they never appear in a delta.
+    private readonly HashSet<string> _dirtyStoryVars = new HashSet<string>();
+
     public HarloweVariableStore()
     {
       _tempStack = new List<Dictionary<string, HarloweValue>>();
@@ -71,6 +78,7 @@ namespace Harlowe.Runtime
       {
         _story[name] = value;
         _it = value;
+        _dirtyStoryVars.Add(name);
         return;
       }
       // Walk outer-to-inner looking for an existing declaration; write to the
@@ -116,6 +124,43 @@ namespace Harlowe.Runtime
       for (int i = 0; i < snap.TempStack.Count; i++) _tempStack.Add(DeepCopyBucket(snap.TempStack[i]));
       if (_tempStack.Count == 0) _tempStack.Add(new Dictionary<string, HarloweValue>());
       _it = DeepCopyValue(snap.It);
+    }
+
+    /// <summary>
+    /// Captures and clears the forward delta of story (<c>$</c>) variables
+    /// changed since the previous call: a deep-copied map of each dirtied
+    /// variable's current value. Lets a session record one undo point as a
+    /// per-turn delta instead of cloning the whole store. Temp variables and
+    /// transient lambda bindings are never included (they don't flow through
+    /// <see cref="Set"/>'s story branch). The deep copy keeps the returned
+    /// delta independent of later live-store mutations.
+    /// </summary>
+    public Dictionary<string, HarloweValue> TakeStoryDelta()
+    {
+      var delta = new Dictionary<string, HarloweValue>(_dirtyStoryVars.Count);
+      foreach (var name in _dirtyStoryVars)
+      {
+        if (_story.TryGetValue(name, out var v)) delta[name] = DeepCopyValue(v);
+      }
+      _dirtyStoryVars.Clear();
+      return delta;
+    }
+
+    /// <summary>
+    /// Replaces the story (<c>$</c>) namespace with deep copies of
+    /// <paramref name="flattened"/> and resets the temp stack to a single fresh
+    /// scope — the state-installation half of an undo. The deep copy keeps the
+    /// timeline's deltas independent of the live store. Temp variables are
+    /// passage-local and cleared here (undo does not re-enter the passage and
+    /// the post-undo render does not call <see cref="BeginPassage"/>);
+    /// <c>it</c>/<c>pos</c> are left as-is, matching <see cref="BeginPassage"/>.
+    /// </summary>
+    public void ResetStoryVars(Dictionary<string, HarloweValue> flattened)
+    {
+      _story = DeepCopyBucket(flattened ?? new Dictionary<string, HarloweValue>());
+      _dirtyStoryVars.Clear();
+      _tempStack = new List<Dictionary<string, HarloweValue>>();
+      _tempStack.Add(new Dictionary<string, HarloweValue>());
     }
 
     private static Dictionary<string, HarloweValue> DeepCopyBucket(Dictionary<string, HarloweValue> src)

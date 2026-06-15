@@ -51,7 +51,7 @@ namespace Harlowe.Runtime
     private readonly HarloweVariableStore _store;
     private string _currentPassage;
     private Dictionary<string, int> _visitCounts;
-    private readonly Stack<SessionSnapshot> _undoStack;
+    private readonly List<SessionSnapshot> _undoStack;
     private readonly Stopwatch _passageTimer;
 
     // One RNG for the whole session, threaded into every MacroContext. A fresh
@@ -131,7 +131,7 @@ namespace Harlowe.Runtime
       StandardMacros.RegisterAll(_registry);
       _store = new HarloweVariableStore();
       _visitCounts = new Dictionary<string, int>();
-      _undoStack = new Stack<SessionSnapshot>();
+      _undoStack = new List<SessionSnapshot>();
       _passageTimer = Stopwatch.StartNew();
       _rng = rng;
 
@@ -157,28 +157,26 @@ namespace Harlowe.Runtime
 
     /// <summary>
     /// Total number of passage transitions in the current session, counting
-    /// the current one. <see cref="_undoStack"/> contains one snapshot per
-    /// past passage (pushed at the start of every <see cref="Goto"/>), so
-    /// the count plus the current-passage-is-live bit gives the total.
+    /// the current one. <see cref="_undoStack"/> holds one entry per past
+    /// passage (appended at the start of every <see cref="Goto"/>), so the
+    /// count plus the current-passage-is-live bit gives the total.
     /// </summary>
     public HarloweValue Turns =>
       HarloweValue.OfNumber(_undoStack.Count + (string.IsNullOrEmpty(_currentPassage) ? 0 : 1));
 
     /// <summary>
     /// Past passage names in visit order, oldest first, excluding the
-    /// current passage. Backs the <c>(history:)</c> macro. The undo stack
-    /// stores each snapshot's prior passage name, so iterating it
-    /// bottom-to-top yields the visit order; <see cref="System.Collections.Generic.Stack{T}.ToArray"/>
-    /// returns top-first (LIFO), hence the reverse loop.
+    /// current passage. Backs the <c>(history:)</c> macro. Each undo entry
+    /// stores its prior passage name and the list is oldest-first (appended at
+    /// each <see cref="Goto"/>), so a forward walk yields visit order directly.
     /// </summary>
     public HarloweValue History
     {
       get
       {
-        var snaps = _undoStack.ToArray();
-        var list = new List<HarloweValue>(snaps.Length);
-        for (int i = snaps.Length - 1; i >= 0; i--)
-          list.Add(HarloweValue.OfString(snaps[i].PassageName ?? string.Empty));
+        var list = new List<HarloweValue>(_undoStack.Count);
+        for (int i = 0; i < _undoStack.Count; i++)
+          list.Add(HarloweValue.OfString(_undoStack[i].PassageName ?? string.Empty));
         return HarloweValue.OfArray(list);
       }
     }
@@ -217,18 +215,17 @@ namespace Harlowe.Runtime
     public RenderResult Render() => RenderInternal(0);
 
     /// <summary>
-    /// Navigates to <paramref name="passageName"/>, pushes a snapshot of the
-    /// current state onto the undo stack, increments the target's visit
-    /// count, clears passage-scoped variables, and returns the rendered
-    /// result. Any <c>(goto:)</c> macros in the target passage are followed
-    /// automatically.
+    /// Navigates to <paramref name="passageName"/>, records the leaving turn's
+    /// variable delta as an undo entry, increments the target's visit count,
+    /// clears passage-scoped variables, and returns the rendered result. Any
+    /// <c>(goto:)</c> macros in the target passage are followed automatically.
     /// </summary>
     public RenderResult Goto(string passageName)
     {
-      _undoStack.Push(new SessionSnapshot
+      _undoStack.Add(new SessionSnapshot
       {
         PassageName = _currentPassage,
-        StoreSnapshot = _store.Snapshot(),
+        StoreDelta = _store.TakeStoryDelta(),
         VisitCounts = CopyVisitCounts()
       });
       EnterPassage(passageName);
@@ -236,9 +233,10 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
-    /// Pops the most recent snapshot from the undo stack and restores its
-    /// passage name, variable store, and visit counts. Returns <c>true</c> if
-    /// a snapshot was available and applied; <c>false</c> if the stack is
+    /// Removes the most recent undo entry and restores its passage name,
+    /// story-variable state (reconstructed from the per-turn deltas), and visit
+    /// counts. Returns <c>true</c> if an entry was available and applied;
+    /// <c>false</c> if the stack is
     /// empty. After returning <c>true</c>, call <see cref="Render"/> to
     /// display the restored passage. May be called repeatedly to walk back
     /// through every <see cref="Goto"/> the session has performed.
@@ -258,14 +256,39 @@ namespace Harlowe.Runtime
     public bool Undo()
     {
       if (_undoStack.Count == 0) return false;
-      var snap = _undoStack.Pop();
+      int i = _undoStack.Count - 1;
+      var snap = _undoStack[i];
+      // Reconstruct the full story-var state at this undo point by flattening
+      // every delta up to and including it (last-write-wins), then install it.
+      // ResetStoryVars deep-copies on install, so the timeline's deltas stay
+      // independent of the live store.
+      _store.ResetStoryVars(Flatten(i));
       _currentPassage = snap.PassageName;
-      _store.Restore(snap.StoreSnapshot);
       _visitCounts = snap.VisitCounts;
+      _undoStack.RemoveAt(i);
       _liveRoot = null;
       _liveContext = null;
       _passageTimer.Restart();
       return true;
+    }
+
+    /// <summary>
+    /// Reconstructs the full story-variable state at undo point
+    /// <paramref name="upToInclusive"/> by applying each entry's forward delta
+    /// in chronological order (oldest first), last write winning. The returned
+    /// dictionary holds references into the deltas; the caller deep-copies on
+    /// install.
+    /// </summary>
+    private Dictionary<string, HarloweValue> Flatten(int upToInclusive)
+    {
+      var flat = new Dictionary<string, HarloweValue>();
+      for (int j = 0; j <= upToInclusive; j++)
+      {
+        var delta = _undoStack[j].StoreDelta;
+        if (delta == null) continue;
+        foreach (var kv in delta) flat[kv.Key] = kv.Value;
+      }
+      return flat;
     }
 
     // Private helpers ------------------------------------------------------
@@ -536,7 +559,10 @@ namespace Harlowe.Runtime
     private class SessionSnapshot
     {
       public string PassageName;
-      public object StoreSnapshot;
+      // The forward delta of story ($) variables changed during this turn —
+      // only the vars that changed, not a full store clone. Flattened
+      // oldest-first to reconstruct full state on undo.
+      public Dictionary<string, HarloweValue> StoreDelta;
       public Dictionary<string, int> VisitCounts;
     }
   }
