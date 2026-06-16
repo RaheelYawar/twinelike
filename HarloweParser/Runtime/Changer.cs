@@ -323,34 +323,6 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
-    /// Read-only view of the styling layers this changer contributes — built
-    /// on demand by running the patches against a fresh descriptor. Engine
-    /// integrations rarely need this; prefer <see cref="Apply"/>. Exposed for
-    /// adapter authors and diagnostics. Note: iteration changers may have an
-    /// empty layer list; check <see cref="HasIteration"/> too.
-    /// </summary>
-    public IReadOnlyList<StyleSpec> Layers
-    {
-      get
-      {
-        var d = new HookDescriptor();
-        for (int i = 0; i < _patches.Count; i++) _patches[i].Apply(d);
-        return d.Styles;
-      }
-    }
-
-    /// <summary>True if any patch contributes an iteration spec.</summary>
-    public bool HasIteration
-    {
-      get
-      {
-        for (int i = 0; i < _patches.Count; i++)
-          if (_patches[i] is IterationPatch) return true;
-        return false;
-      }
-    }
-
-    /// <summary>
     /// Structural equality: two changers are equal iff their patch lists are
     /// equal pair-wise (each <see cref="IChangerPatch"/> implements its own
     /// structural equality). Lets <see cref="HarloweValue.Equals"/> recurse

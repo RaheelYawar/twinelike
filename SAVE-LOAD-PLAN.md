@@ -325,12 +325,13 @@ above; preserved for traceability.
   catch it. Worst case wrap with `unchecked` blocks and explicit `(int)`
   casts to match JS semantics.
 
-- **`Changer.AsChanger.Layers`/`Patches` may not be uniformly AST-bearing.**
-  Audit hoisted into step 2 (see above). If any patch type stores a
-  closure rather than the AST, source-round-trip won't work and we'd need
-  either (a) regenerate source from the patch's typed fields or
-  (b) reject changers in saved variables as unsupported (reference does
-  store them, so we should match).
+- **Changer patches may not be uniformly AST-bearing.** (The `Changer.Layers`
+  accessor was removed as dead weight — serialization is source-string via
+  `MarkupPrinter`, not layer introspection.) Audit hoisted into step 2 (see
+  above): if any patch type stores a closure rather than the AST,
+  source-round-trip won't work and we'd need either (a) regenerate source from
+  the patch's typed fields or (b) reject changers in saved variables as
+  unsupported (reference does store them, so we should match).
 
 - **Per-Moment full snapshots inflate save blobs.** Mitigated by deferring
   delta compression to a later slice; until then, document that save blobs

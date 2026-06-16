@@ -110,23 +110,13 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
-    public void Layers_ExposesUnderlyingStyleList()
-    {
-      // Diagnostic accessor — engine adapters generally use Apply, but the
-      // raw layer list is useful for inspection.
-      var c = Bold().Compose(Italic());
-      Assert.Equal(2, c.Layers.Count);
-      Assert.True(c.Layers[0].Bold);
-      Assert.True(c.Layers[1].Italic);
-    }
-
-    [Fact]
     public void FromStyle_NullStyle_TreatedAsEmptyLayer()
     {
-      // Defensive — null in shouldn't crash; layer is just an empty spec.
-      var c = Changer.FromStyle(null);
-      Assert.Single(c.Layers);
-      Assert.True(c.Layers[0].IsEmpty);
+      // Defensive — null in shouldn't crash; it becomes one empty-spec layer,
+      // observable as a single push/pop (the "?" describe = an empty spec).
+      var output = new CapturedOutput();
+      Changer.FromStyle(null).Apply(output, o => o.Text("z"));
+      Assert.Equal(new[] { "P:?", "T:z", "/P" }, output.Calls);
     }
   }
 }

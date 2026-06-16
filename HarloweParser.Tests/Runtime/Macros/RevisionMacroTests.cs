@@ -194,7 +194,6 @@ namespace Harlowe.Tests.Runtime.Macros
         Mode = RevisionMode.Replace
       });
       Assert.NotNull(changer);
-      Assert.False(changer.HasIteration);
     }
 
     [Fact]
