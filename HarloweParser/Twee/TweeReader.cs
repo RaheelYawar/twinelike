@@ -43,12 +43,18 @@ namespace Harlowe.Twee
     /// Parse <paramref name="source"/> as Twee 3 text and return a populated
     /// <see cref="Harlowe"/>. A null or empty input yields an empty story
     /// (no passages, default metadata) rather than throwing — same forgiving
-    /// shape as <see cref="Harlowe.GetPassage"/>.
+    /// shape as <see cref="Harlowe.GetPassage"/>. A leading UTF-8 BOM
+    /// (U+FEFF) is stripped: callers that decode bytes with
+    /// <c>Encoding.UTF8.GetString</c> (rather than BOM-aware
+    /// <c>File.ReadAllText</c>) leave it on the string, where it would
+    /// otherwise hide the first <c>::</c> header and silently drop the first
+    /// passage (or the whole single-passage story).
     /// </summary>
     public Harlowe Read(string source)
     {
       var story = new Harlowe();
       if (string.IsNullOrEmpty(source)) return story;
+      if (source[0] == '\uFEFF') source = source.Substring(1);
 
       var tokenizer = new HarloweTokenizer();
       var bodyParser = new HarloweBodyParser();

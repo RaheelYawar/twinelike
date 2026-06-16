@@ -7,6 +7,9 @@ namespace Harlowe.Tests.Twee
   {
     private static Harlowe Read(string source) => new TweeReader().Read(source);
 
+    // U+FEFF BOM, written via code point so it stays visible in source.
+    private const char Bom = (char)0xFEFF;
+
     [Fact]
     public void Empty_ReturnsEmptyStory()
     {
@@ -21,6 +24,26 @@ namespace Harlowe.Tests.Twee
     {
       var story = Read(null);
       Assert.Equal(0, story.PassageCount);
+    }
+
+    [Fact]
+    public void LeadingBom_Stripped_SinglePassageStillParses()
+    {
+      // A consumer decoding bytes with Encoding.UTF8.GetString (rather than
+      // BOM-aware File.ReadAllText) leaves a leading BOM on the string. It
+      // must not hide the first :: header and drop the only passage.
+      var story = Read(Bom + ":: First\nHello world.");
+      Assert.Equal(1, story.PassageCount);
+      Assert.Equal("Hello world.", story.GetPassage("First").RawBody);
+    }
+
+    [Fact]
+    public void LeadingBom_Stripped_FirstOfMultipleNotDropped()
+    {
+      var story = Read(Bom + ":: First\nA\n\n:: Second\nB");
+      Assert.Equal(2, story.PassageCount);
+      Assert.Equal("A", story.GetPassage("First").RawBody);
+      Assert.Equal("B", story.GetPassage("Second").RawBody);
     }
 
     [Fact]
