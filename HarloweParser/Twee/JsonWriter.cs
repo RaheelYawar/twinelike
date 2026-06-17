@@ -120,11 +120,18 @@ namespace Harlowe.Twee
     /// <summary>
     /// Emits a number using invariant culture. Whole-valued doubles render
     /// without a trailing <c>.0</c> so <c>zoom: 1</c> round-trips byte-for-byte
-    /// against Twine 2's output.
+    /// against Twine 2's output. Non-finite doubles (NaN / ±Infinity) have no
+    /// JSON representation, so they throw <see cref="HarloweParseException"/>
+    /// rather than emit a bare <c>NaN</c>/<c>Infinity</c> token that no JSON
+    /// parser (including <see cref="JsonReader"/>) would accept — matching the
+    /// "keep mistakes loud" policy of the unsupported-type case above.
     /// </summary>
     private static void WriteNumber(StringBuilder sb, double d)
     {
-      if (d == System.Math.Floor(d) && !double.IsInfinity(d) && d >= long.MinValue && d <= long.MaxValue)
+      if (double.IsNaN(d) || double.IsInfinity(d))
+        throw new HarloweParseException(
+          $"JsonWriter cannot serialize non-finite number ({d.ToString(CultureInfo.InvariantCulture)})");
+      if (d == System.Math.Floor(d) && d >= long.MinValue && d <= long.MaxValue)
         sb.Append(((long)d).ToString(CultureInfo.InvariantCulture));
       else
         sb.Append(d.ToString("R", CultureInfo.InvariantCulture));

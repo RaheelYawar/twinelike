@@ -108,5 +108,24 @@ namespace Harlowe.Tests.Twee
     [Fact]
     public void UnsupportedType_Throws()
       => Assert.Throws<HarloweParseException>(() => Write(new System.DateTime(2026, 5, 9)));
+
+    // Non-finite doubles have no JSON representation; the writer fails loudly
+    // rather than emit a bare NaN/Infinity token that no JSON parser accepts.
+    [Fact]
+    public void NaN_Throws()
+      => Assert.Throws<HarloweParseException>(() => Write(double.NaN));
+
+    [Fact]
+    public void PositiveInfinity_Throws()
+      => Assert.Throws<HarloweParseException>(() => Write(double.PositiveInfinity));
+
+    [Fact]
+    public void NegativeInfinity_Throws()
+      => Assert.Throws<HarloweParseException>(() => Write(double.NegativeInfinity));
+
+    [Fact]
+    public void NonFiniteNestedInObject_Throws()
+      => Assert.Throws<HarloweParseException>(() =>
+           Write(new Dictionary<string, object> { { "zoom", double.PositiveInfinity } }));
   }
 }
