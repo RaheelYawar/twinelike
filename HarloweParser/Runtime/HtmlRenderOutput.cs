@@ -14,7 +14,10 @@ namespace Harlowe.Runtime
   /// inject markup. <see cref="Html"/> is the raw-passthrough channel for
   /// author-embedded HTML and stays unescaped. <see cref="Link"/> and
   /// <see cref="Error"/> are typed entries on the inner output (not HTML
-  /// fragments) and forward unchanged.
+  /// fragments), but their author-facing text is still HTML-escaped:
+  /// <see cref="Link"/> escapes its display-text argument (the target is
+  /// forwarded raw), and <see cref="Error"/> escapes its message (see the
+  /// XSS note below).
   ///
   /// <para>Mapping rules:
   /// <list type="bullet">

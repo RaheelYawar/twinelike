@@ -53,10 +53,10 @@ namespace Harlowe
     /// <summary>
     /// The raw editor metadata blob from a Twee passage header — the
     /// <c>{"position":"...","size":"..."}</c> JSON that follows the tags. Stored
-    /// verbatim (without the surrounding braces) so the writer can emit it
-    /// unchanged. <c>null</c> when not present, including for HTML-loaded
-    /// stories where this metadata lives on attributes (<c>position</c>,
-    /// <c>size</c>) instead.
+    /// verbatim, braces included, so the writer can emit it unchanged.
+    /// <c>null</c> when not present, including for HTML-loaded stories where
+    /// this metadata lives on attributes (<c>position</c>, <c>size</c>)
+    /// instead.
     /// </summary>
     public string Position;
 
