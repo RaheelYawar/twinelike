@@ -544,7 +544,7 @@ namespace Harlowe.Runtime
     private static HarloweValue IndexArray(List<HarloweValue> arr, double idx)
     {
       if (idx != System.Math.Floor(idx))
-        return HarloweValue.OfError($"array index must be a whole number; got {idx}");
+        return HarloweValue.OfError($"array index must be a whole number; got {HarloweValue.FormatNumber(idx)}");
       int i = (int)idx;
       if (i < 1 || i > arr.Count)
         return HarloweValue.OfError($"array index {i} is out of range (1..{arr.Count})");
@@ -554,7 +554,7 @@ namespace Harlowe.Runtime
     private static HarloweValue IndexString(string s, double idx)
     {
       if (idx != System.Math.Floor(idx))
-        return HarloweValue.OfError($"string index must be a whole number; got {idx}");
+        return HarloweValue.OfError($"string index must be a whole number; got {HarloweValue.FormatNumber(idx)}");
       int i = (int)idx;
       int count = CodePointCount(s);
       if (i < 1 || i > count)

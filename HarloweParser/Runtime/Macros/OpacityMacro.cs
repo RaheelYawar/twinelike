@@ -22,7 +22,7 @@ namespace Harlowe.Runtime.Macros
         return HarloweValue.OfError($"(opacity:) requires a Number, got {arg.Kind}");
       var n = arg.AsNumber;
       if (n < 0.0 || n > 1.0)
-        return HarloweValue.OfError($"(opacity:) requires a number between 0 and 1, got {n}");
+        return HarloweValue.OfError($"(opacity:) requires a number between 0 and 1, got {HarloweValue.FormatNumber(n)}");
       return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { Opacity = n }));
     }
   }

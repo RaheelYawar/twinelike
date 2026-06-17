@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.Globalization;
+using System.Threading;
 using Harlowe.Ast.Expression;
 using Harlowe.Parsing;
 using Harlowe.Runtime;
@@ -750,6 +752,22 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void Property_String_OutOfRange_Errors()
       => Assert.True(EvalP("\"hello\"'s 6").IsError);
+
+    [Fact]
+    public void Property_String_NonWholeIndex_MessageUsesInvariantNumber()
+    {
+      // The non-whole index is interpolated into the error; it must format
+      // invariantly (".") regardless of host locale.
+      var prior = Thread.CurrentThread.CurrentCulture;
+      try
+      {
+        Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+        var v = EvalP("\"hello\"'s 2.5");
+        Assert.True(v.IsError);
+        Assert.Contains("got 2.5", v.ErrorMessage);
+      }
+      finally { Thread.CurrentThread.CurrentCulture = prior; }
+    }
 
     // Surrogate-pair (astral) characters count and index as one code point,
     // matching reference Harlowe's code-point string model. U+1F40E is 🐎.

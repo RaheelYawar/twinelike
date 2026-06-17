@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Threading;
 using Harlowe.Parsing;
 using Harlowe.Runtime;
 using Harlowe.Runtime.Macros;
@@ -174,6 +176,22 @@ namespace Harlowe.Tests.Runtime.Macros
     {
       var buf = RenderRaw("(opacity: -0.1)[hi]");
       AssertError(buf, "between 0 and 1");
+    }
+
+    [Fact]
+    public void Opacity_OutOfRange_MessageUsesInvariantNumber()
+    {
+      // The interpolated value must format invariantly (".") regardless of host
+      // locale, consistent with every other Harlowe number formatting (cf.
+      // HarloweValueTests.ToHarloweString_NumberUsesInvariantCulture).
+      var prior = Thread.CurrentThread.CurrentCulture;
+      try
+      {
+        Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+        var buf = RenderRaw("(opacity: 1.5)[hi]");
+        AssertError(buf, "got 1.5");
+      }
+      finally { Thread.CurrentThread.CurrentCulture = prior; }
     }
 
     // --- (align:) ---
