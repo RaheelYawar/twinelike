@@ -229,6 +229,26 @@ namespace Harlowe.Tests.Twee
     }
 
     [Fact]
+    public void StoryData_MalformedJson_DoesNotThrow_SiblingsSurvive()
+    {
+      // Per the Twee 3 spec, a StoryData decode error should discard the
+      // metadata and continue processing — not abort the whole load.
+      var story = Read(":: StoryData\nnot json at all\n\n:: First\nbody");
+      Assert.NotNull(story.GetPassage("First"));
+      Assert.Equal("", story.Ifid);
+    }
+
+    [Fact]
+    public void StoryData_ValidJsonButNotObject_Discarded()
+    {
+      // A top-level JSON value that isn't an object (a bare number) is
+      // discarded rather than throwing.
+      var story = Read(":: StoryData\n42\n\n:: First\nbody");
+      Assert.NotNull(story.GetPassage("First"));
+      Assert.Equal("", story.Ifid);
+    }
+
+    [Fact]
     public void Body_RoutesThroughBodyParser_AstPopulated()
     {
       var story = Read(":: First\nGo to [[Second->Second]].");
@@ -286,8 +306,15 @@ namespace Harlowe.Tests.Twee
     }
 
     [Fact]
-    public void InvalidStoryDataJson_Throws()
-      => Assert.Throws<HarloweParseException>(() => Read(":: StoryData\n{ bad json"));
+    public void InvalidStoryDataJson_DiscardedNotThrown()
+    {
+      // Malformed StoryData JSON is discarded (metadata stays at defaults) and
+      // the load continues rather than throwing — Twee 3 spec recommendation and
+      // this library's never-throw loader policy. Was previously pinned to throw.
+      var story = Read(":: StoryData\n{ bad json\n\n:: First\nbody");
+      Assert.Equal("", story.Ifid);
+      Assert.NotNull(story.GetPassage("First"));
+    }
 
     [Fact]
     public void IsDirty_DefaultsFalse()

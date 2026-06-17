@@ -55,7 +55,17 @@ namespace Harlowe.Twee
       if (storyDataBlock != null) blocks.Add(storyDataBlock);
 
       foreach (var passage in story.Passages)
+      {
+        // StoryTitle / StoryData are reserved metadata-carrier names, already
+        // emitted above from the story's typed metadata. A content passage that
+        // shares one must not be serialized under that header too, or it collides
+        // with the synthetic block and corrupts the round-trip: a duplicate
+        // :: StoryData fails to re-parse as JSON, a duplicate :: StoryTitle
+        // clobbers the title. Mirrors Tweego's passagedata output, which skips
+        // StoryTitle/StoryData.
+        if (IsReservedPassageName(passage.Name)) continue;
         blocks.Add(BuildPassageBlock(passage));
+      }
 
       var sb = new StringBuilder();
       for (int i = 0; i < blocks.Count; i++)
@@ -111,6 +121,16 @@ namespace Harlowe.Twee
       if (string.IsNullOrEmpty(value)) dict.Remove(key);
       else dict[key] = value;
     }
+
+    /// <summary>
+    /// The Twee 3 special passage names this writer projects from typed metadata
+    /// (<c>:: StoryTitle</c> from <see cref="Harlowe.StoryName"/>, <c>:: StoryData</c>
+    /// from the metadata fields). A content passage sharing one of these names is
+    /// not serialized as a passage — the metadata block already represents it.
+    /// Case-sensitive, symmetric with the header checks in <see cref="TweeReader"/>.
+    /// </summary>
+    private static bool IsReservedPassageName(string name)
+      => name == "StoryTitle" || name == "StoryData";
 
     private static string BuildPassageBlock(HarlowePassage passage)
     {

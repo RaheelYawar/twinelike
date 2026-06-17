@@ -70,7 +70,13 @@ namespace Harlowe.Twee
         }
         if (block.Name == "StoryData")
         {
-          pendingStartName = ApplyStoryData(story, block.Body);
+          // A malformed StoryData must not abort the load. The Twee 3 spec's
+          // recommendation for a decoding error is to "emit a warning, discard
+          // the metadata, and continue processing the file" — we have no warning
+          // sink, so we discard and continue, matching the per-passage recovery
+          // below and the loader's never-throw policy.
+          try { pendingStartName = ApplyStoryData(story, block.Body); }
+          catch (HarloweParseException) { }
           continue;
         }
 

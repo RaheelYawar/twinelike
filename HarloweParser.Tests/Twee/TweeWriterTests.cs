@@ -11,6 +11,17 @@ namespace Harlowe.Tests.Twee
     private static string Write(Harlowe story) => new TweeWriter().Write(story);
     private static Harlowe Read(string source) => new TweeReader().Read(source);
 
+    private static int CountOccurrences(string haystack, string needle)
+    {
+      int count = 0, i = 0;
+      while ((i = haystack.IndexOf(needle, i, System.StringComparison.Ordinal)) >= 0)
+      {
+        count++;
+        i += needle.Length;
+      }
+      return count;
+    }
+
     [Fact]
     public void NullStory_ReturnsEmpty()
       => Assert.Equal(string.Empty, Write(null));
@@ -189,6 +200,46 @@ namespace Harlowe.Tests.Twee
       Assert.Contains("\"tag-colors\":", output);
       Assert.Contains("\"foo\": \"red\"", output);
       Assert.Contains("\"zoom\": 1.5", output);
+    }
+
+    [Fact]
+    public void ContentPassageNamedStoryData_NotEmittedAsSecondBlock()
+    {
+      // A content passage sharing the reserved StoryData name must not be
+      // serialized under :: StoryData — the synthetic metadata block already
+      // represents it, and a duplicate block fails to re-parse as JSON on reload.
+      var story = new Harlowe();
+      story.Ifid = "ABC-123";
+      story.Format = "Harlowe";
+      story.AddPassage(new HarlowePassage { Name = "First", Body = "hello" });
+      story.AddPassage(new HarlowePassage { Name = "StoryData", Body = "prose not json" });
+
+      string output = Write(story);
+      Assert.Equal(1, CountOccurrences(output, ":: StoryData"));
+      Assert.DoesNotContain("prose not json", output);
+
+      // The round-trip is clean: no throw, metadata intact, sibling preserved.
+      var round = Read(output);
+      Assert.Equal("ABC-123", round.Ifid);
+      Assert.NotNull(round.GetPassage("First"));
+    }
+
+    [Fact]
+    public void ContentPassageNamedStoryTitle_NotEmittedAndTitlePreserved()
+    {
+      // A content passage named StoryTitle must not be emitted under a second
+      // :: StoryTitle header, which on reload would clobber the real title.
+      var story = new Harlowe();
+      story.StoryName = "Real Title";
+      story.AddPassage(new HarlowePassage { Name = "First", Body = "hello" });
+      story.AddPassage(new HarlowePassage { Name = "StoryTitle", Body = "passage prose" });
+
+      string output = Write(story);
+      Assert.Equal(1, CountOccurrences(output, ":: StoryTitle"));
+      Assert.DoesNotContain("passage prose", output);
+
+      var round = Read(output);
+      Assert.Equal("Real Title", round.StoryName);
     }
 
     [Fact]
