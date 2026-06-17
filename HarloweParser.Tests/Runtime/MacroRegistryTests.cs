@@ -92,6 +92,34 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
+    public void ErrorArgument_ShortCircuits_BeforeDispatch()
+    {
+      // Central propagation: an error in any argument returns that error and the
+      // macro is never invoked, mirroring reference Harlowe's typeCheckAndRun.
+      var reg = new MacroRegistry();
+      var fake = new FakeMacro { Name = "x", MinArgs = 1 };
+      reg.Register(fake);
+      var v = reg.Invoke("x", new List<HarloweValue> { HarloweValue.OfError("boom") }, new MacroContext());
+      Assert.True(v.IsError);
+      Assert.Equal("boom", v.ErrorMessage);
+      Assert.Equal(0, fake.CallCount);
+    }
+
+    [Fact]
+    public void ErrorArgument_ReturnsFirstError_WhenSeveral()
+    {
+      var reg = new MacroRegistry();
+      var fake = new FakeMacro { Name = "x" };
+      reg.Register(fake);
+      var v = reg.Invoke("x", new List<HarloweValue>
+      {
+        HarloweValue.OfNumber(1), HarloweValue.OfError("first"), HarloweValue.OfError("second")
+      }, new MacroContext());
+      Assert.Equal("first", v.ErrorMessage);
+      Assert.Equal(0, fake.CallCount);
+    }
+
+    [Fact]
     public void NullReturnFromMacro_BecomesEmptyString()
     {
       var reg = new MacroRegistry();

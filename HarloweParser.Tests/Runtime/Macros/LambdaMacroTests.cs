@@ -227,6 +227,19 @@ namespace Harlowe.Tests.Runtime.Macros
       Assert.True(v.IsError);
     }
 
+    [Fact]
+    public void Find_ErrorInLambdaSlot_PropagatesOriginalError()
+    {
+      var (reg, ctx) = Setup();
+      // The lambda-slot expression itself errors (unset $bad). The original
+      // error must propagate via the central gate, not be masked behind the
+      // macro's own "first argument must be a lambda" message (cf.
+      // Find_NonLambdaFirstArg_Errors, where a plain non-lambda still reports it).
+      var v = Eval(reg, ctx, "(find: $bad, 1, 2, 3)");
+      Assert.True(v.IsError);
+      Assert.DoesNotContain("must be a lambda", v.ErrorMessage);
+    }
+
     // --- (all-pass:) ---
 
     [Fact]

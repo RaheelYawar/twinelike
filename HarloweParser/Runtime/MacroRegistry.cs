@@ -65,6 +65,16 @@ namespace Harlowe.Runtime
       if (macro.MaxArgs >= 0 && got > macro.MaxArgs)
         return HarloweValue.OfError($"macro '{name}' accepts at most {macro.MaxArgs} argument(s); got {got}");
 
+      // Central error-argument propagation, mirroring reference Harlowe's
+      // typeCheckAndRun ("where the majority of errors are propagated, freeing
+      // up individual macros from the burden of doing so"): an error in any
+      // argument short-circuits to that error instead of dispatching. Without
+      // this, a macro that type-checks args[0] (the lambda-consuming macros)
+      // masks an error in that slot behind its own "must be a lambda" message.
+      if (args != null)
+        for (int i = 0; i < args.Count; i++)
+          if (args[i].IsError) return args[i];
+
       var result = macro.Invoke(args ?? new List<HarloweValue>(), context);
       return result ?? HarloweValue.OfString(string.Empty);
     }
