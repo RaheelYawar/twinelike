@@ -243,6 +243,25 @@ namespace Harlowe.Tests.Twee
     }
 
     [Fact]
+    public void StoryName_WithHeaderLikeLine_RoundTripsViaEscape()
+    {
+      // A StoryName whose continuation line starts with :: must not be read back
+      // as a new passage header. The writer escapes it (\::) like a passage body
+      // and the reader strips the escape, so the title survives intact.
+      var story = new Harlowe();
+      story.StoryName = "Chapter 1\n:: The End";
+      story.AddPassage(new HarlowePassage { Name = "First", Body = "hello" });
+
+      string output = Write(story);
+      Assert.Contains(":: StoryTitle\nChapter 1\n\\:: The End", output);
+
+      var round = Read(output);
+      Assert.Equal("Chapter 1\n:: The End", round.StoryName);
+      Assert.Equal(1, round.PassageCount);
+      Assert.Null(round.GetPassage("The End"));
+    }
+
+    [Fact]
     public void CleanPassage_EmitsRawBodyVerbatim()
     {
       // RawBody is captured by the reader; on a clean (non-dirty) passage,

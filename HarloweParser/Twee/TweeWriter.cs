@@ -78,7 +78,15 @@ namespace Harlowe.Twee
     }
 
     private static string BuildStoryTitleBlock(string title)
-      => ":: StoryTitle\n" + title;
+    {
+      // Escape the title the same way passage bodies are, so a name line that
+      // begins with :: round-trips instead of being read back as a new passage
+      // header. The reader already un-escapes \:: uniformly for every block,
+      // the StoryTitle block included, so the write side just completes it.
+      var sb = new StringBuilder(":: StoryTitle\n");
+      AppendEscapedBody(sb, title);
+      return sb.ToString();
+    }
 
     /// <summary>
     /// Builds the <c>:: StoryData</c> block by overlaying typed fields onto a
