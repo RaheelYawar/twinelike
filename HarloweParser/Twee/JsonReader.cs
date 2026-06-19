@@ -31,6 +31,15 @@ namespace Harlowe.Twee
     private int _line;
     private int _col;
 
+    // Current nesting depth and its ceiling. ReadValue sits on every recursion
+    // path (ReadObject/ReadArray recurse back through it), so capping it bounds
+    // nesting. Converts a degenerate :: StoryData body — thousands of nested
+    // '[' or '{' — into a catchable HarloweParseException (which TweeReader
+    // discards) instead of a host-killing StackOverflowException. Mirrors the
+    // caps in HarloweExpressionParser / HarloweBodyParser; restored via finally.
+    private int _depth;
+    private const int MaxDepth = 128;
+
     /// <summary>
     /// Parse <paramref name="source"/> as a single JSON value and return the
     /// resulting object graph. Trailing whitespace is allowed; any
@@ -42,6 +51,7 @@ namespace Harlowe.Twee
       _pos = 0;
       _line = 1;
       _col = 1;
+      _depth = 0;
 
       SkipWhitespace();
       if (_pos >= _src.Length) throw Error("empty JSON input");
@@ -53,20 +63,32 @@ namespace Harlowe.Twee
 
     private object ReadValue()
     {
-      SkipWhitespace();
-      if (_pos >= _src.Length) throw Error("unexpected end of input");
-      char c = _src[_pos];
-      switch (c)
+      // Depth ceiling — see the _depth field comment. The over-cap branch
+      // decrements before throwing (it sits outside the try); the try/finally
+      // keeps depth balanced as the exception unwinds the nested calls.
+      if (++_depth > MaxDepth)
       {
-        case '{': return ReadObject();
-        case '[': return ReadArray();
-        case '"': return ReadString();
-        case 't': case 'f': return ReadBool();
-        case 'n': return ReadNull();
-        default:
-          if (c == '-' || (c >= '0' && c <= '9')) return ReadNumber();
-          throw Error($"unexpected character '{c}'");
+        _depth--;
+        throw Error("JSON nested too deeply");
       }
+      try
+      {
+        SkipWhitespace();
+        if (_pos >= _src.Length) throw Error("unexpected end of input");
+        char c = _src[_pos];
+        switch (c)
+        {
+          case '{': return ReadObject();
+          case '[': return ReadArray();
+          case '"': return ReadString();
+          case 't': case 'f': return ReadBool();
+          case 'n': return ReadNull();
+          default:
+            if (c == '-' || (c >= '0' && c <= '9')) return ReadNumber();
+            throw Error($"unexpected character '{c}'");
+        }
+      }
+      finally { _depth--; }
     }
 
     private Dictionary<string, object> ReadObject()

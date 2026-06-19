@@ -239,6 +239,18 @@ namespace Harlowe.Tests.Twee
     }
 
     [Fact]
+    public void StoryData_DeeplyNestedJson_DoesNotCrash_SiblingsSurvive()
+    {
+      // A degenerately nested StoryData body would recurse JsonReader into an
+      // uncatchable StackOverflowException. The depth cap turns it into a
+      // HarloweParseException, which Read discards like any malformed
+      // StoryData — the load survives and siblings still parse.
+      var story = Read(":: StoryData\n" + new string('[', 5000) + "\n\n:: First\nbody");
+      Assert.NotNull(story.GetPassage("First"));
+      Assert.Equal("", story.Ifid);
+    }
+
+    [Fact]
     public void StoryData_ValidJsonButNotObject_Discarded()
     {
       // A top-level JSON value that isn't an object (a bare number) is

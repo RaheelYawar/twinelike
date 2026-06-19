@@ -180,5 +180,24 @@ namespace Harlowe.Tests.Twee
       // The bad token starts on line 3.
       Assert.Equal(3, ex.Line);
     }
+
+    [Fact]
+    public void DeeplyNestedJson_SurfacesParseError_NotStackOverflow()
+    {
+      // Thousands of nested '[' would otherwise recurse ReadValue/ReadArray
+      // into an uncatchable StackOverflowException. The depth cap converts it
+      // into a normal HarloweParseException (which TweeReader discards as
+      // malformed StoryData) instead of crashing the host.
+      Assert.Throws<HarloweParseException>(() => Read(new string('[', 5000)));
+    }
+
+    [Fact]
+    public void ModeratelyNestedJson_ReadsWithoutError()
+    {
+      // Nesting well under the cap must still read cleanly — the ceiling only
+      // guards against degenerate depth, not ordinary structure.
+      var v = Read(new string('[', 40) + new string(']', 40));
+      Assert.NotNull(v);
+    }
   }
 }
