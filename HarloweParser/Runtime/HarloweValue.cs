@@ -167,16 +167,6 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
-    /// Renderer-facing string form. Numbers use invariant culture so a story
-    /// always prints <c>1.5</c>, never <c>1,5</c>. Booleans render as the
-    /// lowercase keywords Harlowe uses in source. Arrays render as
-    /// <c>a, b, c</c> (Harlowe's default join). Datamaps render as
-    /// <c>key: value, ...</c>. Errors render their message verbatim — the
-    /// renderer is expected to route them through
-    /// <see cref="IRenderOutput.Error"/> rather than print this directly, but
-    /// returning the message keeps debugging easy.
-    /// </summary>
-    /// <summary>
     /// Canonical number → string for both value display and Twee
     /// reserialization: the shortest representation in invariant culture that
     /// re-parses to the same <see cref="double"/>, so a parsed literal survives
@@ -193,6 +183,16 @@ namespace Harlowe.Runtime
       return d.ToString("G17", CultureInfo.InvariantCulture);
     }
 
+    /// <summary>
+    /// Renderer-facing string form. Numbers use invariant culture so a story
+    /// always prints <c>1.5</c>, never <c>1,5</c>. Booleans render as the
+    /// lowercase keywords Harlowe uses in source. Arrays render as
+    /// <c>a, b, c</c> (Harlowe's default join). Datamaps render as
+    /// <c>key: value, ...</c>. Errors render their message verbatim — the
+    /// renderer is expected to route them through
+    /// <see cref="IRenderOutput.Error"/> rather than print this directly, but
+    /// returning the message keeps debugging easy.
+    /// </summary>
     public string ToHarloweString()
     {
       switch (Kind)

@@ -6,11 +6,11 @@ namespace Harlowe.Runtime
   /// accepts — CSS <c>text-align</c>, TMP <c>&lt;align&gt;</c>, BBCode
   /// <c>[center]</c>, etc.
   ///
-  /// <para>The off-centre variants Harlowe supports (<c>==&gt;&lt;==</c>,
-  /// <c>&lt;==&gt;</c> with asymmetric offsets) are not modelled here — the
-  /// macro reports an in-prose error for those for now. Adding offset support
-  /// would mean a separate <see cref="StyleSpec"/> field rather than more enum
-  /// values.</para>
+  /// <para>This enum is just the four base alignments. The off-centre centre
+  /// variants Harlowe supports (e.g. <c>=&gt;&lt;==</c>, <c>==&gt;&lt;=</c>)
+  /// aren't extra enum values — <c>(align:)</c> maps them to <see cref="Center"/>
+  /// plus a <see cref="StyleSpec.AlignCenterOffsetPercent"/> margin (see
+  /// <see cref="Macros.AlignMacro"/>), keeping this enum engine-agnostic.</para>
   /// </summary>
   public enum TextAlignment
   {

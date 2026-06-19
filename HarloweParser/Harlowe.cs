@@ -214,15 +214,6 @@ namespace Harlowe
     }
 
     /// <summary>
-    /// Walk the top-level children of <paramref name="ast"/> and prepend the
-    /// passage-name context to any <see cref="Ast.Body.ParseErrorNode"/>
-    /// message. The body parser recovers per-node and emits these without
-    /// knowing which passage it's parsing; the loaders call this once after
-    /// parse to inject the surrounding context so the rendered error names
-    /// the broken passage. Idempotent — re-running on the same AST does not
-    /// stack prefixes (the helper checks for the marker).
-    /// </summary>
-    /// <summary>
     /// When <paramref name="ast"/> is the loader-stub shape (a single
     /// <see cref="Ast.Body.ParseErrorNode"/> child) and that node has no
     /// <see cref="Ast.Body.ParseErrorNode.OriginalSource"/>, set it from

@@ -250,7 +250,7 @@ namespace Harlowe.Runtime
     /// <see cref="InteractionPass"/> re-resolves and re-wraps it after the body
     /// render and after every dispatch, so a target declared later in the
     /// passage — or created by a click-deferred hook — is still caught. (Eager
-    /// apply-time resolution used to miss those; see TODO #24.)
+    /// apply-time resolution used to miss those.)
     /// </summary>
     private static void RunInteraction(HookDescriptor d, IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx)
     {
