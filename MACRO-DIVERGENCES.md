@@ -431,9 +431,11 @@ architecture.
   implementations, one class per file.
 - `E:\Git\twinelike\HarloweParser\Runtime\Macros\StandardMacros.cs` —
   macro registration; the `RegisterAll` site for new aliases.
-- `C:\temp\harlowe-ref\harlowe-branch-default\ts\macrolib\` — reference
-  macros, grouped by category (`commands.ts`, `datastructures.ts`,
-  `stylechangers.ts`, `enchantments.ts`, `values.ts`, etc.). Unzip your
-  local `references/harlowe-branch-default.zip` first — that file is **not**
-  committed (third-party Zlib source, gitignored); see CONTRIBUTING.md /
-  CLAUDE.md for where to fetch it.
+- Reference macros live under `ts/macrolib/`, grouped by category
+  (`commands.ts`, `datastructures.ts`, `stylechangers.ts`,
+  `enchantments.ts`, `values.ts`, etc.). Fetch them from the
+  `Codaea/harlowe-branch-default-2` GitHub mirror via `gh api` (Heptapod
+  itself is Anubis bot-walled) — see CLAUDE.md for the command and the
+  unofficial-mirror caveat. For local grep access instead, unzip a `branch
+  default` snapshot to `references/harlowe-branch-default.zip` (**not**
+  committed — third-party Zlib source, gitignored).

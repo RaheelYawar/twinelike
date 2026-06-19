@@ -364,8 +364,9 @@ For someone picking this up cold:
 - `E:\Git\twinelike\HarloweParser\Runtime\Saving\SaveSerializer.cs` — new
 - `E:\Git\twinelike\HarloweParser\Runtime\Saving\ISaveStorage.cs` — new
 - `E:\Git\twinelike\HarloweParser\Runtime\MulberryRng.cs` — new
-- `C:\temp\harlowe-ref\harlowe-branch-default\ts\state.ts` — reference
-  model (unzip your local `references/harlowe-branch-default.zip` first —
-  that file is **not** committed; see CONTRIBUTING.md for where to fetch it)
-- `C:\temp\harlowe-ref\harlowe-branch-default\ts\macrolib\commands.ts` —
-  reference macro implementations and doc comments
+- `ts/state.ts` (reference timeline model) and `ts/macrolib/commands.ts`
+  (reference macro implementations + doc comments) — fetch from the
+  `Codaea/harlowe-branch-default-2` GitHub mirror via `gh api` (Heptapod is
+  Anubis bot-walled; see CLAUDE.md), or unzip a local
+  `references/harlowe-branch-default.zip` snapshot for grep access (**not**
+  committed, gitignored)
