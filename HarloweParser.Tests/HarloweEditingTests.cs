@@ -31,6 +31,11 @@ namespace Harlowe.Tests
       };
     }
 
+    // Real-pipeline construction (tokenized + parsed links, clean passages),
+    // for the RenamePassage link-rewriting tests that need genuine LinkNodes
+    // rather than MakePassage's single fake TextNode.
+    private static Harlowe Read(string twee) => new TweeReader().Read(twee);
+
     [Fact]
     public void PublicConstructor_BuildsEmptyStory()
     {
@@ -327,6 +332,78 @@ namespace Harlowe.Tests
       story.AddPassage(MakePassage("First"));
       Assert.True(story.RenamePassage("First", "First"));
       Assert.False(story.RenamePassage("Nope", "Nope"));
+    }
+
+    [Fact]
+    public void RenamePassage_RewritesInboundLinks_AllThreeForms()
+    {
+      // Bare, right-arrow, and left-arrow links all retarget; the collapsed
+      // [[Old]] form updates its visible text too (text == target there).
+      var story = Read(":: Start\n[[Old]] [[go->Old]] [[Old<-back]]\n\n:: Old\nhi");
+      Assert.True(story.RenamePassage("Old", "New"));
+      Assert.Equal("[[New]] [[go->New]] [[New<-back]]", story.GetPassageBody("Start"));
+    }
+
+    [Fact]
+    public void RenamePassage_RewritesSelfLink()
+    {
+      // The renamed passage is included, so a link to itself updates.
+      var story = Read(":: Old\nloop [[Old]]");
+      story.RenamePassage("Old", "New");
+      Assert.Equal("loop [[New]]", story.GetPassageBody("New"));
+    }
+
+    [Fact]
+    public void RenamePassage_RegeneratesAstAndBranches()
+    {
+      // The reparse drives navigation: BodyRenderer emits LinkNode.Target, and
+      // Branches is re-derived from it. Both must reflect the new name.
+      var story = Read(":: Start\n[[go->Old]]\n\n:: Old\nhi");
+      story.RenamePassage("Old", "New");
+      var branches = story.GetPassageBranches("Start");
+      Assert.Equal("New", Assert.Single(branches).Name);
+      Assert.Equal("go", branches[0].Text);
+    }
+
+    [Fact]
+    public void RenamePassage_PreservesSurroundingFormatting_PassageStaysClean()
+    {
+      // Only the link target changes; the rest of the body is byte-identical and
+      // the passage is not marked dirty (no MarkupPrinter re-canonicalization).
+      var story = Read(":: Start\nbefore [[go->Old]] after\n\n:: Old\nhi");
+      story.RenamePassage("Old", "New");
+      var start = story.GetPassage("Start");
+      Assert.Equal("before [[go->New]] after", start.RawBody);
+      Assert.False(start.IsDirty);
+    }
+
+    [Fact]
+    public void RenamePassage_NonLinkingPassage_LeftUntouchedAndClean()
+    {
+      var story = Read(":: Start\nplain prose, no links\n\n:: Old\nhi");
+      story.RenamePassage("Old", "New");
+      var start = story.GetPassage("Start");
+      Assert.Equal("plain prose, no links", start.RawBody);
+      Assert.False(start.IsDirty);
+    }
+
+    [Fact]
+    public void RenamePassage_UpdateInboundLinksFalse_LeavesLinksAlone()
+    {
+      var story = Read(":: Start\n[[Old]]\n\n:: Old\nhi");
+      story.RenamePassage("Old", "New", updateInboundLinks: false);
+      Assert.Equal("[[Old]]", story.GetPassageBody("Start"));
+    }
+
+    [Fact]
+    public void RenamePassage_DoesNotRewriteMacroStringTargets()
+    {
+      // Documents the limitation (matches Twine): (goto:) and friends take a
+      // string a rewriter can't tell apart from any other string, so they're
+      // the caller's responsibility.
+      var story = Read(":: Start\n(goto: \"Old\")\n\n:: Old\nhi");
+      story.RenamePassage("Old", "New");
+      Assert.Contains("(goto: \"Old\")", story.GetPassageBody("Start"));
     }
 
     [Fact]

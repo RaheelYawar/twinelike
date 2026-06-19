@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Text.RegularExpressions;
 using Harlowe.Parsing;
 using Harlowe.Tokens;
 using HtmlAgilityPack;
@@ -155,23 +156,39 @@ namespace Harlowe
       if (passage.Ast != null) return;
       if (passage.RawBody == null) return;
 
+      passage.Ast = ParseBodyToAst(passage.Name, passage.RawBody);
+      if (passage.Branches == null) passage.Branches = BranchCollector.Collect(passage.Ast);
+    }
+
+    /// <summary>
+    /// Tokenize + body-parse <paramref name="rawBody"/> into a decorated
+    /// <see cref="Ast.Body.PassageBody"/>, applying the same per-passage
+    /// parse-error recovery the loaders use: a tokenizer failure becomes a
+    /// synthetic <see cref="Ast.Body.ParseErrorNode"/> stub, the body parser's
+    /// own per-node recovery is prefixed with <paramref name="passageName"/>,
+    /// and a wholly-failed stub gets its original source stashed. Shared by
+    /// <see cref="HydratePassageFromBody"/> (initial hydrate of a hand-built
+    /// passage) and <see cref="RewriteInboundLinks"/> (reparse after a
+    /// link-target rewrite), so both produce the identical AST shape the bulk
+    /// loaders do.
+    /// </summary>
+    private static Ast.Body.PassageBody ParseBodyToAst(string passageName, string rawBody)
+    {
       var tokenizer = new HarloweTokenizer();
       var bodyParser = new HarloweBodyParser();
       Ast.Body.PassageBody ast;
       try
       {
-        var tokens = tokenizer.Tokenize(passage.RawBody);
-        ast = bodyParser.Parse(tokens, passage.RawBody);
+        var tokens = tokenizer.Tokenize(rawBody);
+        ast = bodyParser.Parse(tokens, rawBody);
       }
       catch (HarloweParseException ex)
       {
-        ast = MakeParseErrorAst(passage.Name, ex, passage.RawBody);
+        ast = MakeParseErrorAst(passageName, ex, rawBody);
       }
-      DecorateParseErrors(ast, passage.Name);
-      EnsureWholeStubOriginalSource(ast, passage.RawBody);
-
-      passage.Ast = ast;
-      if (passage.Branches == null) passage.Branches = BranchCollector.Collect(ast);
+      DecorateParseErrors(ast, passageName);
+      EnsureWholeStubOriginalSource(ast, rawBody);
+      return ast;
     }
 
     /// <summary>
@@ -318,8 +335,18 @@ namespace Harlowe
     /// case nothing is mutated. Mutating <see cref="HarlowePassage.Name"/>
     /// directly silently corrupts the lookup, so always go through this
     /// method.
+    ///
+    /// <para>When <paramref name="updateInboundLinks"/> is true (the default),
+    /// inbound <c>[[…]]</c> links pointing at <paramref name="oldName"/> are
+    /// retargeted to <paramref name="newName"/> across the whole story, so
+    /// navigation and re-serialization keep working — see
+    /// <see cref="RewriteInboundLinks"/> for the exact forms handled and the
+    /// limitations (notably: macro string targets like <c>(goto: "old")</c> are
+    /// <em>not</em> rewritten). Pass false to rename as a pure index re-key and
+    /// take responsibility for link updates yourself — mirrors the Twine editor's
+    /// <c>dontUpdateOthers</c> option.</para>
     /// </summary>
-    public bool RenamePassage(string oldName, string newName)
+    public bool RenamePassage(string oldName, string newName, bool updateInboundLinks = true)
     {
       if (string.IsNullOrEmpty(oldName) || string.IsNullOrEmpty(newName)) return false;
       if (oldName == newName) return _passages.ContainsKey(oldName);
@@ -333,7 +360,57 @@ namespace Harlowe
       // emits in this order, and for any editing UI that displays it.
       int idx = _passageOrder.IndexOf(oldName);
       if (idx >= 0) _passageOrder[idx] = newName;
+      if (updateInboundLinks) RewriteInboundLinks(oldName, newName);
       return true;
+    }
+
+    /// <summary>
+    /// Retargets inbound <c>[[…]]</c> links to a renamed passage across the
+    /// whole story, mirroring the Twine editor (klembot/twinejs
+    /// <c>update-passage.ts</c>). The three Harlowe link forms —
+    /// <c>[[old]]</c>, <c>[[display-&gt;old]]</c>, <c>[[old&lt;-display]]</c> —
+    /// have their <em>target</em> rewritten to <paramref name="newName"/> in
+    /// each passage's raw source (the collapsed <c>[[old]]</c> form updates its
+    /// visible text too, since text and target are one and the same there).
+    /// Formatting is preserved: <see cref="HarlowePassage.RawBody"/> is edited
+    /// in place and the AST reparsed, rather than re-canonicalized through
+    /// <see cref="Twee.MarkupPrinter"/>, so the change stays scoped to the link
+    /// — consistent with the lazy-reserialization model. The renamed passage is
+    /// included, so self-links update too.
+    ///
+    /// <para>Like Twine, only literal <c>[[…]]</c> link syntax is rewritten.
+    /// Passage names referenced from macro string arguments —
+    /// <c>(goto: "old")</c>, <c>(display: "old")</c>, <c>(link-goto:)</c> — are
+    /// <em>not</em> updated: a string literal can't be reliably told apart from
+    /// any other string, so rewriting it is the caller's responsibility.
+    /// Passage names that themselves contain <c>[</c> or <c>]</c> are likewise
+    /// not handled (bracket-in-link is ambiguous in the markup, as in Twine).</para>
+    /// </summary>
+    private void RewriteInboundLinks(string oldName, string newName)
+    {
+      string escaped = Regex.Escape(oldName);
+      // '$' is the only metacharacter in a .NET replacement string; double it so
+      // a new name containing '$' is inserted literally (matches Twine).
+      string replacement = newName.Replace("$", "$$");
+
+      // The target sits immediately before ]] in every form, so anchoring on
+      // that keeps these from matching display text or unrelated prose.
+      var simple = new Regex(@"\[\[" + escaped + @"\]\]");
+      var rightArrow = new Regex(@"\[\[(.*?)->" + escaped + @"\]\]");
+      var leftArrow = new Regex(@"\[\[" + escaped + @"(<-.*?)\]\]");
+
+      foreach (var passage in _passages.Values)
+      {
+        if (passage.RawBody == null) continue;
+        string body = passage.RawBody;
+        string updated = simple.Replace(body, "[[" + replacement + "]]");
+        updated = rightArrow.Replace(updated, "[[$1->" + replacement + "]]");
+        updated = leftArrow.Replace(updated, "[[" + replacement + "$1]]");
+        if (updated == body) continue;
+        passage.RawBody = updated;
+        passage.Ast = ParseBodyToAst(passage.Name, updated);
+        passage.Branches = BranchCollector.Collect(passage.Ast);
+      }
     }
 
     /// <summary>
