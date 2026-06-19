@@ -42,6 +42,27 @@ namespace Harlowe.Tests.Twee
     }
 
     [Fact]
+    public void PassageName_WithBrackets_EscapedOnWrite()
+    {
+      // Writer-side in isolation: a name containing tag/position metacharacters
+      // is backslash-escaped so it doesn't re-read as a tag block.
+      var story = new Harlowe();
+      story.AddPassage(new HarlowePassage { Name = "Choose [A]", Body = "x" });
+      Assert.Contains(":: Choose \\[A\\]\n", Write(story));
+    }
+
+    [Theory]
+    // Each input is spec-compliant Twee; round-tripping it must be stable
+    // (reader unescapes the name, writer re-escapes it) save the writer's
+    // single trailing newline.
+    [InlineData(":: Choose \\[A\\]\nbody")]          // [ ]
+    [InlineData(":: A\\{B\\}\nbody")]                // { }
+    [InlineData(":: A\\\\B\nbody")]                  // literal backslash
+    [InlineData(":: Choose \\[A\\] [forest]\nbody")] // escaped name + real tag block
+    public void PassageName_Escaped_RoundTripsStable(string twee)
+      => Assert.Equal(twee + "\n", Write(Read(twee)));
+
+    [Fact]
     public void PassageHeader_WithTags_EmitsBracketedList()
     {
       var story = Read(":: First [foo bar]\nbody");

@@ -161,7 +161,8 @@ namespace Harlowe.Twee
     /// </summary>
     private static void AppendHeader(StringBuilder sb, HarlowePassage passage)
     {
-      sb.Append(":: ").Append(passage.Name);
+      sb.Append(":: ");
+      AppendEscapedName(sb, passage.Name);
       if (passage.Tags != null && passage.Tags.Count > 0)
       {
         sb.Append(" [");
@@ -196,6 +197,27 @@ namespace Harlowe.Twee
             $"tag '{tag}' contains whitespace, which Twee 3 cannot represent",
             -1, -1, passageName);
         if (c == '\\' || c == '[' || c == ']') sb.Append('\\');
+        sb.Append(c);
+      }
+    }
+
+    /// <summary>
+    /// Append a passage name, escaping <c>\</c>, <c>[</c>, <c>]</c>, <c>{</c>,
+    /// <c>}</c> with a leading backslash per the Twee 3 spec so the tag- and
+    /// position-block metacharacters round-trip through
+    /// <see cref="TweeReader"/>'s header parser. Unlike
+    /// <see cref="AppendEscapedTag"/>, whitespace is left as-is: passage names
+    /// may legitimately contain spaces (<c>:: An overgrown path</c>), and the
+    /// grammar separates the name from the optional <c>[tags]</c>/<c>{position}</c>
+    /// blocks structurally rather than by escaping.
+    /// </summary>
+    private static void AppendEscapedName(StringBuilder sb, string name)
+    {
+      if (string.IsNullOrEmpty(name)) return;
+      for (int i = 0; i < name.Length; i++)
+      {
+        char c = name[i];
+        if (c == '\\' || c == '[' || c == ']' || c == '{' || c == '}') sb.Append('\\');
         sb.Append(c);
       }
     }

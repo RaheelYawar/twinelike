@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Harlowe.Twee;
 using Xunit;
 
@@ -258,6 +259,49 @@ namespace Harlowe.Tests.Twee
       var story = Read(":: StoryData\n42\n\n:: First\nbody");
       Assert.NotNull(story.GetPassage("First"));
       Assert.Equal("", story.Ifid);
+    }
+
+    [Fact]
+    public void PassageName_EscapedBrackets_Unescaped()
+    {
+      // Per the Twee 3 spec, [ ] { } in a passage name are backslash-escaped.
+      // The reader strips the escape and does NOT read \[A\] as a tag block.
+      var story = Read(":: Choose \\[A\\]\nbody");
+      var p = story.GetPassage("Choose [A]");
+      Assert.NotNull(p);
+      Assert.Empty(p.Tags);
+    }
+
+    [Fact]
+    public void PassageName_EscapedBraces_Unescaped()
+    {
+      var p = Read(":: A\\{B\\}\nbody").GetPassage("A{B}");
+      Assert.NotNull(p);
+      Assert.Empty(p.Tags);
+    }
+
+    [Fact]
+    public void PassageName_EscapedBackslash_Unescaped()
+      => Assert.NotNull(Read(":: A\\\\B\nbody").GetPassage("A\\B"));
+
+    [Fact]
+    public void PassageName_EscapedBracketThenTags_BothParsed()
+    {
+      // An escaped bracket belongs to the name; a later unescaped [ still opens
+      // the tag block.
+      var p = Read(":: Choose \\[A\\] [forest]\nbody").GetPassage("Choose [A]");
+      Assert.NotNull(p);
+      Assert.Equal(new List<string> { "forest" }, p.Tags);
+    }
+
+    [Fact]
+    public void PassageName_Plain_Unaffected()
+    {
+      // Regression: a name with no metacharacters scans exactly as before —
+      // stops at the first [ which opens the tag block.
+      var p = Read(":: First [tag]\nbody").GetPassage("First");
+      Assert.NotNull(p);
+      Assert.Equal(new List<string> { "tag" }, p.Tags);
     }
 
     [Fact]

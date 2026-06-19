@@ -220,8 +220,20 @@ namespace Harlowe.Twee
       while (p < line.Length && line[p] == ' ') p++;
 
       int nameEnd = p;
-      while (nameEnd < line.Length && line[nameEnd] != '[' && line[nameEnd] != '{') nameEnd++;
-      block.Name = line.Substring(p, nameEnd - p).TrimEnd();
+      while (nameEnd < line.Length)
+      {
+        char c = line[nameEnd];
+        // A backslash escapes the next character (including the [ and { that
+        // would otherwise end the name), so consume the pair — mirrors
+        // FindUnescapedTagBlockClose. The backslash itself is removed by
+        // UnescapeName below.
+        if (c == '\\' && nameEnd + 1 < line.Length) { nameEnd += 2; continue; }
+        if (c == '[' || c == '{') break;
+        nameEnd++;
+      }
+      // TrimEnd drops the separator whitespace before [tags]/{position};
+      // unescape AFTER trimming so an escaped trailing character isn't trimmed.
+      block.Name = UnescapeName(line.Substring(p, nameEnd - p).TrimEnd());
       p = nameEnd;
 
       block.Tags = new List<string>();
@@ -294,6 +306,27 @@ namespace Harlowe.Twee
         sb.Append(c);
       }
       if (sb.Length > 0) tags.Add(sb.ToString());
+    }
+
+    /// <summary>
+    /// Strips Twee 3 name escapes: <c>\X</c> yields <c>X</c> for any <c>X</c>
+    /// (tolerant decoding per the spec — "any escaped character within a chunk
+    /// of encoded text must yield the character minus the backslash"). Mirrors
+    /// the tag-block unescape in <see cref="ParseTagBlockInto"/> without the
+    /// whitespace-splitting, since passage names may contain spaces. A trailing
+    /// lone backslash (malformed encoding) is passed through literally.
+    /// </summary>
+    private static string UnescapeName(string raw)
+    {
+      if (raw.IndexOf('\\') < 0) return raw;
+      var sb = new StringBuilder(raw.Length);
+      for (int i = 0; i < raw.Length; i++)
+      {
+        char c = raw[i];
+        if (c == '\\' && i + 1 < raw.Length) { sb.Append(raw[i + 1]); i++; continue; }
+        sb.Append(c);
+      }
+      return sb.ToString();
     }
 
     /// <summary>
