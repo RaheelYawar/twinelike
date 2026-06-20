@@ -36,11 +36,13 @@ and the macro bodies in `ts/macrolib/commands.ts` (navigation) and
 `ts/macrolib/values.ts` (`(random:)`/`(either:)`) (fetched from the
 `Codaea/harlowe-branch-default-2` mirror):
 
-- **Serialisation is source-based, not value-JSON.** `valueref.ts` saves each
-  variable as Harlowe **source** (`toSource(value)`) and re-`eval`s it on load.
-  `operationutils.ts`'s `toSource` is universal: anything with a `toSource`
-  method delegates to it, arrays → `(a:…)`, maps → `(dm:…)`, primitives →
-  `JSON.stringify`. (Reference also has `at`/`via`/hash source-span ValueRefs
+- **Serialisation is source-based, not value-JSON.** `varscope.ts`'s
+  `#serialiseVariableStore` saves each variable as Harlowe **source**
+  (`ret[prop] = … toSource(value)`) and re-`eval`s it on load.
+  `operationutils.ts`'s `toSource` is the universal value→source function:
+  anything with a `toSource` method delegates to it, arrays → `(a:…)`, maps →
+  `(dm:…)`, primitives → `JSON.stringify`. (Reference also has `at`/`via`/hash
+  source-span ValueRefs (`valueref.ts`)
   for blob-size delta-compression and cross-version resilience — an optimisation
   we **defer**; we save resolved-value source directly.)
 - **Changers carry their call-shape and regenerate source.**
@@ -55,10 +57,16 @@ and the macro bodies in `ts/macrolib/commands.ts` (navigation) and
   turn with a `visits?: string[]` array holding intra-turn `(redirect:)`
   targets. Our per-turn + `Visits`-trail shape matches. `(history:)` flattens
   past Moments' passage names + their `visits` sub-arrays.
-- **PRNG state is two scalars.** `(seed: string, seedIter: number)`;
-  `mulberryMurmur32` reconstructs the generator in O(1)
-  (`h = murmur(seed) + 0x6D2B79F5 * iter`). `state.ts` keeps `present.seedIter`
-  live (updated each draw); past Moments freeze their end-of-turn value.
+- **PRNG state is two scalars, recorded sparsely.** `(seed: string, seedIter:
+  number)`; `mulberryMurmur32` reconstructs the generator in O(1)
+  (`h = murmur(seed) + 0x6D2B79F5 * iter`). `State.random()` sets
+  `present.seedIter` *only on a draw*; `setSeed` sets `present.seed` *only on
+  `(seed:)`* — a fresh moment leaves both `undefined`, so `moment.ts`'s
+  `#isEmpty()` (which counts `seed`/`seedIter`) lets a no-draw turn compress.
+  Undo restore flattens the timeline — `setPRNG(Current.seed, Current.seedIter)`
+  (state.ts:164), restoring to the restored turn's *start* (see the Timeline note
+  for the boundary) — and reference explicitly keeps **no** per-moment copies
+  ("Current does not maintain copies of these properties").
 - **Failed load is atomic.** `State.deserialise` builds a fresh
   `reconstructedMoments` array and only swaps the timeline on full success.
 - **Macro shapes.** `(save-game: String, [String]) -> Boolean` (false on storage
@@ -132,19 +140,29 @@ the session-level `Redo`/`FastForward`.
   params)`. The one cross-cutting addition.
 - **`Moment`** (public, `Runtime/Moment.cs`) — `PassageName`, `StoreDelta`
   (changed `$`-vars as `HarloweValue`), `Visits` (nullable `List<string>`
-  redirect trail), `Seed`, `SeedIter`, reserved
-  `MockVisits`/`MockTurns`/`ForgetVisits`. No `VisitCounts` (derived).
+  redirect trail), **nullable** `Seed`/`SeedIter` (recorded sparsely —
+  `SeedIter` only on a draw, `Seed` only on init/`(seed:)`; both null otherwise,
+  so an empty turn compresses), reserved `MockVisits`/`MockTurns`/`ForgetVisits`.
+  No `VisitCounts` (derived).
 - **Timeline** — `List<Moment> _past` + `Moment _present` + `List<Moment>
   _future`. `Goto` pushes present→past, clears future; `Undo`/`Rewind` moves
   present→future and pops past→present; `Redo`/`FastForward` is symmetric.
-  `Undo` stays a back-compat alias for `Rewind`. The present reflects live RNG
-  state (read from `_rng` at save/finalise time); past Moments freeze theirs.
+  `Undo` stays a back-compat alias for `Rewind`. RNG state is **not** frozen per
+  Moment: a draw stamps `_present.SeedIter` from `_rng` (the session reconciles it
+  post-render/at-save, since macros see only `MacroContext`), the first Moment
+  carries the session's initial seed, and undo/redo/load restore the RNG to the
+  restored turn's *start* — `SetSeed` the most-recent `SeedIter` recorded
+  **strictly before** the restored moment (flatten `_past`, *excluding* the
+  just-restored `_present`; `0` if none) — so the re-render reproduces that
+  turn's draws instead of advancing past them. (Using the restored moment's own
+  end-of-turn value is the off-by-one.)
 - **PRNG** — `IRng` (`NextDouble()`, `Seed`/`SeedIter`, `SetSeed(seed, iter)`) +
   `MulberryRng` porting reference's mulberry32 + MurmurHash3 with `unchecked`
   32-bit math (`Math.imul` → `unchecked(a*b)` on int; `>>>` → `(uint)x >> n`).
 - **Blob** — JSON array of moments via the existing `JsonWriter`/`JsonReader`;
-  each var value a source string; empty moment compresses to a bare passage-name
-  string. `SaveBlobVersion.Current = 1`.
+  each var value a source string; a moment with no var changes, redirects, or
+  recorded `Seed`/`SeedIter` compresses to a bare passage-name string (mirroring
+  `#isEmpty()`). `SaveBlobVersion.Current = 1`.
 - **`ISaveStorage`** — host interface modeled on `IRenderOutput`,
   constructor-injected: `TryRead`/`TryWrite`/`TryDelete`/`Enumerate`, no
   `HarloweValue` exposure. `InMemorySaveStorage` default.
@@ -154,12 +172,19 @@ the session-level `Redo`/`FastForward`.
 Each step is a landable, test-green commit.
 
 1. **PRNG (mulberry32).** `IRng` + `MulberryRng`; swap `MacroContext.Rng`
-   (`Random` → `IRng`); update `RandomMacro`/`EitherMacro` to reference's exact
-   formula (`values.ts`): `(int)(NextDouble() * (hi - lo + 1)) + lo`, both ends
-   inclusive (one-arg → `[0,a]`, two-arg → `[min,max]`), bounds truncated as today.
-   Compute the range as `double`/`long` to avoid int overflow — which lets the
-   current `hi == int.MaxValue` guard be dropped. `(either:)` →
-   `args[(int)(NextDouble() * count)]`. `StorySession`'s `int seed` ctor maps to
+   (`Random` → `IRng`); update `RandomMacro`/`EitherMacro` to reference's formula
+   (`values.ts`), both ends inclusive (one-arg → `[0,a]`, two-arg → `[min,max]`),
+   bounds truncated as today — but **without a narrowing cast**:
+   `OfNumber(lo + (long)(NextDouble() * range))`, `range = (double)hi - lo + 1`.
+   A `(int)` cast of a product ≥ 2³¹ is unspecified in C# (unlike JS `~~`'s
+   mod-2³² wrap) and would *regress* `(random: -2e9, 2e9)`, which `Random.Next`'s
+   large-range path handles correctly today; staying in `long`/`double` (Harlowe
+   numbers are doubles) is correct for all spans and lets the `hi == int.MaxValue`
+   guard be dropped — the rare span > 2³¹ then diverges from reference's `~~` wrap
+   toward the uniform result (a MACRO-DIVERGENCES note). Branch one-arg-vs-two on
+   **arg count**, not reference's `!b` falsy quirk (so `(random: -3, 0)` is
+   `[-3,0]`, not garbage). `(either:)` → `args[(int)(NextDouble() * count)]`
+   (count is small, the cast is safe). `StorySession`'s `int seed` ctor maps to
    a seed string. Note: `MacroContext.Rng` is a public field, so the `IRng`
    retype is a source-breaking change (call it out in the version log); migrate
    the one internal assignment site (`V1MacroTests.Setup:17`, `ctx.Rng = new
@@ -173,8 +198,12 @@ Each step is a landable, test-green commit.
 2. **Moment + timeline + redo.** Lift `SessionSnapshot` → public `Moment.cs`
    (+ `Visits`/`Seed`/`SeedIter`, no `VisitCounts`). Replace `_undoStack` with
    `_past`/`_present`/`_future`; add `Redo`/`FastForward`; keep `Undo` as a
-   `Rewind` alias. Thread live RNG `(seed, seedIter)` (present reads live; past
-   freezes on finalise). Derive `Visits`/`(history:)` and the `visits` keyword
+   `Rewind` alias. Record RNG state sparsely — a draw stamps `_present.SeedIter`
+   from `_rng` (first Moment carries the initial seed); undo/redo/load restore to
+   the restored turn's *start*: `SetSeed` the most-recent `SeedIter` recorded
+   **strictly before** the restored moment (flatten `_past`, excluding the
+   just-restored `_present`; `0` if none), so re-rendering reproduces that turn's
+   draws — the moment's own end-of-turn value would be an off-by-one. Derive `Visits`/`(history:)` and the `visits` keyword
    from the flattened timeline; record each auto-`(goto:)`'s departing passage
    into the present turn's trail (redirect semantics, decision 7 — no new Moment,
    mirroring `State.redirect()`). Pin the present-inclusion split: `(history:)`
@@ -184,7 +213,8 @@ Each step is a landable, test-green commit.
    today's `EnterPassage` increment (StorySession.cs:302). Strike the
    `(history:)` TODO.
    Watch the redirect-chain delta accounting (all hops accrue to one turn's
-   delta) and undo/redo RNG-state symmetry. Existing undo tests stay green; add
+   delta) and the RNG restore boundary (restore to the restored turn's *start*,
+   not its recorded end — off-by-one). Existing undo tests stay green; add
    `FastForward` + multi-redirect-history + visit-derivation tests. ~350 LoC.
 
 3. **Source serialisation.** `HarloweValue.ToSource()` for all nine kinds;
@@ -206,16 +236,19 @@ Each step is a landable, test-green commit.
    separately, cheap `Enumerate`), default impl, optional constructor param on
    `StorySession`. Library prefixes slot keys with `Harlowe.Ifid`. ~120 LoC.
 
-6. **Macros + loop guard.** `(save-game:)` → Bool; `(load-game:)` →
+6. **Macros + loop guard.** `(save-game:)` → Bool; `(load-game:)` → on success
    stage-timeline + pending-load, session installs + navigates to the loaded
-   present passage + sets `LoadedGame`; `(saved-games:)` → Datamap from
-   `Enumerate`. The loop guard is **session-held** (`StorySession._loadedGame`),
+   present passage + sets `LoadedGame`; on a missing slot or failed deserialise
+   return `HarloweValue.OfError("I can't find a save slot named '…'")` in-prose
+   (our error policy + reference's `TwineError`) *and* set `LastLoadError` for the
+   host; `(saved-games:)` → Datamap from `Enumerate`. The loop guard is **session-held** (`StorySession._loadedGame`),
    seeded into each fresh per-render `MacroContext` and cleared on the next
    user-driven `Goto`/`DispatchEvent` (not auto-`(goto:)`/auto-load) — a flag on
    `MacroContext` alone resets every render (a new `ctx` per `RenderInternal`,
    StorySession.cs:330) and would never fire. End-to-end tests
-   (save→mutate→load→assert; loop-guard incl. auto-goto case; `LastConditional`
-   flow through `(save-game:)`'s Bool). ~300 LoC.
+   (save→mutate→load→assert; loop-guard incl. auto-goto case; missing-slot →
+   in-prose error + `LastLoadError`; `LastConditional` flow through
+   `(save-game:)`'s Bool). ~300 LoC.
 
 7. **Docs.** CLAUDE.md: Moment-timeline as the fifth load-bearing pivot + a
    Save/load Architecture section (source-serialisation model, `ISaveStorage`
