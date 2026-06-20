@@ -63,9 +63,9 @@ and the macro bodies in `ts/macrolib/commands.ts` (navigation) and
   `present.seedIter` *only on a draw*; `setSeed` sets `present.seed` *only on
   `(seed:)`* — a fresh moment leaves both `undefined`, so `moment.ts`'s
   `#isEmpty()` (which counts `seed`/`seedIter`) lets a no-draw turn compress.
-  Undo restore flattens the timeline — `setPRNG(Current.seed, Current.seedIter)`
-  (state.ts:164), restoring to the restored turn's *start* (see the Timeline note
-  for the boundary) — and reference explicitly keeps **no** per-moment copies
+  Undo restore flattens the timeline — `reconstruct`'s `setPRNG(Current.seed,
+  Current.seedIter)`, restoring to the restored turn's *start* (see the Timeline
+  note for the boundary) — and reference explicitly keeps **no** per-moment copies
   ("Current does not maintain copies of these properties").
 - **Failed load is atomic.** `State.deserialise` builds a fresh
   `reconstructedMoments` array and only swaps the timeline on full success.
@@ -87,17 +87,22 @@ The six original prerequisites plus the forks settled by the findings:
    blob boundary. (Replaces the original tagged-JSON design.)
 2. **Changers in saved variables** — supported, the reference way: the evaluator
    stamps `(macroName: args.ToSource…)` source onto each `Changer` value at its
-   macro-call site; `Compose` concatenates with `+`. A stored changer value is
-   closure-free (the `renderHook` is an Apply-time parameter, not part of the
-   patches), so the stamp covers style/revision/interaction kinds uniformly.
+   macro-call site; `Compose` concatenates with `+` (see the `Changer.Source`
+   note). A stored changer value is closure-free (the `renderHook` is an
+   Apply-time parameter, not part of the patches), so the stamp covers style,
+   iteration (`(for:)`), revision, and interaction kinds uniformly. (A `(for:)`
+   changer's source is its lambda + the *evaluated* items — the `...`-spread
+   already flattened by `LambdaArgs.ExpandItems`.)
 3. **Visit counts** — derived by walking the timeline (drop per-Moment
    `VisitCounts`). Matches reference, shrinks the blob.
 4. **IFID namespacing** — library prefixes the slot key internally with
    `Harlowe.Ifid` (matches reference). Empty IFID → unprefixed key; the
    cross-story-collision contract is documented on `ISaveStorage`.
 5. **`(load-game:)`** — side-effecting navigation (no `Command` type): stages the
-   deserialised timeline, sets a pending-load the session acts on after render,
-   aborting the current render and navigating like `(goto:)`.
+   deserialised timeline + a pending-load flag; the body renderer halts further
+   nodes on it as for `(goto:)`/`PendingGoto` (BodyRenderer.cs:74), then the
+   session installs the timeline and navigates after `Render()` returns (not a
+   mid-`Render` discard — already-rendered content stands).
 6. **Atomicity of failed load** — pre-load; no state change on failure. The
    session exposes `LastLoadError` for the host.
 7. **Navigation/turn semantics** — reference has `State.play()` (new Moment —
@@ -121,23 +126,37 @@ fails loudly with `LastSaveError`. Blob + filename stored separately;
 a null backend makes `(save-game:)` return false). `(history:)` is past-only;
 `_future` is neither in history nor serialised. A new `Goto` clears `_future`.
 The `LoadedGame` guard is session-held (seeded into each per-render
-`MacroContext`) and clears on the next user-driven `Goto`/`DispatchEvent`, never
-on the auto-`(goto:)` follow path. `(redo:)` the macro is a follow-up; this slice ships
+`MacroContext`) and clears at the next `EnterPassage` *away* from the loaded
+passage — auto-`(goto:)`/redirect included, matching reference's
+per-`showPassage` `section.loadedGame` (engine.ts re-renders via `showPassage`
+without the `loadedGame` option on any navigation). It still catches the real
+infinite loop (a passage's *direct* re-load) while permitting load→`(goto:)`→load. `(redo:)` the macro is a follow-up; this slice ships
 the session-level `Redo`/`FastForward`.
 
 ## Design summary
 
 - **`HarloweValue.ToSource()`** — value → Harlowe source. Number→`FormatNumber`,
-  String→quoted literal, Bool→`true`/`false`, Array→`(a:…)`, Datamap→`(dm:…)`,
-  Lambda→`MarkupPrinter` on its retained `LambdaNode`; HookName→synthesise a
-  `HookRefNode` from the value's `Name`+`Steps` (it carries no node) then
-  `MarkupPrinter`; Changer→its stamped source. The
-  serialisation primitive; load re-evaluates the string back to a value via the
-  existing tokenizer + `HarloweExpressionParser` + `ExpressionEvaluator` (macro
-  registry only — resolved-value source is self-contained, no store needed).
-- **`Changer.Source`** — stamped at the evaluator's macro-call/compose chokepoint
-  (`ExpressionEvaluator`), mirroring reference's `changer.ts` `(macroName:
-  params)`. The one cross-cutting addition.
+  String→a quoted literal via `MarkupPrinter`'s string-literal escaping (quotes,
+  backslashes, and newlines re-lex safely), Bool→`true`/`false`, Array→`(a:…)`, Datamap→`(dm:…)`
+  (keys sorted, matching reference's `mapEntriesSorter` — fidelity/determinism;
+  round-trip is order-independent), Lambda→`MarkupPrinter` on its retained
+  `LambdaNode`; HookName→synthesise a `HookRefNode` from the value's
+  `Name`+`Steps` (it carries no node; copy the `IReadOnlyList<HookRefStep>` into
+  `HookRefNode`'s `List`) then `MarkupPrinter`; Changer→its stamped source. The
+  serialisation primitive; load re-evaluates the string via the existing
+  tokenizer + `HarloweExpressionParser` + `ExpressionEvaluator` against a
+  `MacroContext` assigned to `registry.Context` — its `Store` may be null
+  (resolved source has no var refs), but the Context must be non-null: collection
+  source like `(a:…)`/`(dm:…)` dispatches through `MacroRegistry.Invoke`, which
+  throws if `Context` is unset.
+- **`Changer.Source`** — stamped at two coordinated `ExpressionEvaluator` sites
+  (not one chokepoint): `Visit(MacroCallNode)` sets `Source =
+  "("+node.Name+":"+evaluatedArgs.ToSource…+")"` when the result is a Changer
+  (name from the node, arg source from each *evaluated* arg's `ToSource` —
+  matching reference's resolved `params`); `OpAdd`'s Changer case sets
+  `composed.Source = left.Source+"+"+right.Source`. `Source` travels with the
+  value, so a Changer read from a `$var` keeps its creation-time source —
+  closing the empty-source gap. The one cross-cutting addition.
 - **`Moment`** (public, `Runtime/Moment.cs`) — `PassageName`, `StoreDelta`
   (changed `$`-vars as `HarloweValue`), `Visits` (nullable `List<string>`
   redirect trail), **nullable** `Seed`/`SeedIter` (recorded sparsely —
@@ -151,11 +170,13 @@ the session-level `Redo`/`FastForward`.
   Moment: a draw stamps `_present.SeedIter` from `_rng` (the session reconciles it
   post-render/at-save, since macros see only `MacroContext`), the first Moment
   carries the session's initial seed, and undo/redo/load restore the RNG to the
-  restored turn's *start* — `SetSeed` the most-recent `SeedIter` recorded
-  **strictly before** the restored moment (flatten `_past`, *excluding* the
-  just-restored `_present`; `0` if none) — so the re-render reproduces that
-  turn's draws instead of advancing past them. (Using the restored moment's own
-  end-of-turn value is the off-by-one.)
+  restored turn's *start*: `SeedIter` = the most-recent recorded **strictly
+  before** the restored moment (flatten `_past`, *excluding* `_present`; `0` if
+  none); `Seed` = the most-recent **at-or-before** it (inclusive — this slice
+  always the session-initial seed on the first Moment, so restoring *to* it still
+  finds the seed). The re-render then reproduces that turn's draws.
+  (Strictly-before on the Seed would reseed the first moment empty; the moment's
+  own `SeedIter` is the other off-by-one.)
 - **PRNG** — `IRng` (`NextDouble()`, `Seed`/`SeedIter`, `SetSeed(seed, iter)`) +
   `MulberryRng` porting reference's mulberry32 + MurmurHash3 with `unchecked`
   32-bit math (`Math.imul` → `unchecked(a*b)` on int; `>>>` → `(uint)x >> n`).
@@ -186,9 +207,11 @@ Each step is a landable, test-green commit.
    `[-3,0]`, not garbage). `(either:)` → `args[(int)(NextDouble() * count)]`
    (count is small, the cast is safe). `StorySession`'s `int seed` ctor maps to
    a seed string. Note: `MacroContext.Rng` is a public field, so the `IRng`
-   retype is a source-breaking change (call it out in the version log); migrate
-   the one internal assignment site (`V1MacroTests.Setup:17`, `ctx.Rng = new
-   Random` → `new MulberryRng`) — the seeded `StorySession`-level tests survive
+   retype is a source-breaking change (version log) — and more than one site:
+   the `MacroContext.Rng = new Random()` field initializer, both `StorySession`
+   ctors (`new Random()` / `new Random(seed)`), the `_rng` field, the macros'
+   `?? new Random()` fallbacks, and `V1MacroTests.Setup:17` (`new Random` →
+   `new MulberryRng`) all migrate. The seeded `StorySession`-level tests survive
    (they assert determinism, not exact sequences).
    Fixture `references/prng-fixtures.json` from a Node script run against the
    reference `prng.ts` (independent vectors — not our own port; confirm Node is
@@ -200,17 +223,20 @@ Each step is a landable, test-green commit.
    `_past`/`_present`/`_future`; add `Redo`/`FastForward`; keep `Undo` as a
    `Rewind` alias. Record RNG state sparsely — a draw stamps `_present.SeedIter`
    from `_rng` (first Moment carries the initial seed); undo/redo/load restore to
-   the restored turn's *start*: `SetSeed` the most-recent `SeedIter` recorded
-   **strictly before** the restored moment (flatten `_past`, excluding the
-   just-restored `_present`; `0` if none), so re-rendering reproduces that turn's
-   draws — the moment's own end-of-turn value would be an off-by-one. Derive `Visits`/`(history:)` and the `visits` keyword
-   from the flattened timeline; record each auto-`(goto:)`'s departing passage
-   into the present turn's trail (redirect semantics, decision 7 — no new Moment,
-   mirroring `State.redirect()`). Pin the present-inclusion split: `(history:)`
+   the restored turn's *start*: `SeedIter` = most-recent recorded **strictly
+   before** the restored moment (flatten `_past`, excluding `_present`; `0` if
+   none); `Seed` = most-recent **at-or-before** (inclusive, so restoring to the
+   first moment keeps the initial seed). Re-rendering then reproduces that turn's
+   draws. Derive `Visits`/`(history:)`, the `visits` keyword, and `Turns`
+   (`_past.Count + present`, excluding `_future` so it drops after `Undo`) from
+   the timeline; record each auto-`(goto:)`'s **target** into the present turn's
+   `Visits` trail (the departing passage feeds the derived history) — matching
+   `State.redirect()`'s `present.visits.push(newPassageName)` and decision 7; no
+   new Moment. Pin the present-inclusion split: `(history:)`
    is past-only, but `visits(name)` = occurrences across past trails **plus the
    present turn's trail** (the current passage and any redirect targets), so
    `(print: visits)` stays `1` on first entry — a naive past-only walk regresses
-   today's `EnterPassage` increment (StorySession.cs:302). Strike the
+   today's `EnterPassage` increment (StorySession.cs:303). Strike the
    `(history:)` TODO.
    Watch the redirect-chain delta accounting (all hops accrue to one turn's
    delta) and the RNG restore boundary (restore to the restored turn's *start*,
@@ -242,11 +268,13 @@ Each step is a landable, test-green commit.
    return `HarloweValue.OfError("I can't find a save slot named '…'")` in-prose
    (our error policy + reference's `TwineError`) *and* set `LastLoadError` for the
    host; `(saved-games:)` → Datamap from `Enumerate`. The loop guard is **session-held** (`StorySession._loadedGame`),
-   seeded into each fresh per-render `MacroContext` and cleared on the next
-   user-driven `Goto`/`DispatchEvent` (not auto-`(goto:)`/auto-load) — a flag on
-   `MacroContext` alone resets every render (a new `ctx` per `RenderInternal`,
-   StorySession.cs:330) and would never fire. End-to-end tests
-   (save→mutate→load→assert; loop-guard incl. auto-goto case; missing-slot →
+   seeded into each fresh per-render `MacroContext` and cleared at the next
+   `EnterPassage` away from the loaded passage (auto-`(goto:)`/redirect *and*
+   user nav — matching reference's per-`showPassage` `section.loadedGame`) — a
+   flag on `MacroContext` alone resets every render (a new `ctx` per
+   `RenderInternal`, StorySession.cs:330) and would never fire. End-to-end tests
+   (save→mutate→load→assert; loop-guard — direct re-load rejected,
+   load→`(goto:)`→load permitted; missing-slot →
    in-prose error + `LastLoadError`; `LastConditional` flow through
    `(save-game:)`'s Bool). ~300 LoC.
 
@@ -255,13 +283,13 @@ Each step is a landable, test-green commit.
    contract, IFID namespacing, what does/doesn't persist). Strike the
    `(history:)` TODO.
 
-Total ~1550 LoC + tests across 7 commits.
+Total ~1570 LoC + tests across 7 commits.
 
 ## File touch list
 
 **Modified:** `Runtime/StorySession.cs` (timeline + `Rewind`/`FastForward` +
 `SaveGame`/`LoadGame`/`SavedGames` + `IRng`/`ISaveStorage` injection + derived
-`History`/`Visits` + session-held `_loadedGame`/`LastLoadError`/`LastSaveError`
+`History`/`Visits`/`Turns` (excluding `_future`) + session-held `_loadedGame`/`LastLoadError`/`LastSaveError`
 seeded into each `MacroContext`); `Runtime/MacroContext.cs` (`Rng` → `IRng`
 [public break], `LoadedGame` slot + pending-load, both seeded/read per render);
 `Runtime/HarloweVariableStore.cs` (add non-destructive `PeekStoryDelta()` so a
@@ -290,10 +318,15 @@ under `HarloweParser.Tests/Runtime/Saving/` + `MulberryRngTests`.
   (matches reference) — via the non-destructive `PeekStoryDelta()`: the present
   turn's delta lives in `_dirtyStoryVars`, which `TakeStoryDelta` *clears*
   (HarloweVariableStore.cs:145) for the next undo, so a mid-turn save must peek,
-  not take. Pin in step 6.
-- **`LoadedGame` is session-held**, seeded into each per-render `MacroContext` —
-  must survive auto-`(goto:)` but clear on the next user-driven
-  `Goto`/`DispatchEvent`. Test the auto-`(goto:)` loop case.
+  not take. The RNG needs the same: `_present.SeedIter` is reconciled only
+  post-render, so a mid-render save must read `_rng.SeedIter`/`Seed` *live* for
+  the present (the PRNG analogue of `PeekStoryDelta`), not the stale stamped
+  value. Pin in step 6.
+- **`LoadedGame` is session-held**, seeded into each per-render `MacroContext`,
+  set for the loaded passage's render and cleared at the next `EnterPassage`
+  away (auto-`(goto:)`/redirect included — reference's per-`showPassage`
+  semantics). Test that a *direct* re-load errors but load→`(goto:)`→load is
+  permitted.
 - **Deferred reference optimisations** — `at`/`via`/hash source-span ValueRefs
   (blob-size delta-compression + cross-version resilience) and per-value
   `seed`/`seedIter`. Not needed while we save resolved-value source.
@@ -302,13 +335,17 @@ under `HarloweParser.Tests/Runtime/Saving/` + `MulberryRngTests`.
 
 - **Source round-trip fidelity.** `HarloweValue.ToSource()` → re-eval must be an
   identity for every kind; composed changers (`(a:)+(b:)`) and nested
-  collections are the sharp edges. Covered by per-kind round-trip tests; an
-  un-sourceable value (non-finite number, `Error`) fails the save loudly rather
-  than corrupting the blob.
+  collections are the sharp edges. Covered by per-kind round-trip tests;
+  `ToSource` rejects an un-sourceable value (non-finite number, `Error`) — the
+  check recurses into collections and runs *before* `FormatNumber`, so a `NaN`
+  nested in `(a: 1, NaN)` fails the save loudly rather than emitting unparseable
+  `NaN` source.
 - **Changer source-stamp coverage.** Every path that yields a `Changer` value
-  must flow through the evaluator chokepoint that stamps `Source` — verify
-  conditional changers (`(if:)`), `(for:)`, and `+`-composition all do. A missed
-  path serialises a changer with an empty source.
+  must flow through the evaluator chokepoint that stamps `Source` — verify the
+  style (`(text-style:)`/`(align:)`/…), `(for:)`, revision, and interaction
+  families plus `+`-composition all do. (`(if:)`/`(unless:)` are *not* changers
+  here — `IfMacro` returns a Bool + sets `LastConditional` — so they don't
+  apply.) A missed path serialises a changer with an empty source.
 - **PRNG byte-compat.** A C# integer-math quirk diverging from JS `Math.imul`/
   `>>>` is caught by independent fixture vectors; `unchecked` + explicit
   `(uint)x >> n` on netstandard2.0 (no C# 11 `>>>`). `h` accumulated as a JS
