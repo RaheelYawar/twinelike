@@ -112,15 +112,18 @@ fails loudly with `LastSaveError`. Blob + filename stored separately;
 `InMemorySaveStorage` is the session-lifetime default (documented non-persistent;
 a null backend makes `(save-game:)` return false). `(history:)` is past-only;
 `_future` is neither in history nor serialised. A new `Goto` clears `_future`.
-`LoadedGame` clears on the next user-driven `Goto`/`DispatchEvent`, never on the
-auto-`(goto:)` follow path. `(redo:)` the macro is a follow-up; this slice ships
+The `LoadedGame` guard is session-held (seeded into each per-render
+`MacroContext`) and clears on the next user-driven `Goto`/`DispatchEvent`, never
+on the auto-`(goto:)` follow path. `(redo:)` the macro is a follow-up; this slice ships
 the session-level `Redo`/`FastForward`.
 
 ## Design summary
 
 - **`HarloweValue.ToSource()`** — value → Harlowe source. Number→`FormatNumber`,
   String→quoted literal, Bool→`true`/`false`, Array→`(a:…)`, Datamap→`(dm:…)`,
-  Lambda/HookName→`MarkupPrinter` on their AST, Changer→its stamped source. The
+  Lambda→`MarkupPrinter` on its retained `LambdaNode`; HookName→synthesise a
+  `HookRefNode` from the value's `Name`+`Steps` (it carries no node) then
+  `MarkupPrinter`; Changer→its stamped source. The
   serialisation primitive; load re-evaluates the string back to a value via the
   existing tokenizer + `HarloweExpressionParser` + `ExpressionEvaluator` (macro
   registry only — resolved-value source is self-contained, no store needed).
@@ -157,7 +160,11 @@ Each step is a landable, test-green commit.
    Compute the range as `double`/`long` to avoid int overflow — which lets the
    current `hi == int.MaxValue` guard be dropped. `(either:)` →
    `args[(int)(NextDouble() * count)]`. `StorySession`'s `int seed` ctor maps to
-   a seed string.
+   a seed string. Note: `MacroContext.Rng` is a public field, so the `IRng`
+   retype is a source-breaking change (call it out in the version log); migrate
+   the one internal assignment site (`V1MacroTests.Setup:17`, `ctx.Rng = new
+   Random` → `new MulberryRng`) — the seeded `StorySession`-level tests survive
+   (they assert determinism, not exact sequences).
    Fixture `references/prng-fixtures.json` from a Node script run against the
    reference `prng.ts` (independent vectors — not our own port; confirm Node is
    available). Tests: `MulberryRngTests` (known seed→sequence; `(seed,iter)` O(1)
@@ -170,7 +177,12 @@ Each step is a landable, test-green commit.
    freezes on finalise). Derive `Visits`/`(history:)` and the `visits` keyword
    from the flattened timeline; record each auto-`(goto:)`'s departing passage
    into the present turn's trail (redirect semantics, decision 7 — no new Moment,
-   mirroring `State.redirect()`). Strike the `(history:)` TODO.
+   mirroring `State.redirect()`). Pin the present-inclusion split: `(history:)`
+   is past-only, but `visits(name)` = occurrences across past trails **plus the
+   present turn's trail** (the current passage and any redirect targets), so
+   `(print: visits)` stays `1` on first entry — a naive past-only walk regresses
+   today's `EnterPassage` increment (StorySession.cs:302). Strike the
+   `(history:)` TODO.
    Watch the redirect-chain delta accounting (all hops accrue to one turn's
    delta) and undo/redo RNG-state symmetry. Existing undo tests stay green; add
    `FastForward` + multi-redirect-history + visit-derivation tests. ~350 LoC.
@@ -179,7 +191,9 @@ Each step is a landable, test-green commit.
    `Changer.Source` stamped at the `ExpressionEvaluator` macro-call/compose
    chokepoint; `SaveSerializer` value↔source (`Serialise` → source string,
    `Deserialise` → re-lex+parse+eval). Verify `MarkupPrinter` round-trips Lambda
-   and HookName ASTs; non-finite numbers and `Error` values fail the save.
+   (its `LambdaNode`) and a `HookRefNode` synthesised from a HookName's
+   `Name`+`Steps` (the value has no node); non-finite numbers and `Error` values
+   fail the save.
    Round-trip unit tests over every kind incl. composed changers. ~350 LoC.
 
 4. **Blob serialiser (timeline).** `Serialise(past, present)` → blob (JSON moment
@@ -195,8 +209,11 @@ Each step is a landable, test-green commit.
 6. **Macros + loop guard.** `(save-game:)` → Bool; `(load-game:)` →
    stage-timeline + pending-load, session installs + navigates to the loaded
    present passage + sets `LoadedGame`; `(saved-games:)` → Datamap from
-   `Enumerate`. `MacroContext.LoadedGame` cleared on the next user-driven
-   `Goto`/`DispatchEvent` (not auto-`(goto:)`/auto-load). End-to-end tests
+   `Enumerate`. The loop guard is **session-held** (`StorySession._loadedGame`),
+   seeded into each fresh per-render `MacroContext` and cleared on the next
+   user-driven `Goto`/`DispatchEvent` (not auto-`(goto:)`/auto-load) — a flag on
+   `MacroContext` alone resets every render (a new `ctx` per `RenderInternal`,
+   StorySession.cs:330) and would never fire. End-to-end tests
    (save→mutate→load→assert; loop-guard incl. auto-goto case; `LastConditional`
    flow through `(save-game:)`'s Bool). ~300 LoC.
 
@@ -211,8 +228,12 @@ Total ~1550 LoC + tests across 7 commits.
 
 **Modified:** `Runtime/StorySession.cs` (timeline + `Rewind`/`FastForward` +
 `SaveGame`/`LoadGame`/`SavedGames` + `IRng`/`ISaveStorage` injection + derived
-`History`/`Visits`); `Runtime/MacroContext.cs` (`Rng` → `IRng`, add `LoadedGame`,
-pending-load); `Runtime/HarloweValue.cs` (add `ToSource()`); `Runtime/Changer.cs`
+`History`/`Visits` + session-held `_loadedGame`/`LastLoadError`/`LastSaveError`
+seeded into each `MacroContext`); `Runtime/MacroContext.cs` (`Rng` → `IRng`
+[public break], `LoadedGame` slot + pending-load, both seeded/read per render);
+`Runtime/HarloweVariableStore.cs` (add non-destructive `PeekStoryDelta()` so a
+mid-render `(save-game:)` doesn't clear the dirty set the next undo needs);
+`Runtime/HarloweValue.cs` (add `ToSource()`); `Runtime/Changer.cs`
 (+ `Source` field); `Runtime/ExpressionEvaluator.cs` (stamp changer source at the
 macro-call/compose chokepoint); `Runtime/Macros/RandomMacro.cs` + `EitherMacro.cs`
 (use `NextDouble()`); `Runtime/Macros/StandardMacros.cs` (register three macros);
@@ -232,10 +253,14 @@ under `HarloweParser.Tests/Runtime/Saving/` + `MulberryRngTests`.
   enchantments/click handlers/hook resolutions. Only *story state* (vars,
   passage, turn count) restores — an unfired `(click:)` from before the save is
   lost. Document in the macro docstrings.
-- **`(save-game:)` mid-render captures in-progress state**, not entry-state.
-  Matches reference. Pin in step 6.
-- **`LoadedGame` flag clearing** — must survive auto-`(goto:)` but clear on the
-  next user-driven `Goto`/`DispatchEvent`. Test the auto-`(goto:)` loop case.
+- **`(save-game:)` mid-render captures in-progress state**, not entry-state
+  (matches reference) — via the non-destructive `PeekStoryDelta()`: the present
+  turn's delta lives in `_dirtyStoryVars`, which `TakeStoryDelta` *clears*
+  (HarloweVariableStore.cs:145) for the next undo, so a mid-turn save must peek,
+  not take. Pin in step 6.
+- **`LoadedGame` is session-held**, seeded into each per-render `MacroContext` —
+  must survive auto-`(goto:)` but clear on the next user-driven
+  `Goto`/`DispatchEvent`. Test the auto-`(goto:)` loop case.
 - **Deferred reference optimisations** — `at`/`via`/hash source-span ValueRefs
   (blob-size delta-compression + cross-version resilience) and per-value
   `seed`/`seedIter`. Not needed while we save resolved-value source.
