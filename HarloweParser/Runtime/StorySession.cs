@@ -63,9 +63,14 @@ namespace Harlowe.Runtime
     // One RNG for the whole session, threaded into every MacroContext so every
     // (random:)/(either:) draw forms a single continuous stream (a fresh instance
     // per render leg would restart the stream). Its (Seed, SeedIter) state is the
-    // serialisable RNG position the save model will record; restoring it on
-    // undo/redo is wired in a later sub-step (it is not restored yet).
+    // serialisable RNG position the save model records; undo/redo restore it to
+    // the restored turn's start (see RestoreRng) so a re-render reproduces that
+    // turn's draws.
     private readonly IRng _rng;
+
+    // RNG position at the start of the live turn — lets FinalizePresent tell
+    // whether the present turn drew (and so whether to record its SeedIter).
+    private int _turnStartIter;
 
     // The live render-tree state for the most recent main render. Kept alive
     // across renders so DispatchEvent can mutate it, re-flush, and return an
@@ -143,7 +148,10 @@ namespace Harlowe.Runtime
 
       var startPassage = story.GetStartPassage();
       var startName = startPassage != null ? startPassage.Name : string.Empty;
-      _present = new Moment { PassageName = startName };
+      // The first Moment carries the session's initial seed — the baseline the
+      // save model and undo/redo reconstruct the RNG from.
+      _present = new Moment { PassageName = startName, Seed = _rng.Seed };
+      _turnStartIter = _rng.SeedIter;
       EnterPassage(startName);
     }
 
@@ -234,6 +242,7 @@ namespace Harlowe.Runtime
       _past.Add(_present);
       _future.Clear();
       _present = new Moment { PassageName = passageName };
+      _turnStartIter = _rng.SeedIter;   // new turn starts where the last left off
       EnterPassage(passageName);
       return RenderInternal(0);
     }
@@ -313,6 +322,11 @@ namespace Harlowe.Runtime
       _present.PassageName = _currentPassage;
       _present.StoreDelta = _store.TakeStoryDelta();
       _present.VisitCounts = CopyVisitCounts();
+      // Sparse RNG recording: stamp SeedIter only if the turn actually drew, so a
+      // no-draw turn stays compressible (SeedIter null). The shared stream's live
+      // position is this turn's end, since its draws are the most recent.
+      if (_rng.SeedIter != _turnStartIter)
+        _present.SeedIter = _rng.SeedIter;
     }
 
     /// <summary>
@@ -326,6 +340,7 @@ namespace Harlowe.Runtime
     private void RestoreToPresent()
     {
       _store.ResetStoryVars(FlattenStore());
+      RestoreRng();
       _currentPassage = _present.PassageName;
       _visitCounts = _present.VisitCounts != null
         ? new Dictionary<string, int>(_present.VisitCounts)
@@ -333,6 +348,35 @@ namespace Harlowe.Runtime
       _liveRoot = null;
       _liveContext = null;
       _passageTimer.Restart();
+    }
+
+    /// <summary>
+    /// Restores the RNG to the <em>start</em> of the turn now in the present slot,
+    /// so a re-render reproduces that turn's draws instead of advancing past them.
+    /// <see cref="Moment.SeedIter"/> is taken from the most recent turn recorded
+    /// <em>strictly before</em> the present (scanning <c>_past</c>; <c>0</c> when
+    /// no prior turn drew) — the present turn's start position, i.e. the end of the
+    /// previous drawing turn. <see cref="Moment.Seed"/> is the most recent recorded
+    /// <em>at or before</em> the present (inclusive), which for this slice is always
+    /// the session-initial seed the first Moment holds. (Using the present's own
+    /// SeedIter — its end position — would be the off-by-one that re-rolls
+    /// differently; the seed boundary is inclusive so restoring to the first turn
+    /// still finds the baseline seed.)
+    /// </summary>
+    private void RestoreRng()
+    {
+      int seedIter = 0;
+      for (int i = _past.Count - 1; i >= 0; i--)
+        if (_past[i].SeedIter.HasValue) { seedIter = _past[i].SeedIter.Value; break; }
+
+      string seed = _present.Seed;
+      if (seed == null)
+        for (int i = _past.Count - 1; i >= 0; i--)
+          if (_past[i].Seed != null) { seed = _past[i].Seed; break; }
+      if (seed == null) seed = _rng.Seed;
+
+      _rng.SetSeed(seed, seedIter);
+      _turnStartIter = _rng.SeedIter;
     }
 
     /// <summary>

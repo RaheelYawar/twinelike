@@ -10,11 +10,11 @@ namespace Harlowe.Runtime
   /// redirect trail, and the PRNG position. Mirrors reference Harlowe's Moment
   /// (ts/state/moment.ts).
   ///
-  /// <para>Public fields per the project's DTO style. Several are wired in over the
-  /// next sub-steps of the save/load slice (see SAVE-LOAD-PLAN.md): the redirect
-  /// <see cref="Visits"/> trail and derived visit counts (which will replace the
-  /// per-Moment <see cref="VisitCounts"/>) and the sparse <see cref="Seed"/>/
-  /// <see cref="SeedIter"/> RNG state. The debug-mode fields
+  /// <para>Public fields per the project's DTO style. The sparse <see cref="Seed"/>/
+  /// <see cref="SeedIter"/> RNG state is recorded and restored by the timeline; the
+  /// redirect <see cref="Visits"/> trail and derived visit counts (which will
+  /// replace the per-Moment <see cref="VisitCounts"/>) are wired in the next
+  /// sub-step (see SAVE-LOAD-PLAN.md). The debug-mode fields
   /// (<c>(mock-visits:)</c>/<c>(forget-visits:)</c>) are deliberately left out
   /// until their own slice rather than carried as dead scaffolding.</para>
   /// </summary>
@@ -48,10 +48,10 @@ namespace Harlowe.Runtime
     /// </summary>
     public List<string> Visits;
 
-    /// <summary>PRNG seed string in effect for this turn. Set only on session start and the future <c>(seed:)</c> macro; null otherwise. (Wired in a later step.)</summary>
+    /// <summary>PRNG seed string in effect for this turn. Set only on session start (the first Moment) and by the future <c>(seed:)</c> macro; null otherwise.</summary>
     public string Seed;
 
-    /// <summary>PRNG draw position recorded for this turn — set only when the turn drew a random number, so a no-draw turn stays compressible. (Wired in a later step.)</summary>
+    /// <summary>PRNG draw position recorded for this turn — set only when the turn drew a random number, so a no-draw turn stays compressible (null). Restored as the next turn's <em>start</em> position on undo/redo.</summary>
     public int? SeedIter;
   }
 }

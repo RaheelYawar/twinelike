@@ -846,6 +846,51 @@ namespace Harlowe.Tests.Runtime
     }
 
     // -----------------------------------------------------------------------
+    // RNG state across undo/redo (slice 2b)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Undo_IntoRandomPassage_ReproducesTheRoll()
+    {
+      // The RNG is restored to the start of P2, so re-rendering re-rolls the same
+      // value instead of drawing further along the advanced stream.
+      var story = ThreePassages("p1", "(print: (random: 1, 1000000))", "p3");
+      var session = new StorySession(story, 42);
+      var roll = session.Goto("P2").Text;
+      session.Goto("P3");
+      session.Undo();
+      Assert.Equal(roll, session.Render().Text);
+    }
+
+    [Fact]
+    public void Redo_IntoRandomPassage_ReproducesTheRoll()
+    {
+      var story = ThreePassages("p1", "(print: (random: 1, 1000000))", "p3");
+      var session = new StorySession(story, 7);
+      var roll = session.Goto("P2").Text;
+      session.Goto("P3");
+      session.Undo();   // P2
+      session.Undo();   // P1
+      session.Redo();   // P2
+      Assert.Equal(roll, session.Render().Text);
+    }
+
+    [Fact]
+    public void UndoRedo_AcrossTwoRandomTurns_EachTurnReproducesOwnRoll()
+    {
+      // Distinct ranges so the two turns can't coincide — proves the RNG restores
+      // to each turn's *own* start, not merely some earlier position.
+      var story = ThreePassages("p1", "(print: (random: 1, 5))", "(print: (random: 100, 200))");
+      var session = new StorySession(story, 99);
+      var r2 = session.Goto("P2").Text;
+      var r3 = session.Goto("P3").Text;
+      session.Undo();
+      Assert.Equal(r2, session.Render().Text);
+      session.Redo();
+      Assert.Equal(r3, session.Render().Text);
+    }
+
+    // -----------------------------------------------------------------------
     // (history:) (slice C)
     // -----------------------------------------------------------------------
 
