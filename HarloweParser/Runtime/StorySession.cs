@@ -54,13 +54,11 @@ namespace Harlowe.Runtime
     private readonly List<SessionSnapshot> _undoStack;
     private readonly Stopwatch _passageTimer;
 
-    // One RNG for the whole session, threaded into every MacroContext. A fresh
-    // `new Random()` per render leg would re-seed from the system tick, so on
-    // .NET Framework / Mono (tick-seeded Random) successive legs within the
-    // same ~15ms tick — e.g. a passage and the passage a (goto:) redirects to —
-    // produced identical (random:)/(either:) sequences. One shared instance
-    // gives a single continuous stream instead.
-    private readonly Random _rng;
+    // One RNG for the whole session, threaded into every MacroContext so every
+    // (random:)/(either:) draw forms a single continuous stream (a fresh instance
+    // per render leg would restart the stream). Its (Seed, SeedIter) state is what
+    // the save model serialises, and what undo/redo restores.
+    private readonly IRng _rng;
 
     // The live render-tree state for the most recent main render. Kept alive
     // across renders so DispatchEvent can mutate it, re-flush, and return an
@@ -115,16 +113,16 @@ namespace Harlowe.Runtime
     /// whose pid matches <see cref="Harlowe.StartNode"/>; call
     /// <see cref="Render"/> to obtain its content.
     /// </summary>
-    public StorySession(Harlowe story) : this(story, new Random()) { }
+    public StorySession(Harlowe story) : this(story, new MulberryRng()) { }
 
     /// <summary>
     /// Builds a session with a fixed RNG seed, so <c>(random:)</c>/<c>(either:)</c>
     /// produce a reproducible sequence across the whole session — useful for
     /// tests and replays.
     /// </summary>
-    public StorySession(Harlowe story, int seed) : this(story, new Random(seed)) { }
+    public StorySession(Harlowe story, int seed) : this(story, new MulberryRng(seed)) { }
 
-    private StorySession(Harlowe story, Random rng)
+    private StorySession(Harlowe story, IRng rng)
     {
       _story = story;
       _registry = new MacroRegistry();

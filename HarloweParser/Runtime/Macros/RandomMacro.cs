@@ -24,10 +24,10 @@ namespace Harlowe.Runtime.Macros
           return HarloweValue.OfError($"(random:) requires Number arguments, got {args[i].Kind}");
       }
 
-      // Validate bounds inside the runtime-error contract: a NaN/infinity or
-      // a fractional / out-of-Int32-range bound would otherwise either throw
-      // (Random.Next on int.MaxValue + 1 overflows) or silently truncate via
-      // the (int) cast.
+      // Validate bounds inside the runtime-error contract: a NaN/infinity bound
+      // would poison the draw, and a fractional bound must truncate toward zero
+      // (reference's parseInt coercion) rather than bias the range. Out-of-Int32
+      // bounds are rejected so the range arithmetic below stays well-defined.
       int lo, hi;
       if (args.Count == 1)
       {
@@ -42,14 +42,16 @@ namespace Harlowe.Runtime.Macros
       }
       if (lo > hi) { int tmp = lo; lo = hi; hi = tmp; }
 
-      // Random.Next(lo, hi + 1) overflows on hi == int.MaxValue. Detect and
-      // surface as an in-prose error rather than letting OverflowException
-      // escape the runtime contract.
-      if (hi == int.MaxValue)
-        return HarloweValue.OfError("(random:) upper bound is too large");
-
-      var rng = context.Rng ?? new Random();
-      return HarloweValue.OfNumber(rng.Next(lo, hi + 1));
+      // Scale a [0,1) draw into [lo, hi] inclusive, matching reference's
+      // ~~(State.random() * (to - from + 1)) + from (ts/macrolib/values.ts). The
+      // range and offset are computed in double/long, never a narrowing (int)
+      // cast: a span wider than int.MaxValue — e.g. (random: -2000000000,
+      // 2000000000) — must not overflow, and (int) of a product >= 2^31 is
+      // unspecified in C# (unlike JS ~~'s mod-2^32 wrap). lo + offset is in
+      // [lo, hi], so it fits long (and int), and OfNumber stores it as a double.
+      var rng = context.Rng ?? new MulberryRng();
+      double range = (double)hi - lo + 1.0;
+      return HarloweValue.OfNumber(lo + (long)(rng.NextDouble() * range));
     }
 
     /// <summary>

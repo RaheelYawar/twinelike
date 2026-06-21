@@ -29,8 +29,8 @@ namespace Harlowe.Runtime
     /// <summary>Macro dispatcher used by the evaluator when a value-returning macro call is nested inside an expression (e.g. <c>(set: $r to (random: 1, 6))</c>). Optional.</summary>
     public IMacroInvoker Invoker;
 
-    /// <summary>RNG used by <c>random</c>/<c>either</c>. Initialised with a system seed; tests may overwrite with a seeded instance.</summary>
-    public Random Rng = new Random();
+    /// <summary>RNG used by <c>random</c>/<c>either</c>. A session-shared <see cref="IRng"/> (default <see cref="MulberryRng"/>, time-seeded); a seeded session or tests overwrite it.</summary>
+    public IRng Rng = new MulberryRng();
 
     /// <summary>
     /// Renders the named passage into <paramref name="output"/>. Returns
