@@ -828,6 +828,23 @@ namespace Harlowe.Tests.Runtime
       Assert.Equal("P2", session.CurrentPassage);
     }
 
+    [Fact]
+    public void UndoRedo_AcrossVarSettingTurn_ReadInLaterPassage_PreservesVar()
+    {
+      // Regression (code review): re-finalising a restored Moment used to read the
+      // cleared dirty-set and clobber its real delta with {}. So consecutive
+      // undo/redo across a turn that set a variable read in a *different* passage
+      // lost it. P2 sets $x; P3 only prints it.
+      var session = new StorySession(ThreePassages("p1", "(set: $x to 9)", "$x"));
+      session.Goto("P2");   // $x = 9
+      session.Goto("P3");
+      session.Undo();       // -> P2
+      session.Undo();       // -> P1 (must not clobber P2's {x:9})
+      session.Redo();       // -> P2
+      session.Redo();       // -> P3
+      Assert.Equal("9", session.Render().Text);
+    }
+
     // -----------------------------------------------------------------------
     // (history:) (slice C)
     // -----------------------------------------------------------------------

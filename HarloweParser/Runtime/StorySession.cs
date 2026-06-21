@@ -62,8 +62,9 @@ namespace Harlowe.Runtime
 
     // One RNG for the whole session, threaded into every MacroContext so every
     // (random:)/(either:) draw forms a single continuous stream (a fresh instance
-    // per render leg would restart the stream). Its (Seed, SeedIter) state is what
-    // the save model serialises, and what undo/redo restores.
+    // per render leg would restart the stream). Its (Seed, SeedIter) state is the
+    // serialisable RNG position the save model will record; restoring it on
+    // undo/redo is wired in a later sub-step (it is not restored yet).
     private readonly IRng _rng;
 
     // The live render-tree state for the most recent main render. Kept alive
@@ -257,16 +258,7 @@ namespace Harlowe.Runtime
     /// re-registered fresh.
     /// </para>
     /// </summary>
-    public bool Undo()
-    {
-      if (_past.Count == 0) return false;
-      FinalizePresent();
-      _future.Add(_present);
-      _present = _past[_past.Count - 1];
-      _past.RemoveAt(_past.Count - 1);
-      RestoreToPresent();
-      return true;
-    }
+    public bool Undo() => Move(_past, _future);
 
     /// <summary>Alias for <see cref="Undo"/> (reference Harlowe's <c>rewind</c>).</summary>
     public bool Rewind() => Undo();
@@ -280,44 +272,64 @@ namespace Harlowe.Runtime
     /// <c>true</c>, call <see cref="Render"/> to redisplay; the live tree is rebuilt
     /// on that render exactly as for undo.
     /// </summary>
-    public bool Redo()
-    {
-      if (_future.Count == 0) return false;
-      FinalizePresent();
-      _past.Add(_present);
-      _present = _future[_future.Count - 1];
-      _future.RemoveAt(_future.Count - 1);
-      RestoreToPresent();
-      return true;
-    }
+    public bool Redo() => Move(_future, _past);
 
     /// <summary>Alias for <see cref="Redo"/> (reference Harlowe's <c>fastForward</c>).</summary>
     public bool FastForward() => Redo();
 
     /// <summary>
-    /// Captures the live turn's state into <c>_present</c> before it leaves the
-    /// present slot (on <see cref="Goto"/>/<see cref="Undo"/>/<see cref="Redo"/>):
-    /// its resting passage, the forward delta of story vars changed this turn
-    /// (<see cref="HarloweVariableStore.TakeStoryDelta"/>), and the visit counts.
+    /// Shared body of <see cref="Undo"/>/<see cref="Redo"/>: finalise the live
+    /// turn, move it onto <paramref name="to"/>, pop the most recent
+    /// <paramref name="from"/> Moment as the new present, and restore its state.
+    /// Returns <c>false</c> when <paramref name="from"/> is empty. Kept as one body
+    /// so undo and redo cannot silently drift apart as the timeline grows.
+    /// </summary>
+    private bool Move(List<Moment> from, List<Moment> to)
+    {
+      if (from.Count == 0) return false;
+      FinalizePresent();
+      to.Add(_present);
+      _present = from[from.Count - 1];
+      from.RemoveAt(from.Count - 1);
+      RestoreToPresent();
+      return true;
+    }
+
+    /// <summary>
+    /// Captures a freshly-played turn's state into <c>_present</c> before it leaves
+    /// the present slot: resting passage, the forward delta of story vars changed
+    /// this turn (<see cref="HarloweVariableStore.TakeStoryDelta"/>), and the visit
+    /// counts. <b>Only a live turn is captured.</b> A Moment restored from the
+    /// timeline by <see cref="Move"/> already holds its real delta and is treated
+    /// as immutable: re-capturing it would read the dirty-set that
+    /// <see cref="RestoreToPresent"/> just cleared and overwrite the delta with an
+    /// empty one, losing that turn's variables on a later undo/redo. A non-null
+    /// <see cref="Moment.StoreDelta"/> marks an already-finalised Moment (a fresh
+    /// turn starts null), so it doubles as the "is this turn live?" signal.
     /// </summary>
     private void FinalizePresent()
     {
+      if (_present.StoreDelta != null) return;
       _present.PassageName = _currentPassage;
       _present.StoreDelta = _store.TakeStoryDelta();
       _present.VisitCounts = CopyVisitCounts();
     }
 
     /// <summary>
-    /// Installs the Moment now in the present slot after an undo/redo move:
+    /// Installs the Moment now in the present slot after a <see cref="Move"/>:
     /// reconstructs the story-var state from the timeline's deltas, restores the
-    /// passage and visit counts, and tears down the live tree (it belonged to the
-    /// turn we left). The next <see cref="Render"/> rebuilds the tree from source.
+    /// passage and a <em>private copy</em> of the visit counts (so a later
+    /// <see cref="EnterPassage"/> increment cannot mutate the stored Moment's
+    /// dict), and tears down the live tree (it belonged to the turn we left). The
+    /// next <see cref="Render"/> rebuilds the tree from source.
     /// </summary>
     private void RestoreToPresent()
     {
       _store.ResetStoryVars(FlattenStore());
       _currentPassage = _present.PassageName;
-      _visitCounts = _present.VisitCounts;
+      _visitCounts = _present.VisitCounts != null
+        ? new Dictionary<string, int>(_present.VisitCounts)
+        : new Dictionary<string, int>();
       _liveRoot = null;
       _liveContext = null;
       _passageTimer.Restart();

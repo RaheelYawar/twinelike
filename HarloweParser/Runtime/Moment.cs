@@ -10,11 +10,13 @@ namespace Harlowe.Runtime
   /// redirect trail, and the PRNG position. Mirrors reference Harlowe's Moment
   /// (ts/state/moment.ts).
   ///
-  /// <para>Public fields per the project's DTO style. Several fields are wired in
-  /// over the course of the save/load slice (see SAVE-LOAD-PLAN.md): the redirect
+  /// <para>Public fields per the project's DTO style. Several are wired in over the
+  /// next sub-steps of the save/load slice (see SAVE-LOAD-PLAN.md): the redirect
   /// <see cref="Visits"/> trail and derived visit counts (which will replace the
-  /// per-Moment <see cref="VisitCounts"/>), the sparse <see cref="Seed"/>/
-  /// <see cref="SeedIter"/> RNG state, and the reserved debug fields.</para>
+  /// per-Moment <see cref="VisitCounts"/>) and the sparse <see cref="Seed"/>/
+  /// <see cref="SeedIter"/> RNG state. The debug-mode fields
+  /// (<c>(mock-visits:)</c>/<c>(forget-visits:)</c>) are deliberately left out
+  /// until their own slice rather than carried as dead scaffolding.</para>
   /// </summary>
   public class Moment
   {
@@ -51,10 +53,5 @@ namespace Harlowe.Runtime
 
     /// <summary>PRNG draw position recorded for this turn — set only when the turn drew a random number, so a no-draw turn stays compressible. (Wired in a later step.)</summary>
     public int? SeedIter;
-
-    // Reserved for the (mock-visits:)/(mock-turns:)/(forget-visits:) debug slices.
-    public List<string> MockVisits;
-    public int? MockTurns;
-    public int? ForgetVisits;
   }
 }
