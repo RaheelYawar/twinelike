@@ -733,6 +733,102 @@ namespace Harlowe.Tests.Runtime
     }
 
     // -----------------------------------------------------------------------
+    // Redo
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Redo_ReturnsFalseWithNothingUndone()
+    {
+      var session = new StorySession(TwoPassages("p1", "p2"));
+      session.Goto("P2");
+      Assert.False(session.Redo());
+    }
+
+    [Fact]
+    public void Redo_AfterUndo_RestoresPassage()
+    {
+      var session = new StorySession(TwoPassages("p1", "p2"));
+      session.Goto("P2");
+      session.Undo();
+      Assert.Equal("P1", session.CurrentPassage);
+      Assert.True(session.Redo());
+      Assert.Equal("P2", session.CurrentPassage);
+    }
+
+    [Fact]
+    public void Redo_RestoresStoryVariable()
+    {
+      // P2 sets and prints $x; after undo it's unset, redo brings it back.
+      var session = new StorySession(TwoPassages("$x", "(set: $x to 99)$x"));
+      Assert.Equal("99", session.Goto("P2").Text);
+      session.Undo();
+      session.Redo();
+      Assert.Equal("99", session.Render().Text);
+    }
+
+    [Fact]
+    public void Redo_RestoresVisitCount()
+    {
+      var session = new StorySession(TwoPassages("p1", "(print: visits)"));
+      Assert.Equal("1", session.Goto("P2").Text);
+      session.Undo();
+      session.Redo();
+      Assert.Equal("1", session.Render().Text);
+    }
+
+    [Fact]
+    public void Goto_AfterUndo_ClearsRedoFuture()
+    {
+      // Undo populates the future; a forward Goto abandons it, so redo is gone.
+      var session = new StorySession(ThreePassages("p1", "p2", "p3"));
+      session.Goto("P2");
+      session.Undo();          // future = [P2]
+      session.Goto("P3");      // clears future
+      Assert.False(session.Redo());
+      Assert.Equal("P3", session.CurrentPassage);
+    }
+
+    [Fact]
+    public void UndoRedo_RoundTripsMultipleSteps()
+    {
+      var session = new StorySession(ThreePassages("p1", "p2", "p3"));
+      session.Goto("P2");
+      session.Goto("P3");
+      session.Undo();
+      session.Undo();
+      Assert.Equal("P1", session.CurrentPassage);
+      Assert.True(session.Redo());
+      Assert.Equal("P2", session.CurrentPassage);
+      Assert.True(session.Redo());
+      Assert.Equal("P3", session.CurrentPassage);
+      Assert.False(session.Redo());
+    }
+
+    [Fact]
+    public void Turns_DropsOnUndo_RestoredByRedo()
+    {
+      // Turns counts _past + present, excluding the redo future.
+      var session = new StorySession(ThreePassages("(print: turns)", "(print: turns)", "p3"));
+      Assert.Equal("1", session.Render().Text);
+      Assert.Equal("2", session.Goto("P2").Text);
+      session.Undo();
+      Assert.Equal("1", session.Render().Text);   // future excluded
+      session.Redo();
+      Assert.Equal("2", session.Render().Text);
+    }
+
+    [Fact]
+    public void RewindAndFastForward_AreUndoRedoAliases()
+    {
+      var session = new StorySession(TwoPassages("p1", "p2"));
+      session.Goto("P2");
+      Assert.True(session.Rewind());
+      Assert.Equal("P1", session.CurrentPassage);
+      Assert.True(session.FastForward());
+      Assert.Equal("P2", session.CurrentPassage);
+    }
+
+    // -----------------------------------------------------------------------
     // (history:) (slice C)
     // -----------------------------------------------------------------------
 

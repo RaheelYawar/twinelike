@@ -25,13 +25,14 @@ namespace Harlowe.Runtime
   /// </para>
   ///
   /// <para>
-  /// <b>Undo.</b> Multi-step: every <see cref="Goto"/> pushes a snapshot onto
-  /// the undo stack; <see cref="Undo"/> pops the most recent snapshot and
-  /// restores its passage, variable store, and visit counts. After
-  /// <see cref="Undo"/> returns <c>true</c>, call <see cref="Render"/> to
-  /// redisplay the restored passage. <see cref="Undo"/> returns <c>false</c>
-  /// only when the stack is empty (no <see cref="Goto"/> has happened, or
-  /// every prior step has already been undone). The stack is unbounded.
+  /// <b>Undo/redo.</b> Multi-step: every <see cref="Goto"/> finalises the live
+  /// turn into the past timeline (and clears the redo future); <see cref="Undo"/>
+  /// moves the present back one turn (onto the future) and restores its passage,
+  /// variable store, and visit counts, while <see cref="Redo"/> re-applies the
+  /// most recently undone turn. After either returns <c>true</c>, call
+  /// <see cref="Render"/> to redisplay. <see cref="Undo"/> returns <c>false</c>
+  /// at the first turn; <see cref="Redo"/> returns <c>false</c> with nothing
+  /// undone. The timeline is unbounded.
   /// </para>
   ///
   /// <para>
@@ -51,7 +52,12 @@ namespace Harlowe.Runtime
     private readonly HarloweVariableStore _store;
     private string _currentPassage;
     private Dictionary<string, int> _visitCounts;
-    private readonly List<SessionSnapshot> _undoStack;
+    // Timeline: completed turns (_past), the live turn (_present), and undone
+    // turns available to redo (_future). Goto finalises _present into _past and
+    // clears _future; Undo/Redo move the present between _past and _future.
+    private readonly List<Moment> _past;
+    private Moment _present;
+    private readonly List<Moment> _future;
     private readonly Stopwatch _passageTimer;
 
     // One RNG for the whole session, threaded into every MacroContext so every
@@ -129,12 +135,15 @@ namespace Harlowe.Runtime
       StandardMacros.RegisterAll(_registry);
       _store = new HarloweVariableStore();
       _visitCounts = new Dictionary<string, int>();
-      _undoStack = new List<SessionSnapshot>();
+      _past = new List<Moment>();
+      _future = new List<Moment>();
       _passageTimer = Stopwatch.StartNew();
       _rng = rng;
 
       var startPassage = story.GetStartPassage();
-      EnterPassage(startPassage != null ? startPassage.Name : string.Empty);
+      var startName = startPassage != null ? startPassage.Name : string.Empty;
+      _present = new Moment { PassageName = startName };
+      EnterPassage(startName);
     }
 
     // IEvaluationContext ---------------------------------------------------
@@ -154,27 +163,27 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
-    /// Total number of passage transitions in the current session, counting
-    /// the current one. <see cref="_undoStack"/> holds one entry per past
-    /// passage (appended at the start of every <see cref="Goto"/>), so the
-    /// count plus the current-passage-is-live bit gives the total.
+    /// Total number of turns this session, counting the current one. <c>_past</c>
+    /// holds one Moment per completed turn (and excludes the redo <c>_future</c>),
+    /// so the count plus the current-turn-is-live bit gives the total — it drops
+    /// after an <see cref="Undo"/>.
     /// </summary>
     public HarloweValue Turns =>
-      HarloweValue.OfNumber(_undoStack.Count + (string.IsNullOrEmpty(_currentPassage) ? 0 : 1));
+      HarloweValue.OfNumber(_past.Count + (string.IsNullOrEmpty(_currentPassage) ? 0 : 1));
 
     /// <summary>
-    /// Past passage names in visit order, oldest first, excluding the
-    /// current passage. Backs the <c>(history:)</c> macro. Each undo entry
-    /// stores its prior passage name and the list is oldest-first (appended at
-    /// each <see cref="Goto"/>), so a forward walk yields visit order directly.
+    /// Past passage names in visit order, oldest first, excluding the current
+    /// passage. Backs the <c>(history:)</c> macro. Each completed turn contributes
+    /// its resting passage; <c>_past</c> is oldest-first, so a forward walk yields
+    /// visit order directly. (Intra-turn redirect trails join this in a later step.)
     /// </summary>
     public HarloweValue History
     {
       get
       {
-        var list = new List<HarloweValue>(_undoStack.Count);
-        for (int i = 0; i < _undoStack.Count; i++)
-          list.Add(HarloweValue.OfString(_undoStack[i].PassageName ?? string.Empty));
+        var list = new List<HarloweValue>(_past.Count);
+        for (int i = 0; i < _past.Count; i++)
+          list.Add(HarloweValue.OfString(_past[i].PassageName ?? string.Empty));
         return HarloweValue.OfArray(list);
       }
     }
@@ -220,72 +229,119 @@ namespace Harlowe.Runtime
     /// </summary>
     public RenderResult Goto(string passageName)
     {
-      _undoStack.Add(new SessionSnapshot
-      {
-        PassageName = _currentPassage,
-        StoreDelta = _store.TakeStoryDelta(),
-        VisitCounts = CopyVisitCounts()
-      });
+      FinalizePresent();
+      _past.Add(_present);
+      _future.Clear();
+      _present = new Moment { PassageName = passageName };
       EnterPassage(passageName);
       return RenderInternal(0);
     }
 
     /// <summary>
-    /// Removes the most recent undo entry and restores its passage name,
-    /// story-variable state (reconstructed from the per-turn deltas), and visit
-    /// counts. Returns <c>true</c> if an entry was available and applied;
-    /// <c>false</c> if the stack is
-    /// empty. After returning <c>true</c>, call <see cref="Render"/> to
-    /// display the restored passage. May be called repeatedly to walk back
-    /// through every <see cref="Goto"/> the session has performed.
+    /// Moves the present back one turn: finalises the live turn onto the redo
+    /// future, pops the most recent past Moment as the new present, and restores
+    /// its passage name, story-variable state (reconstructed from the per-turn
+    /// deltas), and visit counts. Returns <c>true</c> if a past turn was available;
+    /// <c>false</c> at the first turn. After <c>true</c>, call <see cref="Render"/>
+    /// to display the restored passage. May be called repeatedly to walk back
+    /// through every <see cref="Goto"/>; <see cref="Redo"/> walks forward again.
     ///
     /// <para>
     /// The live render tree, click-handler registry, and enchantment list are
-    /// torn down — they belonged to the post-<see cref="Goto"/> passage, not
-    /// the one we're returning to. A <see cref="DispatchEvent"/> call made
-    /// between <see cref="Undo"/> and the next <see cref="Render"/> is a
-    /// no-op rather than firing handlers against a stale tree. The next
-    /// <see cref="Render"/> rebuilds both the tree and the handler/enchantment
-    /// state from passage source, so anything the restored passage's
-    /// <c>(click:)</c>/<c>(enchant:)</c> macros register gets re-registered
-    /// fresh.
+    /// torn down — they belonged to the turn we left, not the one we're returning
+    /// to. A <see cref="DispatchEvent"/> call made between <see cref="Undo"/> and
+    /// the next <see cref="Render"/> is a no-op rather than firing handlers against
+    /// a stale tree. The next <see cref="Render"/> rebuilds both the tree and the
+    /// handler/enchantment state from passage source, so anything the restored
+    /// passage's <c>(click:)</c>/<c>(enchant:)</c> macros register gets
+    /// re-registered fresh.
     /// </para>
     /// </summary>
     public bool Undo()
     {
-      if (_undoStack.Count == 0) return false;
-      int i = _undoStack.Count - 1;
-      var snap = _undoStack[i];
-      // Reconstruct the full story-var state at this undo point by flattening
-      // every delta up to and including it (last-write-wins), then install it.
-      // ResetStoryVars deep-copies on install, so the timeline's deltas stay
-      // independent of the live store.
-      _store.ResetStoryVars(Flatten(i));
-      _currentPassage = snap.PassageName;
-      _visitCounts = snap.VisitCounts;
-      _undoStack.RemoveAt(i);
-      _liveRoot = null;
-      _liveContext = null;
-      _passageTimer.Restart();
+      if (_past.Count == 0) return false;
+      FinalizePresent();
+      _future.Add(_present);
+      _present = _past[_past.Count - 1];
+      _past.RemoveAt(_past.Count - 1);
+      RestoreToPresent();
       return true;
     }
 
+    /// <summary>Alias for <see cref="Undo"/> (reference Harlowe's <c>rewind</c>).</summary>
+    public bool Rewind() => Undo();
+
     /// <summary>
-    /// Reconstructs the full story-variable state at undo point
-    /// <paramref name="upToInclusive"/> by applying each entry's forward delta
-    /// in chronological order (oldest first), last write winning. The returned
+    /// Re-applies the most recently undone turn: finalises the present back into
+    /// <c>_past</c>, pops the last <c>_future</c> Moment as the new present, and
+    /// restores its passage and variable state. Returns <c>false</c> when there is
+    /// nothing to redo — a <see cref="Goto"/> clears the redo future, so redo is
+    /// available only immediately after one or more <see cref="Undo"/>s. After
+    /// <c>true</c>, call <see cref="Render"/> to redisplay; the live tree is rebuilt
+    /// on that render exactly as for undo.
+    /// </summary>
+    public bool Redo()
+    {
+      if (_future.Count == 0) return false;
+      FinalizePresent();
+      _past.Add(_present);
+      _present = _future[_future.Count - 1];
+      _future.RemoveAt(_future.Count - 1);
+      RestoreToPresent();
+      return true;
+    }
+
+    /// <summary>Alias for <see cref="Redo"/> (reference Harlowe's <c>fastForward</c>).</summary>
+    public bool FastForward() => Redo();
+
+    /// <summary>
+    /// Captures the live turn's state into <c>_present</c> before it leaves the
+    /// present slot (on <see cref="Goto"/>/<see cref="Undo"/>/<see cref="Redo"/>):
+    /// its resting passage, the forward delta of story vars changed this turn
+    /// (<see cref="HarloweVariableStore.TakeStoryDelta"/>), and the visit counts.
+    /// </summary>
+    private void FinalizePresent()
+    {
+      _present.PassageName = _currentPassage;
+      _present.StoreDelta = _store.TakeStoryDelta();
+      _present.VisitCounts = CopyVisitCounts();
+    }
+
+    /// <summary>
+    /// Installs the Moment now in the present slot after an undo/redo move:
+    /// reconstructs the story-var state from the timeline's deltas, restores the
+    /// passage and visit counts, and tears down the live tree (it belonged to the
+    /// turn we left). The next <see cref="Render"/> rebuilds the tree from source.
+    /// </summary>
+    private void RestoreToPresent()
+    {
+      _store.ResetStoryVars(FlattenStore());
+      _currentPassage = _present.PassageName;
+      _visitCounts = _present.VisitCounts;
+      _liveRoot = null;
+      _liveContext = null;
+      _passageTimer.Restart();
+    }
+
+    /// <summary>
+    /// Reconstructs the full story-variable state at the end of the present turn
+    /// by applying every Moment's forward delta in chronological order — all of
+    /// <c>_past</c> then <c>_present</c> — last write winning. (The redo
+    /// <c>_future</c> is excluded; it lies ahead of the present.) The returned
     /// dictionary holds references into the deltas; the caller deep-copies on
     /// install.
     /// </summary>
-    private Dictionary<string, HarloweValue> Flatten(int upToInclusive)
+    private Dictionary<string, HarloweValue> FlattenStore()
     {
       var flat = new Dictionary<string, HarloweValue>();
-      for (int j = 0; j <= upToInclusive; j++)
+      for (int j = 0; j < _past.Count; j++)
       {
-        var delta = _undoStack[j].StoreDelta;
+        var delta = _past[j].StoreDelta;
         if (delta == null) continue;
         foreach (var kv in delta) flat[kv.Key] = kv.Value;
       }
+      if (_present.StoreDelta != null)
+        foreach (var kv in _present.StoreDelta) flat[kv.Key] = kv.Value;
       return flat;
     }
 
@@ -511,14 +567,5 @@ namespace Harlowe.Runtime
       return copy;
     }
 
-    private class SessionSnapshot
-    {
-      public string PassageName;
-      // The forward delta of story ($) variables changed during this turn —
-      // only the vars that changed, not a full store clone. Flattened
-      // oldest-first to reconstruct full state on undo.
-      public Dictionary<string, HarloweValue> StoreDelta;
-      public Dictionary<string, int> VisitCounts;
-    }
   }
 }
