@@ -178,8 +178,12 @@ the session-level `Redo`/`FastForward`.
   (Strictly-before on the Seed would reseed the first moment empty; the moment's
   own `SeedIter` is the other off-by-one.)
 - **PRNG** — `IRng` (`NextDouble()`, `Seed`/`SeedIter`, `SetSeed(seed, iter)`) +
-  `MulberryRng` porting reference's mulberry32 + MurmurHash3 with `unchecked`
-  32-bit math (`Math.imul` → `unchecked(a*b)` on int; `>>>` → `(uint)x >> n`).
+  `MulberryRng` (**landed, step 1**) porting reference's mulberry32 + MurmurHash3
+  in native wrapping `uint` arithmetic (`unchecked` blocks; uint `*` = `Math.imul`,
+  uint `>>` = JS `>>>`). Byte-identical to reference for any real session; the uint
+  counter wraps at 2^32 rather than mirroring reference's growing float `h`, so they
+  diverge only past ~5M draws/session (reference's float starts rounding there) — an
+  unreachable regime, accepted.
 - **Blob** — JSON array of moments via the existing `JsonWriter`/`JsonReader`;
   each var value a source string; a moment with no var changes, redirects, or
   recorded `Seed`/`SeedIter` compresses to a bare passage-name string (mirroring
@@ -346,11 +350,13 @@ under `HarloweParser.Tests/Runtime/Saving/` + `MulberryRngTests`.
   families plus `+`-composition all do. (`(if:)`/`(unless:)` are *not* changers
   here — `IfMacro` returns a Bool + sets `LastConditional` — so they don't
   apply.) A missed path serialises a changer with an empty source.
-- **PRNG byte-compat.** A C# integer-math quirk diverging from JS `Math.imul`/
-  `>>>` is caught by independent fixture vectors; `unchecked` + explicit
-  `(uint)x >> n` on netstandard2.0 (no C# 11 `>>>`). `h` accumulated as a JS
-  double vs C# `uint` wrap diverges only past ~5M draws/session — document, don't
-  fix.
+- ~~**PRNG byte-compat.**~~ *Resolved (step 1):* native wrapping `uint` arithmetic
+  reproduces JS's 32-bit `Math.imul`/`>>>` semantics, verified bit-for-bit against
+  independent reference vectors generated under Node (`MulberryRngTests`; suite
+  green on net48 + net8.0). The `uint` accumulator wraps at 2^32 rather than
+  tracking reference's growing float `h`, so results diverge only past ~5M draws in
+  one session — a deliberate simplification (cleaner code, no precision caveat) over
+  byte-exactness in a regime no story reaches.
 - **Timeline refactor regresses working undo.** Steps 1–2 touch live navigation
   code; keep the undo suite green and land step 2 as its own reviewable commit.
   Visit-count derivation changes the working visit path — re-test `visits`.
