@@ -242,7 +242,13 @@ namespace Harlowe.Runtime
       _past.Add(_present);
       _future.Clear();
       _present = new Moment { PassageName = passageName };
-      _turnStartIter = _rng.SeedIter;   // new turn starts where the last left off
+      // The new turn starts where the previous one ended. Derive that from the
+      // timeline (RestoreRng) rather than the live _rng: after an undo with no
+      // intervening re-render the live _rng still sits at the restored turn's
+      // *start*, so sampling it directly would start the new turn from the wrong
+      // position — and disagree with what a later undo reconstructs. For normal
+      // forward play this is a no-op (the live _rng is already at the prior end).
+      RestoreRng();
       EnterPassage(passageName);
       return RenderInternal(0);
     }
@@ -351,17 +357,24 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
-    /// Restores the RNG to the <em>start</em> of the turn now in the present slot,
-    /// so a re-render reproduces that turn's draws instead of advancing past them.
-    /// <see cref="Moment.SeedIter"/> is taken from the most recent turn recorded
-    /// <em>strictly before</em> the present (scanning <c>_past</c>; <c>0</c> when
-    /// no prior turn drew) — the present turn's start position, i.e. the end of the
+    /// Positions the RNG at the <em>start</em> of the turn now in the present slot
+    /// — whether freshly entered (a <see cref="Goto"/>, whose new turn starts where
+    /// the previous one ended) or restored by undo/redo (so a re-render reproduces
+    /// that turn's draws instead of advancing past them). <see cref="Moment.SeedIter"/>
+    /// is taken from the most recent turn recorded <em>strictly before</em> the
+    /// present (scanning <c>_past</c>; <c>0</c> when none drew) — i.e. the end of the
     /// previous drawing turn. <see cref="Moment.Seed"/> is the most recent recorded
     /// <em>at or before</em> the present (inclusive), which for this slice is always
     /// the session-initial seed the first Moment holds. (Using the present's own
-    /// SeedIter — its end position — would be the off-by-one that re-rolls
-    /// differently; the seed boundary is inclusive so restoring to the first turn
-    /// still finds the baseline seed.)
+    /// SeedIter — its end — would re-roll differently; the seed boundary is inclusive
+    /// so restoring to the first turn still finds the baseline seed.)
+    ///
+    /// <para><b>Known limitation:</b> reproduction holds for single-passage turns. A
+    /// multi-passage turn (an auto-<c>(goto:)</c> redirect chain) re-renders only its
+    /// resting passage, so draws in the chain's earlier passages aren't replayed and
+    /// a <c>(random:)</c> in the resting passage re-rolls from the turn start. Closing
+    /// it needs replaying from the entry passage via the redirect trail
+    /// (<see cref="Moment.Visits"/>, a later sub-step) — see SAVE-LOAD-PLAN.md.</para>
     /// </summary>
     private void RestoreRng()
     {
@@ -369,11 +382,12 @@ namespace Harlowe.Runtime
       for (int i = _past.Count - 1; i >= 0; i--)
         if (_past[i].SeedIter.HasValue) { seedIter = _past[i].SeedIter.Value; break; }
 
+      // The first Moment always carries the session-initial seed and is always in
+      // scope, so this resolves; SetSeed tolerates a null seed defensively anyway.
       string seed = _present.Seed;
       if (seed == null)
         for (int i = _past.Count - 1; i >= 0; i--)
           if (_past[i].Seed != null) { seed = _past[i].Seed; break; }
-      if (seed == null) seed = _rng.Seed;
 
       _rng.SetSeed(seed, seedIter);
       _turnStartIter = _rng.SeedIter;

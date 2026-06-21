@@ -334,6 +334,15 @@ under `HarloweParser.Tests/Runtime/Saving/` + `MulberryRngTests`.
 - **Deferred reference optimisations** — `at`/`via`/hash source-span ValueRefs
   (blob-size delta-compression + cross-version resilience) and per-value
   `seed`/`seedIter`. Not needed while we save resolved-value source.
+- **Multi-passage redirect-turn RNG reproduction (2b limitation).** On undo,
+  `RestoreToPresent` re-renders only the turn's *resting* passage from the RNG
+  start, so a `(random:)` in the resting passage of an auto-`(goto:)` chain
+  re-rolls without replaying the entry passage's earlier draws. Single-passage
+  turns reproduce correctly. Closing it needs replaying from the entry passage
+  using the redirect trail (`Moment.Visits`) — fold into **2c** when the trail
+  lands: restore `_currentPassage` to the entry (`Visits[0]`) so `Render` replays
+  the chain. Pinned by the `Skip`'d
+  `Undo_IntoRedirectTurn_RestingPassageRandomReproduces` test (un-skip on fix).
 
 ## Risks
 

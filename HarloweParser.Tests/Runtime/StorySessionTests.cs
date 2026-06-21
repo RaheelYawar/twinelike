@@ -890,6 +890,47 @@ namespace Harlowe.Tests.Runtime
       Assert.Equal(r3, session.Render().Text);
     }
 
+    [Fact]
+    public void Goto_AfterUndoWithoutRender_NewTurnRngStaysConsistent()
+    {
+      // After an undo with no intervening re-render, the live RNG sits at the
+      // restored turn's start. A forward Goto must still start the new turn from
+      // the prior turn's *end* (derived from the timeline), or the new turn's draw
+      // won't survive a later undo+render.
+      var story = Story("1",
+        ("1", "P1", "p1"),
+        ("2", "P2", "(print: (random: 1, 1000000))"),
+        ("3", "P3", "p3"),
+        ("4", "P4", "(print: (random: 1, 1000000))"));
+      var session = new StorySession(story, 42);
+      session.Goto("P2");
+      session.Goto("P3");
+      session.Undo();                          // -> P2, no render
+      var firstP4 = session.Goto("P4").Text;   // new turn draws
+      session.Goto("P3");                       // move forward so P4 can be undone to
+      session.Undo();                           // -> P4
+      Assert.Equal(firstP4, session.Render().Text);
+    }
+
+    [Fact(Skip = "Known limitation: a (random:) in the resting passage of a multi-passage " +
+                 "(auto-(goto:)) turn re-renders only the resting passage, from the turn start, " +
+                 "skipping the entry passage's draw, so it doesn't reproduce. Closed once the " +
+                 "redirect trail (Moment.Visits, slice 2c) lets undo replay from the entry passage.")]
+    public void Undo_IntoRedirectTurn_RestingPassageRandomReproduces()
+    {
+      // P2 draws then redirects to P3, which also draws; P3's draw originally
+      // happens at the later stream position. On undo the whole turn should replay
+      // from P2 so P3 re-rolls the same value.
+      var story = ThreePassages("p1",
+        "(set: $j to (random: 1, 1000000))(goto: \"P3\")",
+        "(print: (random: 1, 1000000))");
+      var session = new StorySession(story, 42);
+      var roll = session.Goto("P2").Text;   // lands on P3, prints its roll
+      session.Goto("P1");
+      session.Undo();                       // -> the P2->P3 turn (resting P3)
+      Assert.Equal(roll, session.Render().Text);
+    }
+
     // -----------------------------------------------------------------------
     // (history:) (slice C)
     // -----------------------------------------------------------------------
