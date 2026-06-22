@@ -49,6 +49,7 @@ namespace Harlowe.Runtime
   {
     private readonly Harlowe _story;
     private readonly MacroRegistry _registry;
+    private readonly Saving.ISaveStorage _storage;
     private readonly HarloweVariableStore _store;
     private string _currentPassage;
     // Timeline: completed turns (_past), the live turn (_present), and undone
@@ -136,18 +137,29 @@ namespace Harlowe.Runtime
     /// whose pid matches <see cref="Harlowe.StartNode"/>; call
     /// <see cref="Render"/> to obtain its content.
     /// </summary>
-    public StorySession(Harlowe story) : this(story, new MulberryRng()) { }
+    public StorySession(Harlowe story) : this(story, new MulberryRng(), new Saving.InMemorySaveStorage()) { }
 
     /// <summary>
     /// Builds a session with a fixed RNG seed, so <c>(random:)</c>/<c>(either:)</c>
     /// produce a reproducible sequence across the whole session — useful for
     /// tests and replays.
     /// </summary>
-    public StorySession(Harlowe story, int seed) : this(story, new MulberryRng(seed)) { }
+    public StorySession(Harlowe story, int seed) : this(story, new MulberryRng(seed), new Saving.InMemorySaveStorage()) { }
 
-    private StorySession(Harlowe story, IRng rng)
+    /// <summary>
+    /// Builds a session with a host-supplied save backend. Pass <c>null</c> to
+    /// disable saving (<c>(save-game:)</c> then returns false); the storage-free
+    /// constructors use a session-lifetime <see cref="Saving.InMemorySaveStorage"/>.
+    /// </summary>
+    public StorySession(Harlowe story, Saving.ISaveStorage storage) : this(story, new MulberryRng(), storage) { }
+
+    /// <summary>Seeded session with a host-supplied save backend (pass null to disable saving).</summary>
+    public StorySession(Harlowe story, int seed, Saving.ISaveStorage storage) : this(story, new MulberryRng(seed), storage) { }
+
+    private StorySession(Harlowe story, IRng rng, Saving.ISaveStorage storage)
     {
       _story = story;
+      _storage = storage;
       _registry = new MacroRegistry();
       StandardMacros.RegisterAll(_registry);
       _store = new HarloweVariableStore();
@@ -325,6 +337,106 @@ namespace Harlowe.Runtime
 
     /// <summary>Alias for <see cref="Redo"/> (reference Harlowe's <c>fastForward</c>).</summary>
     public bool FastForward() => Redo();
+
+    // ----- Save / load -----
+
+    /// <summary>
+    /// Why the most recent <see cref="SaveGame"/> failed, or null if it succeeded —
+    /// so a host (or <c>(save-game:)</c>) can report a no-backend / unsaveable-value /
+    /// write-rejected reason rather than a bare false.
+    /// </summary>
+    public string LastSaveError { get; private set; }
+
+    /// <summary>Why the most recent <see cref="LoadGame"/> failed (missing slot, corrupt blob, vanished passage, …), or null on success.</summary>
+    public string LastLoadError { get; private set; }
+
+    /// <summary>
+    /// Serialise the current timeline (completed turns + the live turn, excluding the
+    /// redo future) to the configured <see cref="Saving.ISaveStorage"/> under
+    /// <paramref name="slot"/>, with an optional display <paramref name="filename"/>
+    /// (defaulting to the slot name). The slot is IFID-namespaced internally
+    /// (<see cref="Saving.SaveKeys"/>). Returns false — setting
+    /// <see cref="LastSaveError"/> — if saving is disabled (null backend), the state
+    /// holds an unsaveable value (a non-finite number, an unstamped changer), or the
+    /// backend refuses the write.
+    /// </summary>
+    public bool SaveGame(string slot, string filename = null)
+    {
+      LastSaveError = null;
+      if (_storage == null) { LastSaveError = "saving is disabled (no storage backend)"; return false; }
+
+      string blob = Saving.SaveSerializer.SerialiseTimeline(_past, _present);
+      if (blob == null) { LastSaveError = "the story state holds a value that can't be saved"; return false; }
+
+      string key = Saving.SaveKeys.ToStorageKey(_story?.Ifid, slot);
+      if (!_storage.TryWrite(key, blob, filename ?? slot))
+      { LastSaveError = "the storage backend rejected the save"; return false; }
+      return true;
+    }
+
+    /// <summary>
+    /// Restore the timeline saved under <paramref name="slot"/>, replacing the current
+    /// timeline and positioning the session at the saved present turn (the next
+    /// <see cref="Render"/> shows it). Returns false — setting
+    /// <see cref="LastLoadError"/> and leaving session state untouched — if saving is
+    /// disabled, the slot is empty, or the blob is corrupt / references a passage that
+    /// no longer exists (deserialisation is atomic). Story variables and the RNG
+    /// restore to the loaded present's start so the re-render reproduces it.
+    ///
+    /// <para>This is the host-facing load; the <c>(load-game:)</c> macro layers the
+    /// in-passage navigation + infinite-loop guard atop the same install.</para>
+    /// </summary>
+    public bool LoadGame(string slot)
+    {
+      LastLoadError = null;
+      if (_storage == null) { LastLoadError = "saving is disabled (no storage backend)"; return false; }
+
+      string key = Saving.SaveKeys.ToStorageKey(_story?.Ifid, slot);
+      if (!_storage.TryRead(key, out var blob))
+      { LastLoadError = $"there is no saved game in slot '{slot}'"; return false; }
+
+      var result = Saving.SaveSerializer.DeserialiseTimeline(blob, _story, _registry, NewSaveContext());
+      if (!result.Ok) { LastLoadError = result.Error; return false; }
+
+      InstallTimeline(result.Past, result.Present);
+      return true;
+    }
+
+    /// <summary>
+    /// The saved games for this story as slot → display filename. Filters the
+    /// backend's contents to this story's IFID namespace and strips the prefix, so a
+    /// backend shared across stories lists only this one's saves. Backs
+    /// <c>(saved-games:)</c>.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> SavedGames()
+    {
+      var games = new Dictionary<string, string>();
+      if (_storage == null) return games;
+      string ifid = _story?.Ifid;
+      foreach (var info in _storage.Enumerate())
+        if (Saving.SaveKeys.TryGetSlot(ifid, info.Key, out var slot))
+          games[slot] = info.Filename;
+      return games;
+    }
+
+    /// <summary>
+    /// Install a freshly-loaded timeline and position the session at its present turn,
+    /// reusing the undo/redo restore path (<see cref="RestoreToPresent"/>) to rebuild
+    /// the store, RNG, and passage from the loaded moments. Shared by
+    /// <see cref="LoadGame"/> and (later) the <c>(load-game:)</c> macro.
+    /// </summary>
+    private void InstallTimeline(List<Moment> past, Moment present)
+    {
+      _past.Clear();
+      if (past != null) _past.AddRange(past);
+      _future.Clear();
+      _present = present;
+      RestoreToPresent();
+    }
+
+    /// <summary>A context for re-evaluating saved value source during a load (deserialise dispatches collection/changer macros through the registry).</summary>
+    private MacroContext NewSaveContext()
+      => new MacroContext { Store = _store, EvaluationContext = this, Invoker = _registry, Rng = _rng };
 
     /// <summary>
     /// Shared body of <see cref="Undo"/>/<see cref="Redo"/>: finalise the live
