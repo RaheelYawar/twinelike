@@ -296,8 +296,6 @@ Total ~1570 LoC + tests across 7 commits.
 `History`/`Visits`/`Turns` (excluding `_future`) + session-held `_loadedGame`/`LastLoadError`/`LastSaveError`
 seeded into each `MacroContext`); `Runtime/MacroContext.cs` (`Rng` → `IRng`
 [public break], `LoadedGame` slot + pending-load, both seeded/read per render);
-`Runtime/HarloweVariableStore.cs` (add non-destructive `PeekStoryDelta()` so a
-mid-render `(save-game:)` doesn't clear the dirty set the next undo needs);
 `Runtime/HarloweValue.cs` (add `ToSource()`); `Runtime/Changer.cs`
 (+ `Source` field); `Runtime/ExpressionEvaluator.cs` (stamp changer source at the
 macro-call/compose chokepoint); `Runtime/Macros/RandomMacro.cs` + `EitherMacro.cs`
@@ -318,14 +316,18 @@ under `HarloweParser.Tests/Runtime/Saving/` + `MulberryRngTests`.
   enchantments/click handlers/hook resolutions. Only *story state* (vars,
   passage, turn count) restores — an unfired `(click:)` from before the save is
   lost. Document in the macro docstrings.
-- **`(save-game:)` mid-render captures in-progress state**, not entry-state
-  (matches reference) — via the non-destructive `PeekStoryDelta()`: the present
-  turn's delta lives in `_dirtyStoryVars`, which `TakeStoryDelta` *clears*
-  (HarloweVariableStore.cs:145) for the next undo, so a mid-turn save must peek,
-  not take. The RNG needs the same: `_present.SeedIter` is reconciled only
-  post-render, so a mid-render save must read `_rng.SeedIter`/`Seed` *live* for
-  the present (the PRNG analogue of `PeekStoryDelta`), not the stale stamped
-  value. Pin in step 6.
+- **Dispatch-time state isn't captured on save (documented boundary).** A save
+  reproduces the present turn's variables by re-rendering its passage on load
+  (start-of-turn store + replay, per the double-apply fix). Top-level `(set:)`s
+  reproduce; a variable changed by a click/hover interaction on the *current*
+  passage (no navigation) does not — re-render rebuilds the interaction but doesn't
+  re-fire it, so a host save taken after a dispatch loses that change. The in-passage
+  `(save-game:)` macro is largely unaffected (clicks fire after the render). Fully
+  closing it is reference's per-moment full-variable *snapshot* instead of
+  delta+replay — a larger change than this slice; documented on
+  `StorySession.SaveGame`. *(Supersedes the earlier `PeekStoryDelta` idea: the
+  start-of-turn-restore fix made it moot — the present's delta is reproduced by
+  re-render, never applied on load, so peeking it on save would buy nothing.)*
 - **`LoadedGame` is session-held**, seeded into each per-render `MacroContext`,
   set for the loaded passage's render and cleared at the next `EnterPassage`
   away (auto-`(goto:)`/redirect included — reference's per-`showPassage`

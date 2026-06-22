@@ -33,7 +33,16 @@ namespace Harlowe.Runtime.Saving
     public static bool TryGetSlot(string ifid, string key, out string slot)
     {
       if (key == null) { slot = null; return false; }
-      if (string.IsNullOrEmpty(ifid)) { slot = key; return true; }
+      if (string.IsNullOrEmpty(ifid))
+      {
+        // An IFID-less story owns only truly-unprefixed keys. A key carrying another
+        // (IFID'd) story's "(Saved Game <ifid>) " prefix isn't ours — don't surface
+        // it. (The documented collision is IFID-less-with-IFID-less, via bare keys;
+        // actively listing an IFID'd story's saves would be a step beyond that.)
+        if (LooksPrefixed(key)) { slot = null; return false; }
+        slot = key;
+        return true;
+      }
       string prefix = Open + ifid + Close;
       if (key.StartsWith(prefix, StringComparison.Ordinal))
       {
@@ -43,5 +52,10 @@ namespace Harlowe.Runtime.Saving
       slot = null;
       return false;
     }
+
+    /// <summary>True when <paramref name="key"/> has the "(Saved Game &lt;ifid&gt;) " shape of an IFID-namespaced key (open marker plus a closing ") " after it).</summary>
+    private static bool LooksPrefixed(string key)
+      => key.StartsWith(Open, StringComparison.Ordinal)
+         && key.IndexOf(Close, Open.Length, StringComparison.Ordinal) >= 0;
   }
 }

@@ -86,10 +86,17 @@ namespace Harlowe.Tests.Runtime.Saving
     }
 
     [Fact]
-    public void TryGetSlot_EmptyIfid_TreatsEveryKeyAsOurs()
+    public void TryGetSlot_EmptyIfid_TreatsBareKeyAsOurs()
     {
       Assert.True(SaveKeys.TryGetSlot("", "anything", out var slot));
       Assert.Equal("anything", slot);
+    }
+
+    [Fact]
+    public void TryGetSlot_EmptyIfid_SkipsForeignIfidPrefixedKey()
+    {
+      var foreign = SaveKeys.ToStorageKey("OTHER-STORY", "theirSlot");
+      Assert.False(SaveKeys.TryGetSlot("", foreign, out _));
     }
   }
 }

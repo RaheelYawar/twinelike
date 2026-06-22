@@ -359,6 +359,18 @@ namespace Harlowe.Runtime
     /// <see cref="LastSaveError"/> — if saving is disabled (null backend), the state
     /// holds an unsaveable value (a non-finite number, an unstamped changer), or the
     /// backend refuses the write.
+    ///
+    /// <para><b>Fidelity boundary.</b> The live present turn is saved by passage +
+    /// timeline; its variable state is rebuilt by <em>re-rendering</em> that passage
+    /// on load (start-of-turn store + replay — the same model as undo). Top-level
+    /// <c>(set:)</c>s reproduce exactly, but a variable changed by a click/hover
+    /// interaction on the current passage (a dispatch, with no navigation) is
+    /// <em>not</em> recaptured — re-render rebuilds the interaction but doesn't
+    /// re-fire it. So a save taken after such an in-place choice loses that change.
+    /// This is the delta+replay timeline model's trade-off (reference's full-variable
+    /// snapshot would capture it); navigating before saving finalises the turn into
+    /// the timeline and persists its effect. The in-passage <c>(save-game:)</c> macro
+    /// is largely unaffected, since clicks fire after the render.</para>
     /// </summary>
     public bool SaveGame(string slot, string filename = null)
     {

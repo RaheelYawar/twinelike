@@ -62,6 +62,26 @@ namespace Harlowe.Tests.Runtime.Saving
     }
 
     [Fact]
+    public void SavedGames_IfidLessStory_DoesNotListForeignStoriesSaves()
+    {
+      // A shared backend already holding an IFID'd story's save.
+      var storage = new InMemorySaveStorage();
+      storage.TryWrite(SaveKeys.ToStorageKey("SOME-IFID", "theirs"), "blob", "Theirs");
+
+      // An IFID-less story must list only its own (bare-key) saves, not the foreign one.
+      var noIfid = new Harlowe("<html><body><tw-storydata name=\"T\" startnode=\"1\">"
+        + "<tw-passagedata pid=\"1\" name=\"P1\" tags=\"\">p1</tw-passagedata>"
+        + "</tw-storydata></body></html>");
+      var session = new StorySession(noIfid, storage);
+      session.SaveGame("mine");
+
+      var games = session.SavedGames();
+      Assert.True(games.ContainsKey("mine"));
+      Assert.False(games.ContainsKey("theirs"));
+      Assert.Single(games);
+    }
+
+    [Fact]
     public void SharedBackend_SaveInOneSession_LoadInAnother()
     {
       // The realistic save-to-disk shape: one backend, two sessions of the same story.
