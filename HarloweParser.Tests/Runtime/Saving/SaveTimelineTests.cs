@@ -171,6 +171,29 @@ namespace Harlowe.Tests.Runtime.Saving
     }
 
     [Fact]
+    public void HugeVersion_RefusedNotBypassedByOverflow()
+    {
+      // (int)1e20 wraps to a value <= Current and would slip past the gate; the
+      // refusal must compare the double directly.
+      var (reg, ctx) = Env();
+      var r = SaveSerializer.DeserialiseTimeline("{ \"version\": 1e20, \"moments\": [\"P1\"] }", Story("P1"), reg, ctx);
+      Assert.False(r.Ok);
+      Assert.Contains("newer version", r.Error);
+    }
+
+    [Theory]
+    [InlineData("1e20")]
+    [InlineData("-5")]
+    public void OutOfRangeSeedIter_FailsLoad(string seedIter)
+    {
+      var (reg, ctx) = Env();
+      var blob = "{ \"version\": 1, \"moments\": [ { \"passage\": \"P1\", \"seedIter\": " + seedIter + " } ] }";
+      var r = SaveSerializer.DeserialiseTimeline(blob, Story("P1"), reg, ctx);
+      Assert.False(r.Ok);
+      Assert.Contains("out of range", r.Error);
+    }
+
+    [Fact]
     public void CorruptVarSource_FailsLoad()
     {
       // A tampered blob whose variable source doesn't evaluate cleanly fails the load.

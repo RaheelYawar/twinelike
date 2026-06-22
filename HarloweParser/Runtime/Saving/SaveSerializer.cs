@@ -178,9 +178,10 @@ namespace Harlowe.Runtime.Saving
       if (!(root is Dictionary<string, object> dict)) return Fail("save data is not an object");
       if (!dict.TryGetValue("version", out var vObj) || !(vObj is double vNum))
         return Fail("save data has no version");
-      int version = (int)vNum;
-      if (version > SaveBlobVersion.Current)
-        return Fail($"save data is from a newer version ({version} > {SaveBlobVersion.Current})");
+      // Compare the double directly — (int)vNum on an out-of-range value (e.g. 1e20)
+      // is unspecified in C# and can wrap to a value that slips past this gate.
+      if (vNum > SaveBlobVersion.Current)
+        return Fail($"save data is from a newer version ({HarloweValue.FormatNumber(vNum)} > {SaveBlobVersion.Current})");
       if (!dict.TryGetValue("moments", out var mObj) || !(mObj is List<object> momentList) || momentList.Count == 0)
         return Fail("save data has no moments");
 
@@ -255,6 +256,10 @@ namespace Harlowe.Runtime.Saving
       if (obj.TryGetValue("seedIter", out var iterObj))
       {
         if (!(iterObj is double iterNum)) { error = "moment RNG position is malformed"; return null; }
+        // A draw count is a non-negative int; reject out-of-range before the cast
+        // (unspecified for an out-of-range double) so a corrupt blob can't feed
+        // garbage into the RNG restore.
+        if (iterNum < 0 || iterNum > int.MaxValue) { error = "moment RNG position is out of range"; return null; }
         moment.SeedIter = (int)iterNum;
       }
 
