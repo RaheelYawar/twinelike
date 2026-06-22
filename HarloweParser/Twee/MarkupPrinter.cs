@@ -451,9 +451,24 @@ namespace Harlowe.Twee
     /// output remains printable ASCII. Other characters (including <c>'</c>,
     /// which no longer needs special handling) pass through verbatim.
     /// </summary>
-    private void AppendStringLiteral(string s)
+    private void AppendStringLiteral(string s) => AppendStringLiteralTo(_sb, s);
+
+    /// <summary>
+    /// The standalone, instance-free form of <see cref="AppendStringLiteral"/>: a
+    /// double-quoted, backslash-escaped Harlowe string literal for an arbitrary
+    /// value. Used by <see cref="HarloweValue.ToSource"/> to serialise string values
+    /// (and datamap keys) round-trippably without an AST node or a printer instance.
+    /// </summary>
+    public static string StringLiteral(string s)
     {
-      _sb.Append('"');
+      var sb = new StringBuilder();
+      AppendStringLiteralTo(sb, s);
+      return sb.ToString();
+    }
+
+    private static void AppendStringLiteralTo(StringBuilder sb, string s)
+    {
+      sb.Append('"');
       if (s != null)
       {
         for (int i = 0; i < s.Length; i++)
@@ -461,21 +476,21 @@ namespace Harlowe.Twee
           char c = s[i];
           switch (c)
           {
-            case '\\': _sb.Append("\\\\"); break;
-            case '"':  _sb.Append("\\\""); break;
-            case '\n': _sb.Append("\\n"); break;
-            case '\r': _sb.Append("\\r"); break;
-            case '\t': _sb.Append("\\t"); break;
+            case '\\': sb.Append("\\\\"); break;
+            case '"':  sb.Append("\\\""); break;
+            case '\n': sb.Append("\\n"); break;
+            case '\r': sb.Append("\\r"); break;
+            case '\t': sb.Append("\\t"); break;
             default:
               if (c < 0x20 || c == 0x7f)
-                _sb.Append("\\x").Append(((int)c).ToString("x2", CultureInfo.InvariantCulture));
+                sb.Append("\\x").Append(((int)c).ToString("x2", CultureInfo.InvariantCulture));
               else
-                _sb.Append(c);
+                sb.Append(c);
               break;
           }
         }
       }
-      _sb.Append('"');
+      sb.Append('"');
     }
   }
 }

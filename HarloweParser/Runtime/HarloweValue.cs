@@ -184,6 +184,91 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
+    /// Serialise this value to Harlowe <em>source</em> that re-evaluates (via the
+    /// tokenizer + <see cref="ExpressionEvaluator"/>) to an equal value — the
+    /// save/load primitive, matching reference's source-based variable store
+    /// (<c>toSource</c> + re-<c>eval</c> in <c>varscope.ts</c>). Number →
+    /// <see cref="FormatNumber"/>, String → a quoted literal, Bool → <c>true</c>/
+    /// <c>false</c>, Array → <c>(a:…)</c>, Datamap → <c>(dm:"k",v,…)</c> (keys
+    /// ordinal-sorted for determinism; round-trip is order-independent), Lambda /
+    /// HookName → the printed expression, Changer → its stamped
+    /// <see cref="Changer.Source"/>.
+    ///
+    /// <para>Returns <c>null</c> for a value with no source form — a non-finite number
+    /// (NaN/±∞), an <see cref="HarloweValueKind.Error"/>, or a Changer whose source was
+    /// never stamped — recursing into collections, so a <c>NaN</c> nested in
+    /// <c>(a: 1, NaN)</c> makes the whole array un-sourceable. Callers treat null as
+    /// "this value can't be saved". Non-throwing, so it is safe to call from the
+    /// evaluator's changer-source stamp on the hot path.</para>
+    /// </summary>
+    public string ToSource()
+    {
+      switch (Kind)
+      {
+        case HarloweValueKind.Number:
+        {
+          double d = (double)Raw;
+          if (double.IsNaN(d) || double.IsInfinity(d)) return null;
+          return FormatNumber(d);
+        }
+        case HarloweValueKind.String:
+          return Twee.MarkupPrinter.StringLiteral((string)Raw);
+        case HarloweValueKind.Bool:
+          return (bool)Raw ? "true" : "false";
+        case HarloweValueKind.Array:
+          return ArrayToSource((List<HarloweValue>)Raw);
+        case HarloweValueKind.Datamap:
+          return DatamapToSource((Dictionary<string, HarloweValue>)Raw);
+        case HarloweValueKind.Changer:
+          return ((Changer)Raw).Source;
+        case HarloweValueKind.Lambda:
+          return new Twee.MarkupPrinter().Print(((LambdaValue)Raw).Node);
+        case HarloweValueKind.HookName:
+          return HookNameToSource((HookNameValue)Raw);
+        case HarloweValueKind.Error:
+          return null;
+      }
+      return null;
+    }
+
+    private static string ArrayToSource(List<HarloweValue> items)
+    {
+      var sb = new StringBuilder("(a:");
+      for (int i = 0; i < items.Count; i++)
+      {
+        if (i > 0) sb.Append(',');
+        string s = items[i].ToSource();
+        if (s == null) return null;
+        sb.Append(s);
+      }
+      return sb.Append(')').ToString();
+    }
+
+    private static string DatamapToSource(Dictionary<string, HarloweValue> map)
+    {
+      var keys = new List<string>(map.Count);
+      foreach (var kv in map) keys.Add(kv.Key);
+      keys.Sort(StringComparer.Ordinal);
+      var sb = new StringBuilder("(dm:");
+      for (int i = 0; i < keys.Count; i++)
+      {
+        if (i > 0) sb.Append(',');
+        string vs = map[keys[i]].ToSource();
+        if (vs == null) return null;
+        sb.Append(Twee.MarkupPrinter.StringLiteral(keys[i])).Append(',').Append(vs);
+      }
+      return sb.Append(')').ToString();
+    }
+
+    private static string HookNameToSource(HookNameValue hn)
+    {
+      var node = new Ast.Expression.HookRefNode { Name = hn.Name };
+      if (hn.Steps != null)
+        foreach (var step in hn.Steps) node.Steps.Add(step);
+      return new Twee.MarkupPrinter().Print(node);
+    }
+
+    /// <summary>
     /// Renderer-facing string form. Numbers use invariant culture so a story
     /// always prints <c>1.5</c>, never <c>1,5</c>. Booleans render as the
     /// lowercase keywords Harlowe uses in source. Arrays render as

@@ -32,6 +32,19 @@ namespace Harlowe.Runtime
   {
     private readonly List<IChangerPatch> _patches;
 
+    /// <summary>
+    /// The Harlowe source that created this changer — <c>(text-style:"bold")</c>,
+    /// or <c>(text-style:"bold")+(text-colour:"red")</c> for a composed one. Stamped
+    /// by the <see cref="ExpressionEvaluator"/> at the macro-call and <c>+</c>-compose
+    /// sites (reference keeps <c>macroName</c>+<c>params</c> and regenerates source the
+    /// same way in <c>changer.ts</c>'s <c>TwineScript_ToSource</c>). Travels with the
+    /// value, so a changer read back from a <c>$var</c> keeps its creation-time source —
+    /// which is how <see cref="HarloweValue.ToSource"/> serialises it. Null when
+    /// unstamped or composed from an unstamped operand: such a changer has no source
+    /// form and can't be saved (the save fails loudly).
+    /// </summary>
+    public string Source;
+
     private Changer(List<IChangerPatch> patches)
     {
       _patches = patches;
