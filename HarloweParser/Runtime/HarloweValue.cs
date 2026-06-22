@@ -201,8 +201,20 @@ namespace Harlowe.Runtime
     /// "this value can't be saved". Non-throwing, so it is safe to call from the
     /// evaluator's changer-source stamp on the hot path.</para>
     /// </summary>
-    public string ToSource()
+    public string ToSource() => ToSource(0);
+
+    private const int MaxSourceDepth = 256;
+
+    /// <summary>
+    /// Depth-guarded recursive worker for <see cref="ToSource()"/>. Past
+    /// <see cref="MaxSourceDepth"/> levels of nesting it returns null — a
+    /// pathologically deep value is treated as un-saveable rather than risking an
+    /// uncatchable <see cref="System.StackOverflowException"/>, matching the depth
+    /// caps elsewhere (DeepCopyValue, the parsers, JsonReader).
+    /// </summary>
+    private string ToSource(int depth)
     {
+      if (depth >= MaxSourceDepth) return null;
       switch (Kind)
       {
         case HarloweValueKind.Number:
@@ -216,9 +228,9 @@ namespace Harlowe.Runtime
         case HarloweValueKind.Bool:
           return (bool)Raw ? "true" : "false";
         case HarloweValueKind.Array:
-          return ArrayToSource((List<HarloweValue>)Raw);
+          return ArrayToSource((List<HarloweValue>)Raw, depth);
         case HarloweValueKind.Datamap:
-          return DatamapToSource((Dictionary<string, HarloweValue>)Raw);
+          return DatamapToSource((Dictionary<string, HarloweValue>)Raw, depth);
         case HarloweValueKind.Changer:
           return ((Changer)Raw).Source;
         case HarloweValueKind.Lambda:
@@ -231,20 +243,20 @@ namespace Harlowe.Runtime
       return null;
     }
 
-    private static string ArrayToSource(List<HarloweValue> items)
+    private static string ArrayToSource(List<HarloweValue> items, int depth)
     {
       var sb = new StringBuilder("(a:");
       for (int i = 0; i < items.Count; i++)
       {
         if (i > 0) sb.Append(',');
-        string s = items[i].ToSource();
+        string s = items[i].ToSource(depth + 1);
         if (s == null) return null;
         sb.Append(s);
       }
       return sb.Append(')').ToString();
     }
 
-    private static string DatamapToSource(Dictionary<string, HarloweValue> map)
+    private static string DatamapToSource(Dictionary<string, HarloweValue> map, int depth)
     {
       var keys = new List<string>(map.Count);
       foreach (var kv in map) keys.Add(kv.Key);
@@ -253,7 +265,7 @@ namespace Harlowe.Runtime
       for (int i = 0; i < keys.Count; i++)
       {
         if (i > 0) sb.Append(',');
-        string vs = map[keys[i]].ToSource();
+        string vs = map[keys[i]].ToSource(depth + 1);
         if (vs == null) return null;
         sb.Append(Twee.MarkupPrinter.StringLiteral(keys[i])).Append(',').Append(vs);
       }

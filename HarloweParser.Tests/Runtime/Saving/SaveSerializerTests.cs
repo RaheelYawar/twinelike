@@ -195,5 +195,28 @@ namespace Harlowe.Tests.Runtime.Saving
     {
       Assert.Null(HarloweValue.OfError("boom").ToSource());
     }
+
+    [Fact]
+    public void ToSource_DeeplyNestedValue_ReturnsNullNotStackOverflow()
+    {
+      // ToSource is public and recursive; past the depth cap a pathologically nested
+      // value is un-saveable (null), not an uncatchable StackOverflow.
+      var v = HarloweValue.OfNumber(1);
+      for (int i = 0; i < 300; i++)
+        v = HarloweValue.OfArray(new System.Collections.Generic.List<HarloweValue> { v });
+      Assert.Null(v.ToSource());
+    }
+
+    [Fact]
+    public void Deserialise_ThrowingEvaluation_ReturnsErrorNotThrow()
+    {
+      // ToSource never emits a var-ref, so "$x" is tampered/invalid source; with no
+      // context (null store) the evaluator would NRE. The load boundary must degrade
+      // to one in-prose error, honouring Deserialise's non-throwing contract.
+      var registry = new MacroRegistry();
+      StandardMacros.RegisterAll(registry);
+      var result = SaveSerializer.Deserialise("$x", registry, null);
+      Assert.True(result.IsError);
+    }
   }
 }

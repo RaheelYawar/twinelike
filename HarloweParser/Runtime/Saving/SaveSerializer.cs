@@ -65,6 +65,15 @@ namespace Harlowe.Runtime.Saving
         var evaluator = new ExpressionEvaluator(context?.Store, context?.EvaluationContext, registry);
         return evaluator.Evaluate(node);
       }
+      catch (System.Exception ex)
+      {
+        // The evaluator is meant to return Error values, never throw — but this is the
+        // load boundary re-evaluating possibly-tampered blob source, so degrade any
+        // unexpected throw (a buggy macro, or a var-ref behind a null store) to one
+        // in-prose error rather than letting it crash the whole load. Mirrors the
+        // parse guard above, honouring the non-throwing contract end to end.
+        return HarloweValue.OfError("could not evaluate save value: " + ex.Message);
+      }
       finally
       {
         registry.Context = prior;
