@@ -71,6 +71,18 @@ namespace Harlowe.Runtime
     // whether the present turn drew (and so whether to record its SeedIter).
     private int _turnStartIter;
 
+    // True when the live store/RNG sit at the present turn's START (set by undo/redo
+    // restore, cleared once a render rebuilds the turn's end-state). Lets Goto tell
+    // whether an undo/redo happened with no intervening render and must therefore
+    // rebuild the previous turn's end-state before starting a new turn.
+    private bool _liveAtTurnStart;
+
+    // When restoring into a multi-passage redirect turn, the entry passage the next
+    // render replays from (Moment.Visits[0]); null otherwise. Kept separate from
+    // _currentPassage so CurrentPassage still reports the turn's resting passage
+    // between Undo() and the replay Render().
+    private string _replayFrom;
+
     // The live render-tree state for the most recent main render. Kept alive
     // across renders so DispatchEvent can mutate it, re-flush, and return an
     // updated RenderResult without re-rendering the whole passage. Both reset
@@ -250,13 +262,23 @@ namespace Harlowe.Runtime
       _past.Add(_present);
       _future.Clear();
       _present = new Moment { PassageName = passageName };
-      // The new turn starts where the previous one ended. Derive that from the
-      // timeline (RestoreRng) rather than the live _rng: after an undo with no
-      // intervening re-render the live _rng still sits at the restored turn's
-      // *start*, so sampling it directly would start the new turn from the wrong
-      // position — and disagree with what a later undo reconstructs. For normal
-      // forward play this is a no-op (the live _rng is already at the prior end).
-      RestoreRng();
+      // A new turn starts where the previous one *ended*. Normally the live store
+      // and RNG already sit there (the previous turn just rendered), so we only note
+      // the RNG position. But after an undo/redo with no intervening render the live
+      // state still sits at the restored turn's *start* — rebuild it to the previous
+      // turn's end first, or the new turn starts from stale state and disagrees with
+      // what a later undo reconstructs. FlattenStore() == flatten(_past), the
+      // start-of-present-turn state, which for the new (empty) present is exactly the
+      // previous turn's end.
+      if (_liveAtTurnStart)
+      {
+        _store.ResetStoryVars(FlattenStore());
+        RestoreRng();
+      }
+      else
+      {
+        _turnStartIter = _rng.SeedIter;
+      }
       EnterPassage(passageName);
       return RenderInternal(0);
     }
@@ -346,24 +368,29 @@ namespace Harlowe.Runtime
 
     /// <summary>
     /// Installs the Moment now in the present slot after a <see cref="Move"/>:
-    /// reconstructs the story-var state from the timeline's deltas, restores the RNG
-    /// (<see cref="RestoreRng"/>) and the passage, and tears down the live tree (it
-    /// belonged to the turn we left). The next <see cref="Render"/> rebuilds the
-    /// tree from source.
+    /// reconstructs the story-var state and RNG to the restored turn's <em>start</em>
+    /// (<see cref="FlattenStore"/> / <see cref="RestoreRng"/>), sets the passage to
+    /// the turn's resting passage, and tears down the live tree (it belonged to the
+    /// turn we left). The next <see cref="Render"/> rebuilds the end-state by
+    /// re-running the turn — re-applying its <c>(set:)</c>s and reproducing its draws
+    /// exactly once (so an accumulating set like <c>$x to $x + 1</c> isn't doubled).
     ///
-    /// <para>For a multi-passage (auto-<c>(goto:)</c> redirect) turn the passage is
-    /// set to the turn's <em>entry</em> (<see cref="Moment.Visits"/>[0]), not its
-    /// resting passage, so the re-render replays the whole chain from the start —
-    /// reproducing the entry passages' draws and rebuilding the redirect trail. A
-    /// single-passage turn restores directly to its passage.</para>
+    /// <para>The replay starts from <see cref="_replayFrom"/>: for a multi-passage
+    /// (auto-<c>(goto:)</c> redirect) turn that's the entry passage
+    /// (<see cref="Moment.Visits"/>[0]) so the whole chain replays; for a
+    /// single-passage turn it's null and the render runs the resting passage
+    /// directly. <see cref="CurrentPassage"/> stays the resting passage throughout,
+    /// even before the replay render.</para>
     /// </summary>
     private void RestoreToPresent()
     {
-      _store.ResetStoryVars(FlattenStore());
-      RestoreRng();
-      _currentPassage = _present.Visits != null && _present.Visits.Count > 0
+      _store.ResetStoryVars(FlattenStore());   // start-of-turn store; the replay re-applies the turn's sets
+      RestoreRng();                            // start-of-turn RNG; the replay reproduces the turn's draws
+      _currentPassage = _present.PassageName;
+      _replayFrom = _present.Visits != null && _present.Visits.Count > 0
         ? _present.Visits[0]
-        : _present.PassageName;
+        : null;
+      _liveAtTurnStart = true;
       _liveRoot = null;
       _liveContext = null;
       _passageTimer.Restart();
@@ -402,12 +429,15 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
-    /// Reconstructs the full story-variable state at the end of the present turn
-    /// by applying every Moment's forward delta in chronological order — all of
-    /// <c>_past</c> then <c>_present</c> — last write winning. (The redo
-    /// <c>_future</c> is excluded; it lies ahead of the present.) The returned
-    /// dictionary holds references into the deltas; the caller deep-copies on
-    /// install.
+    /// Reconstructs the story-variable state at the <em>start</em> of the present
+    /// turn: the cumulative effect of every <em>past</em> turn's forward delta, in
+    /// chronological order, last write winning. The present turn's own delta is
+    /// <em>excluded</em> — the re-render re-runs that turn's <c>(set:)</c>s, so
+    /// including it would double a relative set (<c>$x to $x + 1</c>) on undo. For a
+    /// freshly-created present (a new <see cref="Goto"/> turn, delta still null) this
+    /// is exactly the previous turn's end. (The redo <c>_future</c> is excluded; it
+    /// lies ahead of the present.) The returned dictionary holds references into the
+    /// deltas; the caller deep-copies on install.
     /// </summary>
     private Dictionary<string, HarloweValue> FlattenStore()
     {
@@ -418,8 +448,6 @@ namespace Harlowe.Runtime
         if (delta == null) continue;
         foreach (var kv in delta) flat[kv.Key] = kv.Value;
       }
-      if (_present.StoreDelta != null)
-        foreach (var kv in _present.StoreDelta) flat[kv.Key] = kv.Value;
       return flat;
     }
 
@@ -449,6 +477,12 @@ namespace Harlowe.Runtime
         // a re-render (e.g. replaying a restored turn from its entry passage) must
         // not append to the existing trail. The redirect path below re-populates it.
         _present.Visits = null;
+        // A replay of a restored turn starts from its entry passage; redirects then
+        // walk _currentPassage on to the resting passage. Consume the marker here.
+        if (_replayFrom != null) { _currentPassage = _replayFrom; _replayFrom = null; }
+        // From here the render rebuilds the present turn's end-state, so the live
+        // store/RNG are no longer at the turn start.
+        _liveAtTurnStart = false;
       }
 
       if (string.IsNullOrEmpty(_currentPassage))

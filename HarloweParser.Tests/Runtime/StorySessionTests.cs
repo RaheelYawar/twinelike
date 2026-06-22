@@ -966,6 +966,64 @@ namespace Harlowe.Tests.Runtime
     }
 
     // -----------------------------------------------------------------------
+    // Store restored to turn-start, symmetric with the RNG (review fixes)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Undo_IntoRelativeSetPassage_ReappliesOnce_NoDoubling()
+    {
+      // P2 accumulates; on undo the store is restored to the turn's START so the
+      // re-render re-applies the set exactly once (was doubling — store restored
+      // to the turn's end, then the set re-ran on top → "12").
+      var session = new StorySession(ThreePassages("(set: $x to 10)", "(set: $x to $x + 1)$x", "p3"));
+      session.Render();                            // P1: $x = 10
+      Assert.Equal("11", session.Goto("P2").Text);
+      session.Goto("P3");
+      session.Undo();                              // -> P2
+      Assert.Equal("11", session.Render().Text);   // not "12"
+    }
+
+    [Fact]
+    public void UndoThenContinue_DoesNotInflateAccumulatingVar()
+    {
+      // The natural undo flow: undo a choice, re-render, then go forward. The
+      // accumulating var must not carry an inflated value into the new branch.
+      var session = new StorySession(ThreePassages("(set: $x to 10)", "(set: $x to $x + 1)", "$x"));
+      session.Render();              // P1: $x = 10
+      session.Goto("P2");            // $x = 11
+      session.Goto("P3");            // (must be past P2 so Undo lands on it)
+      session.Undo();                // -> P2 (store at turn start = 10)
+      session.Render();              // re-applies once: $x = 11
+      Assert.Equal("11", session.Goto("P3").Text);   // continue forward; $x stays 11, not 12
+    }
+
+    [Fact]
+    public void UndoWithoutRenderThenGoto_CarriesTurnsMutationForward()
+    {
+      // Undo into a var-setting turn, then navigate forward WITHOUT the documented
+      // re-render: the new turn still sees the turn's mutation (Goto rebuilds the
+      // live store to the previous turn's end), staying symmetric with the RNG.
+      var session = new StorySession(ThreePassages("(set: $x to 10)", "(set: $x to $x + 1)", "$x"));
+      session.Render();              // P1: $x = 10
+      session.Goto("P2");            // $x = 11
+      session.Goto("P3");
+      session.Undo();                // -> P2, no render
+      Assert.Equal("11", session.Goto("P3").Text);   // forward w/o rendering P2; $x = 11 carried
+    }
+
+    [Fact]
+    public void CurrentPassage_AfterUndoIntoRedirectTurn_IsRestingNotEntry()
+    {
+      // Between Undo() and the replay Render(), CurrentPassage reports the turn's
+      // resting passage (P3), not the entry it will replay from (P2).
+      var session = new StorySession(ThreePassages("start", "(goto: \"P3\")", "end"));
+      session.Goto("P2");            // redirects to P3
+      session.Goto("P1");
+      session.Undo();                // -> the P2->P3 turn, no render yet
+      Assert.Equal("P3", session.CurrentPassage);
+    }
+
+    // -----------------------------------------------------------------------
     // (history:) (slice C)
     // -----------------------------------------------------------------------
 
