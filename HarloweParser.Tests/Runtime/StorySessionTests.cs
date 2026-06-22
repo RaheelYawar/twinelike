@@ -912,10 +912,7 @@ namespace Harlowe.Tests.Runtime
       Assert.Equal(firstP4, session.Render().Text);
     }
 
-    [Fact(Skip = "Known limitation: a (random:) in the resting passage of a multi-passage " +
-                 "(auto-(goto:)) turn re-renders only the resting passage, from the turn start, " +
-                 "skipping the entry passage's draw, so it doesn't reproduce. Closed once the " +
-                 "redirect trail (Moment.Visits, slice 2c) lets undo replay from the entry passage.")]
+    [Fact]
     public void Undo_IntoRedirectTurn_RestingPassageRandomReproduces()
     {
       // P2 draws then redirects to P3, which also draws; P3's draw originally
@@ -929,6 +926,43 @@ namespace Harlowe.Tests.Runtime
       session.Goto("P1");
       session.Undo();                       // -> the P2->P3 turn (resting P3)
       Assert.Equal(roll, session.Render().Text);
+    }
+
+    // -----------------------------------------------------------------------
+    // Redirect trail: derived visits / (history:) (slice 2c)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void History_IncludesRedirectDepartures()
+    {
+      // P2 auto-(goto:)s to P3, so the P2->P3 turn's trail puts P2 (the redirect
+      // departure) into history — not just the resting passage P3.
+      var session = new StorySession(ThreePassages("start", "(goto: \"P3\")", "end"));
+      session.Goto("P2");
+      Assert.Equal("P3", session.CurrentPassage);
+      var h = ((IEvaluationContext)session).History.AsArray;
+      Assert.Equal(2, h.Count);
+      Assert.Equal("P1", h[0].AsString);
+      Assert.Equal("P2", h[1].AsString);
+    }
+
+    [Fact]
+    public void Visits_RedirectTarget_CountsAcrossRevisits()
+    {
+      // P3 is reached only via P2's redirect; its visit count still accumulates.
+      var session = new StorySession(ThreePassages("start", "(goto: \"P3\")", "(print: visits)"));
+      Assert.Equal("1", session.Goto("P2").Text);   // 1st arrival at P3 (via redirect)
+      session.Goto("P1");
+      Assert.Equal("2", session.Goto("P2").Text);   // 2nd arrival at P3
+    }
+
+    [Fact]
+    public void History_RedirectTrail_ShrinksOnUndo()
+    {
+      var session = new StorySession(ThreePassages("start", "(goto: \"P3\")", "end"));
+      session.Goto("P2");        // present = P2->P3 turn; history = [P1, P2]
+      session.Undo();            // back to the P1 turn; history = []
+      Assert.Empty(((IEvaluationContext)session).History.AsArray);
     }
 
     // -----------------------------------------------------------------------

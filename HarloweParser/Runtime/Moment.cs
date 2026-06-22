@@ -11,10 +11,9 @@ namespace Harlowe.Runtime
   /// (ts/state/moment.ts).
   ///
   /// <para>Public fields per the project's DTO style. The sparse <see cref="Seed"/>/
-  /// <see cref="SeedIter"/> RNG state is recorded and restored by the timeline; the
-  /// redirect <see cref="Visits"/> trail and derived visit counts (which will
-  /// replace the per-Moment <see cref="VisitCounts"/>) are wired in the next
-  /// sub-step (see SAVE-LOAD-PLAN.md). The debug-mode fields
+  /// <see cref="SeedIter"/> RNG state and the <see cref="Visits"/> redirect trail are
+  /// recorded by the timeline; <c>visits</c>/<c>(history:)</c> are derived from the
+  /// trails rather than snapshotted. The debug-mode fields
   /// (<c>(mock-visits:)</c>/<c>(forget-visits:)</c>) are deliberately left out
   /// until their own slice rather than carried as dead scaffolding.</para>
   /// </summary>
@@ -30,13 +29,6 @@ namespace Harlowe.Runtime
     /// present slot.
     /// </summary>
     public Dictionary<string, HarloweValue> StoreDelta;
-
-    /// <summary>
-    /// Visit counts as of this turn. Carried per-Moment for now; a later step of
-    /// the slice derives visit counts from the timeline's passage/redirect trails
-    /// instead of snapshotting them.
-    /// </summary>
-    public Dictionary<string, int> VisitCounts;
 
     /// <summary>
     /// The ordered passages entered during this turn when it spanned more than one

@@ -51,7 +51,6 @@ namespace Harlowe.Runtime
     private readonly MacroRegistry _registry;
     private readonly HarloweVariableStore _store;
     private string _currentPassage;
-    private Dictionary<string, int> _visitCounts;
     // Timeline: completed turns (_past), the live turn (_present), and undone
     // turns available to redo (_future). Goto finalises _present into _past and
     // clears _future; Undo/Redo move the present between _past and _future.
@@ -140,7 +139,6 @@ namespace Harlowe.Runtime
       _registry = new MacroRegistry();
       StandardMacros.RegisterAll(_registry);
       _store = new HarloweVariableStore();
-      _visitCounts = new Dictionary<string, int>();
       _past = new List<Moment>();
       _future = new List<Moment>();
       _passageTimer = Stopwatch.StartNew();
@@ -160,14 +158,20 @@ namespace Harlowe.Runtime
     /// <summary>Milliseconds elapsed since the current passage was entered.</summary>
     public HarloweValue Time => HarloweValue.OfNumber(_passageTimer.ElapsedMilliseconds);
 
-    /// <summary>How many times the current passage has been entered this session.</summary>
+    /// <summary>
+    /// How many times the current passage has been entered this session, including
+    /// the current visit. Derived by counting the passage across every turn's
+    /// entered sequence (the resting passage, or the full redirect trail) — the
+    /// present plus all past turns.
+    /// </summary>
     public HarloweValue Visits
     {
       get
       {
         if (string.IsNullOrEmpty(_currentPassage)) return HarloweValue.OfNumber(0);
-        if (_visitCounts.TryGetValue(_currentPassage, out var v)) return HarloweValue.OfNumber(v);
-        return HarloweValue.OfNumber(0);
+        int count = CountEntered(_present, _currentPassage);
+        for (int i = 0; i < _past.Count; i++) count += CountEntered(_past[i], _currentPassage);
+        return HarloweValue.OfNumber(count);
       }
     }
 
@@ -181,18 +185,22 @@ namespace Harlowe.Runtime
       HarloweValue.OfNumber(_past.Count + (string.IsNullOrEmpty(_currentPassage) ? 0 : 1));
 
     /// <summary>
-    /// Past passage names in visit order, oldest first, excluding the current
-    /// passage. Backs the <c>(history:)</c> macro. Each completed turn contributes
-    /// its resting passage; <c>_past</c> is oldest-first, so a forward walk yields
-    /// visit order directly. (Intra-turn redirect trails join this in a later step.)
+    /// Passage names in visit order, oldest first, excluding the current passage.
+    /// Backs the <c>(history:)</c> macro. Derived by flattening every turn's entered
+    /// sequence — each turn contributes its resting passage, or its full
+    /// auto-<c>(goto:)</c> redirect trail — across <c>_past</c> then the present,
+    /// then dropping the final entry (the current passage).
     /// </summary>
     public HarloweValue History
     {
       get
       {
-        var list = new List<HarloweValue>(_past.Count);
-        for (int i = 0; i < _past.Count; i++)
-          list.Add(HarloweValue.OfString(_past[i].PassageName ?? string.Empty));
+        var all = new List<string>();
+        for (int i = 0; i < _past.Count; i++) AppendEntered(all, _past[i]);
+        AppendEntered(all, _present);
+        if (all.Count > 0) all.RemoveAt(all.Count - 1);   // exclude the current passage
+        var list = new List<HarloweValue>(all.Count);
+        for (int i = 0; i < all.Count; i++) list.Add(HarloweValue.OfString(all[i]));
         return HarloweValue.OfArray(list);
       }
     }
@@ -320,14 +328,15 @@ namespace Harlowe.Runtime
     /// <see cref="RestoreToPresent"/> just cleared and overwrite the delta with an
     /// empty one, losing that turn's variables on a later undo/redo. A non-null
     /// <see cref="Moment.StoreDelta"/> marks an already-finalised Moment (a fresh
-    /// turn starts null), so it doubles as the "is this turn live?" signal.
+    /// turn starts null), so it doubles as the "is this turn live?" signal. (The
+    /// redirect trail is built during the render, not here; visit counts are
+    /// derived from it rather than snapshotted.)
     /// </summary>
     private void FinalizePresent()
     {
       if (_present.StoreDelta != null) return;
       _present.PassageName = _currentPassage;
       _present.StoreDelta = _store.TakeStoryDelta();
-      _present.VisitCounts = CopyVisitCounts();
       // Sparse RNG recording: stamp SeedIter only if the turn actually drew, so a
       // no-draw turn stays compressible (SeedIter null). The shared stream's live
       // position is this turn's end, since its draws are the most recent.
@@ -337,20 +346,24 @@ namespace Harlowe.Runtime
 
     /// <summary>
     /// Installs the Moment now in the present slot after a <see cref="Move"/>:
-    /// reconstructs the story-var state from the timeline's deltas, restores the
-    /// passage and a <em>private copy</em> of the visit counts (so a later
-    /// <see cref="EnterPassage"/> increment cannot mutate the stored Moment's
-    /// dict), and tears down the live tree (it belonged to the turn we left). The
-    /// next <see cref="Render"/> rebuilds the tree from source.
+    /// reconstructs the story-var state from the timeline's deltas, restores the RNG
+    /// (<see cref="RestoreRng"/>) and the passage, and tears down the live tree (it
+    /// belonged to the turn we left). The next <see cref="Render"/> rebuilds the
+    /// tree from source.
+    ///
+    /// <para>For a multi-passage (auto-<c>(goto:)</c> redirect) turn the passage is
+    /// set to the turn's <em>entry</em> (<see cref="Moment.Visits"/>[0]), not its
+    /// resting passage, so the re-render replays the whole chain from the start —
+    /// reproducing the entry passages' draws and rebuilding the redirect trail. A
+    /// single-passage turn restores directly to its passage.</para>
     /// </summary>
     private void RestoreToPresent()
     {
       _store.ResetStoryVars(FlattenStore());
       RestoreRng();
-      _currentPassage = _present.PassageName;
-      _visitCounts = _present.VisitCounts != null
-        ? new Dictionary<string, int>(_present.VisitCounts)
-        : new Dictionary<string, int>();
+      _currentPassage = _present.Visits != null && _present.Visits.Count > 0
+        ? _present.Visits[0]
+        : _present.PassageName;
       _liveRoot = null;
       _liveContext = null;
       _passageTimer.Restart();
@@ -367,14 +380,9 @@ namespace Harlowe.Runtime
     /// <em>at or before</em> the present (inclusive), which for this slice is always
     /// the session-initial seed the first Moment holds. (Using the present's own
     /// SeedIter — its end — would re-roll differently; the seed boundary is inclusive
-    /// so restoring to the first turn still finds the baseline seed.)
-    ///
-    /// <para><b>Known limitation:</b> reproduction holds for single-passage turns. A
-    /// multi-passage turn (an auto-<c>(goto:)</c> redirect chain) re-renders only its
-    /// resting passage, so draws in the chain's earlier passages aren't replayed and
-    /// a <c>(random:)</c> in the resting passage re-rolls from the turn start. Closing
-    /// it needs replaying from the entry passage via the redirect trail
-    /// (<see cref="Moment.Visits"/>, a later sub-step) — see SAVE-LOAD-PLAN.md.</para>
+    /// so restoring to the first turn still finds the baseline seed.) Multi-passage
+    /// redirect turns reproduce too: <see cref="RestoreToPresent"/> restores to the
+    /// entry passage, so the whole chain replays from this start position.
     /// </summary>
     private void RestoreRng()
     {
@@ -421,11 +429,6 @@ namespace Harlowe.Runtime
     {
       _currentPassage = passageName ?? string.Empty;
       _store.BeginPassage();
-      if (!string.IsNullOrEmpty(_currentPassage))
-      {
-        if (!_visitCounts.ContainsKey(_currentPassage)) _visitCounts[_currentPassage] = 0;
-        _visitCounts[_currentPassage]++;
-      }
       _passageTimer.Restart();
     }
 
@@ -442,6 +445,10 @@ namespace Harlowe.Runtime
       {
         _liveRoot = null;
         _liveContext = null;
+        // Rebuild the turn's redirect trail from scratch on each top-level render:
+        // a re-render (e.g. replaying a restored turn from its entry passage) must
+        // not append to the existing trail. The redirect path below re-populates it.
+        _present.Visits = null;
       }
 
       if (string.IsNullOrEmpty(_currentPassage))
@@ -482,6 +489,7 @@ namespace Harlowe.Runtime
           });
           return new RenderResult { PassageName = _currentPassage, Text = string.Empty, Entries = errEntries };
         }
+        RecordRedirect(ctx.PendingGoto);
         EnterPassage(ctx.PendingGoto);
         return RenderInternal(depth + 1);
       }
@@ -630,11 +638,37 @@ namespace Harlowe.Runtime
         Entries = new List<BufferedRenderOutput.Entry>()
       };
 
-    private Dictionary<string, int> CopyVisitCounts()
+    /// <summary>
+    /// Records one auto-<c>(goto:)</c> redirect into the present turn's
+    /// <see cref="Moment.Visits"/> trail — the ordered passages entered this turn.
+    /// The first redirect seeds the trail with the departing (entry) passage before
+    /// appending the target, so <c>Visits</c> reads entry-first and ends at the
+    /// resting passage. Null while the turn is single-passage, keeping such a Moment
+    /// compressible in a save blob.
+    /// </summary>
+    private void RecordRedirect(string target)
     {
-      var copy = new Dictionary<string, int>(_visitCounts.Count);
-      foreach (var kv in _visitCounts) copy[kv.Key] = kv.Value;
-      return copy;
+      if (_present.Visits == null) _present.Visits = new List<string> { _currentPassage };
+      _present.Visits.Add(target);
+    }
+
+    /// <summary>Appends a Moment's entered sequence — its <see cref="Moment.Visits"/> trail, or just its resting <see cref="Moment.PassageName"/> when single-passage — to <paramref name="dst"/>. Backs the derived <c>(history:)</c>.</summary>
+    private static void AppendEntered(List<string> dst, Moment m)
+    {
+      if (m.Visits != null) dst.AddRange(m.Visits);
+      else dst.Add(m.PassageName ?? string.Empty);
+    }
+
+    /// <summary>Counts how many times <paramref name="name"/> appears in a Moment's entered sequence. Backs the derived <c>visits</c> keyword.</summary>
+    private static int CountEntered(Moment m, string name)
+    {
+      if (m.Visits != null)
+      {
+        int c = 0;
+        for (int i = 0; i < m.Visits.Count; i++) if (m.Visits[i] == name) c++;
+        return c;
+      }
+      return (m.PassageName ?? string.Empty) == name ? 1 : 0;
     }
 
   }
