@@ -1023,6 +1023,27 @@ namespace Harlowe.Tests.Runtime
       Assert.Equal("P3", session.CurrentPassage);
     }
 
+    [Fact]
+    public void UndoIntoRedirectTurnThenGotoWithoutRender_NavigatesToTarget()
+    {
+      // Undo into a redirect turn sets _replayFrom = the entry passage. A Goto with
+      // no intervening render must not let that stale marker hijack the new turn —
+      // it once replayed the old entry's redirect and silently landed on P3.
+      var session = new StorySession(Story("1",
+        ("1", "P1", "p1"),
+        ("2", "P2", "(goto: \"P3\")"),
+        ("3", "P3", "PASSAGE-THREE"),
+        ("4", "P4", "p4"),
+        ("5", "P5", "PASSAGE-FIVE")));
+      session.Render();              // P1
+      session.Goto("P2");            // redirect turn -> rests on P3
+      session.Goto("P4");
+      session.Undo();                // -> the P2->P3 turn (_replayFrom = P2), no render
+      var result = session.Goto("P5");   // forward without rendering the restored turn
+      Assert.Equal("P5", session.CurrentPassage);
+      Assert.Equal("PASSAGE-FIVE", result.Text);
+    }
+
     // -----------------------------------------------------------------------
     // (history:) (slice C)
     // -----------------------------------------------------------------------

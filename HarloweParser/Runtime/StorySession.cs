@@ -262,6 +262,10 @@ namespace Harlowe.Runtime
       _past.Add(_present);
       _future.Clear();
       _present = new Moment { PassageName = passageName };
+      // A fresh forward turn never replays from a restored entry. Clear any pending
+      // replay marker (set by an undo/redo into a redirect turn) so it can't hijack
+      // this turn's render when no render intervened between the undo/redo and here.
+      _replayFrom = null;
       // A new turn starts where the previous one *ended*. Normally the live store
       // and RNG already sit there (the previous turn just rendered), so we only note
       // the RNG position. But after an undo/redo with no intervening render the live
