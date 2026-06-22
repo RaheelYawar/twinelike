@@ -1,15 +1,20 @@
+using System.Collections.Generic;
 using Harlowe.Ast.Expression;
 using Harlowe.Parsing;
 using Harlowe.Tokens;
+using Harlowe.Twee;
 
 namespace Harlowe.Runtime.Saving
 {
   /// <summary>
-  /// Converts a single <see cref="HarloweValue"/> to and from Harlowe source — the
-  /// value-level half of the save model (the timeline/blob serialiser builds on
-  /// this). Source-based, matching reference Harlowe's variable store
-  /// (<c>varscope.ts</c> saves each variable as <c>toSource(value)</c> and
-  /// re-<c>eval</c>s it on load) rather than a tagged-JSON encoding.
+  /// Converts Harlowe save state to and from a JSON blob. Two levels: a single
+  /// <see cref="HarloweValue"/> ↔ Harlowe source (<see cref="Serialise(HarloweValue)"/>
+  /// / <see cref="Deserialise(string, MacroRegistry, MacroContext)"/>), and a whole
+  /// timeline ↔ blob (<see cref="SerialiseTimeline"/> / <see cref="DeserialiseTimeline"/>).
+  /// Source-based, matching reference Harlowe's variable store (<c>varscope.ts</c>
+  /// saves each variable as <c>toSource(value)</c> and re-<c>eval</c>s it on load)
+  /// rather than a tagged-JSON encoding; the blob layer reuses the project's
+  /// <see cref="JsonWriter"/>/<see cref="JsonReader"/>.
   /// </summary>
   public static class SaveSerializer
   {
@@ -79,5 +84,183 @@ namespace Harlowe.Runtime.Saving
         registry.Context = prior;
       }
     }
+
+    // ===== Timeline ↔ blob =====
+
+    /// <summary>
+    /// Serialise a timeline (completed turns <paramref name="past"/> then the live
+    /// <paramref name="present"/>) to a JSON blob: a <see cref="SaveBlobVersion"/>
+    /// wrapper around a moments array. The redo future is deliberately excluded — it
+    /// lies ahead of the present and isn't part of saved history. Each moment with no
+    /// variable changes, redirect trail, or recorded RNG state compresses to a bare
+    /// passage-name string (reference's <c>#isEmpty()</c>); otherwise it's an object.
+    /// Returns <c>null</c> if any stored value has no source form (a non-finite
+    /// number, an unstamped changer, …) so the caller can fail the save loudly.
+    /// </summary>
+    public static string SerialiseTimeline(IReadOnlyList<Moment> past, Moment present)
+    {
+      var moments = new List<object>();
+      if (past != null)
+        for (int i = 0; i < past.Count; i++)
+        {
+          var m = SerialiseMoment(past[i]);
+          if (m == null) return null;
+          moments.Add(m);
+        }
+      if (present != null)
+      {
+        var m = SerialiseMoment(present);
+        if (m == null) return null;
+        moments.Add(m);
+      }
+
+      var root = new Dictionary<string, object>
+      {
+        { "version", (long)SaveBlobVersion.Current },
+        { "moments", moments },
+      };
+      return new JsonWriter().Write(root);
+    }
+
+    /// <summary>One moment → a compressed passage-name string or a full object; null if a value can't be serialised.</summary>
+    private static object SerialiseMoment(Moment m)
+    {
+      bool hasVars = m.StoreDelta != null && m.StoreDelta.Count > 0;
+      bool hasVisits = m.Visits != null && m.Visits.Count > 0;
+      bool hasSeed = m.Seed != null;
+      bool hasSeedIter = m.SeedIter.HasValue;
+
+      if (!hasVars && !hasVisits && !hasSeed && !hasSeedIter)
+        return m.PassageName ?? string.Empty;
+
+      var obj = new Dictionary<string, object> { { "passage", m.PassageName ?? string.Empty } };
+      if (hasVars)
+      {
+        var vars = new Dictionary<string, object>();
+        foreach (var kv in m.StoreDelta)
+        {
+          string src = Serialise(kv.Value);
+          if (src == null) return null; // value has no source form → fail the whole save
+          vars[kv.Key] = src;
+        }
+        obj["vars"] = vars;
+      }
+      if (hasVisits)
+      {
+        var visits = new List<object>(m.Visits.Count);
+        for (int i = 0; i < m.Visits.Count; i++) visits.Add(m.Visits[i]);
+        obj["visits"] = visits;
+      }
+      if (hasSeed) obj["seed"] = m.Seed;
+      if (hasSeedIter) obj["seedIter"] = (long)m.SeedIter.Value;
+      return obj;
+    }
+
+    /// <summary>
+    /// Parse a blob back into a timeline, validating against <paramref name="story"/>
+    /// (every referenced passage must still exist) and re-evaluating each saved value
+    /// through <paramref name="registry"/>/<paramref name="context"/>. Atomic: a
+    /// malformed blob, a newer format version, a vanished passage, or an
+    /// un-restorable value yields a <see cref="DeserialiseResult"/> with
+    /// <see cref="DeserialiseResult.Error"/> set and nothing half-built. On success
+    /// the blob's last moment is the <see cref="DeserialiseResult.Present"/> and the
+    /// rest are <see cref="DeserialiseResult.Past"/>.
+    /// </summary>
+    public static DeserialiseResult DeserialiseTimeline(string blob, Harlowe story, MacroRegistry registry, MacroContext context)
+    {
+      if (blob == null) return Fail("empty save data");
+      if (story == null) return Fail("no story to load into");
+
+      object root;
+      try { root = new JsonReader().Read(blob); }
+      catch (HarloweParseException ex) { return Fail("corrupt save data: " + ex.Message); }
+
+      if (!(root is Dictionary<string, object> dict)) return Fail("save data is not an object");
+      if (!dict.TryGetValue("version", out var vObj) || !(vObj is double vNum))
+        return Fail("save data has no version");
+      int version = (int)vNum;
+      if (version > SaveBlobVersion.Current)
+        return Fail($"save data is from a newer version ({version} > {SaveBlobVersion.Current})");
+      if (!dict.TryGetValue("moments", out var mObj) || !(mObj is List<object> momentList) || momentList.Count == 0)
+        return Fail("save data has no moments");
+
+      var moments = new List<Moment>(momentList.Count);
+      for (int i = 0; i < momentList.Count; i++)
+      {
+        var parsed = DeserialiseMoment(momentList[i], story, registry, context, out string error);
+        if (error != null) return Fail(error);
+        moments.Add(parsed);
+      }
+
+      var result = new DeserialiseResult
+      {
+        Present = moments[moments.Count - 1],
+        Past = new List<Moment>(moments.Count - 1),
+      };
+      for (int i = 0; i < moments.Count - 1; i++) result.Past.Add(moments[i]);
+      return result;
+    }
+
+    /// <summary>One blob moment → a <see cref="Moment"/>, or null with <paramref name="error"/> set on any validation/value failure.</summary>
+    private static Moment DeserialiseMoment(object raw, Harlowe story, MacroRegistry registry, MacroContext context, out string error)
+    {
+      error = null;
+
+      if (raw is string compressedPassage)
+      {
+        if (story.GetPassage(compressedPassage) == null)
+        { error = $"saved passage '{compressedPassage}' no longer exists"; return null; }
+        return new Moment { PassageName = compressedPassage };
+      }
+
+      if (!(raw is Dictionary<string, object> obj)) { error = "malformed moment in save data"; return null; }
+
+      if (!obj.TryGetValue("passage", out var pObj) || !(pObj is string passage))
+      { error = "moment is missing its passage name"; return null; }
+      if (story.GetPassage(passage) == null)
+      { error = $"saved passage '{passage}' no longer exists"; return null; }
+
+      var moment = new Moment { PassageName = passage };
+
+      if (obj.TryGetValue("vars", out var varsObj))
+      {
+        if (!(varsObj is Dictionary<string, object> varsDict)) { error = "moment variables are malformed"; return null; }
+        moment.StoreDelta = new Dictionary<string, HarloweValue>();
+        foreach (var kv in varsDict)
+        {
+          if (!(kv.Value is string src)) { error = $"variable '{kv.Key}' is not a source string"; return null; }
+          var value = Deserialise(src, registry, context);
+          if (value.IsError) { error = $"could not restore variable '{kv.Key}': {value.ErrorMessage}"; return null; }
+          moment.StoreDelta[kv.Key] = value;
+        }
+      }
+
+      if (obj.TryGetValue("visits", out var visitsObj))
+      {
+        if (!(visitsObj is List<object> visitsList)) { error = "moment redirect trail is malformed"; return null; }
+        moment.Visits = new List<string>(visitsList.Count);
+        for (int i = 0; i < visitsList.Count; i++)
+        {
+          if (!(visitsList[i] is string v)) { error = "redirect trail entry is not a passage name"; return null; }
+          if (story.GetPassage(v) == null) { error = $"saved passage '{v}' no longer exists"; return null; }
+          moment.Visits.Add(v);
+        }
+      }
+
+      if (obj.TryGetValue("seed", out var seedObj))
+      {
+        if (!(seedObj is string seed)) { error = "moment RNG seed is malformed"; return null; }
+        moment.Seed = seed;
+      }
+      if (obj.TryGetValue("seedIter", out var iterObj))
+      {
+        if (!(iterObj is double iterNum)) { error = "moment RNG position is malformed"; return null; }
+        moment.SeedIter = (int)iterNum;
+      }
+
+      return moment;
+    }
+
+    private static DeserialiseResult Fail(string error) => new DeserialiseResult { Error = error };
   }
 }
