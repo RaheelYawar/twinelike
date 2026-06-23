@@ -1,0 +1,167 @@
+:: StoryTitle
+Harlowe Feature Coverage
+
+:: StoryData
+{
+  "ifid": "F2A7C1D0-COVERAGE-4E2B-9A3C-FEEDFACE0001",
+  "start": "Start"
+}
+
+:: Start
+Coverage harness root.
+
+:: Prose
+Plain prose renders verbatim.
+
+:: TextFormatting
+''bold'' //italic// __underline__ ~~strike~~
+
+:: SetPrint
+(set: $x to 5)(print: $x)
+
+:: Interpolation
+(set: $name to "Bob")Hello $name!
+
+:: Arithmetic
+(print: 2 + 3 * 4)
+
+:: StringConcat
+(print: "a" + "b" + "c")
+
+:: BooleanLogic
+(print: true and false or true)
+
+:: IfElse
+(set: $n to 7)(if: $n > 5)[big](else:)[small]
+
+:: ElseIf
+(set: $n to 2)(if: $n is 1)[one](else-if: $n is 2)[two](else:)[other]
+
+:: Unless
+(unless: false)[shown]
+
+:: NamedHook
+|h>[hooked content]
+
+:: AnonymousHook
+pre [middle] post
+
+:: Link
+[[Go to prose->Prose]]
+
+:: Array
+(set: $a to (a: 10, 20, 30))(print: $a's 2nd)
+
+:: ArrayLength
+(print: (a: 1, 2, 3)'s length)
+
+:: Datamap
+(set: $d to (dm: "hp", 10))(print: $d's hp)
+
+:: ForLoop
+(for: each _i, 1, 2, 3)[_i ]
+
+:: FindLambda
+(print: (find: _x where _x > 2, 1, 2, 3, 4))
+
+:: AlteredLambda
+(print: (altered: _x via _x * 2, 1, 2, 3))
+
+:: FoldedLambda
+(print: (folded: _n making _t via _t + _n, 1, 2, 3, 4))
+
+:: TextStyle
+(text-style: "bold")[styled]
+
+:: TextColourString
+(text-colour: "red")[red text]
+
+:: TextColourBare
+(text-colour: red)[bare colour]
+
+:: Rgb
+(text-colour: (rgb: 255, 0, 0))[rgb colour]
+
+:: Align
+(align: "==>")[right aligned]
+
+:: Font
+(font: "Georgia")[serif text]
+
+:: TextSize
+(text-size: 2)[big text]
+
+:: ReplaceHook
+|t>[original](replace: ?t)[replaced]
+
+:: AppendHook
+|ap>[start](append: ?ap)[ end]
+
+:: EnchantHook
+|e>[enchanted text](enchant: ?e, (text-style: "bold"))
+
+:: EnchantLink
+(enchant: ?link, (text-style: "bold"))[[Go->Prose]]
+
+:: ChangeHook
+|ch>[changed text](change: ?ch, (text-style: "italic"))
+
+:: ClickHook
+|c>[click me](click: ?c)[revealed]
+
+:: IsANumber
+(set: $x to 5)(if: $x is a number)[number](else:)[not a number]
+
+:: IsAString
+(if: "hi" is a string)[string](else:)[not a string]
+
+:: TextMacro
+(print: (text: 1, "+", 2))
+
+:: NumMacro
+(print: (num: "42") + 1)
+
+:: Uppercase
+(print: (uppercase: "hi"))
+
+:: Lowercase
+(print: (lowercase: "HI"))
+
+:: Substring
+(print: (substring: "hello", 1, 3))
+
+:: Round
+(print: (round: 3.7))
+
+:: Min
+(print: (min: 3, 1, 2))
+
+:: Either
+(print: (either: "x", "x", "x"))
+
+:: RandomFixed
+(print: (random: 5, 5))
+
+:: Visits
+(print: visits)
+
+:: Turns
+(print: turns)
+
+:: History
+(print: (history:)'s length)
+
+:: SaveGame
+(print: (save-game: "slot1"))
+
+:: SavedGames
+(save-game: "slotA", "My File")(print: (saved-games:))
+
+:: LinkGoto
+(link-goto: "Go now", "Prose")
+
+:: HtmlComment
+before<!-- a comment -->after
+
+:: BlockComment
+before--[a block comment]--after

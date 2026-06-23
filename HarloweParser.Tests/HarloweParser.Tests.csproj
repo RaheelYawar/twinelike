@@ -21,5 +21,8 @@
         <None Include="..\TestFiles\testFile.html" Link="TestFiles\testFile.html">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </None>
+        <None Include="..\TestFiles\feature-coverage.twee" Link="TestFiles\feature-coverage.twee">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
     </ItemGroup>
 </Project>
