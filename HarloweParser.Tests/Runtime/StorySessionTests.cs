@@ -733,6 +733,318 @@ namespace Harlowe.Tests.Runtime
     }
 
     // -----------------------------------------------------------------------
+    // Redo
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Redo_ReturnsFalseWithNothingUndone()
+    {
+      var session = new StorySession(TwoPassages("p1", "p2"));
+      session.Goto("P2");
+      Assert.False(session.Redo());
+    }
+
+    [Fact]
+    public void Redo_AfterUndo_RestoresPassage()
+    {
+      var session = new StorySession(TwoPassages("p1", "p2"));
+      session.Goto("P2");
+      session.Undo();
+      Assert.Equal("P1", session.CurrentPassage);
+      Assert.True(session.Redo());
+      Assert.Equal("P2", session.CurrentPassage);
+    }
+
+    [Fact]
+    public void Redo_RestoresStoryVariable()
+    {
+      // P2 sets and prints $x; after undo it's unset, redo brings it back.
+      var session = new StorySession(TwoPassages("$x", "(set: $x to 99)$x"));
+      Assert.Equal("99", session.Goto("P2").Text);
+      session.Undo();
+      session.Redo();
+      Assert.Equal("99", session.Render().Text);
+    }
+
+    [Fact]
+    public void Redo_RestoresVisitCount()
+    {
+      var session = new StorySession(TwoPassages("p1", "(print: visits)"));
+      Assert.Equal("1", session.Goto("P2").Text);
+      session.Undo();
+      session.Redo();
+      Assert.Equal("1", session.Render().Text);
+    }
+
+    [Fact]
+    public void Goto_AfterUndo_ClearsRedoFuture()
+    {
+      // Undo populates the future; a forward Goto abandons it, so redo is gone.
+      var session = new StorySession(ThreePassages("p1", "p2", "p3"));
+      session.Goto("P2");
+      session.Undo();          // future = [P2]
+      session.Goto("P3");      // clears future
+      Assert.False(session.Redo());
+      Assert.Equal("P3", session.CurrentPassage);
+    }
+
+    [Fact]
+    public void UndoRedo_RoundTripsMultipleSteps()
+    {
+      var session = new StorySession(ThreePassages("p1", "p2", "p3"));
+      session.Goto("P2");
+      session.Goto("P3");
+      session.Undo();
+      session.Undo();
+      Assert.Equal("P1", session.CurrentPassage);
+      Assert.True(session.Redo());
+      Assert.Equal("P2", session.CurrentPassage);
+      Assert.True(session.Redo());
+      Assert.Equal("P3", session.CurrentPassage);
+      Assert.False(session.Redo());
+    }
+
+    [Fact]
+    public void Turns_DropsOnUndo_RestoredByRedo()
+    {
+      // Turns counts _past + present, excluding the redo future.
+      var session = new StorySession(ThreePassages("(print: turns)", "(print: turns)", "p3"));
+      Assert.Equal("1", session.Render().Text);
+      Assert.Equal("2", session.Goto("P2").Text);
+      session.Undo();
+      Assert.Equal("1", session.Render().Text);   // future excluded
+      session.Redo();
+      Assert.Equal("2", session.Render().Text);
+    }
+
+    [Fact]
+    public void RewindAndFastForward_AreUndoRedoAliases()
+    {
+      var session = new StorySession(TwoPassages("p1", "p2"));
+      session.Goto("P2");
+      Assert.True(session.Rewind());
+      Assert.Equal("P1", session.CurrentPassage);
+      Assert.True(session.FastForward());
+      Assert.Equal("P2", session.CurrentPassage);
+    }
+
+    [Fact]
+    public void UndoRedo_AcrossVarSettingTurn_ReadInLaterPassage_PreservesVar()
+    {
+      // Regression (code review): re-finalising a restored Moment used to read the
+      // cleared dirty-set and clobber its real delta with {}. So consecutive
+      // undo/redo across a turn that set a variable read in a *different* passage
+      // lost it. P2 sets $x; P3 only prints it.
+      var session = new StorySession(ThreePassages("p1", "(set: $x to 9)", "$x"));
+      session.Goto("P2");   // $x = 9
+      session.Goto("P3");
+      session.Undo();       // -> P2
+      session.Undo();       // -> P1 (must not clobber P2's {x:9})
+      session.Redo();       // -> P2
+      session.Redo();       // -> P3
+      Assert.Equal("9", session.Render().Text);
+    }
+
+    // -----------------------------------------------------------------------
+    // RNG state across undo/redo (slice 2b)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Undo_IntoRandomPassage_ReproducesTheRoll()
+    {
+      // The RNG is restored to the start of P2, so re-rendering re-rolls the same
+      // value instead of drawing further along the advanced stream.
+      var story = ThreePassages("p1", "(print: (random: 1, 1000000))", "p3");
+      var session = new StorySession(story, 42);
+      var roll = session.Goto("P2").Text;
+      session.Goto("P3");
+      session.Undo();
+      Assert.Equal(roll, session.Render().Text);
+    }
+
+    [Fact]
+    public void Redo_IntoRandomPassage_ReproducesTheRoll()
+    {
+      var story = ThreePassages("p1", "(print: (random: 1, 1000000))", "p3");
+      var session = new StorySession(story, 7);
+      var roll = session.Goto("P2").Text;
+      session.Goto("P3");
+      session.Undo();   // P2
+      session.Undo();   // P1
+      session.Redo();   // P2
+      Assert.Equal(roll, session.Render().Text);
+    }
+
+    [Fact]
+    public void UndoRedo_AcrossTwoRandomTurns_EachTurnReproducesOwnRoll()
+    {
+      // Distinct ranges so the two turns can't coincide — proves the RNG restores
+      // to each turn's *own* start, not merely some earlier position.
+      var story = ThreePassages("p1", "(print: (random: 1, 5))", "(print: (random: 100, 200))");
+      var session = new StorySession(story, 99);
+      var r2 = session.Goto("P2").Text;
+      var r3 = session.Goto("P3").Text;
+      session.Undo();
+      Assert.Equal(r2, session.Render().Text);
+      session.Redo();
+      Assert.Equal(r3, session.Render().Text);
+    }
+
+    [Fact]
+    public void Goto_AfterUndoWithoutRender_NewTurnRngStaysConsistent()
+    {
+      // After an undo with no intervening re-render, the live RNG sits at the
+      // restored turn's start. A forward Goto must still start the new turn from
+      // the prior turn's *end* (derived from the timeline), or the new turn's draw
+      // won't survive a later undo+render.
+      var story = Story("1",
+        ("1", "P1", "p1"),
+        ("2", "P2", "(print: (random: 1, 1000000))"),
+        ("3", "P3", "p3"),
+        ("4", "P4", "(print: (random: 1, 1000000))"));
+      var session = new StorySession(story, 42);
+      session.Goto("P2");
+      session.Goto("P3");
+      session.Undo();                          // -> P2, no render
+      var firstP4 = session.Goto("P4").Text;   // new turn draws
+      session.Goto("P3");                       // move forward so P4 can be undone to
+      session.Undo();                           // -> P4
+      Assert.Equal(firstP4, session.Render().Text);
+    }
+
+    [Fact]
+    public void Undo_IntoRedirectTurn_RestingPassageRandomReproduces()
+    {
+      // P2 draws then redirects to P3, which also draws; P3's draw originally
+      // happens at the later stream position. On undo the whole turn should replay
+      // from P2 so P3 re-rolls the same value.
+      var story = ThreePassages("p1",
+        "(set: $j to (random: 1, 1000000))(goto: \"P3\")",
+        "(print: (random: 1, 1000000))");
+      var session = new StorySession(story, 42);
+      var roll = session.Goto("P2").Text;   // lands on P3, prints its roll
+      session.Goto("P1");
+      session.Undo();                       // -> the P2->P3 turn (resting P3)
+      Assert.Equal(roll, session.Render().Text);
+    }
+
+    // -----------------------------------------------------------------------
+    // Redirect trail: derived visits / (history:) (slice 2c)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void History_IncludesRedirectDepartures()
+    {
+      // P2 auto-(goto:)s to P3, so the P2->P3 turn's trail puts P2 (the redirect
+      // departure) into history — not just the resting passage P3.
+      var session = new StorySession(ThreePassages("start", "(goto: \"P3\")", "end"));
+      session.Goto("P2");
+      Assert.Equal("P3", session.CurrentPassage);
+      var h = ((IEvaluationContext)session).History.AsArray;
+      Assert.Equal(2, h.Count);
+      Assert.Equal("P1", h[0].AsString);
+      Assert.Equal("P2", h[1].AsString);
+    }
+
+    [Fact]
+    public void Visits_RedirectTarget_CountsAcrossRevisits()
+    {
+      // P3 is reached only via P2's redirect; its visit count still accumulates.
+      var session = new StorySession(ThreePassages("start", "(goto: \"P3\")", "(print: visits)"));
+      Assert.Equal("1", session.Goto("P2").Text);   // 1st arrival at P3 (via redirect)
+      session.Goto("P1");
+      Assert.Equal("2", session.Goto("P2").Text);   // 2nd arrival at P3
+    }
+
+    [Fact]
+    public void History_RedirectTrail_ShrinksOnUndo()
+    {
+      var session = new StorySession(ThreePassages("start", "(goto: \"P3\")", "end"));
+      session.Goto("P2");        // present = P2->P3 turn; history = [P1, P2]
+      session.Undo();            // back to the P1 turn; history = []
+      Assert.Empty(((IEvaluationContext)session).History.AsArray);
+    }
+
+    // -----------------------------------------------------------------------
+    // Store restored to turn-start, symmetric with the RNG (review fixes)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Undo_IntoRelativeSetPassage_ReappliesOnce_NoDoubling()
+    {
+      // P2 accumulates; on undo the store is restored to the turn's START so the
+      // re-render re-applies the set exactly once (was doubling — store restored
+      // to the turn's end, then the set re-ran on top → "12").
+      var session = new StorySession(ThreePassages("(set: $x to 10)", "(set: $x to $x + 1)$x", "p3"));
+      session.Render();                            // P1: $x = 10
+      Assert.Equal("11", session.Goto("P2").Text);
+      session.Goto("P3");
+      session.Undo();                              // -> P2
+      Assert.Equal("11", session.Render().Text);   // not "12"
+    }
+
+    [Fact]
+    public void UndoThenContinue_DoesNotInflateAccumulatingVar()
+    {
+      // The natural undo flow: undo a choice, re-render, then go forward. The
+      // accumulating var must not carry an inflated value into the new branch.
+      var session = new StorySession(ThreePassages("(set: $x to 10)", "(set: $x to $x + 1)", "$x"));
+      session.Render();              // P1: $x = 10
+      session.Goto("P2");            // $x = 11
+      session.Goto("P3");            // (must be past P2 so Undo lands on it)
+      session.Undo();                // -> P2 (store at turn start = 10)
+      session.Render();              // re-applies once: $x = 11
+      Assert.Equal("11", session.Goto("P3").Text);   // continue forward; $x stays 11, not 12
+    }
+
+    [Fact]
+    public void UndoWithoutRenderThenGoto_CarriesTurnsMutationForward()
+    {
+      // Undo into a var-setting turn, then navigate forward WITHOUT the documented
+      // re-render: the new turn still sees the turn's mutation (Goto rebuilds the
+      // live store to the previous turn's end), staying symmetric with the RNG.
+      var session = new StorySession(ThreePassages("(set: $x to 10)", "(set: $x to $x + 1)", "$x"));
+      session.Render();              // P1: $x = 10
+      session.Goto("P2");            // $x = 11
+      session.Goto("P3");
+      session.Undo();                // -> P2, no render
+      Assert.Equal("11", session.Goto("P3").Text);   // forward w/o rendering P2; $x = 11 carried
+    }
+
+    [Fact]
+    public void CurrentPassage_AfterUndoIntoRedirectTurn_IsRestingNotEntry()
+    {
+      // Between Undo() and the replay Render(), CurrentPassage reports the turn's
+      // resting passage (P3), not the entry it will replay from (P2).
+      var session = new StorySession(ThreePassages("start", "(goto: \"P3\")", "end"));
+      session.Goto("P2");            // redirects to P3
+      session.Goto("P1");
+      session.Undo();                // -> the P2->P3 turn, no render yet
+      Assert.Equal("P3", session.CurrentPassage);
+    }
+
+    [Fact]
+    public void UndoIntoRedirectTurnThenGotoWithoutRender_NavigatesToTarget()
+    {
+      // Undo into a redirect turn sets _replayFrom = the entry passage. A Goto with
+      // no intervening render must not let that stale marker hijack the new turn —
+      // it once replayed the old entry's redirect and silently landed on P3.
+      var session = new StorySession(Story("1",
+        ("1", "P1", "p1"),
+        ("2", "P2", "(goto: \"P3\")"),
+        ("3", "P3", "PASSAGE-THREE"),
+        ("4", "P4", "p4"),
+        ("5", "P5", "PASSAGE-FIVE")));
+      session.Render();              // P1
+      session.Goto("P2");            // redirect turn -> rests on P3
+      session.Goto("P4");
+      session.Undo();                // -> the P2->P3 turn (_replayFrom = P2), no render
+      var result = session.Goto("P5");   // forward without rendering the restored turn
+      Assert.Equal("P5", session.CurrentPassage);
+      Assert.Equal("PASSAGE-FIVE", result.Text);
+    }
+
+    // -----------------------------------------------------------------------
     // (history:) (slice C)
     // -----------------------------------------------------------------------
 

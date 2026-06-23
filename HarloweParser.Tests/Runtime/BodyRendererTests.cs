@@ -527,13 +527,15 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
-    public void RandomMaxInt32Bound_EmitsInProseError()
+    public void RandomMaxInt32Bound_StaysInRange_NoError()
     {
-      // hi == int.MaxValue would overflow Random.Next(lo, hi + 1). Must
-      // surface as an in-prose error, not an OverflowException.
+      // hi == int.MaxValue used to trip a guard (Random.Next(lo, hi + 1) would
+      // overflow). The double/long scale now spans the full range, so this
+      // returns a value in [0, int.MaxValue] with no error.
       var h = Render("(random: 0, 2147483647)");
-      Assert.Contains(h.Buf.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error
-                                       && e.Content.Contains("too large"));
+      Assert.Equal(0, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+      Assert.True(long.TryParse(h.Buf.Text, out var n) && n >= 0 && n <= 2147483647,
+        $"expected an integer in [0, 2147483647], got '{h.Buf.Text}'");
     }
 
     [Fact]

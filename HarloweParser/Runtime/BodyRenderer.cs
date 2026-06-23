@@ -71,7 +71,7 @@ namespace Harlowe.Runtime
     {
       for (int i = 0; i < children.Count; i++)
       {
-        if (_context.PendingGoto != null) return;
+        if (_context.NavigationHalt) return;
         children[i].Accept(this);
       }
     }
@@ -223,7 +223,7 @@ namespace Harlowe.Runtime
       if (result != null && result.IsError) { _output.Error(result.ErrorMessage); return; }
 
       // (goto:) and any macro that triggered a navigation aborts now.
-      if (_context.PendingGoto != null) return;
+      if (_context.NavigationHalt) return;
 
       if (isConditional)
       {

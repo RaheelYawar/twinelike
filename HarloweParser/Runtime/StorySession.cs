@@ -25,13 +25,14 @@ namespace Harlowe.Runtime
   /// </para>
   ///
   /// <para>
-  /// <b>Undo.</b> Multi-step: every <see cref="Goto"/> pushes a snapshot onto
-  /// the undo stack; <see cref="Undo"/> pops the most recent snapshot and
-  /// restores its passage, variable store, and visit counts. After
-  /// <see cref="Undo"/> returns <c>true</c>, call <see cref="Render"/> to
-  /// redisplay the restored passage. <see cref="Undo"/> returns <c>false</c>
-  /// only when the stack is empty (no <see cref="Goto"/> has happened, or
-  /// every prior step has already been undone). The stack is unbounded.
+  /// <b>Undo/redo.</b> Multi-step: every <see cref="Goto"/> finalises the live
+  /// turn into the past timeline (and clears the redo future); <see cref="Undo"/>
+  /// moves the present back one turn (onto the future) and restores its passage,
+  /// variable store, and visit counts, while <see cref="Redo"/> re-applies the
+  /// most recently undone turn. After either returns <c>true</c>, call
+  /// <see cref="Render"/> to redisplay. <see cref="Undo"/> returns <c>false</c>
+  /// at the first turn; <see cref="Redo"/> returns <c>false</c> with nothing
+  /// undone. The timeline is unbounded.
   /// </para>
   ///
   /// <para>
@@ -48,19 +49,48 @@ namespace Harlowe.Runtime
   {
     private readonly Harlowe _story;
     private readonly MacroRegistry _registry;
+    private readonly Saving.ISaveStorage _storage;
     private readonly HarloweVariableStore _store;
     private string _currentPassage;
-    private Dictionary<string, int> _visitCounts;
-    private readonly List<SessionSnapshot> _undoStack;
+    // Timeline: completed turns (_past), the live turn (_present), and undone
+    // turns available to redo (_future). Goto finalises _present into _past and
+    // clears _future; Undo/Redo move the present between _past and _future.
+    private readonly List<Moment> _past;
+    private Moment _present;
+    private readonly List<Moment> _future;
     private readonly Stopwatch _passageTimer;
 
-    // One RNG for the whole session, threaded into every MacroContext. A fresh
-    // `new Random()` per render leg would re-seed from the system tick, so on
-    // .NET Framework / Mono (tick-seeded Random) successive legs within the
-    // same ~15ms tick — e.g. a passage and the passage a (goto:) redirects to —
-    // produced identical (random:)/(either:) sequences. One shared instance
-    // gives a single continuous stream instead.
-    private readonly Random _rng;
+    // One RNG for the whole session, threaded into every MacroContext so every
+    // (random:)/(either:) draw forms a single continuous stream (a fresh instance
+    // per render leg would restart the stream). Its (Seed, SeedIter) state is the
+    // serialisable RNG position the save model records; undo/redo restore it to
+    // the restored turn's start (see RestoreRng) so a re-render reproduces that
+    // turn's draws.
+    private readonly IRng _rng;
+
+    // RNG position at the start of the live turn — lets FinalizePresent tell
+    // whether the present turn drew (and so whether to record its SeedIter).
+    private int _turnStartIter;
+
+    // True when the live store/RNG sit at the present turn's START (set by undo/redo
+    // restore, cleared once a render rebuilds the turn's end-state). Lets Goto tell
+    // whether an undo/redo happened with no intervening render and must therefore
+    // rebuild the previous turn's end-state before starting a new turn.
+    private bool _liveAtTurnStart;
+
+    // When restoring into a multi-passage redirect turn, the entry passage the next
+    // render replays from (Moment.Visits[0]); null otherwise. Kept separate from
+    // _currentPassage so CurrentPassage still reports the turn's resting passage
+    // between Undo() and the replay Render().
+    private string _replayFrom;
+
+    // True while rendering a just-loaded passage. Armed by InstallTimeline; cleared on
+    // any navigation to a NEW turn — a host Goto, or the undo/redo/load restore path
+    // (RestoreToPresent), which InstallTimeline re-arms right after. An in-passage
+    // (goto:) is an intra-turn redirect and deliberately keeps it armed. Seeded into
+    // each render's MacroContext so (load-game:) errors on a re-load from inside the
+    // loaded passage — the infinite-loop guard.
+    private bool _loadedGame;
 
     // The live render-tree state for the most recent main render. Kept alive
     // across renders so DispatchEvent can mutate it, re-flush, and return an
@@ -115,28 +145,44 @@ namespace Harlowe.Runtime
     /// whose pid matches <see cref="Harlowe.StartNode"/>; call
     /// <see cref="Render"/> to obtain its content.
     /// </summary>
-    public StorySession(Harlowe story) : this(story, new Random()) { }
+    public StorySession(Harlowe story) : this(story, new MulberryRng(), new Saving.InMemorySaveStorage()) { }
 
     /// <summary>
     /// Builds a session with a fixed RNG seed, so <c>(random:)</c>/<c>(either:)</c>
     /// produce a reproducible sequence across the whole session — useful for
     /// tests and replays.
     /// </summary>
-    public StorySession(Harlowe story, int seed) : this(story, new Random(seed)) { }
+    public StorySession(Harlowe story, int seed) : this(story, new MulberryRng(seed), new Saving.InMemorySaveStorage()) { }
 
-    private StorySession(Harlowe story, Random rng)
+    /// <summary>
+    /// Builds a session with a host-supplied save backend. Pass <c>null</c> to
+    /// disable saving (<c>(save-game:)</c> then returns false); the storage-free
+    /// constructors use a session-lifetime <see cref="Saving.InMemorySaveStorage"/>.
+    /// </summary>
+    public StorySession(Harlowe story, Saving.ISaveStorage storage) : this(story, new MulberryRng(), storage) { }
+
+    /// <summary>Seeded session with a host-supplied save backend (pass null to disable saving).</summary>
+    public StorySession(Harlowe story, int seed, Saving.ISaveStorage storage) : this(story, new MulberryRng(seed), storage) { }
+
+    private StorySession(Harlowe story, IRng rng, Saving.ISaveStorage storage)
     {
       _story = story;
+      _storage = storage;
       _registry = new MacroRegistry();
       StandardMacros.RegisterAll(_registry);
       _store = new HarloweVariableStore();
-      _visitCounts = new Dictionary<string, int>();
-      _undoStack = new List<SessionSnapshot>();
+      _past = new List<Moment>();
+      _future = new List<Moment>();
       _passageTimer = Stopwatch.StartNew();
       _rng = rng;
 
       var startPassage = story.GetStartPassage();
-      EnterPassage(startPassage != null ? startPassage.Name : string.Empty);
+      var startName = startPassage != null ? startPassage.Name : string.Empty;
+      // The first Moment carries the session's initial seed — the baseline the
+      // save model and undo/redo reconstruct the RNG from.
+      _present = new Moment { PassageName = startName, Seed = _rng.Seed };
+      _turnStartIter = _rng.SeedIter;
+      EnterPassage(startName);
     }
 
     // IEvaluationContext ---------------------------------------------------
@@ -144,39 +190,49 @@ namespace Harlowe.Runtime
     /// <summary>Milliseconds elapsed since the current passage was entered.</summary>
     public HarloweValue Time => HarloweValue.OfNumber(_passageTimer.ElapsedMilliseconds);
 
-    /// <summary>How many times the current passage has been entered this session.</summary>
+    /// <summary>
+    /// How many times the current passage has been entered this session, including
+    /// the current visit. Derived by counting the passage across every turn's
+    /// entered sequence (the resting passage, or the full redirect trail) — the
+    /// present plus all past turns.
+    /// </summary>
     public HarloweValue Visits
     {
       get
       {
         if (string.IsNullOrEmpty(_currentPassage)) return HarloweValue.OfNumber(0);
-        if (_visitCounts.TryGetValue(_currentPassage, out var v)) return HarloweValue.OfNumber(v);
-        return HarloweValue.OfNumber(0);
+        int count = CountEntered(_present, _currentPassage);
+        for (int i = 0; i < _past.Count; i++) count += CountEntered(_past[i], _currentPassage);
+        return HarloweValue.OfNumber(count);
       }
     }
 
     /// <summary>
-    /// Total number of passage transitions in the current session, counting
-    /// the current one. <see cref="_undoStack"/> holds one entry per past
-    /// passage (appended at the start of every <see cref="Goto"/>), so the
-    /// count plus the current-passage-is-live bit gives the total.
+    /// Total number of turns this session, counting the current one. <c>_past</c>
+    /// holds one Moment per completed turn (and excludes the redo <c>_future</c>),
+    /// so the count plus the current-turn-is-live bit gives the total — it drops
+    /// after an <see cref="Undo"/>.
     /// </summary>
     public HarloweValue Turns =>
-      HarloweValue.OfNumber(_undoStack.Count + (string.IsNullOrEmpty(_currentPassage) ? 0 : 1));
+      HarloweValue.OfNumber(_past.Count + (string.IsNullOrEmpty(_currentPassage) ? 0 : 1));
 
     /// <summary>
-    /// Past passage names in visit order, oldest first, excluding the
-    /// current passage. Backs the <c>(history:)</c> macro. Each undo entry
-    /// stores its prior passage name and the list is oldest-first (appended at
-    /// each <see cref="Goto"/>), so a forward walk yields visit order directly.
+    /// Passage names in visit order, oldest first, excluding the current passage.
+    /// Backs the <c>(history:)</c> macro. Derived by flattening every turn's entered
+    /// sequence — each turn contributes its resting passage, or its full
+    /// auto-<c>(goto:)</c> redirect trail — across <c>_past</c> then the present,
+    /// then dropping the final entry (the current passage).
     /// </summary>
     public HarloweValue History
     {
       get
       {
-        var list = new List<HarloweValue>(_undoStack.Count);
-        for (int i = 0; i < _undoStack.Count; i++)
-          list.Add(HarloweValue.OfString(_undoStack[i].PassageName ?? string.Empty));
+        var all = new List<string>();
+        for (int i = 0; i < _past.Count; i++) AppendEntered(all, _past[i]);
+        AppendEntered(all, _present);
+        if (all.Count > 0) all.RemoveAt(all.Count - 1);   // exclude the current passage
+        var list = new List<HarloweValue>(all.Count);
+        for (int i = 0; i < all.Count; i++) list.Add(HarloweValue.OfString(all[i]));
         return HarloweValue.OfArray(list);
       }
     }
@@ -222,69 +278,337 @@ namespace Harlowe.Runtime
     /// </summary>
     public RenderResult Goto(string passageName)
     {
-      _undoStack.Add(new SessionSnapshot
+      // A host-driven navigation to a new turn ends the just-loaded state, re-permitting
+      // (load-game:) (reference clears section.loadedGame on the next showPassage).
+      _loadedGame = false;
+      FinalizePresent();
+      _past.Add(_present);
+      _future.Clear();
+      _present = new Moment { PassageName = passageName };
+      // A fresh forward turn never replays from a restored entry. Clear any pending
+      // replay marker (set by an undo/redo into a redirect turn) so it can't hijack
+      // this turn's render when no render intervened between the undo/redo and here.
+      _replayFrom = null;
+      // A new turn starts where the previous one *ended*. Normally the live store
+      // and RNG already sit there (the previous turn just rendered), so we only note
+      // the RNG position. But after an undo/redo with no intervening render the live
+      // state still sits at the restored turn's *start* — rebuild it to the previous
+      // turn's end first, or the new turn starts from stale state and disagrees with
+      // what a later undo reconstructs. FlattenStore() == flatten(_past), the
+      // start-of-present-turn state, which for the new (empty) present is exactly the
+      // previous turn's end.
+      if (_liveAtTurnStart)
       {
-        PassageName = _currentPassage,
-        StoreDelta = _store.TakeStoryDelta(),
-        VisitCounts = CopyVisitCounts()
-      });
+        _store.ResetStoryVars(FlattenStore());
+        RestoreRng();
+      }
+      else
+      {
+        _turnStartIter = _rng.SeedIter;
+      }
       EnterPassage(passageName);
       return RenderInternal(0);
     }
 
     /// <summary>
-    /// Removes the most recent undo entry and restores its passage name,
-    /// story-variable state (reconstructed from the per-turn deltas), and visit
-    /// counts. Returns <c>true</c> if an entry was available and applied;
-    /// <c>false</c> if the stack is
-    /// empty. After returning <c>true</c>, call <see cref="Render"/> to
-    /// display the restored passage. May be called repeatedly to walk back
-    /// through every <see cref="Goto"/> the session has performed.
+    /// Moves the present back one turn: finalises the live turn onto the redo
+    /// future, pops the most recent past Moment as the new present, and restores
+    /// its passage name, story-variable state (reconstructed from the per-turn
+    /// deltas), and visit counts. Returns <c>true</c> if a past turn was available;
+    /// <c>false</c> at the first turn. After <c>true</c>, call <see cref="Render"/>
+    /// to display the restored passage. May be called repeatedly to walk back
+    /// through every <see cref="Goto"/>; <see cref="Redo"/> walks forward again.
     ///
     /// <para>
     /// The live render tree, click-handler registry, and enchantment list are
-    /// torn down — they belonged to the post-<see cref="Goto"/> passage, not
-    /// the one we're returning to. A <see cref="DispatchEvent"/> call made
-    /// between <see cref="Undo"/> and the next <see cref="Render"/> is a
-    /// no-op rather than firing handlers against a stale tree. The next
-    /// <see cref="Render"/> rebuilds both the tree and the handler/enchantment
-    /// state from passage source, so anything the restored passage's
-    /// <c>(click:)</c>/<c>(enchant:)</c> macros register gets re-registered
-    /// fresh.
+    /// torn down — they belonged to the turn we left, not the one we're returning
+    /// to. A <see cref="DispatchEvent"/> call made between <see cref="Undo"/> and
+    /// the next <see cref="Render"/> is a no-op rather than firing handlers against
+    /// a stale tree. The next <see cref="Render"/> rebuilds both the tree and the
+    /// handler/enchantment state from passage source, so anything the restored
+    /// passage's <c>(click:)</c>/<c>(enchant:)</c> macros register gets
+    /// re-registered fresh.
     /// </para>
     /// </summary>
-    public bool Undo()
+    public bool Undo() => Move(_past, _future);
+
+    /// <summary>Alias for <see cref="Undo"/> (reference Harlowe's <c>rewind</c>).</summary>
+    public bool Rewind() => Undo();
+
+    /// <summary>
+    /// Re-applies the most recently undone turn: finalises the present back into
+    /// <c>_past</c>, pops the last <c>_future</c> Moment as the new present, and
+    /// restores its passage and variable state. Returns <c>false</c> when there is
+    /// nothing to redo — a <see cref="Goto"/> clears the redo future, so redo is
+    /// available only immediately after one or more <see cref="Undo"/>s. After
+    /// <c>true</c>, call <see cref="Render"/> to redisplay; the live tree is rebuilt
+    /// on that render exactly as for undo.
+    /// </summary>
+    public bool Redo() => Move(_future, _past);
+
+    /// <summary>Alias for <see cref="Redo"/> (reference Harlowe's <c>fastForward</c>).</summary>
+    public bool FastForward() => Redo();
+
+    // ----- Save / load -----
+
+    /// <summary>
+    /// Why the most recent <see cref="SaveGame"/> failed, or null if it succeeded —
+    /// so a host (or <c>(save-game:)</c>) can report a no-backend / unsaveable-value /
+    /// write-rejected reason rather than a bare false.
+    /// </summary>
+    public string LastSaveError { get; private set; }
+
+    /// <summary>Why the most recent <see cref="LoadGame"/> failed (missing slot, corrupt blob, vanished passage, …), or null on success.</summary>
+    public string LastLoadError { get; private set; }
+
+    /// <summary>
+    /// Serialise the current timeline (completed turns + the live turn, excluding the
+    /// redo future) to the configured <see cref="Saving.ISaveStorage"/> under
+    /// <paramref name="slot"/>, with an optional display <paramref name="filename"/>
+    /// (defaulting to the slot name). The slot is IFID-namespaced internally
+    /// (<see cref="Saving.SaveKeys"/>). Returns false — setting
+    /// <see cref="LastSaveError"/> — if saving is disabled (null backend), the state
+    /// holds an unsaveable value (a non-finite number, an unstamped changer), or the
+    /// backend refuses the write.
+    ///
+    /// <para><b>Fidelity boundary.</b> The live present turn is saved by passage +
+    /// timeline; its variable state is rebuilt by <em>re-rendering</em> that passage
+    /// on load (start-of-turn store + replay — the same model as undo). Top-level
+    /// <c>(set:)</c>s reproduce exactly, but a variable changed by a click/hover
+    /// interaction on the current passage (a dispatch, with no navigation) is
+    /// <em>not</em> recaptured — re-render rebuilds the interaction but doesn't
+    /// re-fire it. So a save taken after such an in-place choice loses that change.
+    /// This is the delta+replay timeline model's trade-off (reference's full-variable
+    /// snapshot would capture it); navigating before saving finalises the turn into
+    /// the timeline and persists its effect. The in-passage <c>(save-game:)</c> macro
+    /// is largely unaffected, since clicks fire after the render.</para>
+    /// </summary>
+    public bool SaveGame(string slot, string filename = null)
     {
-      if (_undoStack.Count == 0) return false;
-      int i = _undoStack.Count - 1;
-      var snap = _undoStack[i];
-      // Reconstruct the full story-var state at this undo point by flattening
-      // every delta up to and including it (last-write-wins), then install it.
-      // ResetStoryVars deep-copies on install, so the timeline's deltas stay
-      // independent of the live store.
-      _store.ResetStoryVars(Flatten(i));
-      _currentPassage = snap.PassageName;
-      _visitCounts = snap.VisitCounts;
-      _undoStack.RemoveAt(i);
-      _liveRoot = null;
-      _liveContext = null;
-      _passageTimer.Restart();
+      LastSaveError = null;
+      if (_storage == null) { LastSaveError = "saving is disabled (no storage backend)"; return false; }
+
+      string blob = Saving.SaveSerializer.SerialiseTimeline(_past, _present);
+      if (blob == null) { LastSaveError = "the story state holds a value that can't be saved"; return false; }
+
+      string key = Saving.SaveKeys.ToStorageKey(_story?.Ifid, slot);
+      if (!_storage.TryWrite(key, blob, filename ?? slot))
+      { LastSaveError = "the storage backend rejected the save"; return false; }
       return true;
     }
 
     /// <summary>
-    /// Reconstructs the full story-variable state at undo point
-    /// <paramref name="upToInclusive"/> by applying each entry's forward delta
-    /// in chronological order (oldest first), last write winning. The returned
-    /// dictionary holds references into the deltas; the caller deep-copies on
-    /// install.
+    /// Restore the timeline saved under <paramref name="slot"/>, replacing the current
+    /// timeline and positioning the session at the saved present turn (the next
+    /// <see cref="Render"/> shows it). Returns false — setting
+    /// <see cref="LastLoadError"/> and leaving session state untouched — if saving is
+    /// disabled, the slot is empty, or the blob is corrupt / references a passage that
+    /// no longer exists (deserialisation is atomic). Story variables and the RNG
+    /// restore to the loaded present's start so the re-render reproduces it.
+    ///
+    /// <para>This is the host-facing load; the <c>(load-game:)</c> macro layers the
+    /// in-passage navigation + infinite-loop guard atop the same install.</para>
     /// </summary>
-    private Dictionary<string, HarloweValue> Flatten(int upToInclusive)
+    public bool LoadGame(string slot)
+    {
+      var result = PrepareLoad(slot);
+      if (!result.Ok) return false;
+      InstallTimeline(result.Past, result.Present);
+      return true;
+    }
+
+    /// <summary>
+    /// Read and deserialise the save in <paramref name="slot"/> <em>without</em>
+    /// installing it — the validating half of a load, shared by the host
+    /// <see cref="LoadGame"/> (which installs immediately) and the deferred
+    /// <c>(load-game:)</c> macro (which stages the result and lets the session install
+    /// after the render). Returns a failed <see cref="Saving.DeserialiseResult"/> —
+    /// also setting <see cref="LastLoadError"/> — when saving is disabled, the slot is
+    /// empty, or the blob is corrupt / references a vanished passage.
+    /// </summary>
+    private Saving.DeserialiseResult PrepareLoad(string slot)
+    {
+      LastLoadError = null;
+      if (_storage == null)
+      { LastLoadError = "saving is disabled (no storage backend)"; return new Saving.DeserialiseResult { Error = LastLoadError }; }
+
+      string key = Saving.SaveKeys.ToStorageKey(_story?.Ifid, slot);
+      if (!_storage.TryRead(key, out var blob))
+      { LastLoadError = $"there is no saved game in slot '{slot}'"; return new Saving.DeserialiseResult { Error = LastLoadError }; }
+
+      var result = Saving.SaveSerializer.DeserialiseTimeline(blob, _story, _registry, NewSaveContext());
+      if (!result.Ok) LastLoadError = result.Error;
+      return result;
+    }
+
+    /// <summary>
+    /// The saved games for this story as slot → display filename. Filters the
+    /// backend's contents to this story's IFID namespace and strips the prefix, so a
+    /// backend shared across stories lists only this one's saves. Backs
+    /// <c>(saved-games:)</c>.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> SavedGames()
+    {
+      var games = new Dictionary<string, string>();
+      if (_storage == null) return games;
+      string ifid = _story?.Ifid;
+      foreach (var info in _storage.Enumerate())
+        if (Saving.SaveKeys.TryGetSlot(ifid, info.Key, out var slot))
+          games[slot] = info.Filename;
+      return games;
+    }
+
+    /// <summary>
+    /// Install a freshly-loaded timeline and position the session at its present turn,
+    /// reusing the undo/redo restore path (<see cref="RestoreToPresent"/>) to rebuild
+    /// the store, RNG, and passage from the loaded moments. Shared by
+    /// <see cref="LoadGame"/> and (later) the <c>(load-game:)</c> macro.
+    /// </summary>
+    private void InstallTimeline(List<Moment> past, Moment present)
+    {
+      _past.Clear();
+      if (past != null) _past.AddRange(past);
+      _future.Clear();
+      _present = present;
+      RestoreToPresent();
+      // The upcoming render shows a just-loaded passage; arm the loop guard so a
+      // (load-game:) within it errors rather than reloading forever. RestoreToPresent
+      // (called just above) cleared it; re-arm here. Cleared again by the next
+      // navigation to a new turn (a host Goto, or another restore).
+      _loadedGame = true;
+    }
+
+    /// <summary>A context for re-evaluating saved value source during a load (deserialise dispatches collection/changer macros through the registry).</summary>
+    private MacroContext NewSaveContext()
+      => new MacroContext { Store = _store, EvaluationContext = this, Invoker = _registry, Rng = _rng };
+
+    /// <summary>
+    /// Shared body of <see cref="Undo"/>/<see cref="Redo"/>: finalise the live
+    /// turn, move it onto <paramref name="to"/>, pop the most recent
+    /// <paramref name="from"/> Moment as the new present, and restore its state.
+    /// Returns <c>false</c> when <paramref name="from"/> is empty. Kept as one body
+    /// so undo and redo cannot silently drift apart as the timeline grows.
+    /// </summary>
+    private bool Move(List<Moment> from, List<Moment> to)
+    {
+      if (from.Count == 0) return false;
+      FinalizePresent();
+      to.Add(_present);
+      _present = from[from.Count - 1];
+      from.RemoveAt(from.Count - 1);
+      RestoreToPresent();
+      return true;
+    }
+
+    /// <summary>
+    /// Captures a freshly-played turn's state into <c>_present</c> before it leaves
+    /// the present slot: resting passage, the forward delta of story vars changed
+    /// this turn (<see cref="HarloweVariableStore.TakeStoryDelta"/>), and the visit
+    /// counts. <b>Only a live turn is captured.</b> A Moment restored from the
+    /// timeline by <see cref="Move"/> already holds its real delta and is treated
+    /// as immutable: re-capturing it would read the dirty-set that
+    /// <see cref="RestoreToPresent"/> just cleared and overwrite the delta with an
+    /// empty one, losing that turn's variables on a later undo/redo. A non-null
+    /// <see cref="Moment.StoreDelta"/> marks an already-finalised Moment (a fresh
+    /// turn starts null), so it doubles as the "is this turn live?" signal. (The
+    /// redirect trail is built during the render, not here; visit counts are
+    /// derived from it rather than snapshotted.)
+    /// </summary>
+    private void FinalizePresent()
+    {
+      if (_present.StoreDelta != null) return;
+      _present.PassageName = _currentPassage;
+      _present.StoreDelta = _store.TakeStoryDelta();
+      // Sparse RNG recording: stamp SeedIter only if the turn actually drew, so a
+      // no-draw turn stays compressible (SeedIter null). The shared stream's live
+      // position is this turn's end, since its draws are the most recent.
+      if (_rng.SeedIter != _turnStartIter)
+        _present.SeedIter = _rng.SeedIter;
+    }
+
+    /// <summary>
+    /// Installs the Moment now in the present slot after a <see cref="Move"/>:
+    /// reconstructs the story-var state and RNG to the restored turn's <em>start</em>
+    /// (<see cref="FlattenStore"/> / <see cref="RestoreRng"/>), sets the passage to
+    /// the turn's resting passage, and tears down the live tree (it belonged to the
+    /// turn we left). The next <see cref="Render"/> rebuilds the end-state by
+    /// re-running the turn — re-applying its <c>(set:)</c>s and reproducing its draws
+    /// exactly once (so an accumulating set like <c>$x to $x + 1</c> isn't doubled).
+    ///
+    /// <para>The replay starts from <see cref="_replayFrom"/>: for a multi-passage
+    /// (auto-<c>(goto:)</c> redirect) turn that's the entry passage
+    /// (<see cref="Moment.Visits"/>[0]) so the whole chain replays; for a
+    /// single-passage turn it's null and the render runs the resting passage
+    /// directly. <see cref="CurrentPassage"/> stays the resting passage throughout,
+    /// even before the replay render.</para>
+    /// </summary>
+    private void RestoreToPresent()
+    {
+      _store.ResetStoryVars(FlattenStore());   // start-of-turn store; the replay re-applies the turn's sets
+      RestoreRng();                            // start-of-turn RNG; the replay reproduces the turn's draws
+      _currentPassage = _present.PassageName;
+      _replayFrom = _present.Visits != null && _present.Visits.Count > 0
+        ? _present.Visits[0]
+        : null;
+      _liveAtTurnStart = true;
+      // Any restore (undo/redo/load) ends the just-loaded state; InstallTimeline
+      // re-arms it immediately for a load. Keeps the loop guard consistent across
+      // every navigation, not only Goto.
+      _loadedGame = false;
+      _liveRoot = null;
+      _liveContext = null;
+      _passageTimer.Restart();
+    }
+
+    /// <summary>
+    /// Positions the RNG at the <em>start</em> of the turn now in the present slot
+    /// — whether freshly entered (a <see cref="Goto"/>, whose new turn starts where
+    /// the previous one ended) or restored by undo/redo (so a re-render reproduces
+    /// that turn's draws instead of advancing past them). <see cref="Moment.SeedIter"/>
+    /// is taken from the most recent turn recorded <em>strictly before</em> the
+    /// present (scanning <c>_past</c>; <c>0</c> when none drew) — i.e. the end of the
+    /// previous drawing turn. <see cref="Moment.Seed"/> is the most recent recorded
+    /// <em>at or before</em> the present (inclusive), which for this slice is always
+    /// the session-initial seed the first Moment holds. (Using the present's own
+    /// SeedIter — its end — would re-roll differently; the seed boundary is inclusive
+    /// so restoring to the first turn still finds the baseline seed.) Multi-passage
+    /// redirect turns reproduce too: <see cref="RestoreToPresent"/> restores to the
+    /// entry passage, so the whole chain replays from this start position.
+    /// </summary>
+    private void RestoreRng()
+    {
+      int seedIter = 0;
+      for (int i = _past.Count - 1; i >= 0; i--)
+        if (_past[i].SeedIter.HasValue) { seedIter = _past[i].SeedIter.Value; break; }
+
+      // The first Moment always carries the session-initial seed and is always in
+      // scope, so this resolves; SetSeed tolerates a null seed defensively anyway.
+      string seed = _present.Seed;
+      if (seed == null)
+        for (int i = _past.Count - 1; i >= 0; i--)
+          if (_past[i].Seed != null) { seed = _past[i].Seed; break; }
+
+      _rng.SetSeed(seed, seedIter);
+      _turnStartIter = _rng.SeedIter;
+    }
+
+    /// <summary>
+    /// Reconstructs the story-variable state at the <em>start</em> of the present
+    /// turn: the cumulative effect of every <em>past</em> turn's forward delta, in
+    /// chronological order, last write winning. The present turn's own delta is
+    /// <em>excluded</em> — the re-render re-runs that turn's <c>(set:)</c>s, so
+    /// including it would double a relative set (<c>$x to $x + 1</c>) on undo. For a
+    /// freshly-created present (a new <see cref="Goto"/> turn, delta still null) this
+    /// is exactly the previous turn's end. (The redo <c>_future</c> is excluded; it
+    /// lies ahead of the present.) The returned dictionary holds references into the
+    /// deltas; the caller deep-copies on install.
+    /// </summary>
+    private Dictionary<string, HarloweValue> FlattenStore()
     {
       var flat = new Dictionary<string, HarloweValue>();
-      for (int j = 0; j <= upToInclusive; j++)
+      for (int j = 0; j < _past.Count; j++)
       {
-        var delta = _undoStack[j].StoreDelta;
+        var delta = _past[j].StoreDelta;
         if (delta == null) continue;
         foreach (var kv in delta) flat[kv.Key] = kv.Value;
       }
@@ -297,11 +621,6 @@ namespace Harlowe.Runtime
     {
       _currentPassage = passageName ?? string.Empty;
       _store.BeginPassage();
-      if (!string.IsNullOrEmpty(_currentPassage))
-      {
-        if (!_visitCounts.ContainsKey(_currentPassage)) _visitCounts[_currentPassage] = 0;
-        _visitCounts[_currentPassage]++;
-      }
       _passageTimer.Restart();
     }
 
@@ -318,6 +637,16 @@ namespace Harlowe.Runtime
       {
         _liveRoot = null;
         _liveContext = null;
+        // Rebuild the turn's redirect trail from scratch on each top-level render:
+        // a re-render (e.g. replaying a restored turn from its entry passage) must
+        // not append to the existing trail. The redirect path below re-populates it.
+        _present.Visits = null;
+        // A replay of a restored turn starts from its entry passage; redirects then
+        // walk _currentPassage on to the resting passage. Consume the marker here.
+        if (_replayFrom != null) { _currentPassage = _replayFrom; _replayFrom = null; }
+        // From here the render rebuilds the present turn's end-state, so the live
+        // store/RNG are no longer at the turn start.
+        _liveAtTurnStart = false;
       }
 
       if (string.IsNullOrEmpty(_currentPassage))
@@ -336,6 +665,10 @@ namespace Harlowe.Runtime
       };
       ctx.RenderPassage = (name, output) => InlineDisplayPassage(name, output, ctx);
       ctx.PassageExists = name => _story.GetPassage(name) != null;
+      ctx.SaveGame = (s, fn) => SaveGame(s, fn);
+      ctx.SavedGames = SavedGames;
+      ctx.PrepareLoad = PrepareLoad;
+      ctx.LoadedGame = _loadedGame;
       _registry.Context = ctx;
 
       // Render into a tree, then flush the finished tree to the buffer the
@@ -345,6 +678,18 @@ namespace Harlowe.Runtime
       var builder = new Rendering.RenderTreeBuilder();
       ctx.LiveRoot = builder.Root;
       new BodyRenderer(builder, _registry, ctx).Render(passage.Ast);
+
+      // A staged (load-game:) replaces the whole timeline and shows the loaded
+      // passage. Install after the body render (not mid-macro), then render the
+      // loaded present from scratch — depth resets to 0, a fresh navigation. The
+      // loop guard (LoadedGame) keeps that render from re-loading forever.
+      if (ctx.PendingLoad != null)
+      {
+        var loaded = ctx.PendingLoad;
+        ctx.PendingLoad = null;
+        InstallTimeline(loaded.Past, loaded.Present);
+        return RenderInternal(0);
+      }
 
       if (ctx.PendingGoto != null)
       {
@@ -358,6 +703,7 @@ namespace Harlowe.Runtime
           });
           return new RenderResult { PassageName = _currentPassage, Text = string.Empty, Entries = errEntries };
         }
+        RecordRedirect(ctx.PendingGoto);
         EnterPassage(ctx.PendingGoto);
         return RenderInternal(depth + 1);
       }
@@ -506,21 +852,38 @@ namespace Harlowe.Runtime
         Entries = new List<BufferedRenderOutput.Entry>()
       };
 
-    private Dictionary<string, int> CopyVisitCounts()
+    /// <summary>
+    /// Records one auto-<c>(goto:)</c> redirect into the present turn's
+    /// <see cref="Moment.Visits"/> trail — the ordered passages entered this turn.
+    /// The first redirect seeds the trail with the departing (entry) passage before
+    /// appending the target, so <c>Visits</c> reads entry-first and ends at the
+    /// resting passage. Null while the turn is single-passage, keeping such a Moment
+    /// compressible in a save blob.
+    /// </summary>
+    private void RecordRedirect(string target)
     {
-      var copy = new Dictionary<string, int>(_visitCounts.Count);
-      foreach (var kv in _visitCounts) copy[kv.Key] = kv.Value;
-      return copy;
+      if (_present.Visits == null) _present.Visits = new List<string> { _currentPassage };
+      _present.Visits.Add(target);
     }
 
-    private class SessionSnapshot
+    /// <summary>Appends a Moment's entered sequence — its <see cref="Moment.Visits"/> trail, or just its resting <see cref="Moment.PassageName"/> when single-passage — to <paramref name="dst"/>. Backs the derived <c>(history:)</c>.</summary>
+    private static void AppendEntered(List<string> dst, Moment m)
     {
-      public string PassageName;
-      // The forward delta of story ($) variables changed during this turn —
-      // only the vars that changed, not a full store clone. Flattened
-      // oldest-first to reconstruct full state on undo.
-      public Dictionary<string, HarloweValue> StoreDelta;
-      public Dictionary<string, int> VisitCounts;
+      if (m.Visits != null) dst.AddRange(m.Visits);
+      else dst.Add(m.PassageName ?? string.Empty);
     }
+
+    /// <summary>Counts how many times <paramref name="name"/> appears in a Moment's entered sequence. Backs the derived <c>visits</c> keyword.</summary>
+    private static int CountEntered(Moment m, string name)
+    {
+      if (m.Visits != null)
+      {
+        int c = 0;
+        for (int i = 0; i < m.Visits.Count; i++) if (m.Visits[i] == name) c++;
+        return c;
+      }
+      return (m.PassageName ?? string.Empty) == name ? 1 : 0;
+    }
+
   }
 }

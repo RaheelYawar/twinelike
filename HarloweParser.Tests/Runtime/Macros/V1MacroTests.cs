@@ -14,7 +14,7 @@ namespace Harlowe.Tests.Runtime.Macros
       StandardMacros.RegisterAll(reg);
       var store = new HarloweVariableStore();
       var ctx = new MacroContext { Store = store };
-      if (rngSeed.HasValue) ctx.Rng = new Random(rngSeed.Value);
+      if (rngSeed.HasValue) ctx.Rng = new MulberryRng(rngSeed.Value);
       reg.Context = ctx;
       return (reg, ctx);
     }
@@ -378,6 +378,21 @@ namespace Harlowe.Tests.Runtime.Macros
       var (reg, ctx) = Setup();
       Assert.Equal(-1, Call(reg, ctx, "random",
         HarloweValue.OfNumber(-1.9), HarloweValue.OfNumber(-1.1)).AsNumber);
+    }
+
+    [Fact]
+    public void Random_SpanWiderThanInt32_NoOverflow_StaysInRange()
+    {
+      // Regression: range = hi - lo + 1 here is 4e9 > 2^31, so the [0,1)-scaled
+      // draw exceeds 2^31 ~46% of the time. A narrowing (int) cast would be
+      // unspecified; the double/long scale must keep results in [lo, hi].
+      var (reg, ctx) = Setup(rngSeed: 5);
+      for (int i = 0; i < 200; i++)
+      {
+        double n = Call(reg, ctx, "random",
+          HarloweValue.OfNumber(-2000000000), HarloweValue.OfNumber(2000000000)).AsNumber;
+        Assert.InRange(n, -2000000000, 2000000000);
+      }
     }
 
     [Fact]

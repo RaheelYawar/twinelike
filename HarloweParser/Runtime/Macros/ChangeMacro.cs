@@ -30,10 +30,7 @@ namespace Harlowe.Runtime.Macros
       {
         var targets = HookResolver.Resolve(liveRoot, target);
         for (int i = 0; i < targets.Count; i++)
-        {
-          if (targets[i] is IRenderContainer container)
-            changer.ApplyTo(container);
-        }
+          changer.ApplyToTarget(liveRoot, targets[i]);
       }
 
       return null;

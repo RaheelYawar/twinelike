@@ -275,6 +275,34 @@ namespace Harlowe.Runtime
         args.Add(v);
       }
       _result = _macros.Invoke(node.Name, args) ?? HarloweValue.OfError($"macro '{node.Name}' returned no value");
+      StampChangerSource(_result, node.Name, args);
+    }
+
+    /// <summary>
+    /// Stamp a freshly-created Changer with the Harlowe source that built it —
+    /// <c>(name:arg-source,…)</c> from the call node's name and each <em>evaluated</em>
+    /// argument's <see cref="HarloweValue.ToSource"/> (reference's resolved
+    /// <c>params</c>). Mirrors reference's changer <c>macroName</c>+<c>params</c> →
+    /// <c>TwineScript_ToSource</c>. Best-effort and non-throwing: if any argument has
+    /// no source form (an Error or non-finite number — neither reachable here, as arg
+    /// errors short-circuit upstream), <see cref="Changer.Source"/> is left null and
+    /// the changer simply can't be saved. Lets a changer stored in a variable
+    /// round-trip through save/load.
+    /// </summary>
+    private static void StampChangerSource(HarloweValue result, string macroName, List<HarloweValue> args)
+    {
+      if (result == null || result.Kind != HarloweValueKind.Changer) return;
+      var sb = new System.Text.StringBuilder();
+      sb.Append('(').Append(macroName).Append(':');
+      for (int i = 0; i < args.Count; i++)
+      {
+        if (i > 0) sb.Append(',');
+        string src = args[i].ToSource();
+        if (src == null) { result.AsChanger.Source = null; return; }
+        sb.Append(src);
+      }
+      sb.Append(')');
+      result.AsChanger.Source = sb.ToString();
     }
 
     /// <summary>
@@ -335,7 +363,15 @@ namespace Harlowe.Runtime
           return HarloweValue.OfDatamap(merged);
         }
         case HarloweValueKind.Changer:
-          return HarloweValue.OfChanger(left.AsChanger.Compose(right.AsChanger));
+        {
+          // Compose then stamp the combined source `left+right` (reference chains
+          // composed changers' source with `+`). If either operand is unstamped the
+          // composite has no reliable source, so leave it null (un-saveable).
+          var composed = left.AsChanger.Compose(right.AsChanger);
+          string ls = left.AsChanger.Source, rs = right.AsChanger.Source;
+          composed.Source = (ls != null && rs != null) ? ls + "+" + rs : null;
+          return HarloweValue.OfChanger(composed);
+        }
         default:
           return HarloweValue.OfError($"+ does not apply to {left.Kind} and {right.Kind}");
       }

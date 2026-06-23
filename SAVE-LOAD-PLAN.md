@@ -178,8 +178,12 @@ the session-level `Redo`/`FastForward`.
   (Strictly-before on the Seed would reseed the first moment empty; the moment's
   own `SeedIter` is the other off-by-one.)
 - **PRNG** — `IRng` (`NextDouble()`, `Seed`/`SeedIter`, `SetSeed(seed, iter)`) +
-  `MulberryRng` porting reference's mulberry32 + MurmurHash3 with `unchecked`
-  32-bit math (`Math.imul` → `unchecked(a*b)` on int; `>>>` → `(uint)x >> n`).
+  `MulberryRng` (**landed, step 1**) porting reference's mulberry32 + MurmurHash3
+  in native wrapping `uint` arithmetic (`unchecked` blocks; uint `*` = `Math.imul`,
+  uint `>>` = JS `>>>`). Byte-identical to reference for any real session; the uint
+  counter wraps at 2^32 rather than mirroring reference's growing float `h`, so they
+  diverge only past ~5M draws/session (reference's float starts rounding there) — an
+  unreachable regime, accepted.
 - **Blob** — JSON array of moments via the existing `JsonWriter`/`JsonReader`;
   each var value a source string; a moment with no var changes, redirects, or
   recorded `Seed`/`SeedIter` compresses to a bare passage-name string (mirroring
@@ -292,8 +296,6 @@ Total ~1570 LoC + tests across 7 commits.
 `History`/`Visits`/`Turns` (excluding `_future`) + session-held `_loadedGame`/`LastLoadError`/`LastSaveError`
 seeded into each `MacroContext`); `Runtime/MacroContext.cs` (`Rng` → `IRng`
 [public break], `LoadedGame` slot + pending-load, both seeded/read per render);
-`Runtime/HarloweVariableStore.cs` (add non-destructive `PeekStoryDelta()` so a
-mid-render `(save-game:)` doesn't clear the dirty set the next undo needs);
 `Runtime/HarloweValue.cs` (add `ToSource()`); `Runtime/Changer.cs`
 (+ `Source` field); `Runtime/ExpressionEvaluator.cs` (stamp changer source at the
 macro-call/compose chokepoint); `Runtime/Macros/RandomMacro.cs` + `EitherMacro.cs`
@@ -314,14 +316,18 @@ under `HarloweParser.Tests/Runtime/Saving/` + `MulberryRngTests`.
   enchantments/click handlers/hook resolutions. Only *story state* (vars,
   passage, turn count) restores — an unfired `(click:)` from before the save is
   lost. Document in the macro docstrings.
-- **`(save-game:)` mid-render captures in-progress state**, not entry-state
-  (matches reference) — via the non-destructive `PeekStoryDelta()`: the present
-  turn's delta lives in `_dirtyStoryVars`, which `TakeStoryDelta` *clears*
-  (HarloweVariableStore.cs:145) for the next undo, so a mid-turn save must peek,
-  not take. The RNG needs the same: `_present.SeedIter` is reconciled only
-  post-render, so a mid-render save must read `_rng.SeedIter`/`Seed` *live* for
-  the present (the PRNG analogue of `PeekStoryDelta`), not the stale stamped
-  value. Pin in step 6.
+- **Dispatch-time state isn't captured on save (documented boundary).** A save
+  reproduces the present turn's variables by re-rendering its passage on load
+  (start-of-turn store + replay, per the double-apply fix). Top-level `(set:)`s
+  reproduce; a variable changed by a click/hover interaction on the *current*
+  passage (no navigation) does not — re-render rebuilds the interaction but doesn't
+  re-fire it, so a host save taken after a dispatch loses that change. The in-passage
+  `(save-game:)` macro is largely unaffected (clicks fire after the render). Fully
+  closing it is reference's per-moment full-variable *snapshot* instead of
+  delta+replay — a larger change than this slice; documented on
+  `StorySession.SaveGame`. *(Supersedes the earlier `PeekStoryDelta` idea: the
+  start-of-turn-restore fix made it moot — the present's delta is reproduced by
+  re-render, never applied on load, so peeking it on save would buy nothing.)*
 - **`LoadedGame` is session-held**, seeded into each per-render `MacroContext`,
   set for the loaded passage's render and cleared at the next `EnterPassage`
   away (auto-`(goto:)`/redirect included — reference's per-`showPassage`
@@ -330,6 +336,11 @@ under `HarloweParser.Tests/Runtime/Saving/` + `MulberryRngTests`.
 - **Deferred reference optimisations** — `at`/`via`/hash source-span ValueRefs
   (blob-size delta-compression + cross-version resilience) and per-value
   `seed`/`seedIter`. Not needed while we save resolved-value source.
+- ~~**Multi-passage redirect-turn RNG reproduction (2b limitation).**~~ *Resolved
+  in 2c:* `RestoreToPresent` restores `_currentPassage` to a redirect turn's entry
+  (`Moment.Visits[0]`), so the re-render replays the whole auto-`(goto:)` chain from
+  the start and reproduces the entry passages' draws. The
+  `Undo_IntoRedirectTurn_RestingPassageRandomReproduces` test is now un-skipped.
 
 ## Risks
 
@@ -346,11 +357,13 @@ under `HarloweParser.Tests/Runtime/Saving/` + `MulberryRngTests`.
   families plus `+`-composition all do. (`(if:)`/`(unless:)` are *not* changers
   here — `IfMacro` returns a Bool + sets `LastConditional` — so they don't
   apply.) A missed path serialises a changer with an empty source.
-- **PRNG byte-compat.** A C# integer-math quirk diverging from JS `Math.imul`/
-  `>>>` is caught by independent fixture vectors; `unchecked` + explicit
-  `(uint)x >> n` on netstandard2.0 (no C# 11 `>>>`). `h` accumulated as a JS
-  double vs C# `uint` wrap diverges only past ~5M draws/session — document, don't
-  fix.
+- ~~**PRNG byte-compat.**~~ *Resolved (step 1):* native wrapping `uint` arithmetic
+  reproduces JS's 32-bit `Math.imul`/`>>>` semantics, verified bit-for-bit against
+  independent reference vectors generated under Node (`MulberryRngTests`; suite
+  green on net48 + net8.0). The `uint` accumulator wraps at 2^32 rather than
+  tracking reference's growing float `h`, so results diverge only past ~5M draws in
+  one session — a deliberate simplification (cleaner code, no precision caveat) over
+  byte-exactness in a regime no story reaches.
 - **Timeline refactor regresses working undo.** Steps 1–2 touch live navigation
   code; keep the undo suite green and land step 2 as its own reviewable commit.
   Visit-count derivation changes the working visit path — re-test `visits`.

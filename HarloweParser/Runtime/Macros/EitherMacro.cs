@@ -19,8 +19,11 @@ namespace Harlowe.Runtime.Macros
       {
         if (args[i].IsError) return args[i];
       }
-      var rng = context.Rng ?? new Random();
-      return args[rng.Next(args.Count)];
+      // Index = floor(draw * count), matching reference's args[~~(State.random()
+      // * args.length)] (ts/macrolib/values.ts). count is small, so the (int)
+      // cast can't overflow.
+      var rng = context.Rng ?? new MulberryRng();
+      return args[(int)(rng.NextDouble() * args.Count)];
     }
   }
 }

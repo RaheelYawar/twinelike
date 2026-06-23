@@ -32,6 +32,19 @@ namespace Harlowe.Runtime
   {
     private readonly List<IChangerPatch> _patches;
 
+    /// <summary>
+    /// The Harlowe source that created this changer — <c>(text-style:"bold")</c>,
+    /// or <c>(text-style:"bold")+(text-colour:"red")</c> for a composed one. Stamped
+    /// by the <see cref="ExpressionEvaluator"/> at the macro-call and <c>+</c>-compose
+    /// sites (reference keeps <c>macroName</c>+<c>params</c> and regenerates source the
+    /// same way in <c>changer.ts</c>'s <c>TwineScript_ToSource</c>). Travels with the
+    /// value, so a changer read back from a <c>$var</c> keeps its creation-time source —
+    /// which is how <see cref="HarloweValue.ToSource"/> serialises it. Null when
+    /// unstamped or composed from an unstamped operand: such a changer has no source
+    /// form and can't be saved (the save fails loudly).
+    /// </summary>
+    public string Source;
+
     private Changer(List<IChangerPatch> patches)
     {
       _patches = patches;
@@ -302,10 +315,7 @@ namespace Harlowe.Runtime
     public void ApplyTo(IRenderContainer target, Enchantment source = null)
     {
       if (target == null) return;
-
-      var descriptor = new HookDescriptor();
-      for (int i = 0; i < _patches.Count; i++) _patches[i].Apply(descriptor);
-      var styles = descriptor.Styles;
+      var styles = BuildStyles();
       if (styles.Count == 0) return;
 
       var content = new List<RenderNode>(target.Children);
@@ -320,6 +330,52 @@ namespace Harlowe.Runtime
       }
       target.Children.Clear();
       target.Children.AddRange(content);
+    }
+
+    /// <summary>
+    /// Apply this changer's style layers to a resolved target, dispatching on its
+    /// shape: a container (a hook) has its children wrapped via
+    /// <see cref="ApplyTo(IRenderContainer, Enchantment)"/>; a <em>leaf</em> (a
+    /// <see cref="RenderLinkNode"/> matched by <c>?link</c>) is wrapped node-and-all
+    /// in place within <paramref name="root"/> via <see cref="ApplyToNode"/>. Lets
+    /// <c>(enchant:)</c>/<c>(change:)</c> style links — reference Harlowe's <c>?Link</c>
+    /// built-in target.
+    /// </summary>
+    public void ApplyToTarget(IRenderContainer root, RenderNode target, Enchantment source = null)
+    {
+      if (target is IRenderContainer container) ApplyTo(container, source);
+      else ApplyToNode(root, target, source);
+    }
+
+    /// <summary>
+    /// Wrap a single leaf <paramref name="target"/> in this changer's style layers,
+    /// replacing it in place within <paramref name="root"/> — the leaf has no children
+    /// of its own, so the wrap goes around the node itself. The style nodes carry
+    /// <paramref name="source"/> so <see cref="EnchantmentPass.Disenchant"/> unwraps
+    /// them by tag, exactly as on the container path.
+    /// </summary>
+    public void ApplyToNode(IRenderContainer root, RenderNode target, Enchantment source = null)
+    {
+      if (root == null || target == null) return;
+      var styles = BuildStyles();
+      if (styles.Count == 0) return;
+
+      RenderNode wrapped = target;
+      for (int i = styles.Count - 1; i >= 0; i--)
+      {
+        var styleNode = new RenderStyleNode { Style = styles[i]?.Clone(), SourceEnchantment = source };
+        styleNode.Children.Add(wrapped);
+        wrapped = styleNode;
+      }
+      RenderNodes.ReplaceChild(root, target, wrapped);
+    }
+
+    /// <summary>Build the descriptor and return its style layers — the shared front of <see cref="ApplyTo"/> / <see cref="ApplyToNode"/>.</summary>
+    private List<StyleSpec> BuildStyles()
+    {
+      var descriptor = new HookDescriptor();
+      for (int i = 0; i < _patches.Count; i++) _patches[i].Apply(descriptor);
+      return descriptor.Styles;
     }
 
     /// <summary>
