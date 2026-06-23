@@ -263,5 +263,26 @@ namespace Harlowe.Runtime.Rendering
       children.Clear();
       children.AddRange(rebuilt);
     }
+
+    /// <summary>
+    /// Find <paramref name="target"/> among <paramref name="root"/>'s descendants
+    /// (by reference) and replace it in place with <paramref name="replacement"/>;
+    /// returns true if found. Lets the enchant/interaction passes wrap a <em>leaf</em>
+    /// match — a <see cref="RenderLinkNode"/> resolved by <c>?link</c> — in their
+    /// style/interactive layer, where the rest of the machinery only ever wraps a
+    /// container's own children. The inverse unwrap is just <see cref="UnwrapWhere"/>,
+    /// which hoists the leaf back out by tag.
+    /// </summary>
+    public static bool ReplaceChild(IRenderContainer root, RenderNode target, RenderNode replacement)
+    {
+      if (root == null || target == null) return false;
+      var children = root.Children;
+      for (int i = 0; i < children.Count; i++)
+      {
+        if (ReferenceEquals(children[i], target)) { children[i] = replacement; return true; }
+        if (children[i] is IRenderContainer c && ReplaceChild(c, target, replacement)) return true;
+      }
+      return false;
+    }
   }
 }

@@ -446,5 +446,27 @@ namespace Harlowe.Tests.Runtime.Macros
       var after = session.DispatchEvent(FirstRegionId(first));
       Assert.Equal(expected, after.Text);
     }
+
+    // --- ?link styling target (a leaf RenderLinkNode, not a hook) ---
+    // (enchant:)/(change:) on ?link work via Changer.ApplyToNode; click/replace on
+    // ?link need the container model (BeginLink/EndLink follow-up) and stay no-ops.
+
+    [Fact]
+    public void Enchant_Link_StylesTheLink()
+    {
+      var session = Session("(enchant: ?link, (text-style: \"bold\"))[[Go->P2]]");
+      var r = session.Render();
+      Assert.Equal(1, CountKind(r, BufferedRenderOutput.Kind.PushStyle)); // was 0 (silent no-op)
+      Assert.Equal(1, CountKind(r, BufferedRenderOutput.Kind.Link));
+    }
+
+    [Fact]
+    public void Change_Link_StylesTheLink()
+    {
+      // (change:) is one-shot, so the link must already be in the tree.
+      var session = Session("[[Go->P2]](change: ?link, (text-style: \"bold\"))");
+      var r = session.Render();
+      Assert.Equal(1, CountKind(r, BufferedRenderOutput.Kind.PushStyle));
+    }
   }
 }

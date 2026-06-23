@@ -79,6 +79,12 @@ namespace Harlowe.Runtime
         bool wrappedAny = false;
         for (int j = 0; j < targets.Count; j++)
         {
+          // A leaf match (a ?link RenderLinkNode) is skipped here: wrapping it as a
+          // clickable region is easy, but the click's dispatch reveal splices content
+          // *into* the target, which needs the link to be a container — the same
+          // BeginLink/EndLink follow-up that (replace: ?link) needs. A clickable-but-
+          // dead link is worse than a no-op, so click/hover on ?link waits for that.
+          // (?link styling via (enchant:)/(change:) works — see Changer.ApplyToNode.)
           if (!(targets[j] is IRenderContainer container)) continue;
           wrappedAny = true;
 

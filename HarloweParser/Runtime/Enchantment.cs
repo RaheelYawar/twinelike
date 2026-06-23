@@ -61,10 +61,7 @@ namespace Harlowe.Runtime
 
         var targets = HookResolver.Resolve(root, enchantment.Target);
         for (int j = 0; j < targets.Count; j++)
-        {
-          if (targets[j] is IRenderContainer container)
-            enchantment.Changer.ApplyTo(container, enchantment);
-        }
+          enchantment.Changer.ApplyToTarget(root, targets[j], enchantment);
       }
     }
 
