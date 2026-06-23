@@ -68,13 +68,15 @@ namespace Harlowe.Tests.Runtime.Saving
     }
 
     [Fact]
-    public void LoadGameMacro_DirectReload_NoOps_NoInfiniteLoop()
+    public void LoadGameMacro_DirectReload_ErrorsAndBreaksLoop()
     {
       // P1 saves itself then immediately reloads; without the guard this loops forever.
+      // The guard errors on the re-load (reference's behaviour) and the render finishes.
       var session = new StorySession(Story("(save-game: \"s\")(load-game: \"s\")end"));
       var r = session.Render();
       Assert.Equal("P1", session.CurrentPassage);
-      Assert.Contains("end", r.Text); // the loaded render completed — the guard broke the loop
+      Assert.True(HasError(r));       // the guard surfaced its error
+      Assert.Contains("end", r.Text); // and the rest of the passage continued
     }
 
     [Fact]

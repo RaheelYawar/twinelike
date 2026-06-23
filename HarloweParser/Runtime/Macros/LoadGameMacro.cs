@@ -10,10 +10,14 @@ namespace Harlowe.Runtime.Macros
   /// the render. A missing slot or corrupt save renders an in-prose error (and the
   /// session records it in <c>LastLoadError</c> for the host).
   ///
-  /// <para>A <c>(load-game:)</c> reached while rendering a just-loaded passage no-ops
-  /// — the infinite-loop guard (reference's <c>section.loadedGame</c>): it catches a
-  /// passage that directly reloads itself, while still permitting load→<c>(goto:)</c>→load
-  /// (the navigation clears the guard).</para>
+  /// <para>A <c>(load-game:)</c> reached while rendering a just-loaded passage is an
+  /// error — the infinite-loop guard, matching reference's <c>section.loadedGame</c>
+  /// (<c>"I can't use (load-game:) immediately after loading a game."</c>). It catches
+  /// a passage that directly reloads itself. The guard clears on a navigation to a new
+  /// turn (a host-driven <see cref="StorySession.Goto"/> / link click), so
+  /// load→navigate→load is permitted. An in-passage <c>(goto:)</c> is an intra-turn
+  /// redirect here (not a fresh passage as in reference) and keeps the guard armed —
+  /// a divergence noted in MACRO-DIVERGENCES.md.</para>
   /// </summary>
   public class LoadGameMacro : IMacro
   {
@@ -28,8 +32,9 @@ namespace Harlowe.Runtime.Macros
       string slot = args[0].AsString;
 
       // Loop guard: a (load-game:) while rendering a just-loaded passage would reload
-      // forever — silently no-op it (reference does the same via loadedGame).
-      if (context.LoadedGame) return null;
+      // forever — error instead, matching reference's loadedGame guard.
+      if (context.LoadedGame)
+        return HarloweValue.OfError("I can't use (load-game:) immediately after loading a game.");
 
       if (context.PrepareLoad == null) return null; // no session wired (standalone render)
 

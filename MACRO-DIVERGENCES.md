@@ -1,7 +1,6 @@
 # Macro Semantics Divergences vs Reference Harlowe
 
-Audit output from the divergence pass that originally hit token limits in the
-first attempt and was re-run with a narrower scope. Findings are the gaps
+Findings are the gaps
 between our macro implementations and reference Harlowe's, scoped to
 **user-visible behavioural differences** — cosmetic and internal-implementation
 divergences are skipped.
@@ -14,7 +13,7 @@ for the save-model slice (which lands `(history:)` semantics).
 
 - **High severity (3 active, 2 fixed)**: silent wrong result or breaks documented Harlowe idioms.
 - **Medium severity (4 active, 6 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
-- **Low severity (0 active, 1 fixed)**: documented as deliberate or marginal.
+- **Low severity (1 active, 1 fixed)**: documented as deliberate or marginal.
 
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
 items are kept and marked rather than renumbered.
@@ -356,6 +355,29 @@ finding below.
 - **User-visible**: Author who passes fractional bounds gets an in-prose
   error in ours, where reference would just truncate. Docs say "whole
   number", so ours is arguably stricter rather than wrong.
+
+---
+
+### 17. `(load-game:)` loop guard isn't cleared by an in-passage `(goto:)`
+
+- **Ours**: the infinite-loop guard (a `(load-game:)` reached while rendering a
+  just-loaded passage errors with *"I can't use (load-game:) immediately after
+  loading a game."*) clears on a navigation to a **new turn** — a host-driven
+  `StorySession.Goto` (link click) or any undo/redo/load restore. An *in-passage*
+  `(goto:)` is an intra-turn **redirect** in our model (decision 7 of
+  `SAVE-LOAD-PLAN.md`: auto-followed `(goto:)` maps to reference's `redirect()`,
+  not `play()`), so it does **not** clear the guard — `load → (goto:) → load`
+  within one turn is suppressed (the second `(load-game:)` errors).
+- **Reference**: `section.loadedGame` is scoped to a single `showPassage`
+  (`ts/engine.ts`: set from the `{loadedGame:true}` display option on the load's
+  re-show, then `section.loadedGame = false` right after the render). Reference's
+  `(go-to:)` is a fresh `showPassage`, so it clears the guard and
+  `load → (go-to:) → load` is permitted.
+- **User-visible**: only differs in the narrow case of a just-loaded passage that
+  reaches another `(load-game:)` through an in-passage `(goto:)` in the *same*
+  turn — ours errors, reference reloads. Host navigation (the normal player flow)
+  clears the guard identically. A direct consequence of the documented intra-turn
+  `(goto:)` model, not an independent bug.
 
 ---
 

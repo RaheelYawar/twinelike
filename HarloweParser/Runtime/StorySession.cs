@@ -84,9 +84,12 @@ namespace Harlowe.Runtime
     // between Undo() and the replay Render().
     private string _replayFrom;
 
-    // True while rendering a just-loaded passage (armed by InstallTimeline, cleared by
-    // Goto — any new turn). Seeded into each render's MacroContext so (load-game:) can
-    // no-op a re-load from inside the loaded passage — the infinite-loop guard.
+    // True while rendering a just-loaded passage. Armed by InstallTimeline; cleared on
+    // any navigation to a NEW turn — a host Goto, or the undo/redo/load restore path
+    // (RestoreToPresent), which InstallTimeline re-arms right after. An in-passage
+    // (goto:) is an intra-turn redirect and deliberately keeps it armed. Seeded into
+    // each render's MacroContext so (load-game:) errors on a re-load from inside the
+    // loaded passage — the infinite-loop guard.
     private bool _loadedGame;
 
     // The live render-tree state for the most recent main render. Kept alive
@@ -275,8 +278,8 @@ namespace Harlowe.Runtime
     /// </summary>
     public RenderResult Goto(string passageName)
     {
-      // Any navigation to a new turn ends the just-loaded state (reference clears
-      // section.loadedGame on the next showPassage), re-permitting (load-game:).
+      // A host-driven navigation to a new turn ends the just-loaded state, re-permitting
+      // (load-game:) (reference clears section.loadedGame on the next showPassage).
       _loadedGame = false;
       FinalizePresent();
       _past.Add(_present);
@@ -469,8 +472,9 @@ namespace Harlowe.Runtime
       _present = present;
       RestoreToPresent();
       // The upcoming render shows a just-loaded passage; arm the loop guard so a
-      // (load-game:) within it no-ops rather than reloading forever. Cleared by the
-      // next Goto (navigation to a new turn).
+      // (load-game:) within it errors rather than reloading forever. RestoreToPresent
+      // (called just above) cleared it; re-arm here. Cleared again by the next
+      // navigation to a new turn (a host Goto, or another restore).
       _loadedGame = true;
     }
 
@@ -547,6 +551,10 @@ namespace Harlowe.Runtime
         ? _present.Visits[0]
         : null;
       _liveAtTurnStart = true;
+      // Any restore (undo/redo/load) ends the just-loaded state; InstallTimeline
+      // re-arms it immediately for a load. Keeps the loop guard consistent across
+      // every navigation, not only Goto.
+      _loadedGame = false;
       _liveRoot = null;
       _liveContext = null;
       _passageTimer.Restart();
