@@ -25,6 +25,9 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new ElseIfMacro("else-if"));
       registry.Register(new UnlessMacro());
       registry.Register(new GotoMacro());
+      registry.Register(new SaveGameMacro());
+      registry.Register(new LoadGameMacro());
+      registry.Register(new SavedGamesMacro());
       registry.Register(new DisplayMacro());
       registry.Register(new RandomMacro());
       registry.Register(new EitherMacro());

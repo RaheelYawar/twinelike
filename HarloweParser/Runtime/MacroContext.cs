@@ -71,6 +71,34 @@ namespace Harlowe.Runtime
     public string PendingGoto;
 
     /// <summary>
+    /// Staged by a successful <c>(load-game:)</c>: the deserialised timeline to
+    /// install. Like <see cref="PendingGoto"/> it halts the body render; the session
+    /// installs it and navigates to the loaded passage after the render. Set by
+    /// <see cref="StorySession"/> per render. Null = no load pending.
+    /// </summary>
+    public Saving.DeserialiseResult PendingLoad;
+
+    /// <summary>True when render should stop and hand control back to the session for a navigation — a pending <c>(goto:)</c> or <c>(load-game:)</c>.</summary>
+    public bool NavigationHalt => PendingGoto != null || PendingLoad != null;
+
+    /// <summary>
+    /// True while rendering a just-loaded passage (set by <see cref="StorySession"/>
+    /// from its session-held flag, cleared on the next navigation). <c>(load-game:)</c>
+    /// reads it to no-op a re-load from within the loaded passage — the infinite-loop
+    /// guard, mirroring reference's per-<c>showPassage</c> <c>section.loadedGame</c>.
+    /// </summary>
+    public bool LoadedGame;
+
+    /// <summary>Save the current timeline to a slot (+ optional filename); returns success. Wired to <see cref="StorySession.SaveGame"/>; null in standalone tests (then <c>(save-game:)</c> is false).</summary>
+    public Func<string, string, bool> SaveGame;
+
+    /// <summary>List this story's saves (slot → filename). Wired to <see cref="StorySession.SavedGames"/>; null in standalone tests (then <c>(saved-games:)</c> is empty).</summary>
+    public Func<IReadOnlyDictionary<string, string>> SavedGames;
+
+    /// <summary>Read + deserialise a slot's blob without installing it (the deferred half of a load). Wired to <see cref="StorySession"/>; null in standalone tests.</summary>
+    public Func<string, Saving.DeserialiseResult> PrepareLoad;
+
+    /// <summary>
     /// Set by <c>(if:)</c>/<c>(unless:)</c>/<c>(else-if:)</c> after they
     /// evaluate. Read by <c>(else:)</c>/<c>(else-if:)</c> to decide whether
     /// their hook should render. Cleared by the body renderer after each

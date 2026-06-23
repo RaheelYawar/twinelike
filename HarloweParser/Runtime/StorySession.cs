@@ -84,6 +84,11 @@ namespace Harlowe.Runtime
     // between Undo() and the replay Render().
     private string _replayFrom;
 
+    // True while rendering a just-loaded passage (armed by InstallTimeline, cleared by
+    // Goto — any new turn). Seeded into each render's MacroContext so (load-game:) can
+    // no-op a re-load from inside the loaded passage — the infinite-loop guard.
+    private bool _loadedGame;
+
     // The live render-tree state for the most recent main render. Kept alive
     // across renders so DispatchEvent can mutate it, re-flush, and return an
     // updated RenderResult without re-rendering the whole passage. Both reset
@@ -270,6 +275,9 @@ namespace Harlowe.Runtime
     /// </summary>
     public RenderResult Goto(string passageName)
     {
+      // Any navigation to a new turn ends the just-loaded state (reference clears
+      // section.loadedGame on the next showPassage), re-permitting (load-game:).
+      _loadedGame = false;
       FinalizePresent();
       _past.Add(_present);
       _future.Clear();
@@ -400,18 +408,34 @@ namespace Harlowe.Runtime
     /// </summary>
     public bool LoadGame(string slot)
     {
+      var result = PrepareLoad(slot);
+      if (!result.Ok) return false;
+      InstallTimeline(result.Past, result.Present);
+      return true;
+    }
+
+    /// <summary>
+    /// Read and deserialise the save in <paramref name="slot"/> <em>without</em>
+    /// installing it — the validating half of a load, shared by the host
+    /// <see cref="LoadGame"/> (which installs immediately) and the deferred
+    /// <c>(load-game:)</c> macro (which stages the result and lets the session install
+    /// after the render). Returns a failed <see cref="Saving.DeserialiseResult"/> —
+    /// also setting <see cref="LastLoadError"/> — when saving is disabled, the slot is
+    /// empty, or the blob is corrupt / references a vanished passage.
+    /// </summary>
+    private Saving.DeserialiseResult PrepareLoad(string slot)
+    {
       LastLoadError = null;
-      if (_storage == null) { LastLoadError = "saving is disabled (no storage backend)"; return false; }
+      if (_storage == null)
+      { LastLoadError = "saving is disabled (no storage backend)"; return new Saving.DeserialiseResult { Error = LastLoadError }; }
 
       string key = Saving.SaveKeys.ToStorageKey(_story?.Ifid, slot);
       if (!_storage.TryRead(key, out var blob))
-      { LastLoadError = $"there is no saved game in slot '{slot}'"; return false; }
+      { LastLoadError = $"there is no saved game in slot '{slot}'"; return new Saving.DeserialiseResult { Error = LastLoadError }; }
 
       var result = Saving.SaveSerializer.DeserialiseTimeline(blob, _story, _registry, NewSaveContext());
-      if (!result.Ok) { LastLoadError = result.Error; return false; }
-
-      InstallTimeline(result.Past, result.Present);
-      return true;
+      if (!result.Ok) LastLoadError = result.Error;
+      return result;
     }
 
     /// <summary>
@@ -444,6 +468,10 @@ namespace Harlowe.Runtime
       _future.Clear();
       _present = present;
       RestoreToPresent();
+      // The upcoming render shows a just-loaded passage; arm the loop guard so a
+      // (load-game:) within it no-ops rather than reloading forever. Cleared by the
+      // next Goto (navigation to a new turn).
+      _loadedGame = true;
     }
 
     /// <summary>A context for re-evaluating saved value source during a load (deserialise dispatches collection/changer macros through the registry).</summary>
@@ -629,6 +657,10 @@ namespace Harlowe.Runtime
       };
       ctx.RenderPassage = (name, output) => InlineDisplayPassage(name, output, ctx);
       ctx.PassageExists = name => _story.GetPassage(name) != null;
+      ctx.SaveGame = (s, fn) => SaveGame(s, fn);
+      ctx.SavedGames = SavedGames;
+      ctx.PrepareLoad = PrepareLoad;
+      ctx.LoadedGame = _loadedGame;
       _registry.Context = ctx;
 
       // Render into a tree, then flush the finished tree to the buffer the
@@ -638,6 +670,18 @@ namespace Harlowe.Runtime
       var builder = new Rendering.RenderTreeBuilder();
       ctx.LiveRoot = builder.Root;
       new BodyRenderer(builder, _registry, ctx).Render(passage.Ast);
+
+      // A staged (load-game:) replaces the whole timeline and shows the loaded
+      // passage. Install after the body render (not mid-macro), then render the
+      // loaded present from scratch — depth resets to 0, a fresh navigation. The
+      // loop guard (LoadedGame) keeps that render from re-loading forever.
+      if (ctx.PendingLoad != null)
+      {
+        var loaded = ctx.PendingLoad;
+        ctx.PendingLoad = null;
+        InstallTimeline(loaded.Past, loaded.Present);
+        return RenderInternal(0);
+      }
 
       if (ctx.PendingGoto != null)
       {
