@@ -70,7 +70,7 @@ public interface IRenderOutput
   void Error(string message);
 
   // Bracketing semantic styles. StyleSpec carries flags (Bold, Italic,
-  // Underline, Strikethrough), value fields (Color, BackgroundColor,
+  // Underline, Strikethrough, Superscript), value fields (Color, BackgroundColor,
   // BackgroundImage, FontFamily, FontSize, Opacity, Alignment), and a list
   // of named Effects (Mark, Outline, Shadow, Blur, Shudder, Blink, ...).
   // PushStyle is always paired with a matching PopStyle; nesting is
@@ -134,7 +134,7 @@ public class ConsoleOutput : IRenderOutput
 | Ordinal indexing (`1st`, `last`, `Nthlast`) | ✓ |
 | Hooks: anonymous `[…]`, `\|name>[…]`, `[…]<name\|` | ✓ |
 | Twine links: `[[text->target]]`, `[[target<-text]]`, bare `[[name]]` | ✓ |
-| Inline text styling: `''bold''`, `//italic//` (strike / `*em*` / `^^sup^^` pending) | ⚠ |
+| Inline text styling: `''bold''`, `//italic//`, `~~strike~~`, `^^sup^^` (Markdown `*em*`/`**strong**` pending) | ⚠ |
 | Lambdas: `where`, `via`, `making`, `each` (incl. implicit `it`) | ✓ |
 | Hook references: `?name`, `?passage`, `?page`, `?link` (+ ordinal narrowing) | ✓ |
 | `(goto:)` with multi-step undo | ✓ |

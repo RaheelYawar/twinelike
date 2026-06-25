@@ -33,6 +33,17 @@ namespace Harlowe.Runtime
     public bool Underline;
     public bool Strikethrough;
 
+    /// <summary>
+    /// Superscript, set by the <c>^^text^^</c> inline markup. A primitive flag
+    /// (rendered as a semantic <c>&lt;sup&gt;</c> by <see cref="HtmlRenderOutput"/>),
+    /// kept distinct from <see cref="TextEffect.Superscript"/> — which the
+    /// <c>(text-style: "superscript")</c> macro uses and which renders as a
+    /// <c>vertical-align</c> span. Reference Harlowe keeps the markup and the
+    /// macro distinct the same way (<c>^^</c> → <c>&lt;sup&gt;</c> per its
+    /// style-markup table; the macro → CSS per <c>stylechangers.ts</c>).
+    /// </summary>
+    public bool Superscript;
+
     /// <summary>CSS-style color string (e.g. <c>"red"</c>, <c>"#ff8800"</c>, <c>"rgb(255,0,0)"</c>). Unparsed — engines map as-is.</summary>
     public string Color;
 
@@ -69,7 +80,7 @@ namespace Harlowe.Runtime
 
     /// <summary>True iff every field is unset. A no-op spec; a renderer can skip emitting events for one.</summary>
     public bool IsEmpty =>
-      !Bold && !Italic && !Underline && !Strikethrough &&
+      !Bold && !Italic && !Underline && !Strikethrough && !Superscript &&
       Color == null && BackgroundColor == null && BackgroundImage == null &&
       FontFamily == null && FontSize == null &&
       Opacity == null && Alignment == null && AlignCenterOffsetPercent == null &&
@@ -82,6 +93,7 @@ namespace Harlowe.Runtime
           || Italic != other.Italic
           || Underline != other.Underline
           || Strikethrough != other.Strikethrough
+          || Superscript != other.Superscript
           || Color != other.Color
           || BackgroundColor != other.BackgroundColor
           || BackgroundImage != other.BackgroundImage
@@ -101,6 +113,7 @@ namespace Harlowe.Runtime
       h = (h * 397) ^ Italic.GetHashCode();
       h = (h * 397) ^ Underline.GetHashCode();
       h = (h * 397) ^ Strikethrough.GetHashCode();
+      h = (h * 397) ^ Superscript.GetHashCode();
       h = (h * 397) ^ (Color?.GetHashCode() ?? 0);
       h = (h * 397) ^ (BackgroundColor?.GetHashCode() ?? 0);
       h = (h * 397) ^ (BackgroundImage?.GetHashCode() ?? 0);
@@ -142,6 +155,7 @@ namespace Harlowe.Runtime
         Italic = Italic,
         Underline = Underline,
         Strikethrough = Strikethrough,
+        Superscript = Superscript,
         Color = Color,
         BackgroundColor = BackgroundColor,
         BackgroundImage = BackgroundImage,

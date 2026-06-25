@@ -206,11 +206,12 @@ namespace Harlowe.Runtime
 
       if (!hasNonFlag)
       {
-        var list = new List<string>(4);
+        var list = new List<string>(5);
         if (style.Bold) list.Add("b");
         if (style.Italic) list.Add("i");
         if (style.Underline) list.Add("u");
         if (style.Strikethrough) list.Add("s");
+        if (style.Superscript) list.Add("sup");
         return list.ToArray();
       }
 
@@ -257,6 +258,14 @@ namespace Harlowe.Runtime
         if (style.Underline && style.Strikethrough) dec.Append(' ');
         if (style.Strikethrough) dec.Append("line-through");
         AppendCss(sb, ref first, "text-decoration", dec.ToString(), preEscaped: true);
+      }
+      if (style.Superscript)
+      {
+        // Flag-only superscript specs take the short-tag (<sup>) path; this is
+        // the parallel CSS for the rare case it's folded into a span alongside a
+        // value field — matching the (text-style:"superscript") effect recipe.
+        AppendCss(sb, ref first, "vertical-align", "super", preEscaped: true);
+        AppendCss(sb, ref first, "font-size", "0.83em", preEscaped: true);
       }
       if (style.Effects != null)
       {

@@ -169,6 +169,11 @@ namespace Harlowe.Runtime
       {
         case Ast.Body.InlineFormat.Bold: spec.Bold = true; break;
         case Ast.Body.InlineFormat.Italic: spec.Italic = true; break;
+        case Ast.Body.InlineFormat.Strike: spec.Strikethrough = true; break;
+        // Superscript markup is a semantic primitive (renders <sup>), kept
+        // distinct from the (text-style:"superscript") macro's CSS effect —
+        // matching reference, which renders ^^ as <sup> but the macro as a span.
+        case Ast.Body.InlineFormat.Superscript: spec.Superscript = true; break;
         default:
           throw new System.ArgumentOutOfRangeException(
             nameof(format), format, "no StyleSpec mapping for this InlineFormat");

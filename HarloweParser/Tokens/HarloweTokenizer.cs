@@ -138,6 +138,8 @@ namespace Harlowe.Tokens
           break;
         case '\'':
         case '/':
+        case '~':
+        case '^':
           if (TryScanFormatDelimiter(startPos, startLine, startCol)) return;
           break;
       }
@@ -152,12 +154,13 @@ namespace Harlowe.Tokens
     }
 
     /// <summary>
-    /// Tries to consume an inline text-formatting delimiter — <c>''</c> (bold)
-    /// or <c>//</c> (italic) — and emit a <see cref="TokenType.FormatDelimiter"/>.
-    /// Only the doubled forms are markup; a single <c>'</c> (an apostrophe in
-    /// prose) or <c>/</c> (a slash) falls through to <see cref="ScanText"/>.
-    /// URLs are protected separately — <see cref="TryScanUrl"/> consumes a whole
-    /// <c>scheme://…</c> before this runs — so no special-casing is needed here.
+    /// Tries to consume an inline text-formatting delimiter — <c>''</c> (bold),
+    /// <c>//</c> (italic), <c>~~</c> (strike), or <c>^^</c> (superscript) — and
+    /// emit a <see cref="TokenType.FormatDelimiter"/>. Only the doubled forms are
+    /// markup; a single <c>'</c>/<c>/</c>/<c>~</c>/<c>^</c> falls through to
+    /// <see cref="ScanText"/> as prose. URLs are protected separately —
+    /// <see cref="TryScanUrl"/> consumes a whole <c>scheme://…</c> before this
+    /// runs — so no special-casing is needed here.
     /// </summary>
     private bool TryScanFormatDelimiter(int startPos, int startLine, int startCol)
     {
@@ -169,7 +172,7 @@ namespace Harlowe.Tokens
     }
 
     /// <summary>
-    /// True if a body-mode inline-format delimiter (<c>''</c> or <c>//</c>)
+    /// True if a body-mode inline-format delimiter (<c>''</c>/<c>//</c>/<c>~~</c>/<c>^^</c>)
     /// begins at <paramref name="pos"/> — purely the doubled-character test.
     /// Used by both the body dispatcher and <see cref="ScanText"/> (to break a
     /// prose run at a delimiter). URL slashes are kept out of italics upstream by
@@ -180,7 +183,9 @@ namespace Harlowe.Tokens
       if (pos + 1 >= _src.Length) return false;
       char c = _src[pos];
       return (c == '\'' && _src[pos + 1] == '\'')
-          || (c == '/' && _src[pos + 1] == '/');
+          || (c == '/' && _src[pos + 1] == '/')
+          || (c == '~' && _src[pos + 1] == '~')
+          || (c == '^' && _src[pos + 1] == '^');
     }
 
     /// <summary>

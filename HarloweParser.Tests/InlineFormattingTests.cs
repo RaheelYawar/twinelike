@@ -227,6 +227,105 @@ namespace Harlowe.Tests
       Assert.False(push.Style.Bold);
     }
 
+    // ----- Strike (~~) and superscript (^^) -----
+
+    [Fact]
+    public void Tokenize_Strike_EmitsDelimiters()
+    {
+      var t = Tokenize("~~gone~~");
+      Assert.Equal(TokenType.FormatDelimiter, t[0].Type);
+      Assert.Equal("~~", t[0].Value);
+      Assert.Equal("gone", t[1].Value);
+      Assert.Equal(TokenType.FormatDelimiter, t[2].Type);
+      Assert.Equal("~~", t[2].Value);
+    }
+
+    [Fact]
+    public void Tokenize_Superscript_EmitsDelimiters()
+    {
+      var t = Tokenize("^^2^^");
+      Assert.Equal(TokenType.FormatDelimiter, t[0].Type);
+      Assert.Equal("^^", t[0].Value);
+      Assert.Equal(TokenType.FormatDelimiter, t[2].Type);
+      Assert.Equal("^^", t[2].Value);
+    }
+
+    [Fact]
+    public void Tokenize_SingleTilde_StaysText()
+    {
+      var t = Tokenize("approx ~5 units");
+      Assert.Equal(TokenType.Text, t[0].Type);
+      Assert.Equal("approx ~5 units", t[0].Value);
+    }
+
+    [Fact]
+    public void Tokenize_SingleCaret_StaysText()
+    {
+      var t = Tokenize("a^b c");
+      Assert.Equal(TokenType.Text, t[0].Type);
+      Assert.Equal("a^b c", t[0].Value);
+    }
+
+    [Fact]
+    public void Render_Strike() => Assert.Equal("<s>gone</s>", RenderHtml("~~gone~~"));
+
+    [Fact]
+    public void RenderRaw_Strike_SetsStrikethroughFlag()
+    {
+      var buf = RenderRaw("~~x~~");
+      var push = buf.Entries.Find(e => e.Kind == BufferedRenderOutput.Kind.PushStyle);
+      Assert.NotNull(push);
+      Assert.True(push.Style.Strikethrough);
+    }
+
+    [Fact]
+    public void Render_Superscript() => Assert.Equal("<sup>2</sup>", RenderHtml("^^2^^"));
+
+    [Fact]
+    public void RenderRaw_Superscript_SetsSuperscriptFlag()
+    {
+      // The ^^ markup is a semantic primitive (the Superscript flag, → <sup>),
+      // distinct from the (text-style: "superscript") macro's TextEffect (a CSS
+      // span). It must NOT populate the effect list — that's reference's split.
+      var buf = RenderRaw("^^2^^");
+      var push = buf.Entries.Find(e => e.Kind == BufferedRenderOutput.Kind.PushStyle);
+      Assert.NotNull(push);
+      Assert.True(push.Style.Superscript);
+      Assert.DoesNotContain(TextEffect.Superscript, push.Style.Effects);
+    }
+
+    [Fact]
+    public void Render_SuperscriptExample_FromReferenceDocs()
+    {
+      // Reference's own style-markup table: meters/second^^2^^ →
+      // meters/second<sup>2</sup>. The single slash stays prose.
+      Assert.Equal("meters/second<sup>2</sup>", RenderHtml("meters/second^^2^^"));
+    }
+
+    [Fact]
+    public void Render_NestedBoldSuperscript() => Assert.Equal("<b><sup>x</sup></b>", RenderHtml("''^^x^^''"));
+
+    [Fact]
+    public void Render_NestedBoldStrike() => Assert.Equal("<b><s>x</s></b>", RenderHtml("''~~x~~''"));
+
+    [Fact]
+    public void Render_DeepNest_BoldItalicStrike_Symmetric()
+      => Assert.Equal("<b><i><s>x</s></i></b>", RenderHtml("''//~~x~~//''"));
+
+    [Fact]
+    public void Render_UnmatchedStrike_DegradesToLiteral()
+      => Assert.Equal("~~gone", RenderHtml("~~gone"));
+
+    [Fact]
+    public void Render_UnmatchedSuperscript_DegradesToLiteral()
+      => Assert.Equal("^^hi", RenderHtml("^^hi"));
+
+    [Fact]
+    public void RoundTrip_Strike() => Assert.Equal("~~x~~", RoundTrip("~~x~~"));
+
+    [Fact]
+    public void RoundTrip_Superscript() => Assert.Equal("^^x^^", RoundTrip("^^x^^"));
+
     // ----- Branch collection (links inside formatting) -----
 
     [Fact]

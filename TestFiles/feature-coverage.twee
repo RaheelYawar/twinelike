@@ -16,7 +16,7 @@ Coverage harness root.
 Plain prose renders verbatim.
 
 :: TextFormatting
-''bold'' //italic// __underline__ ~~strike~~
+''bold'' //italic// __underline__ ~~strike~~ ^^super^^
 
 :: NestedFormatting
 ''//bold italic//'' then plain, then ''bold'' and //italic//
