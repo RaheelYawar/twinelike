@@ -88,6 +88,16 @@ namespace Harlowe.Tokens
     /// <summary>A raw HTML tag in passage body — passed through verbatim because Harlowe permits inline HTML.</summary>
     HtmlTag,
 
+    /// <summary>
+    /// An inline text-formatting delimiter in passage body — <c>''</c> (bold) or
+    /// <c>//</c> (italic). The Value is the literal delimiter (<c>"''"</c> /
+    /// <c>"//"</c>). These are symmetric toggle markers (opener and closer are
+    /// identical, per reference Harlowe's <c>boldOpener</c>/<c>italicOpener</c>);
+    /// the body parser folds matching pairs into a <see cref="Ast.Body.FormatNode"/>
+    /// and degrades any unmatched delimiter to literal text.
+    /// </summary>
+    FormatDelimiter,
+
     /// <summary>Sentinel emitted once the input is exhausted.</summary>
     EndOfFile
   }

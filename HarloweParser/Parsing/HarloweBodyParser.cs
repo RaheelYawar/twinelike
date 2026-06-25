@@ -102,7 +102,105 @@ namespace Harlowe.Parsing
         }
         if (node != null) nodes.Add(node);
       }
-      return nodes;
+      return FoldFormatting(nodes);
+    }
+
+    /// <summary>
+    /// Resolve inline-formatting delimiter markers in a freshly-parsed sibling
+    /// list into <see cref="FormatNode"/>s. Mirrors reference Harlowe's
+    /// <c>foldChildren</c> (<c>ts/markup/lexer.ts</c>): a delimiter folds with
+    /// the nearest open delimiter of the same kind; delimiters that cross
+    /// (<c>''//x''//</c>) or never close degrade to literal text. Runs once per
+    /// nesting level — each hook's contents are folded independently, so
+    /// formatting never crosses a hook boundary (also matching reference, where
+    /// each token's <c>innerText</c> is lexed on its own).
+    ///
+    /// <para>The common case — a passage with no <c>''</c>/<c>//</c> at all —
+    /// hits the fast path and returns the original list untouched.</para>
+    /// </summary>
+    private static List<IBodyNode> FoldFormatting(List<IBodyNode> nodes)
+    {
+      bool hasMarker = false;
+      for (int i = 0; i < nodes.Count; i++)
+        if (nodes[i] is FormatDelimiterMarker) { hasMarker = true; break; }
+      if (!hasMarker) return nodes;
+
+      // A stack of open format frames over a synthetic root. Each frame collects
+      // the nodes that become a FormatNode's children if a matching closer
+      // arrives, or are flattened (behind a literal delimiter) into the parent
+      // if the frame stays unmatched.
+      var root = new FormatFrame { Children = new List<IBodyNode>() };
+      var stack = new List<FormatFrame> { root };
+
+      for (int i = 0; i < nodes.Count; i++)
+      {
+        if (!(nodes[i] is FormatDelimiterMarker marker))
+        {
+          stack[stack.Count - 1].Children.Add(nodes[i]);
+          continue;
+        }
+
+        int match = -1;
+        for (int s = stack.Count - 1; s >= 1; s--) // index 0 is the root (no kind)
+          if (stack[s].Kind == marker.Kind) { match = s; break; }
+
+        if (match < 0)
+        {
+          // No matching opener: this delimiter opens a new span.
+          stack.Add(new FormatFrame { Kind = marker.Kind, Children = new List<IBodyNode>() });
+          continue;
+        }
+
+        // Close down to the matched frame. Any inner frames are crossed
+        // (unmatched) openers — flatten them to a literal delimiter + content.
+        while (stack.Count - 1 > match) FlattenAsLiteral(stack);
+
+        var closed = stack[stack.Count - 1];
+        stack.RemoveAt(stack.Count - 1);
+        stack[stack.Count - 1].Children.Add(
+          new FormatNode { Format = closed.Kind.Value, Children = closed.Children });
+      }
+
+      // Whatever is still open never closed — degrade each to literal text.
+      while (stack.Count > 1) FlattenAsLiteral(stack);
+      return root.Children;
+    }
+
+    /// <summary>
+    /// Pop the top (unmatched) format frame and splice its content into its
+    /// parent behind a literal delimiter <see cref="TextNode"/>, so a crossed
+    /// or unclosed <c>''</c>/<c>//</c> renders as the characters the author
+    /// typed.
+    /// </summary>
+    private static void FlattenAsLiteral(List<FormatFrame> stack)
+    {
+      var open = stack[stack.Count - 1];
+      stack.RemoveAt(stack.Count - 1);
+      var parent = stack[stack.Count - 1];
+      // Kind is non-null for every non-root frame, and the root is never flattened.
+      parent.Children.Add(new TextNode { Content = InlineFormats.Delimiter(open.Kind.Value) });
+      parent.Children.AddRange(open.Children);
+    }
+
+    /// <summary>One open inline-format span during the fold. <see cref="Kind"/> is null for the synthetic root.</summary>
+    private sealed class FormatFrame
+    {
+      public InlineFormat? Kind;
+      public List<IBodyNode> Children;
+    }
+
+    /// <summary>
+    /// Transient body node standing in for an unfolded inline-format delimiter
+    /// (<c>''</c>/<c>//</c>) between parsing and <see cref="FoldFormatting"/>.
+    /// Never survives a <see cref="ParseNodes"/> call, so it is never rendered;
+    /// <see cref="Accept"/> throws to surface the bug loudly if one ever leaks.
+    /// </summary>
+    private sealed class FormatDelimiterMarker : IBodyNode
+    {
+      public InlineFormat Kind;
+      public void Accept(IBodyVisitor visitor) =>
+        throw new System.InvalidOperationException(
+          "format delimiter marker should have been folded away during parsing");
     }
 
     /// <summary>
@@ -189,6 +287,13 @@ namespace Harlowe.Parsing
         case TokenType.HtmlTag:
           cursor.Advance();
           return new HtmlNode { RawHtml = t.Value };
+
+        case TokenType.FormatDelimiter:
+          // Emit a transient marker; ParseNodes folds matching pairs into
+          // FormatNodes (and degrades unmatched ones to literal text) once the
+          // whole sibling list at this level is built.
+          cursor.Advance();
+          return new FormatDelimiterMarker { Kind = InlineFormats.FromDelimiter(t.Value) };
 
         case TokenType.MacroOpen:
           return ParseMacro(cursor);

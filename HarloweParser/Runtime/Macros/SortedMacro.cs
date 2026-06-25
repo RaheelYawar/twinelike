@@ -7,8 +7,7 @@ namespace Harlowe.Runtime.Macros
   /// ascending order — numerically for numbers, ordinally for strings.
   ///
   /// <para>
-  /// Divergences from reference Harlowe (tracked under the <c>(sorted:)</c>
-  /// entry in <c>MACRO-DIVERGENCES.md</c>): reference sorts a mix of numbers
+  /// Divergences from reference Harlowe: reference sorts a mix of numbers
   /// and strings (numbers first) and accepts an optional leading <c>via</c>
   /// key-lambda; ours rejects mixed-kind input with an in-prose error and
   /// implements no lambda form — key-based sorting is done by composing with

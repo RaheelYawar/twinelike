@@ -136,9 +136,126 @@ namespace Harlowe.Tokens
         case '_':
           if (TryScanTempVariable(startPos, startLine, startCol)) return;
           break;
+        case '\'':
+        case '/':
+          if (TryScanFormatDelimiter(startPos, startLine, startCol)) return;
+          break;
       }
 
+      // A scheme://… URL starting here is consumed whole as one Text token so
+      // its slashes never become italic markup (reference's higher-priority
+      // `url` token). Tried before the prose run since URL schemes are letters
+      // that would otherwise fall straight into ScanText.
+      if (TryScanUrl(startPos, startLine, startCol)) return;
+
       ScanText(startPos, startLine, startCol);
+    }
+
+    /// <summary>
+    /// Tries to consume an inline text-formatting delimiter — <c>''</c> (bold)
+    /// or <c>//</c> (italic) — and emit a <see cref="TokenType.FormatDelimiter"/>.
+    /// Only the doubled forms are markup; a single <c>'</c> (an apostrophe in
+    /// prose) or <c>/</c> (a slash) falls through to <see cref="ScanText"/>.
+    /// URLs are protected separately — <see cref="TryScanUrl"/> consumes a whole
+    /// <c>scheme://…</c> before this runs — so no special-casing is needed here.
+    /// </summary>
+    private bool TryScanFormatDelimiter(int startPos, int startLine, int startCol)
+    {
+      if (!IsFormatDelimiterStart(_pos)) return false;
+      string delim = _src.Substring(_pos, 2);
+      AdvanceN(2);
+      Emit(TokenType.FormatDelimiter, delim, startPos, startLine, startCol);
+      return true;
+    }
+
+    /// <summary>
+    /// True if a body-mode inline-format delimiter (<c>''</c> or <c>//</c>)
+    /// begins at <paramref name="pos"/> — purely the doubled-character test.
+    /// Used by both the body dispatcher and <see cref="ScanText"/> (to break a
+    /// prose run at a delimiter). URL slashes are kept out of italics upstream by
+    /// <see cref="TryScanUrl"/>/<see cref="MatchUrlLength"/>, not by a guard here.
+    /// </summary>
+    private bool IsFormatDelimiterStart(int pos)
+    {
+      if (pos + 1 >= _src.Length) return false;
+      char c = _src[pos];
+      return (c == '\'' && _src[pos + 1] == '\'')
+          || (c == '/' && _src[pos + 1] == '/');
+    }
+
+    /// <summary>
+    /// Reference Harlowe's recognised URL schemes — the alternation in the
+    /// <c>url</c> pattern of <c>ts/markup/patterns.ts</c>
+    /// (<c>https?|mailto|javascript|ftp|data</c>). Ordered so <c>https</c> is
+    /// tested before its prefix <c>http</c>.
+    /// </summary>
+    private static readonly string[] UrlSchemes = { "https", "http", "mailto", "javascript", "ftp", "data" };
+
+    /// <summary>
+    /// Tries to consume a <c>scheme://…</c> URL beginning at the cursor and emit
+    /// it as one <see cref="TokenType.Text"/> token, so its slashes are never
+    /// seen as <c>//</c> italic markup. Mirrors reference Harlowe, where a
+    /// higher-priority <c>url</c> token matches the whole URL before the
+    /// <c>italicOpener</c> rule runs — which is why reference needs no
+    /// special-case on the italic delimiter itself. Returns false when no URL
+    /// starts here.
+    /// </summary>
+    private bool TryScanUrl(int startPos, int startLine, int startCol)
+    {
+      int len = MatchUrlLength(_pos);
+      if (len == 0) return false;
+      Emit(TokenType.Text, _src.Substring(_pos, len), startPos, startLine, startCol);
+      AdvanceN(len);
+      return true;
+    }
+
+    /// <summary>
+    /// Returns the length of a <c>scheme://…</c> URL starting at
+    /// <paramref name="pos"/>, or 0 if none. Matches reference's
+    /// <c>(https?|mailto|javascript|ftp|data):\/\/[^\s&lt;]+[^&lt;.,:;"')\]\s]</c>:
+    /// a known scheme, then <c>://</c>, then one or more non-whitespace,
+    /// non-<c>&lt;</c> characters, with trailing sentence punctuation
+    /// (<c>. , : ; " ' ) ]</c>) excluded so it stays prose. Pure — does not move
+    /// the cursor.
+    /// </summary>
+    private int MatchUrlLength(int pos)
+    {
+      // Fast reject: every recognised scheme starts with one of these letters.
+      char c0 = pos < _src.Length ? _src[pos] : '\0';
+      if (c0 != 'h' && c0 != 'm' && c0 != 'j' && c0 != 'f' && c0 != 'd') return 0;
+
+      int schemeLen = 0;
+      for (int i = 0; i < UrlSchemes.Length; i++)
+        if (MatchStringAt(pos, UrlSchemes[i])) { schemeLen = UrlSchemes[i].Length; break; }
+      if (schemeLen == 0) return 0;
+
+      int p = pos + schemeLen;
+      if (p + 3 > _src.Length || _src[p] != ':' || _src[p + 1] != '/' || _src[p + 2] != '/') return 0;
+      p += 3;
+
+      int contentStart = p;
+      while (p < _src.Length && !char.IsWhiteSpace(_src[p]) && _src[p] != '<') p++;
+      if (p == contentStart) return 0; // nothing after :// — not a URL
+
+      // Reference's final character class forbids trailing sentence punctuation,
+      // so e.g. "see http://x." leaves the period as prose.
+      while (p > contentStart && IsUrlTrailingPunct(_src[p - 1])) p--;
+      if (p == contentStart) return 0; // everything after :// was punctuation
+
+      return p - pos;
+    }
+
+    /// <summary>Trailing characters reference excludes from a URL's end (<c>[^&lt;.,:;"')\]\s]</c>).</summary>
+    private static bool IsUrlTrailingPunct(char c)
+    {
+      switch (c)
+      {
+        case '.': case ',': case ':': case ';':
+        case '"': case '\'': case ')': case ']':
+          return true;
+        default:
+          return false;
+      }
     }
 
     /// <summary>
@@ -935,6 +1052,16 @@ namespace Harlowe.Tokens
       {
         char c = _src[_pos];
         if (IsBodySpecial(c)) break;
+        // A scheme://… URL mid-prose is swallowed whole so its slashes don't
+        // pair into italics (the boundary case is handled by ScanBody before
+        // ScanText runs; this catches a URL after some leading prose).
+        int urlLen = MatchUrlLength(_pos);
+        if (urlLen > 0) { sb.Append(_src, _pos, urlLen); AdvanceN(urlLen); continue; }
+        // A doubled '' / // begins inline formatting markup; stop the prose run
+        // so the next dispatch emits a FormatDelimiter. Single ' and / stay
+        // prose (apostrophes, slashes), so this can't fragment ordinary text —
+        // only a real delimiter breaks the run.
+        if (IsFormatDelimiterStart(_pos)) break;
         sb.Append(c);
         Advance();
       }
@@ -1027,11 +1154,19 @@ namespace Harlowe.Tokens
     /// <paramref name="s"/>. Does not advance the cursor and is safe near
     /// end-of-input.
     /// </summary>
-    private bool MatchString(string s)
+    private bool MatchString(string s) => MatchStringAt(_pos, s);
+
+    /// <summary>
+    /// Returns true if the source starting at <paramref name="pos"/> begins with
+    /// <paramref name="s"/>. Position-explicit variant of <see cref="MatchString"/>
+    /// for lookahead that doesn't start at the cursor (e.g. URL-scheme probing).
+    /// Does not advance the cursor and is safe near end-of-input.
+    /// </summary>
+    private bool MatchStringAt(int pos, string s)
     {
-      if (_pos + s.Length > _src.Length) return false;
+      if (pos + s.Length > _src.Length) return false;
       for (int i = 0; i < s.Length; i++)
-        if (_src[_pos + i] != s[i]) return false;
+        if (_src[pos + i] != s[i]) return false;
       return true;
     }
 

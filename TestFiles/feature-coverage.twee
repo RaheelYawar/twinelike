@@ -18,6 +18,9 @@ Plain prose renders verbatim.
 :: TextFormatting
 ''bold'' //italic// __underline__ ~~strike~~
 
+:: NestedFormatting
+''//bold italic//'' then plain, then ''bold'' and //italic//
+
 :: SetPrint
 (set: $x to 5)(print: $x)
 

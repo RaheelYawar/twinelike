@@ -172,6 +172,20 @@ namespace Harlowe.Twee
     }
 
     /// <summary>
+    /// Emits an inline-formatted span back to its canonical markup —
+    /// <c>''…''</c> for bold, <c>//…//</c> for italic — so a dirty passage
+    /// round-trips through the same delimiters the parser folded.
+    /// </summary>
+    public void Visit(FormatNode node)
+    {
+      string delim = Ast.Body.InlineFormats.Delimiter(node.Format);
+      _sb.Append(delim);
+      if (node.Children != null)
+        foreach (var child in node.Children) child.Accept(this);
+      _sb.Append(delim);
+    }
+
+    /// <summary>
     /// Emits a body-position macro: <c>(name: args)</c>, immediately followed
     /// by an attached hook (no whitespace) when present. The body parser's
     /// whitespace-skipping lookahead means the spacing here is purely

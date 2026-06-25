@@ -136,6 +136,47 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
+    /// Render an inline-formatted span (<c>''bold''</c> / <c>//italic//</c>) by
+    /// bracketing its content in the matching <see cref="StyleSpec"/> flag —
+    /// the same style channel <c>(text-style: "bold"/"italic")</c> uses, so the
+    /// render tree wraps it in a <see cref="Rendering.RenderStyleNode"/> that
+    /// enchant/revision macros can target. Unlike a hook, an inline format span
+    /// is not its own temp-variable or conditional scope and never touches
+    /// <see cref="MacroContext.LastConditional"/>, matching reference Harlowe
+    /// (style markup does not affect <c>lastHookShown</c>).
+    /// </summary>
+    public void Visit(FormatNode node)
+    {
+      _output.PushStyle(StyleFor(node.Format));
+      if (node.Children != null) RenderChildren(node.Children);
+      _output.PopStyle();
+    }
+
+    /// <summary>
+    /// The <see cref="Ast.Body.InlineFormat"/> → <see cref="StyleSpec"/> mapping
+    /// (the runtime half of the centralized format mapping; the delimiter half
+    /// lives in <see cref="Ast.Body.InlineFormats"/>). The throwing default is a
+    /// developer invariant guard — a <c>FormatNode</c> only ever carries a value
+    /// the tokenizer + parser produced, so an unmapped format means a new markup
+    /// type was wired up without a style here, caught loudly by tests rather than
+    /// rendering silently unstyled. Not reachable from author input, so it does
+    /// not breach the in-prose-error policy.
+    /// </summary>
+    private static StyleSpec StyleFor(Ast.Body.InlineFormat format)
+    {
+      var spec = new StyleSpec();
+      switch (format)
+      {
+        case Ast.Body.InlineFormat.Bold: spec.Bold = true; break;
+        case Ast.Body.InlineFormat.Italic: spec.Italic = true; break;
+        default:
+          throw new System.ArgumentOutOfRangeException(
+            nameof(format), format, "no StyleSpec mapping for this InlineFormat");
+      }
+      return spec;
+    }
+
+    /// <summary>
     /// Render a changer-chain node: evaluate the expression, apply if it
     /// resolves to a <see cref="HarloweValueKind.Changer"/>, and fall back to
     /// "emit value text + render hook" for any other value so non-Changer

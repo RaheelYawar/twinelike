@@ -134,6 +134,7 @@ public class ConsoleOutput : IRenderOutput
 | Ordinal indexing (`1st`, `last`, `Nthlast`) | ✓ |
 | Hooks: anonymous `[…]`, `\|name>[…]`, `[…]<name\|` | ✓ |
 | Twine links: `[[text->target]]`, `[[target<-text]]`, bare `[[name]]` | ✓ |
+| Inline text styling: `''bold''`, `//italic//` (strike / `*em*` / `^^sup^^` pending) | ⚠ |
 | Lambdas: `where`, `via`, `making`, `each` (incl. implicit `it`) | ✓ |
 | Hook references: `?name`, `?passage`, `?page`, `?link` (+ ordinal narrowing) | ✓ |
 | `(goto:)` with multi-step undo | ✓ |

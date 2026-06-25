@@ -2,7 +2,7 @@
  * build-feature-coverage-html.js
  * --------------------------------
  * Assembles TestFiles/feature-coverage.twee into a self-contained, runnable
- * *reference-Harlowe* HTML (TestFiles/feature-coverage.html) — the same way
+ * *reference-Harlowe* HTML (TestFiles/feature-coverage-harlowe.html) — the same way
  * Twine/tweego publishes a Harlowe story: template.html with {{CSS}} / {{HARLOWE}}
  * / {{STORY_DATA}} / {{STORY_NAME}} substituted. Open the output in any browser to
  * capture ground-truth output for validating the C# library against real Harlowe.
@@ -19,7 +19,7 @@
  *   cat scss/*.scss | ./node_modules/.bin/sass --stdin --style compressed > build/harlowe-css.css
  *   node ../../../TestFiles/build-feature-coverage-html.js . \
  *        ../../../TestFiles/feature-coverage.twee \
- *        ../../../TestFiles/feature-coverage.html
+ *        ../../../TestFiles/feature-coverage-harlowe.html
  *
  * The embedded engine is the locally-built branch/default Harlowe (4.0.0-unstable
  * ~= v3.3.8+67) — the same reference this project cites for macro semantics. Its exact

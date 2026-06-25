@@ -17,7 +17,7 @@ namespace Harlowe.Runtime.Macros
   /// turn (a host-driven <see cref="StorySession.Goto"/> / link click), so
   /// load→navigate→load is permitted. An in-passage <c>(goto:)</c> is an intra-turn
   /// redirect here (not a fresh passage as in reference) and keeps the guard armed —
-  /// a divergence noted in MACRO-DIVERGENCES.md.</para>
+  /// a known, deliberate divergence from reference.</para>
   /// </summary>
   public class LoadGameMacro : IMacro
   {
