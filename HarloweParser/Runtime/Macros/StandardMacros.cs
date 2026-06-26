@@ -40,6 +40,7 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new NumMacro("num"));
       registry.Register(new NumMacro("number"));
       registry.Register(new RoundMacro());
+      registry.Register(new MinMacro());
       registry.Register(new HistoryMacro());
       registry.Register(new TextStyleMacro());
       registry.Register(new TextColorMacro("text-color"));
