@@ -150,6 +150,7 @@ public class ConsoleOutput : IRenderOutput
 | `(if:)`, `(unless:)`, `(else-if:)`, `(else:)` | ✓ |
 | `(random:)`, `(either:)`, `(history:)` | ✓ |
 | `(a:)`, `(dm:)`, `(modulo:)`, `(text:)`, `(num:)` | ✓ |
+| `(round:)` (maths family — `floor`/`ceil`/`trunc`/`abs`/`min`/`max`/… pending) | ⚠ |
 | `(find:)`, `(all-pass:)`, `(some-pass:)`, `(none-pass:)`, `(altered:)` | ✓ |
 | `(for:)`, `(folded:)`, `(rotated-to:)`, `(sorted:)` | ✓ |
 | `(text-style:)` — full name set incl. mark, outline, shadow, blur, mirror, shudder, blink, fade-in-out, … (variadic, with `"none"` reset) | ✓ |
