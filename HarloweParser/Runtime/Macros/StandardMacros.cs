@@ -42,6 +42,11 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new RoundMacro());
       registry.Register(new MinMaxMacro("min", max: false));
       registry.Register(new MinMaxMacro("max", max: true));
+      registry.Register(new MathMacro("floor", System.Math.Floor));
+      registry.Register(new MathMacro("ceil", System.Math.Ceiling));
+      registry.Register(new MathMacro("trunc", System.Math.Truncate));
+      registry.Register(new MathMacro("abs", System.Math.Abs));
+      registry.Register(new MathMacro("sign", MathMacro.Sign));
       registry.Register(new HistoryMacro());
       registry.Register(new TextStyleMacro());
       registry.Register(new TextColorMacro("text-color"));
