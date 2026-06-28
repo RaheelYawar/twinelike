@@ -611,17 +611,9 @@ namespace Harlowe.Runtime
     /// <summary>
     /// Counts Unicode code points in <paramref name="s"/> (surrogate pairs as
     /// one), matching reference Harlowe's code-point string model rather than
-    /// .NET's UTF-16 code-unit <see cref="string.Length"/>.
+    /// .NET's UTF-16 code-unit <see cref="string.Length"/>. Delegates to the
+    /// shared <see cref="CodePoints"/> helper.
     /// </summary>
-    private static int CodePointCount(string s)
-    {
-      int count = 0;
-      for (int p = 0; p < s.Length; p++)
-      {
-        if (char.IsHighSurrogate(s[p]) && p + 1 < s.Length && char.IsLowSurrogate(s[p + 1])) p++;
-        count++;
-      }
-      return count;
-    }
+    private static int CodePointCount(string s) => CodePoints.Count(s);
   }
 }

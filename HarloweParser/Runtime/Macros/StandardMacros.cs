@@ -47,6 +47,18 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new MathMacro("trunc", System.Math.Truncate));
       registry.Register(new MathMacro("abs", System.Math.Abs));
       registry.Register(new MathMacro("sign", MathMacro.Sign));
+      registry.Register(new StringFnMacro("uppercase", s => s.ToUpperInvariant()));
+      registry.Register(new StringFnMacro("lowercase", s => s.ToLowerInvariant()));
+      registry.Register(new StringFnMacro("str-reversed", StringFnMacro.Reverse));
+      registry.Register(new StringFnMacro("string-reversed", StringFnMacro.Reverse));
+      registry.Register(new StringFnMacro("upperfirst", s => StringFnMacro.CaseFirst(s, toUpper: true)));
+      registry.Register(new StringFnMacro("lowerfirst", s => StringFnMacro.CaseFirst(s, toUpper: false)));
+      registry.Register(new SubstringMacro());
+      registry.Register(new WordsMacro());
+      registry.Register(new StrRepeatedMacro("str-repeated"));
+      registry.Register(new StrRepeatedMacro("string-repeated"));
+      registry.Register(new StrNthMacro("str-nth"));
+      registry.Register(new StrNthMacro("string-nth"));
       registry.Register(new HistoryMacro());
       registry.Register(new TextStyleMacro());
       registry.Register(new TextColorMacro("text-color"));
