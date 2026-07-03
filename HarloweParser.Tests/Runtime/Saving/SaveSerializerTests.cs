@@ -162,6 +162,35 @@ namespace Harlowe.Tests.Runtime.Saving
     }
 
     [Fact]
+    public void ConditionalChanger_StampsSourceAndRoundTrips()
+    {
+      var v = Deser("(if:true)");
+      Assert.Equal(HarloweValueKind.Changer, v.Kind);
+      Assert.Equal("(if:true)", v.ToSource());
+      Assert.Equal(v, RoundTrip(v));
+
+      var composed = Deser("(if:false)+(text-style:\"bold\")");
+      Assert.Equal("(if:false)+(text-style:\"bold\")", composed.ToSource());
+      Assert.Equal(composed, RoundTrip(composed));
+    }
+
+    [Fact]
+    public void ElseChanger_SerialisesAsBakedIf()
+    {
+      // (else:) bakes its decision at call time and is pre-stamped with the
+      // equivalent (if:) source — a natural "(else:)" stamp would error on
+      // load re-evaluation, where no conditional pairing is in scope.
+      var registry = new MacroRegistry();
+      StandardMacros.RegisterAll(registry);
+      var ctx = new MacroContext { Store = new HarloweVariableStore(), Invoker = registry, LastConditional = false };
+      registry.Context = ctx;
+      var v = registry.Invoke("else", new System.Collections.Generic.List<HarloweValue>(), ctx);
+      Assert.Equal(HarloweValueKind.Changer, v.Kind);
+      Assert.Equal("(if:true)", v.ToSource());
+      Assert.True(RoundTrip(v).AsChanger.Apply(new BufferedRenderOutput(), null));
+    }
+
+    [Fact]
     public void MacroReturningExistingChanger_KeepsCreationSource()
     {
       // (either:) *returns* the changer it was handed rather than creating one.

@@ -237,6 +237,75 @@ namespace Harlowe.Tests.Runtime
       Assert.Contains("B", h.Buf.Text);
     }
 
+    // Conditional changers ----------------------------------------------------
+    // (if:)/(unless:)/(else-if:)/(else:) return Changers (reference model), so
+    // they compose with styling changers via + and store in variables.
+
+    [Fact]
+    public void If_ComposedWithStyle_True_RendersStyledHook()
+    {
+      var h = Render("(if: true) + (text-style: \"bold\")[X]");
+      Assert.Equal("X", h.Buf.Text);
+      var push = h.Buf.Entries.Find(e => e.Kind == BufferedRenderOutput.Kind.PushStyle);
+      Assert.NotNull(push);
+      Assert.True(push.Style.Bold);
+    }
+
+    [Fact]
+    public void If_ComposedWithStyle_False_RendersNothing()
+    {
+      var h = Render("(if: false) + (text-style: \"bold\")[X]");
+      Assert.Equal("", h.Buf.Text);
+      Assert.Equal(0, CountKind(h.Buf, BufferedRenderOutput.Kind.PushStyle));
+      Assert.Equal(0, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+    }
+
+    [Fact]
+    public void If_StoredComposedChanger_AppliesViaVariable()
+    {
+      // The former high-severity divergence: a conditional composed with a
+      // styling changer, stored, and attached — reference's headline idiom.
+      var shown = Render("(set: $c to (if: true) + (text-style: \"bold\"))$c[content]");
+      Assert.Equal("content", shown.Buf.Text);
+      var push = shown.Buf.Entries.Find(e => e.Kind == BufferedRenderOutput.Kind.PushStyle);
+      Assert.NotNull(push);
+      Assert.True(push.Style.Bold);
+
+      var hidden = Render("(set: $c to (if: false) + (text-style: \"bold\"))$c[content]");
+      Assert.Equal("", hidden.Buf.Text);
+      Assert.Equal(0, CountKind(hidden.Buf, BufferedRenderOutput.Kind.Error));
+    }
+
+    [Fact]
+    public void Else_PairsAcrossComposedConditionalHook()
+    {
+      var hidden = Render("(if: false) + (text-style: \"bold\")[A](else:)[B]");
+      Assert.Equal("B", hidden.Buf.Text);
+      var shown = Render("(if: true) + (text-style: \"bold\")[A](else:)[B]");
+      Assert.Equal("A", shown.Buf.Text);
+    }
+
+    [Fact]
+    public void NestedIf_InExpression_DoesNotCorruptPairing()
+    {
+      // A nested (if:) evaluated inside (set:) args creates a changer but must
+      // not touch the pairing — the (else:) still pairs with the shown
+      // (if: true) hook. (The old Bool model set the pairing at invoke time,
+      // so the nested call wrongly flipped it and B rendered.)
+      var h = Render("(if: true)[A](set: $x to (if: false))(else:)[B]");
+      Assert.Equal(0, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+      Assert.Equal("A", h.Buf.Text);
+    }
+
+    [Fact]
+    public void StoredConditional_AttachedViaVariable_HidesAndPairs()
+    {
+      // The ChangerChainNode path participates in pairing too: a stored hidden
+      // conditional records "hidden", so the (else:) shows.
+      var h = Render("(set: $c to (if: false))$c[A](else:)[B]");
+      Assert.Equal("B", h.Buf.Text);
+    }
+
     [Fact]
     public void Else_AfterIntervening_ErroringMacro_StillPairs()
     {

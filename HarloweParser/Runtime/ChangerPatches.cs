@@ -46,6 +46,41 @@ namespace Harlowe.Runtime
     public override int GetHashCode() => -1;
   }
 
+  /// <summary>Which conditional macro produced a <see cref="ConditionalPatch"/>. Drives the show/hide pairing rules in <see cref="BodyRenderer"/> (an <c>(else-if:)</c> hide preserves the prior pairing; the others record it).</summary>
+  public enum ConditionalKind
+  {
+    If,
+    Unless,
+    ElseIf,
+    Else
+  }
+
+  /// <summary>
+  /// Patch produced by the conditional changers <c>(if:)</c> / <c>(unless:)</c> /
+  /// <c>(else-if:)</c> / <c>(else:)</c>. ANDs its decision into
+  /// <see cref="HookDescriptor.Enabled"/>, mirroring reference Harlowe's
+  /// changer-apply functions in <c>ts/macrolib/stylechangers.ts</c> —
+  /// <c>(d, expr) =&gt; {d.enabled &amp;&amp;= expr}</c> for <c>if</c>/
+  /// <c>elseif</c>/<c>else</c> and <c>&amp;&amp;= !expr</c> for <c>unless</c> —
+  /// which is what lets <c>(if: $cond) + (text-style: "bold")</c> compose.
+  /// <see cref="Value"/> is the macro's evaluated boolean argument (for
+  /// <c>(else-if:)</c>/<c>(else:)</c>, the decision baked at call time from
+  /// the pairing state).
+  /// </summary>
+  public class ConditionalPatch : IChangerPatch
+  {
+    public ConditionalKind Kind;
+    public bool Value;
+
+    public void Apply(HookDescriptor descriptor)
+      => descriptor.Enabled = descriptor.Enabled && (Kind == ConditionalKind.Unless ? !Value : Value);
+
+    public override bool Equals(object obj)
+      => obj is ConditionalPatch other && Kind == other.Kind && Value == other.Value;
+
+    public override int GetHashCode() => ((int)Kind * 397) ^ (Value ? 1 : 0);
+  }
+
   /// <summary>
   /// Patch produced by <c>(for:)</c>. Sets the descriptor's iteration spec.
   /// If a prior iteration patch already wrote one, the later one wins — a

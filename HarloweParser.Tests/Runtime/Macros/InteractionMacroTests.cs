@@ -68,6 +68,31 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
+    public void Click_ComposedWithFalseConditional_RegistersNothing()
+    {
+      // (if: false) + (click: ?m) — the disabled descriptor must suppress the
+      // whole application: no interactive region, no handler armed.
+      var session = Session("|m>[cake](if: false) + (click: ?m)[surprise]");
+      var result = session.Render();
+      Assert.Empty(Regions(result));
+      Assert.Equal("cake", result.Text);
+
+      var enabled = Session("|m>[cake](if: true) + (click: ?m)[surprise]");
+      Assert.Single(Regions(enabled.Render()));
+    }
+
+    [Fact]
+    public void Enchant_ComposedWithFalseConditional_AppliesNoStyle()
+    {
+      // The (change:)/(enchant:) path routes through the same descriptor, so a
+      // disabled conditional yields no style layers.
+      var session = Session("|m>[cake](enchant: ?m, (if: false) + (text-style: \"bold\"))");
+      var result = session.Render();
+      Assert.Equal(0, CountKind(result, BufferedRenderOutput.Kind.PushStyle));
+      Assert.Equal("cake", result.Text);
+    }
+
+    [Fact]
     public void Click_BracketBracketsTheRightContent()
     {
       var session = Session("before |m>[cake] after(click: ?m)[x]");

@@ -3,10 +3,16 @@ using System.Collections.Generic;
 namespace Harlowe.Runtime.Macros
 {
   /// <summary>
-  /// <c>(if: $cond)[content]</c>. Evaluates its boolean argument and stores
-  /// the result on <see cref="MacroContext.LastConditional"/> so a following
-  /// <c>(else:)</c> can pair against it. Returns the same boolean so the body
-  /// renderer can decide whether to render the attached hook.
+  /// <c>(if: $cond)[content]</c> → Changer. Evaluates its boolean argument and
+  /// returns a conditional changer whose application ANDs the value into
+  /// <see cref="HookDescriptor.Enabled"/> — matching reference Harlowe, where
+  /// <c>(if:)</c> is <c>new Changer(`if`, [expr])</c> with apply
+  /// <c>(d, expr) =&gt; {d.enabled &amp;&amp;= expr}</c>
+  /// (<c>ts/macrolib/stylechangers.ts</c>). Being a changer is what lets
+  /// <c>(if: $cond) + (text-style: "bold")</c> compose and be stored in
+  /// variables. The <c>(else:)</c> pairing is recorded by the renderer when the
+  /// changer is applied to a hook, not here — creating an unattached
+  /// <c>(if:)</c> (e.g. nested in a <c>(set:)</c>) leaves the pairing alone.
   /// </summary>
   public class IfMacro : IMacro
   {
@@ -17,11 +23,9 @@ namespace Harlowe.Runtime.Macros
     public HarloweValue Invoke(List<HarloweValue> args, MacroContext context)
     {
       var v = args[0];
-      if (v.IsError) return v;
       if (v.Kind != HarloweValueKind.Bool)
         return HarloweValue.OfError($"(if:) requires a Boolean, got {v.Kind}");
-      context.LastConditional = v.AsBool;
-      return v;
+      return HarloweValue.OfChanger(Changer.FromConditional(ConditionalKind.If, v.AsBool));
     }
   }
 }

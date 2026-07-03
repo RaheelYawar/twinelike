@@ -87,6 +87,29 @@ namespace Harlowe.Runtime
       => new Changer(new List<IChangerPatch> { new InteractionPatch { Interaction = interaction } });
 
     /// <summary>
+    /// Construct a conditional changer (<c>(if:)</c>/<c>(unless:)</c>/
+    /// <c>(else-if:)</c>/<c>(else:)</c>): a single <see cref="ConditionalPatch"/>
+    /// that ANDs its decision into <see cref="HookDescriptor.Enabled"/>, so
+    /// <c>(if: $cond) + (text-style: "bold")</c> composes like any other changer
+    /// (reference's <c>new Changer(`if`, [expr])</c>).
+    /// </summary>
+    public static Changer FromConditional(ConditionalKind kind, bool value)
+      => new Changer(new List<IChangerPatch> { new ConditionalPatch { Kind = kind, Value = value } });
+
+    /// <summary>
+    /// The kind of the first <see cref="ConditionalPatch"/> in this changer, or
+    /// null when it carries none. The renderer uses it for the show/hide pairing
+    /// rules — reference keys the same decision off the expression's macro name
+    /// (the <c>[`if`, `elseif`, `unless`, `else`]</c> list in <c>ts/section.ts</c>).
+    /// </summary>
+    public ConditionalKind? GetConditionalKind()
+    {
+      for (int i = 0; i < _patches.Count; i++)
+        if (_patches[i] is ConditionalPatch c) return c.Kind;
+      return null;
+    }
+
+    /// <summary>
     /// Construct a changer from a fixed sequence of patches. Used by macros
     /// that need to express more than one patch in a single produced changer —
     /// e.g. <c>(text-style: "none", "bold")</c> emits a
@@ -138,11 +161,20 @@ namespace Harlowe.Runtime
     /// <see cref="IVariableStore.PushItBinding"/>, so per-iteration scope is
     /// correctly restored even on early hook exit.
     /// </para>
+    ///
+    /// <para>Returns whether the descriptor was <em>enabled</em>: false when a
+    /// composed conditional (<see cref="ConditionalPatch"/>) suppressed the hook,
+    /// in which case nothing renders and nothing registers. The renderer feeds
+    /// this into the <c>(else:)</c> pairing (reference's <c>lastHookShown</c>).</para>
     /// </summary>
-    public void Apply(IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx = null)
+    public bool Apply(IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx = null)
     {
       var descriptor = new HookDescriptor();
       for (int i = 0; i < _patches.Count; i++) _patches[i].Apply(descriptor);
+
+      // A conditional in the composition disabled the hook: render nothing,
+      // register nothing — (if: false) + (click: ?a) must not arm a click.
+      if (!descriptor.Enabled) return false;
 
       // Interaction, Revision, and Iteration are mutually-exclusive ways of
       // consuming the hook (wrap-and-defer, splice-elsewhere, loop-in-place);
@@ -157,7 +189,7 @@ namespace Harlowe.Runtime
       if (exclusiveCount > 1)
       {
         output.Error("changers can't be combined here: (click:)/revision/(for:) each consume the hook differently");
-        return;
+        return true;
       }
 
       if (descriptor.Interaction != null)
@@ -173,7 +205,7 @@ namespace Harlowe.Runtime
         if (ctx == null)
         {
           output.Error("(for:) requires a render context with a variable store");
-          return;
+          return true;
         }
         RunIteration(descriptor, output, renderHook, ctx);
       }
@@ -181,6 +213,7 @@ namespace Harlowe.Runtime
       {
         RunStyles(descriptor.Styles, output, renderHook);
       }
+      return true;
     }
 
     private static void RunIteration(HookDescriptor d, IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx)
@@ -370,11 +403,12 @@ namespace Harlowe.Runtime
       RenderNodes.ReplaceChild(root, target, wrapped);
     }
 
-    /// <summary>Build the descriptor and return its style layers — the shared front of <see cref="ApplyTo"/> / <see cref="ApplyToNode"/>.</summary>
+    /// <summary>Build the descriptor and return its style layers — the shared front of <see cref="ApplyTo"/> / <see cref="ApplyToNode"/>. Empty when a composed conditional disabled the descriptor, so <c>(change: ?x, (if: false) + (colour: red))</c> applies nothing.</summary>
     private List<StyleSpec> BuildStyles()
     {
       var descriptor = new HookDescriptor();
       for (int i = 0; i < _patches.Count; i++) _patches[i].Apply(descriptor);
+      if (!descriptor.Enabled) return new List<StyleSpec>();
       return descriptor.Styles;
     }
 

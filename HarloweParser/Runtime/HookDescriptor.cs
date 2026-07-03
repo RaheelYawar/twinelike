@@ -19,6 +19,14 @@ namespace Harlowe.Runtime
   /// </summary>
   public class HookDescriptor
   {
+    /// <summary>
+    /// Whether the hook renders at all. Conditional changers AND their decision
+    /// into this (reference's <c>d.enabled &amp;&amp;= expr</c> in
+    /// <c>ts/macrolib/stylechangers.ts</c>); a false value suppresses the whole
+    /// application — styles, iteration, revision, and interaction alike.
+    /// </summary>
+    public bool Enabled = true;
+
     /// <summary>Styling layers in apply order — outermost first.</summary>
     public List<StyleSpec> Styles = new List<StyleSpec>();
 

@@ -207,22 +207,35 @@ namespace Harlowe.Tests.Runtime.Macros
 
     // if / unless / else -----------------------------------------------------
 
-    [Fact]
-    public void If_TrueReturnsTrueAndSetsLastConditional()
+    /// <summary>Apply a conditional changer to a probe hook: returns the shown/hidden outcome and asserts the hook rendered iff shown.</summary>
+    private static bool Applies(HarloweValue changer)
     {
-      var (reg, ctx) = Setup();
-      var v = Call(reg, ctx, "if", HarloweValue.OfBool(true));
-      Assert.True(v.AsBool);
-      Assert.True(ctx.LastConditional);
+      bool rendered = false;
+      bool shown = changer.AsChanger.Apply(new BufferedRenderOutput(), _ => rendered = true);
+      Assert.Equal(shown, rendered);
+      return shown;
     }
 
     [Fact]
-    public void If_FalseReturnsFalse()
+    public void If_ReturnsConditionalChanger_TrueShows_FalseHides()
     {
       var (reg, ctx) = Setup();
-      var v = Call(reg, ctx, "if", HarloweValue.OfBool(false));
-      Assert.False(v.AsBool);
-      Assert.False(ctx.LastConditional);
+      var t = Call(reg, ctx, "if", HarloweValue.OfBool(true));
+      Assert.Equal(HarloweValueKind.Changer, t.Kind);
+      Assert.True(Applies(t));
+      Assert.False(Applies(Call(reg, ctx, "if", HarloweValue.OfBool(false))));
+    }
+
+    [Fact]
+    public void If_Invoke_DoesNotTouchPairing()
+    {
+      // Creating the changer must not set LastConditional — only applying it to
+      // a hook does (reference: lastHookShown is written in section.ts's hook
+      // application, not by the macro). A nested (set: $x to (if: $b)) between
+      // an (if:)[...] and its (else:)[...] therefore can't corrupt the pairing.
+      var (reg, ctx) = Setup();
+      Call(reg, ctx, "if", HarloweValue.OfBool(true));
+      Assert.Null(ctx.LastConditional);
     }
 
     [Fact]
@@ -236,26 +249,26 @@ namespace Harlowe.Tests.Runtime.Macros
     public void Unless_NegatesCondition()
     {
       var (reg, ctx) = Setup();
-      Assert.True(Call(reg, ctx, "unless", HarloweValue.OfBool(false)).AsBool);
-      Assert.False(Call(reg, ctx, "unless", HarloweValue.OfBool(true)).AsBool);
+      Assert.True(Applies(Call(reg, ctx, "unless", HarloweValue.OfBool(false))));
+      Assert.False(Applies(Call(reg, ctx, "unless", HarloweValue.OfBool(true))));
     }
 
     [Fact]
-    public void Else_AfterFailingIf_Renders()
+    public void Else_AfterHiddenHook_ShowsChanger()
     {
+      // (else:) reads the pairing at call time and bakes the decision into the
+      // returned changer (reference: new Changer(`else`, [lastHookShown === false])).
       var (reg, ctx) = Setup();
-      Call(reg, ctx, "if", HarloweValue.OfBool(false));
-      var v = Call(reg, ctx, "else");
-      Assert.True(v.AsBool);
+      ctx.LastConditional = false;   // the preceding conditional hook was hidden
+      Assert.True(Applies(Call(reg, ctx, "else")));
     }
 
     [Fact]
-    public void Else_AfterSucceedingIf_DoesNotRender()
+    public void Else_AfterShownHook_HidesChanger()
     {
       var (reg, ctx) = Setup();
-      Call(reg, ctx, "if", HarloweValue.OfBool(true));
-      var v = Call(reg, ctx, "else");
-      Assert.False(v.AsBool);
+      ctx.LastConditional = true;    // the preceding conditional hook was shown
+      Assert.False(Applies(Call(reg, ctx, "else")));
     }
 
     [Fact]

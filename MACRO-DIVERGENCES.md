@@ -11,7 +11,7 @@ for the save-model slice (which lands `(history:)` semantics).
 
 ## Counts
 
-- **High severity (3 active, 2 fixed)**: silent wrong result or breaks documented Harlowe idioms.
+- **High severity (2 active, 3 fixed)**: silent wrong result or breaks documented Harlowe idioms.
 - **Medium severity (4 active, 6 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
 - **Low severity (1 active, 1 fixed)**: documented as deliberate or marginal.
 
@@ -71,22 +71,27 @@ conditional surfaces an in-prose error. See `ElseIfMacro.cs`,
   if/else-if/else ladder appears. The single most common conditional-chain
   idiom doesn't work.
 
-### 3. `(if:)` / `(unless:)` returns Bool instead of Changer
+### 3. `(if:)` / `(unless:)` returns Bool instead of Changer — ✅ FIXED (2026-07-03)
 
-- **Ours**: Returns `HarloweValue.Bool`. `BodyRenderer.Visit(MacroNode)`
-  special-cases conditional macros and renders the attached hook from the
-  bool. Composition with another changer via `+` errors because the operand
-  isn't a Changer. See `HarloweParser\Runtime\Macros\IfMacro.cs` and
-  `BodyRenderer.cs` (the `isConditional` branch).
-- **Reference**: Returns a Changer (`new Changer('if', [expr])`). The changer
-  composition machinery handles `(if: ...) + (text-style: ...)` directly —
-  `enabled` is AND-ed with the boolean. See
-  `ts/macrolib/stylechangers.ts` (search `(`if`,` and `IfTypeSignature` /
-  `d.enabled &&=`).
-- **Trigger**: `(set: $c to (if: $cond) + (text-style: "bold"))$c[content]`
-- **User-visible**: Reference renders bold-iff-condition. Ours errors at the
-  `+` step because a Bool can't be added to a Changer. Any story that composes
-  a conditional with styling fails to render.
+**Resolved.** All four conditionals now return Changers, matching reference
+(`ts/macrolib/stylechangers.ts`: `new Changer(`if`, [expr])` with apply
+`(d, expr) => {d.enabled &&= expr}`). A `ConditionalPatch` ANDs its decision
+into the new `HookDescriptor.Enabled`; a disabled descriptor suppresses the
+whole application (styles, iteration, revision, interaction — so
+`(if: false) + (click: ?a)` arms nothing). `(else:)`/`(else-if:)` read the
+pairing at *call* time and bake the decision (reference:
+`new Changer(`else`, [lastHookShown === false])`), pre-stamped with the
+equivalent `(if:)` source so a stored one survives save/load. The `(else:)`
+pairing moved from macro-invoke time to hook-application time
+(`BodyRenderer.UpdateConditionalPairing`, reference `section.ts`'s
+`lastHookShown` rules: shown → true; hidden → false only for
+if/unless/else, an `(else-if:)` hide preserves the prior value) — which also
+fixed a latent bug where a conditional nested in `(set:)` args corrupted the
+pairing. The old trigger `(set: $c to (if: $cond) + (text-style:
+"bold"))$c[content]` now renders bold-iff-condition. See the "Conditional
+changers" tests in `BodyRendererTests`, the composition tests in
+`InteractionMacroTests`, and `ConditionalChanger_*`/`ElseChanger_*` in
+`SaveSerializerTests`.
 
 ### 4. `(change:)` / `(enchant:)` reject string targets and `via`-lambdas
 
@@ -426,8 +431,8 @@ architecture.
 
 **Medium architectural touches** (interact with deferred slices):
 
-- `(if:)` / `(unless:)` returning Changer (#3) — touches `BodyRenderer`'s
-  conditional path. Worth doing alongside the next conditional-related work.
+- ~~`(if:)` / `(unless:)` returning Changer (#3) — touches `BodyRenderer`'s
+  conditional path.~~ ✅ done.
 - `(text-size:)` accepting Measurement (#7) — depends on whether we want a
   proper `Measurement` value type (parallel to the broader missing-value-types
   TODO) or just expand the macro to parse measurement strings inline.

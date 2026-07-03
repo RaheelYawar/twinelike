@@ -10,11 +10,12 @@ namespace Harlowe.Runtime
   ///
   /// <para>
   /// <b>Conditional rendering.</b> <c>(if:)</c>, <c>(unless:)</c>,
-  /// <c>(else-if:)</c>, and <c>(else:)</c> return a Boolean that decides whether
-  /// the macro's <see cref="MacroNode.AttachedHook"/> renders. Non-conditional
-  /// macros also reset <see cref="MacroContext.LastConditional"/> so an
-  /// <c>(else:)</c> only pairs with the <em>immediately preceding</em>
-  /// conditional macro and not across an intervening <c>(set:)</c> or similar.
+  /// <c>(else-if:)</c>, and <c>(else:)</c> return conditional <em>Changers</em>
+  /// (reference Harlowe's model), so they flow through the same attached-hook
+  /// path as styling changers and compose via <c>+</c>. Whether the hook
+  /// rendered feeds <see cref="MacroContext.LastConditional"/> through
+  /// <see cref="UpdateConditionalPairing"/>, which implements reference
+  /// <c>section.ts</c>'s <c>lastHookShown</c> rules.
   /// </para>
   ///
   /// <para>
@@ -199,11 +200,9 @@ namespace Harlowe.Runtime
       {
         if (node.AttachedHook != null)
         {
-          result.AsChanger.Apply(_output, target => RenderHookInto(node.AttachedHook, target), _context);
-          // Symmetric with the changer branch in Visit(MacroNode): a shown
-          // changer hook records that a hook was shown so a following (else:)
-          // pairs against it rather than the conditional before the changer.
-          _context.LastConditional = true;
+          var changer = result.AsChanger;
+          bool shown = changer.Apply(_output, target => RenderHookInto(node.AttachedHook, target), _context);
+          UpdateConditionalPairing(changer, shown);
         }
         return;
       }
@@ -241,12 +240,6 @@ namespace Harlowe.Runtime
         }
       }
 
-      // Normalize so case/dash variants ((If:), (Else-If:)) pair correctly;
-      // "else-if" normalizes to "elseif".
-      string macroName = MacroNames.Normalize(node.Name);
-      bool isConditional = macroName == "if" || macroName == "unless"
-        || macroName == "else" || macroName == "elseif";
-
       // Expose the active sink for command macros (e.g. (display:)) that want
       // to render structured output directly into the parent output rather
       // than capture it as a string. Cleared on the way out so a subsequent
@@ -264,32 +257,25 @@ namespace Harlowe.Runtime
       // expression — never reset by a plain command macro or by intervening
       // prose. So an intervening (set:)/(print:) leaves the pairing intact and
       // a following (else:) still pairs with the original (if:), matching
-      // reference Harlowe. A non-conditional changer that shows its hook sets
-      // the pairing below (after the hook renders).
+      // reference Harlowe. The changer branch below records the outcome via
+      // UpdateConditionalPairing after the hook renders.
       if (result != null && result.IsError) { _output.Error(result.ErrorMessage); return; }
 
       // (goto:) and any macro that triggered a navigation aborts now.
       if (_context.NavigationHalt) return;
 
-      if (isConditional)
-      {
-        bool render = result != null && result.Kind == HarloweValueKind.Bool && result.AsBool;
-        if (render && node.AttachedHook != null) node.AttachedHook.Accept(this);
-        return;
-      }
-
-      // Changer + attached hook: open / render contents / close. Without an
-      // attached hook the changer is a pure value — we drop it (storing it in
-      // a variable would have happened during evaluation, not here).
+      // Changer + attached hook: open / render contents / close. Conditionals
+      // ((if:)/(unless:)/(else-if:)/(else:)) are changers too, so show/hide is
+      // just the descriptor's Enabled bit. Without an attached hook the changer
+      // is a pure value — we drop it (storing it in a variable would have
+      // happened during evaluation, not here).
       if (result != null && result.Kind == HarloweValueKind.Changer)
       {
         if (node.AttachedHook != null)
         {
-          result.AsChanger.Apply(_output, target => RenderHookInto(node.AttachedHook, target), _context);
-          // A shown changer hook counts as "a hook was shown" for a following
-          // (else:) — reference sets lastHookShown=true for any enabled
-          // attached-expression hook, not just conditionals.
-          _context.LastConditional = true;
+          var changer = result.AsChanger;
+          bool shown = changer.Apply(_output, target => RenderHookInto(node.AttachedHook, target), _context);
+          UpdateConditionalPairing(changer, shown);
         }
         return;
       }
@@ -301,6 +287,30 @@ namespace Harlowe.Runtime
         EmitMacroResult(result);
       }
       if (node.AttachedHook != null) node.AttachedHook.Accept(this);
+    }
+
+    /// <summary>
+    /// Record a changer-attached hook's show/hide outcome on
+    /// <see cref="MacroContext.LastConditional"/> — reference <c>section.ts</c>'s
+    /// <c>lastHookShown</c> rules: a <em>shown</em> hook sets it true (any
+    /// attached expression, not just conditionals); a <em>hidden</em> hook sets
+    /// it false only when the hide came from <c>(if:)</c>/<c>(unless:)</c>/
+    /// <c>(else:)</c> — an <c>(else-if:)</c> hide preserves the prior value
+    /// (reference: "(else-if:) must be special-cased, so that it doesn't affect
+    /// lastHookShown, instead preserving the value of the original (if:)").
+    /// Only a conditional patch can disable a descriptor, so a hidden hook
+    /// always has a conditional kind; the null arm is just defensive.
+    /// </summary>
+    private void UpdateConditionalPairing(Changer changer, bool shown)
+    {
+      if (shown)
+      {
+        _context.LastConditional = true;
+        return;
+      }
+      var kind = changer.GetConditionalKind();
+      if (kind == ConditionalKind.If || kind == ConditionalKind.Unless || kind == ConditionalKind.Else)
+        _context.LastConditional = false;
     }
 
     /// <summary>
