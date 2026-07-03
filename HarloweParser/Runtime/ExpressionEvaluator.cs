@@ -283,26 +283,31 @@ namespace Harlowe.Runtime
     /// <c>(name:arg-source,…)</c> from the call node's name and each <em>evaluated</em>
     /// argument's <see cref="HarloweValue.ToSource"/> (reference's resolved
     /// <c>params</c>). Mirrors reference's changer <c>macroName</c>+<c>params</c> →
-    /// <c>TwineScript_ToSource</c>. Best-effort and non-throwing: if any argument has
-    /// no source form (an Error or non-finite number — neither reachable here, as arg
-    /// errors short-circuit upstream), <see cref="Changer.Source"/> is left null and
-    /// the changer simply can't be saved. Lets a changer stored in a variable
-    /// round-trip through save/load.
+    /// <c>TwineScript_ToSource</c>, which stamps at <em>creation</em> only: a macro can
+    /// also <em>return</em> a changer it was handed — <c>(either: $a, $b)</c> — and
+    /// restamping that shared object would rewrite the stored value's source to the
+    /// outer call, which re-evaluates on load (nondeterministically, for
+    /// <c>(either:)</c>). An already-stamped changer is therefore left untouched.
+    /// Best-effort and non-throwing: if any argument has no source form,
+    /// <see cref="Changer.Source"/> stays null and the changer simply can't be saved.
+    /// Lets a changer stored in a variable round-trip through save/load.
     /// </summary>
     private static void StampChangerSource(HarloweValue result, string macroName, List<HarloweValue> args)
     {
       if (result == null || result.Kind != HarloweValueKind.Changer) return;
+      var changer = result.AsChanger;
+      if (changer.Source != null) return;
       var sb = new System.Text.StringBuilder();
       sb.Append('(').Append(macroName).Append(':');
       for (int i = 0; i < args.Count; i++)
       {
         if (i > 0) sb.Append(',');
         string src = args[i].ToSource();
-        if (src == null) { result.AsChanger.Source = null; return; }
+        if (src == null) return;
         sb.Append(src);
       }
       sb.Append(')');
-      result.AsChanger.Source = sb.ToString();
+      changer.Source = sb.ToString();
     }
 
     /// <summary>

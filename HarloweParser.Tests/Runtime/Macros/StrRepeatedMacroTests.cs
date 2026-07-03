@@ -80,6 +80,17 @@ namespace Harlowe.Tests.Runtime.Macros
         Assert.True(v.IsError);
       });
 
+    [Theory]
+    [InlineData(400000000.0, "abcdefghij")] // 4e9 chars once int-overflowed the capacity math and threw
+    [InlineData(3000000000.0, "x")]         // count > int.MaxValue once hit an unspecified (int) cast
+    public void StrRepeated_HugeResult_ErrorsInsteadOfThrowing(double count, string s)
+      => RunSetup((reg, ctx) =>
+      {
+        var v = Rep(reg, ctx, count, s);
+        Assert.True(v.IsError);
+        Assert.Contains("longer", v.ErrorMessage);
+      });
+
     [Fact]
     public void StrRepeated_WrongArity_Errors()
       => RunSetup((reg, ctx) =>

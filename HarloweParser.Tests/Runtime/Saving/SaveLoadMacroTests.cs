@@ -95,6 +95,30 @@ namespace Harlowe.Tests.Runtime.Saving
     }
 
     [Fact]
+    public void LoadGameMacro_InClickDeferredHook_InstallsAndShowsLoadedPassage()
+    {
+      // A (load-game:) inside a click's deferred hook must install its timeline
+      // at dispatch — it once staged PendingLoad where DispatchEvent never
+      // looked, so the load silently never happened and the stale stage kept
+      // NavigationHalt true, blanking every later dispatch on the passage.
+      var session = new StorySession(Story(
+        "(set: $x to 5)(save-game: \"s\")",                        // P1
+        "(set: $x to 99)|z>[go](click: ?z)[(load-game: \"s\")]",   // P2
+        "(print: $x)"));                                            // P3
+      session.Render();                          // P1: $x = 5, saved
+      var r = session.Goto("P2");                // $x = 99
+      string regionId = null;
+      for (int i = 0; i < r.Entries.Count; i++)
+        if (r.Entries[i].Kind == BufferedRenderOutput.Kind.BeginInteractive)
+          regionId = r.Entries[i].Region?.Id;
+      Assert.NotNull(regionId);
+
+      session.DispatchEvent(regionId);           // the click fires the load
+      Assert.Equal("P1", session.CurrentPassage);      // landed on the save's turn
+      Assert.Equal("5", session.Goto("P3").Text);      // $x restored, not 99
+    }
+
+    [Fact]
     public void LoadGameMacro_MissingSlot_RendersError_SetsLastLoadError()
     {
       var session = new StorySession(Story("(load-game: \"nope\")", "p2"));

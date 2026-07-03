@@ -33,6 +33,12 @@ namespace Harlowe.Runtime.Macros
       if (double.IsNaN(d) || double.IsInfinity(d))
         return HarloweValue.OfError($"({_name}:) requires a finite number.");
 
+      // (long) of a double beyond long range is an unspecified conversion (and
+      // differs between runtimes). 2^63 is the first double past the range on
+      // both sides: (double)long.MaxValue rounds up to it, long.MinValue is exact.
+      if (d >= 9223372036854775808.0 || d < -9223372036854775808.0)
+        return HarloweValue.OfError($"({_name}:) can't ordinalise so large a number.");
+
       long n = (long)Math.Truncate(d);
       return HarloweValue.OfString(n.ToString(CultureInfo.InvariantCulture) + OrdinalSuffix(n));
     }

@@ -82,6 +82,27 @@ namespace Harlowe.Tests.Runtime.Saving
     }
 
     [Fact]
+    public void TamperedBlob_FailedLoad_CannotMutateLiveStore()
+    {
+      // Deserialisation evaluates saved source in a sandboxed context: a
+      // tampered blob whose value-source is an assignment must not write
+      // through to the live store when the load fails later in the blob —
+      // atomicity means a failed load leaves NO trace, not just no timeline.
+      var storage = new InMemorySaveStorage();
+      var session = new StorySession(Story("(set: $gold to 5)", "(print: $gold)"), storage);
+      session.Render();                                   // $gold = 5
+
+      string blob = "{\"version\":1,\"moments\":["
+        + "{\"passage\":\"P1\",\"vars\":{\"evil\":\"$gold to 999\"}},"
+        + "\"Vanished\"]}";                               // second moment fails validation
+      storage.TryWrite(SaveKeys.ToStorageKey("TEST-IFID", "t"), blob, "t");
+
+      Assert.False(session.LoadGame("t"));
+      Assert.NotNull(session.LastLoadError);
+      Assert.Equal("5", session.Goto("P2").Text);         // live $gold untouched, not 999
+    }
+
+    [Fact]
     public void SharedBackend_SaveInOneSession_LoadInAnother()
     {
       // The realistic save-to-disk shape: one backend, two sessions of the same story.

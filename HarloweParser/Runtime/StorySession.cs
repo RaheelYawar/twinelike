@@ -478,9 +478,17 @@ namespace Harlowe.Runtime
       _loadedGame = true;
     }
 
-    /// <summary>A context for re-evaluating saved value source during a load (deserialise dispatches collection/changer macros through the registry).</summary>
+    /// <summary>
+    /// A context for re-evaluating saved value source during a load (deserialise
+    /// dispatches collection/changer macros through the registry). Sandboxed — a
+    /// throwaway store and RNG, not the live ones — so a tampered blob's source
+    /// (a <c>$x to 5</c> assignment, a <c>(random:)</c> draw) can't mutate session
+    /// state or advance the shared stream, keeping a failed load truly atomic.
+    /// Legitimate saved source never needs the live store: <see cref="HarloweValue.ToSource"/>
+    /// emits only self-contained literals and macro calls.
+    /// </summary>
     private MacroContext NewSaveContext()
-      => new MacroContext { Store = _store, EvaluationContext = this, Invoker = _registry, Rng = _rng };
+      => new MacroContext { Store = new HarloweVariableStore(), EvaluationContext = this, Invoker = _registry, Rng = new MulberryRng() };
 
     /// <summary>
     /// Shared body of <see cref="Undo"/>/<see cref="Redo"/>: finalise the live
@@ -637,13 +645,20 @@ namespace Harlowe.Runtime
       {
         _liveRoot = null;
         _liveContext = null;
-        // Rebuild the turn's redirect trail from scratch on each top-level render:
-        // a re-render (e.g. replaying a restored turn from its entry passage) must
-        // not append to the existing trail. The redirect path below re-populates it.
-        _present.Visits = null;
-        // A replay of a restored turn starts from its entry passage; redirects then
-        // walk _currentPassage on to the resting passage. Consume the marker here.
-        if (_replayFrom != null) { _currentPassage = _replayFrom; _replayFrom = null; }
+        // A replay of a restored turn starts from its entry passage and rebuilds
+        // the redirect trail from scratch — seeded with the entry so the derived
+        // `visits` counts it mid-replay (a restored Moment's PassageName is the
+        // *resting* passage, which would undercount the entry by one and e.g.
+        // skip a `(if: visits is 1)`-gated redirect on replay). A plain re-render
+        // keeps the existing trail: the resting passage doesn't re-fire the
+        // entry's redirects, so resetting it here would silently drop the trail
+        // from visits/(history:)/saves.
+        if (_replayFrom != null)
+        {
+          _currentPassage = _replayFrom;
+          _present.Visits = new List<string> { _replayFrom };
+          _replayFrom = null;
+        }
         // From here the render rebuilds the present turn's end-state, so the live
         // store/RNG are no longer at the turn start.
         _liveAtTurnStart = false;
@@ -740,7 +755,8 @@ namespace Harlowe.Runtime
     /// An unknown <paramref name="regionId"/> (one the engine reports for a
     /// region that has already fired, or that never existed) is a no-op —
     /// the current view is returned unchanged. A deferred hook that runs
-    /// <c>(goto:)</c> transitions to the new passage via <see cref="Goto"/>.
+    /// <c>(goto:)</c> transitions to the new passage via <see cref="Goto"/>; one
+    /// that runs <c>(load-game:)</c> installs the save and shows its passage.
     /// </para>
     /// </summary>
     public RenderResult DispatchEvent(string regionId)
@@ -795,6 +811,19 @@ namespace Harlowe.Runtime
       // EnchantmentPassCannotMutatePendingGoto in the test suite guards that.
       InteractionPass.Update(_liveRoot, _liveContext.Interactions, _liveContext.ClickHandlers);
       EnchantmentPass.Update(_liveRoot, _liveContext.Enchantments);
+
+      // A (load-game:) inside the deferred hook installs its timeline now and
+      // renders the loaded passage — the dispatch-time analogue of the staged-
+      // load branch in RenderInternal, checked first with the same precedence.
+      // Always consumed: a stale stage would keep NavigationHalt true on this
+      // context and blank every later dispatch on the passage.
+      if (_liveContext.PendingLoad != null)
+      {
+        var loaded = _liveContext.PendingLoad;
+        _liveContext.PendingLoad = null;
+        InstallTimeline(loaded.Past, loaded.Present);
+        return RenderInternal(0);
+      }
 
       // A (goto:) inside the deferred hook navigates now.
       if (_liveContext.PendingGoto != null)

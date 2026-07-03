@@ -161,6 +161,18 @@ namespace Harlowe.Tests.Runtime.Saving
       Assert.Null(chgr.ToSource());
     }
 
+    [Fact]
+    public void MacroReturningExistingChanger_KeepsCreationSource()
+    {
+      // (either:) *returns* the changer it was handed rather than creating one.
+      // The stamp is creation-only: restamping the shared object would rewrite
+      // the stored value's source to "(either:…)", which re-evaluates
+      // (nondeterministically, with more args) on load.
+      var picked = Deser("(either: (text-style:\"bold\"))");
+      Assert.Equal(HarloweValueKind.Changer, picked.Kind);
+      Assert.Equal("(text-style:\"bold\")", picked.ToSource());
+    }
+
     // ----- lambda / hookname (reference-equality values: assert source identity) -----
 
     [Theory]

@@ -965,6 +965,44 @@ namespace Harlowe.Tests.Runtime
       Assert.Empty(((IEvaluationContext)session).History.AsArray);
     }
 
+    [Fact]
+    public void UndoIntoRedirectTurn_VisitsGatedRedirect_ReplaysIdentically()
+    {
+      // The replay of a restored redirect turn seeds the trail with the entry
+      // passage, so `visits` mid-replay reads 1 exactly as it did live and the
+      // gated redirect re-fires. (It once read 0 — the restored Moment's
+      // PassageName is the *resting* P3 — so the replay rested on P2 instead.)
+      var session = new StorySession(ThreePassages(
+        "start",
+        "(if: visits is 1)[(goto: \"P3\")]stayed",
+        "end"));
+      session.Goto("P2");                    // 1st visit of P2 -> redirects
+      Assert.Equal("P3", session.CurrentPassage);
+      session.Goto("P1");
+      session.Undo();                        // -> the P2->P3 turn
+      var r = session.Render();              // replay from the entry passage
+      Assert.Equal("P3", session.CurrentPassage);   // redirect re-fired
+      Assert.Equal("end", r.Text);
+    }
+
+    [Fact]
+    public void SecondRender_PreservesRedirectTrail()
+    {
+      // A plain re-render must not wipe the present turn's redirect trail — the
+      // resting passage doesn't re-fire the entry's redirect, so nulling the
+      // trail would silently change visits/(history:) and later saves.
+      var session = new StorySession(ThreePassages("(goto: \"P2\")", "end", "unused"));
+      session.Render();                      // start turn redirects P1 -> P2
+      var h1 = ((IEvaluationContext)session).History.AsArray;
+      Assert.Single(h1);
+      Assert.Equal("P1", h1[0].AsString);
+
+      session.Render();                      // documented state-preserving re-render
+      var h2 = ((IEvaluationContext)session).History.AsArray;
+      Assert.Single(h2);                     // trail intact, not wiped
+      Assert.Equal("P1", h2[0].AsString);
+    }
+
     // -----------------------------------------------------------------------
     // Store restored to turn-start, symmetric with the RNG (review fixes)
     // -----------------------------------------------------------------------

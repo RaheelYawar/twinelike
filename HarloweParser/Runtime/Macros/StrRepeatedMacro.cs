@@ -41,10 +41,24 @@ namespace Harlowe.Runtime.Macros
       if (s.Length == 0)
         return HarloweValue.OfError("I can't repeat an empty string.");
 
+      // Gate the result size before any int arithmetic: (int)cd on an
+      // out-of-range double is an unspecified conversion, and s.Length * count
+      // in int can overflow to a negative StringBuilder capacity — an exception,
+      // breaching the no-throw contract. The double product is exact this far
+      // below 2^53, and an infinite cd compares > the ceiling.
+      if (cd * s.Length > MaxResultLength)
+        return HarloweValue.OfError(
+          $"({_name}:) can't produce a string longer than {MaxResultLength} characters.");
+
       int count = (int)cd;
       var sb = new StringBuilder(s.Length * count);
       for (int i = 0; i < count; i++) sb.Append(s);
       return HarloweValue.OfString(sb.ToString());
     }
+
+    // Result-length ceiling: JS engines cap strings near 2^29 code units (V8's
+    // 2^29 - 24), the limit reference Harlowe's str.repeat inherits — and it
+    // keeps the capacity arithmetic above safely inside int range.
+    private const long MaxResultLength = (1L << 29) - 24;
   }
 }

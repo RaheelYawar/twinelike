@@ -70,6 +70,19 @@ namespace Harlowe.Tests.Runtime.Macros
       Assert.Contains("number", v.ErrorMessage.ToLowerInvariant());
     }
 
+    [Theory]
+    [InlineData(1e300)]
+    [InlineData(-1e300)]
+    [InlineData(9.3e18)] // just past long.MaxValue
+    public void StrNth_BeyondLongRange_Errors(double input)
+    {
+      // (long) of a double beyond long range is an unspecified conversion that
+      // differs between runtimes — must be an in-prose error, not garbage output.
+      var (reg, ctx) = Setup();
+      var v = Call(reg, ctx, "str-nth", HarloweValue.OfNumber(input));
+      Assert.True(v.IsError);
+    }
+
     [Fact]
     public void StrNth_NoArgs_ReturnsArityError()
     {
