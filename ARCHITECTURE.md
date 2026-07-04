@@ -274,7 +274,7 @@ classDiagram
 `MacroContext` is the per-render bag of state that crosses between the renderer, evaluator, and macros. Carries the variable store, RNG (seedable for deterministic tests), passage-render callback (for `(display:)`), and two short-lived flags:
 
 - **`PendingGoto`** — `(goto:)` writes here; the renderer checks before each sibling and aborts mid-passage to follow the goto.
-- **`LastConditional`** — `(if:)`/`(unless:)` write the predicate result; `(else:)` reads it. Reset to null after any non-conditional macro so `(else:)` only pairs with the immediately preceding conditional.
+- **`LastConditional`** — the conditional pairing flag (reference's `lastHookShown`). Written only by `BodyRenderer` at hook-application time: a shown attached hook (changer or boolean) sets true; a hide sets false only for attached booleans and expressions fronted by `if`/`unless`/`else` (an `(else-if:)` hide, or one from a stored changer in a variable, preserves the prior value). `(else:)`/`(else-if:)` read it at call time to bake their decision.
 
 ## Render sequence
 

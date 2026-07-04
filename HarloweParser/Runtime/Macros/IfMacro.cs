@@ -11,8 +11,9 @@ namespace Harlowe.Runtime.Macros
   /// (<c>ts/macrolib/stylechangers.ts</c>). Being a changer is what lets
   /// <c>(if: $cond) + (text-style: "bold")</c> compose and be stored in
   /// variables. The <c>(else:)</c> pairing is recorded by the renderer when the
-  /// changer is applied to a hook, not here — creating an unattached
-  /// <c>(if:)</c> (e.g. nested in a <c>(set:)</c>) leaves the pairing alone.
+  /// changer is applied to a hook, keyed off the applying expression's front
+  /// macro name, not here — creating an unattached <c>(if:)</c> (e.g. nested in
+  /// a <c>(set:)</c>) leaves the pairing alone.
   /// </summary>
   public class IfMacro : IMacro
   {

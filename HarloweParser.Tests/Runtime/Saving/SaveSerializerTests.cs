@@ -177,9 +177,11 @@ namespace Harlowe.Tests.Runtime.Saving
     [Fact]
     public void ElseChanger_SerialisesAsBakedIf()
     {
-      // (else:) bakes its decision at call time and is pre-stamped with the
-      // equivalent (if:) source — a natural "(else:)" stamp would error on
-      // load re-evaluation, where no conditional pairing is in scope.
+      // (else:) bakes its decision at call time into an If-kind changer
+      // pre-stamped with the equivalent (if:) source — a natural "(else:)"
+      // stamp would error on load re-evaluation, where no conditional pairing
+      // is in scope, and an Else-kind patch would make the reloaded value
+      // structurally different from the stored one.
       var registry = new MacroRegistry();
       StandardMacros.RegisterAll(registry);
       var ctx = new MacroContext { Store = new HarloweVariableStore(), Invoker = registry, LastConditional = false };
@@ -187,7 +189,9 @@ namespace Harlowe.Tests.Runtime.Saving
       var v = registry.Invoke("else", new System.Collections.Generic.List<HarloweValue>(), ctx);
       Assert.Equal(HarloweValueKind.Changer, v.Kind);
       Assert.Equal("(if:true)", v.ToSource());
-      Assert.True(RoundTrip(v).AsChanger.Apply(new BufferedRenderOutput(), null));
+      var reloaded = RoundTrip(v);
+      Assert.Equal(v, reloaded);
+      Assert.True(reloaded.AsChanger.Apply(new BufferedRenderOutput(), null));
     }
 
     [Fact]

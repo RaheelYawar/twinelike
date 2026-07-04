@@ -15,17 +15,18 @@ namespace Harlowe.Runtime
   /// path as styling changers and compose via <c>+</c>. Whether the hook
   /// rendered feeds <see cref="MacroContext.LastConditional"/> through
   /// <see cref="UpdateConditionalPairing"/>, which implements reference
-  /// <c>section.ts</c>'s <c>lastHookShown</c> rules.
+  /// <c>section.ts</c>'s <c>lastHookShown</c> rules. Attached booleans hide or
+  /// show the hook and feed the same pairing.
   /// </para>
   ///
   /// <para>
-  /// <b>Changer rendering.</b> When a macro returns a
+  /// <b>Changer rendering.</b> When an expression yields a
   /// <see cref="HarloweValueKind.Changer"/> and has an
   /// <see cref="MacroNode.AttachedHook"/>, the changer's open HTML is emitted,
   /// the hook contents are rendered, and the close HTML follows — see
-  /// <see cref="Changer.Apply"/>. Without an attached hook the changer is a
-  /// pure value (no visible output), which lets authors store changers in
-  /// variables for later application via composition.
+  /// <see cref="Changer.Apply"/>. Without an attached hook a changer in prose
+  /// is an in-prose error, matching reference (storing one in a variable
+  /// happens during expression evaluation and never reaches this renderer).
   /// </para>
   ///
   /// <para>
@@ -91,6 +92,8 @@ namespace Harlowe.Runtime
         return;
       }
       if (value.IsError) { _output.Error(value.ErrorMessage); return; }
+      // A bare changer variable can't be displayed — reference errors here too.
+      if (value.Kind == HarloweValueKind.Changer) { _output.Error(UnattachedChangerError(value.AsChanger)); return; }
       _output.Text(value.ToHarloweString());
     }
 
@@ -198,19 +201,30 @@ namespace Harlowe.Runtime
 
       if (result.Kind == HarloweValueKind.Changer)
       {
+        // The pairing gate wants the syntactic front macro name — null for a
+        // stored changer in a variable, whose hides therefore preserve the
+        // pairing (reference gates on the expression's name, never a variable's).
         if (node.AttachedHook != null)
-        {
-          var changer = result.AsChanger;
-          bool shown = changer.Apply(_output, target => RenderHookInto(node.AttachedHook, target), _context);
-          UpdateConditionalPairing(changer, shown);
-        }
+          ApplyChangerHook(result.AsChanger, node.AttachedHook, FrontMacroName(node.Expression));
+        else
+          _output.Error(UnattachedChangerError(result.AsChanger));
         return;
       }
 
-      // Non-Changer: emit the value's text form (matching the existing
-      // VariableNode behaviour), then render the hook contents — preserves
-      // backward compat for stories using `$var[content]` to mean "value
-      // followed by anonymous hook".
+      // Attached booleans hide or show the hook and feed the pairing —
+      // reference section.ts: "Attached false values hide hooks as well. This
+      // is special: as it prevents hooks from being run, an (else:) that
+      // follows this will pass."
+      if (result.Kind == HarloweValueKind.Bool && node.AttachedHook != null)
+      {
+        if (result.AsBool) node.AttachedHook.Accept(this);
+        _context.LastConditional = result.AsBool;
+        return;
+      }
+
+      // Other non-Changer values: emit the value's text form (matching the
+      // existing VariableNode behaviour), then render the hook contents —
+      // reference likewise declines to attach plain data and prints it in place.
       EmitMacroResult(result);
       if (node.AttachedHook != null) node.AttachedHook.Accept(this);
     }
@@ -266,22 +280,30 @@ namespace Harlowe.Runtime
 
       // Changer + attached hook: open / render contents / close. Conditionals
       // ((if:)/(unless:)/(else-if:)/(else:)) are changers too, so show/hide is
-      // just the descriptor's Enabled bit. Without an attached hook the changer
-      // is a pure value — we drop it (storing it in a variable would have
-      // happened during evaluation, not here).
+      // just the descriptor's Enabled bit. Unattached, a changer in prose is an
+      // authoring mistake — reference errors rather than silently dropping it
+      // (storing it in a variable happens during evaluation, never here).
       if (result != null && result.Kind == HarloweValueKind.Changer)
       {
         if (node.AttachedHook != null)
-        {
-          var changer = result.AsChanger;
-          bool shown = changer.Apply(_output, target => RenderHookInto(node.AttachedHook, target), _context);
-          UpdateConditionalPairing(changer, shown);
-        }
+          ApplyChangerHook(result.AsChanger, node.AttachedHook, node.Name);
+        else
+          _output.Error($"The ({node.Name}:) changer should be stored in a variable or attached to a hook.");
         return;
       }
 
-      // Non-changer non-conditional: emit any visible value, then render the
-      // hook (if any) unconditionally.
+      // Attached booleans hide or show the hook and feed the pairing —
+      // reference section.ts hides the hook for an attached false and lets a
+      // following (else:) pass.
+      if (result != null && result.Kind == HarloweValueKind.Bool && node.AttachedHook != null)
+      {
+        if (result.AsBool) node.AttachedHook.Accept(this);
+        _context.LastConditional = result.AsBool;
+        return;
+      }
+
+      // Other values: emit any visible text, then render the hook (if any)
+      // unconditionally.
       if (result != null && !result.IsError)
       {
         EmitMacroResult(result);
@@ -290,27 +312,58 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
+    /// Apply a changer to its attached hook and record the show/hide outcome —
+    /// the shared tail of the <see cref="MacroNode"/> and
+    /// <see cref="ChangerChainNode"/> changer branches.
+    /// <paramref name="macroName"/> is the applying expression's front macro
+    /// name, or null when it has none (a stored changer in a variable).
+    /// </summary>
+    private void ApplyChangerHook(Changer changer, IBodyNode hook, string macroName)
+    {
+      bool shown = changer.Apply(_output, target => RenderHookInto(hook, target), _context);
+      UpdateConditionalPairing(macroName, shown);
+    }
+
+    /// <summary>
     /// Record a changer-attached hook's show/hide outcome on
     /// <see cref="MacroContext.LastConditional"/> — reference <c>section.ts</c>'s
     /// <c>lastHookShown</c> rules: a <em>shown</em> hook sets it true (any
     /// attached expression, not just conditionals); a <em>hidden</em> hook sets
-    /// it false only when the hide came from <c>(if:)</c>/<c>(unless:)</c>/
-    /// <c>(else:)</c> — an <c>(else-if:)</c> hide preserves the prior value
-    /// (reference: "(else-if:) must be special-cased, so that it doesn't affect
-    /// lastHookShown, instead preserving the value of the original (if:)").
-    /// Only a conditional patch can disable a descriptor, so a hidden hook
-    /// always has a conditional kind; the null arm is just defensive.
+    /// it false only when the applying expression's front macro name is
+    /// <c>if</c>/<c>unless</c>/<c>else</c>. Reference gates the false-write on
+    /// its name whitelist with <c>elseif</c> excluded ("(else-if:) must be
+    /// special-cased, so that it doesn't affect lastHookShown, instead
+    /// preserving the value of the original (if:)"), so hides from an
+    /// <c>(else-if:)</c>, from a stored changer in a variable, or from a
+    /// composition fronted by a non-conditional all preserve the prior value.
     /// </summary>
-    private void UpdateConditionalPairing(Changer changer, bool shown)
+    private void UpdateConditionalPairing(string macroName, bool shown)
     {
       if (shown)
       {
         _context.LastConditional = true;
         return;
       }
-      var kind = changer.GetConditionalKind();
-      if (kind == ConditionalKind.If || kind == ConditionalKind.Unless || kind == ConditionalKind.Else)
+      if (macroName == null) return;
+      string name = MacroNames.Normalize(macroName);
+      if (name == "if" || name == "unless" || name == "else")
         _context.LastConditional = false;
+    }
+
+    /// <summary>The front macro name of a changer-chain expression — the leftmost <see cref="Ast.Expression.MacroCallNode"/> of a <c>+</c> chain; null for a variable reference, matching reference's expression-name gate.</summary>
+    private static string FrontMacroName(Ast.Expression.IExpressionNode expr)
+    {
+      while (expr is Ast.Expression.BinaryOpNode b) expr = b.Left;
+      return (expr as Ast.Expression.MacroCallNode)?.Name;
+    }
+
+    /// <summary>The reference error for a changer used bare in prose (<c>section.ts</c>: "The (X:) changer should be stored in a variable or attached to a hook."). The name comes from the changer's creation source; unstamped changers get the generic form.</summary>
+    private static string UnattachedChangerError(Changer changer)
+    {
+      string name = changer.FrontMacroName;
+      return name != null
+        ? $"The ({name}:) changer should be stored in a variable or attached to a hook."
+        : "This changer should be stored in a variable or attached to a hook.";
     }
 
     /// <summary>

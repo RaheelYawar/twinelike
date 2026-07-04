@@ -46,26 +46,23 @@ namespace Harlowe.Runtime
     public override int GetHashCode() => -1;
   }
 
-  /// <summary>Which conditional macro produced a <see cref="ConditionalPatch"/>. Drives the show/hide pairing rules in <see cref="BodyRenderer"/> (an <c>(else-if:)</c> hide preserves the prior pairing; the others record it).</summary>
+  /// <summary>Which conditional macro produced a <see cref="ConditionalPatch"/>. Only distinguishes structural equality — <c>(unless:false)</c> is not <c>(if:true)</c>, matching reference changer equality, which compares <c>macroName</c>. <c>(else:)</c>/<c>(else-if:)</c> bake to <see cref="If"/>-kind patches (<see cref="Changer.FromBakedConditional"/>) so a stored one is structurally identical to its reloaded form.</summary>
   public enum ConditionalKind
   {
     If,
-    Unless,
-    ElseIf,
-    Else
+    Unless
   }
 
   /// <summary>
   /// Patch produced by the conditional changers <c>(if:)</c> / <c>(unless:)</c> /
   /// <c>(else-if:)</c> / <c>(else:)</c>. ANDs its decision into
   /// <see cref="HookDescriptor.Enabled"/>, mirroring reference Harlowe's
-  /// changer-apply functions in <c>ts/macrolib/stylechangers.ts</c> —
-  /// <c>(d, expr) =&gt; {d.enabled &amp;&amp;= expr}</c> for <c>if</c>/
-  /// <c>elseif</c>/<c>else</c> and <c>&amp;&amp;= !expr</c> for <c>unless</c> —
-  /// which is what lets <c>(if: $cond) + (text-style: "bold")</c> compose.
-  /// <see cref="Value"/> is the macro's evaluated boolean argument (for
-  /// <c>(else-if:)</c>/<c>(else:)</c>, the decision baked at call time from
-  /// the pairing state).
+  /// changer-apply functions in <c>ts/macrolib/stylechangers.ts</c>
+  /// (<c>(d, expr) =&gt; {d.enabled &amp;&amp;= expr}</c>) — which is what lets
+  /// <c>(if: $cond) + (text-style: "bold")</c> compose. <see cref="Value"/> is
+  /// the fully-resolved show/hide decision: <c>(unless:)</c> negates its
+  /// argument and <c>(else-if:)</c>/<c>(else:)</c> combine theirs with the
+  /// pairing state before constructing the patch.
   /// </summary>
   public class ConditionalPatch : IChangerPatch
   {
@@ -73,7 +70,7 @@ namespace Harlowe.Runtime
     public bool Value;
 
     public void Apply(HookDescriptor descriptor)
-      => descriptor.Enabled = descriptor.Enabled && (Kind == ConditionalKind.Unless ? !Value : Value);
+      => descriptor.Enabled = descriptor.Enabled && Value;
 
     public override bool Equals(object obj)
       => obj is ConditionalPatch other && Kind == other.Kind && Value == other.Value;

@@ -84,10 +84,12 @@ pairing at *call* time and bake the decision (reference:
 equivalent `(if:)` source so a stored one survives save/load. The `(else:)`
 pairing moved from macro-invoke time to hook-application time
 (`BodyRenderer.UpdateConditionalPairing`, reference `section.ts`'s
-`lastHookShown` rules: shown → true; hidden → false only for
-if/unless/else, an `(else-if:)` hide preserves the prior value) — which also
-fixed a latent bug where a conditional nested in `(set:)` args corrupted the
-pairing. The old trigger `(set: $c to (if: $cond) + (text-style:
+`lastHookShown` rules: shown → true; hidden → false only when the applying
+expression's *front macro name* is if/unless/else — an `(else-if:)` hide, or
+one from a stored changer in a variable, preserves the prior value; attached
+booleans hide/show the hook and always write the pairing; an unattached
+changer in prose errors) — which also fixed a latent bug where a conditional
+nested in `(set:)` args corrupted the pairing. The old trigger `(set: $c to (if: $cond) + (text-style:
 "bold"))$c[content]` now renders bold-iff-condition. See the "Conditional
 changers" tests in `BodyRendererTests`, the composition tests in
 `InteractionMacroTests`, and `ConditionalChanger_*`/`ElseChanger_*` in

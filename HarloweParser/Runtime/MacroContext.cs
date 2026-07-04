@@ -99,12 +99,16 @@ namespace Harlowe.Runtime
     public Func<string, Saving.DeserialiseResult> PrepareLoad;
 
     /// <summary>
-    /// Set by <c>(if:)</c>/<c>(unless:)</c>/<c>(else-if:)</c> after they
-    /// evaluate. Read by <c>(else:)</c>/<c>(else-if:)</c> to decide whether
-    /// their hook should render. Cleared by the body renderer after each
-    /// non-conditional sibling so an else only ever pairs with the immediately
-    /// preceding conditional. (<c>(else-if:)</c> deliberately preserves this
-    /// value when it hides its hook — see <see cref="Macros.ElseIfMacro"/>.)
+    /// The conditional pairing flag — reference's per-frame <c>lastHookShown</c>.
+    /// Written only at hook-application time by
+    /// <see cref="BodyRenderer"/> (never by the conditional macros themselves):
+    /// a shown attached hook — changer or boolean — sets true; a hidden one
+    /// sets false only for attached booleans and expressions whose front macro
+    /// name is <c>if</c>/<c>unless</c>/<c>else</c> (an <c>(else-if:)</c> hide,
+    /// or one from a stored changer in a variable, preserves the prior value).
+    /// Read by <c>(else:)</c>/<c>(else-if:)</c> at call time to bake their
+    /// decision; null when nothing pairable has rendered in the current hook
+    /// scope.
     /// </summary>
     public bool? LastConditional;
 

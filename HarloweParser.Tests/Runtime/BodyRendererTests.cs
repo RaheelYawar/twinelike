@@ -298,12 +298,56 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
-    public void StoredConditional_AttachedViaVariable_HidesAndPairs()
+    public void StoredConditional_AttachedViaVariable_Hides_PreservesPairing()
     {
-      // The ChangerChainNode path participates in pairing too: a stored hidden
-      // conditional records "hidden", so the (else:) shows.
-      var h = Render("(set: $c to (if: false))$c[A](else:)[B]");
-      Assert.Equal("B", h.Buf.Text);
+      // Reference gates the pairing's false-write on the applying expression's
+      // front macro name (section.ts's [`if`,`elseif`,`unless`,`else`] list) —
+      // a hide from a stored changer in a variable preserves the prior value,
+      // so the (else:) still pairs with the shown (if: true) and stays hidden.
+      var h = Render("(if: true)[A](set: $c to (if: false))$c[B](else:)[C]");
+      Assert.Equal(0, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+      Assert.Equal("A", h.Buf.Text);
+
+      // With nothing pairable before it, the variable-attached hide leaves the
+      // pairing unset and the (else:) errors, exactly as reference does.
+      var stray = Render("(set: $c to (if: false))$c[A](else:)[B]");
+      Assert.Equal("", stray.Buf.Text);
+      Assert.Equal(1, CountKind(stray.Buf, BufferedRenderOutput.Kind.Error));
+    }
+
+    [Fact]
+    public void ComposedHide_NonConditionalFront_PreservesPairing()
+    {
+      // (text-style:)+(if:false) hides its hook, but the expression's front
+      // macro isn't a conditional, so the pairing keeps the (if: true) hook's
+      // "shown" and the (else:) stays hidden.
+      var h = Render("(if: true)[A](text-style: \"bold\")+(if: false)[B](else:)[C]");
+      Assert.Equal(0, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+      Assert.Equal("A", h.Buf.Text);
+    }
+
+    [Fact]
+    public void UnattachedConditional_ErrorsInProse()
+    {
+      // Reference: "The (if:) changer should be stored in a variable or
+      // attached to a hook." With no pairing written, the (else:) errors too
+      // rather than pairing with the dropped (if:).
+      var h = Render("(if: false)(else:)[B]");
+      Assert.Equal("", h.Buf.Text);
+      Assert.Equal(2, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+    }
+
+    [Fact]
+    public void AttachedBoolean_HidesHook_AndFeedsPairing()
+    {
+      // Reference section.ts: "Attached false values hide hooks as well...
+      // an (else:) that follows this will pass." The boolean itself prints
+      // nothing when attached.
+      var hidden = Render("(set: $x to false)$x[secret](else:)[shown]");
+      Assert.Equal("shown", hidden.Buf.Text);
+
+      var shownHook = Render("(set: $x to true)$x[content](else:)[other]");
+      Assert.Equal("content", shownHook.Buf.Text);
     }
 
     [Fact]

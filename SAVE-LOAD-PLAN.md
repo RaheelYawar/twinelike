@@ -353,10 +353,12 @@ under `HarloweParser.Tests/Runtime/Saving/` + `MulberryRngTests`.
   `NaN` source.
 - **Changer source-stamp coverage.** Every path that yields a `Changer` value
   must flow through the evaluator chokepoint that stamps `Source` — verify the
-  style (`(text-style:)`/`(align:)`/…), `(for:)`, revision, and interaction
-  families plus `+`-composition all do. (`(if:)`/`(unless:)` are *not* changers
-  here — `IfMacro` returns a Bool + sets `LastConditional` — so they don't
-  apply.) A missed path serialises a changer with an empty source.
+  style (`(text-style:)`/`(align:)`/…), `(for:)`, revision, interaction, and
+  conditional (`(if:)`/`(unless:)` via the chokepoint; `(else:)`/`(else-if:)`
+  self-stamp a baked `(if:)` source in `Changer.FromBakedConditional`, since
+  their natural stamp would error on load re-evaluation) families plus
+  `+`-composition all do. A missed path serialises a changer with an empty
+  source.
 - ~~**PRNG byte-compat.**~~ *Resolved (step 1):* native wrapping `uint` arithmetic
   reproduces JS's 32-bit `Math.imul`/`>>>` semantics, verified bit-for-bit against
   independent reference vectors generated under Node (`MulberryRngTests`; suite

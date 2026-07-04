@@ -292,13 +292,16 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
-    public void ToHarloweString_ChangerReturnsEmpty()
+    public void ToHarloweString_ChangerPrintsReferenceForm()
     {
-      // A changer alone has no visible text — its job is to wrap a hook.
-      // `(print: (text-style: ...))` should emit nothing rather than dump
-      // internal state.
-      var v = HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { Bold = true }));
-      Assert.Equal(string.Empty, v.ToHarloweString());
+      // Reference prints changers as "[A (text-style:) changer]" (changer.ts's
+      // print()); an unstamped changer has no creation source to name.
+      var unstamped = HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { Bold = true }));
+      Assert.Equal("[A changer]", unstamped.ToHarloweString());
+
+      var stamped = Changer.FromStyle(new StyleSpec { Bold = true });
+      stamped.Source = "(text-style:\"bold\")";
+      Assert.Equal("[A (text-style:) changer]", HarloweValue.OfChanger(stamped).ToHarloweString());
     }
   }
 }

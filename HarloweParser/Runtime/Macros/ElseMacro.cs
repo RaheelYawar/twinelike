@@ -12,10 +12,11 @@ namespace Harlowe.Runtime.Macros
   /// check. The pairing itself is updated by the renderer when the changer is
   /// applied to a hook.
   ///
-  /// <para>The changer is pre-stamped with the equivalent <c>(if:)</c> source:
-  /// a stored <c>(else:)</c> changer is just its baked boolean, and the natural
-  /// <c>(else:)</c> stamp would error on save-load re-evaluation (no pairing in
-  /// scope at load time).</para>
+  /// <para>The result is a baked <c>(if:)</c> changer
+  /// (<see cref="Changer.FromBakedConditional"/>): a stored <c>(else:)</c> is
+  /// just its baked boolean, and both the natural <c>(else:)</c> source stamp
+  /// and an Else-kind patch would make the reloaded value differ from the
+  /// stored one.</para>
   /// </summary>
   public class ElseMacro : IMacro
   {
@@ -28,9 +29,7 @@ namespace Harlowe.Runtime.Macros
       if (context.LastConditional == null)
         return HarloweValue.OfError("There's nothing before this to do (else:) with.");
       bool show = context.LastConditional == false;
-      var changer = Changer.FromConditional(ConditionalKind.Else, show);
-      changer.Source = show ? "(if:true)" : "(if:false)";
-      return HarloweValue.OfChanger(changer);
+      return HarloweValue.OfChanger(Changer.FromBakedConditional(show));
     }
   }
 }

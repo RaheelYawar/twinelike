@@ -307,10 +307,12 @@ namespace Harlowe.Runtime
         case HarloweValueKind.Error:
           return (string)Raw;
         case HarloweValueKind.Changer:
-          // A changer alone has no visible text — its effect is to wrap a
-          // hook's content. Returning empty keeps `(print: (text-style: ...))`
-          // and similar interpolations from dumping internal state into prose.
-          return string.Empty;
+        {
+          // Reference prints changers as "[A (if:) changer]" (changer.ts's
+          // print()); unstamped changers have no creation source to name.
+          string front = ((Changer)Raw).FrontMacroName;
+          return front != null ? "[A (" + front + ":) changer]" : "[A changer]";
+        }
         case HarloweValueKind.Lambda:
           return string.Empty;
         case HarloweValueKind.HookName:

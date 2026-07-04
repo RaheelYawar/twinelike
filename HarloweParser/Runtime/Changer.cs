@@ -24,9 +24,9 @@ namespace Harlowe.Runtime
   /// <see cref="HtmlRenderOutput"/> for the HTML mapping.</para>
   ///
   /// <para>Changers stay opaque values — they don't render visibly on their
-  /// own. <see cref="HarloweValue.ToHarloweString"/> returns an empty string
-  /// for them, so <c>(print: (text-style: "bold"))</c> emits nothing rather
-  /// than dumping internal state.</para>
+  /// own. <see cref="HarloweValue.ToHarloweString"/> prints them as
+  /// <c>[A (text-style:) changer]</c>, mirroring reference's
+  /// <c>print()</c> in <c>ts/datatypes/changer.ts</c>.</para>
   /// </summary>
   public class Changer
   {
@@ -97,16 +97,36 @@ namespace Harlowe.Runtime
       => new Changer(new List<IChangerPatch> { new ConditionalPatch { Kind = kind, Value = value } });
 
     /// <summary>
-    /// The kind of the first <see cref="ConditionalPatch"/> in this changer, or
-    /// null when it carries none. The renderer uses it for the show/hide pairing
-    /// rules — reference keys the same decision off the expression's macro name
-    /// (the <c>[`if`, `elseif`, `unless`, `else`]</c> list in <c>ts/section.ts</c>).
+    /// Construct the changer <c>(else:)</c>/<c>(else-if:)</c> return: their
+    /// decision is baked from the pairing state at call time, so the result is
+    /// an <see cref="ConditionalKind.If"/>-kind patch pre-stamped with the
+    /// equivalent <c>(if:)</c> source. Baking the kind too keeps the stored
+    /// changer structurally identical to what a save/load re-evaluates it into
+    /// (a natural <c>(else:)</c> stamp would error on load, where no pairing is
+    /// in scope — reference's <c>toSource()</c> emits a bare <c>(else:)</c> and
+    /// has that exact problem).
     /// </summary>
-    public ConditionalKind? GetConditionalKind()
+    public static Changer FromBakedConditional(bool show)
     {
-      for (int i = 0; i < _patches.Count; i++)
-        if (_patches[i] is ConditionalPatch c) return c.Kind;
-      return null;
+      var changer = FromConditional(ConditionalKind.If, show);
+      changer.Source = show ? "(if:true)" : "(if:false)";
+      return changer;
+    }
+
+    /// <summary>
+    /// The macro name at the front of <see cref="Source"/> — "if" for
+    /// <c>(if:true)+(text-style:"bold")</c> — or null when unstamped. The
+    /// analogue of reference's <c>macroName</c> (the head of a composed chain):
+    /// used by the unattached-changer error and the printed form.
+    /// </summary>
+    public string FrontMacroName
+    {
+      get
+      {
+        if (Source == null || Source.Length < 3 || Source[0] != '(') return null;
+        int colon = Source.IndexOf(':');
+        return colon > 1 ? Source.Substring(1, colon - 1) : null;
+      }
     }
 
     /// <summary>
@@ -169,8 +189,7 @@ namespace Harlowe.Runtime
     /// </summary>
     public bool Apply(IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx = null)
     {
-      var descriptor = new HookDescriptor();
-      for (int i = 0; i < _patches.Count; i++) _patches[i].Apply(descriptor);
+      var descriptor = BuildDescriptor();
 
       // A conditional in the composition disabled the hook: render nothing,
       // register nothing — (if: false) + (click: ?a) must not arm a click.
@@ -403,12 +422,19 @@ namespace Harlowe.Runtime
       RenderNodes.ReplaceChild(root, target, wrapped);
     }
 
-    /// <summary>Build the descriptor and return its style layers — the shared front of <see cref="ApplyTo"/> / <see cref="ApplyToNode"/>. Empty when a composed conditional disabled the descriptor, so <c>(change: ?x, (if: false) + (colour: red))</c> applies nothing.</summary>
-    private List<StyleSpec> BuildStyles()
+    /// <summary>Run every patch against a fresh descriptor — the single place the patch list is folded, shared by <see cref="Apply"/> and <see cref="BuildStyles"/>.</summary>
+    private HookDescriptor BuildDescriptor()
     {
       var descriptor = new HookDescriptor();
       for (int i = 0; i < _patches.Count; i++) _patches[i].Apply(descriptor);
-      if (!descriptor.Enabled) return new List<StyleSpec>();
+      return descriptor;
+    }
+
+    /// <summary>Build the descriptor and return its style layers — the shared front of <see cref="ApplyTo"/> / <see cref="ApplyToNode"/>. Empty when a composed conditional disabled the descriptor, so <c>(change: ?x, (if: false) + (colour: red))</c> applies nothing.</summary>
+    private List<StyleSpec> BuildStyles()
+    {
+      var descriptor = BuildDescriptor();
+      if (!descriptor.Enabled) descriptor.Styles.Clear();
       return descriptor.Styles;
     }
 

@@ -18,15 +18,15 @@ namespace Harlowe.Runtime.Macros
   /// need explicit aliases since they don't differ only by dashes.</para>
   ///
   /// <para><b>The hide-preserves-state special case</b> lives in the renderer's
-  /// pairing update: when an <see cref="ConditionalKind.ElseIf"/> changer hides
-  /// its hook, the pairing keeps the value the original <c>(if:)</c> left there,
-  /// so an <c>(if:)…(else-if:)…(else:)</c> ladder behaves as one chain. Mirrors
-  /// reference's <c>section.ts</c> ("(else-if:) must be special-cased, so that
-  /// it doesn't affect lastHookShown, instead preserving the value of the
-  /// original (if:)").</para>
+  /// pairing update: when the expression applying a hidden hook is an
+  /// <c>(else-if:)</c>, the pairing keeps the value the original <c>(if:)</c>
+  /// left there, so an <c>(if:)…(else-if:)…(else:)</c> ladder behaves as one
+  /// chain. Mirrors reference's <c>section.ts</c> ("(else-if:) must be
+  /// special-cased, so that it doesn't affect lastHookShown, instead preserving
+  /// the value of the original (if:)").</para>
   ///
-  /// <para>Pre-stamped with the equivalent <c>(if:)</c> source for save/load —
-  /// see <see cref="ElseMacro"/>.</para>
+  /// <para>Returns a baked <c>(if:)</c> changer — see <see cref="ElseMacro"/>
+  /// and <see cref="Changer.FromBakedConditional"/>.</para>
   /// </summary>
   public class ElseIfMacro : IMacro
   {
@@ -51,9 +51,7 @@ namespace Harlowe.Runtime.Macros
         return HarloweValue.OfError($"(else-if:) requires a Boolean, got {v.Kind}");
 
       bool show = context.LastConditional == false && v.AsBool;
-      var changer = Changer.FromConditional(ConditionalKind.ElseIf, show);
-      changer.Source = show ? "(if:true)" : "(if:false)";
-      return HarloweValue.OfChanger(changer);
+      return HarloweValue.OfChanger(Changer.FromBakedConditional(show));
     }
   }
 }
