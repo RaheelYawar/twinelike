@@ -732,7 +732,7 @@ namespace Harlowe.Runtime
       // mutations without double-wrapping. Interactions first so enchantment
       // restylings layer outside the interactive wraps, matching prior nesting.
       InteractionPass.Update(builder.Root, ctx.Interactions, ctx.ClickHandlers);
-      EnchantmentPass.Update(builder.Root, ctx.Enchantments);
+      EnchantmentPass.Update(builder.Root, ctx.Enchantments, ctx);
 
       // Remember the live tree + context for DispatchEvent.
       _liveRoot = builder.Root;
@@ -803,14 +803,15 @@ namespace Harlowe.Runtime
       // then enchantments re-layer.
       //
       // Ordering invariant: both passes run BEFORE the PendingGoto check below.
-      // Safe because neither takes a MacroContext — InteractionPass.Update and
-      // EnchantmentPass.Update both operate on (root, …) only, with no surface
-      // through which they could mutate the click's queued navigation. If a
-      // future refactor threads MacroContext into either, this ordering would
-      // let pass-time macro execution clobber the click's goto;
+      // The enchant pass takes the context (its via-lambdas need the store and
+      // invoker) but sandboxes every lambda evaluation with a side-effect guard
+      // that rolls back navigation, the registration lists, and RNG position, so
+      // pass-time macro execution cannot clobber the click's queued navigation
+      // (nor grow the enchant list or desync the RNG);
       // EnchantmentPassCannotMutatePendingGoto in the test suite guards that.
+      // InteractionPass takes no context at all.
       InteractionPass.Update(_liveRoot, _liveContext.Interactions, _liveContext.ClickHandlers);
-      EnchantmentPass.Update(_liveRoot, _liveContext.Enchantments);
+      EnchantmentPass.Update(_liveRoot, _liveContext.Enchantments, _liveContext);
 
       // A (load-game:) inside the deferred hook installs its timeline now and
       // renders the loaded passage — the dispatch-time analogue of the staged-

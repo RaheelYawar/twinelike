@@ -142,11 +142,22 @@ namespace Harlowe.Runtime.Rendering
     /// <summary>Where the name was anchored in source.</summary>
     public HookAnchor Anchor;
 
+    /// <summary>
+    /// The enchantment whose string target created this wrap
+    /// (<see cref="TextOccurrenceFinder"/> occurrence for a persistent
+    /// <c>(enchant: "text", …)</c>), or <c>null</c> for authored hooks and
+    /// one-shot wraps (revision macros, <c>(change:)</c>).
+    /// <see cref="EnchantmentPass.Disenchant"/> unwraps tagged wraps back to
+    /// plain prose before each pass re-matches — the same discipline as
+    /// <see cref="RenderStyleNode.SourceEnchantment"/>.
+    /// </summary>
+    public Enchantment SourceEnchantment;
+
     public List<RenderNode> Children { get; } = new List<RenderNode>();
 
     public override RenderNode Clone()
     {
-      var copy = new RenderHookNode { Name = Name, Anchor = Anchor };
+      var copy = new RenderHookNode { Name = Name, Anchor = Anchor, SourceEnchantment = SourceEnchantment };
       RenderNodes.CloneInto(Children, copy.Children);
       return copy;
     }

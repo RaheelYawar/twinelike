@@ -11,7 +11,7 @@ for the save-model slice (which lands `(history:)` semantics).
 
 ## Counts
 
-- **High severity (2 active, 3 fixed)**: silent wrong result or breaks documented Harlowe idioms.
+- **High severity (1 active, 4 fixed)**: silent wrong result or breaks documented Harlowe idioms.
 - **Medium severity (4 active, 6 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
 - **Low severity (1 active, 1 fixed)**: documented as deliberate or marginal.
 
@@ -95,7 +95,26 @@ changers" tests in `BodyRendererTests`, the composition tests in
 `InteractionMacroTests`, and `ConditionalChanger_*`/`ElseChanger_*` in
 `SaveSerializerTests`.
 
-### 4. `(change:)` / `(enchant:)` reject string targets and `via`-lambdas
+### 4. `(change:)` / `(enchant:)` reject string targets and `via`-lambdas — ✅ FIXED (2026-07-04)
+
+**Resolved.** Both macros now match reference's signature
+`[either(HookSet, String), either(Changer, Lambda.TypeSignature('via'))]`
+(`ts/macrolib/enchantments.ts`). A string target's occurrences are wrapped as
+addressable hooks per pass (reusing `TextOccurrenceFinder` from string-target
+revision); persistent wraps carry `RenderHookNode.SourceEnchantment` so the
+disenchant sweep unwinds them before re-matching — the pass stays idempotent
+across dispatches. A `via` lambda is evaluated per match with `pos` bound
+1-based and must produce an enchantable changer; a failure replaces that match
+with the in-prose error and ignores the rest of the scope (reference's
+`enchantScope` in `ts/internaltypes/enchantment.ts`). Completely empty hooks
+are skipped and don't advance `pos` (reference's `:empty` check). Also landed
+reference's `notRevisionChanger` gate: a changer carrying a revision or
+interaction patch — `(replace:)`, `(click:)`, … — now errors instead of
+silently dropping the patch (`Changer.CanEnchant`). Lambda evaluation restores
+`PendingGoto`/`PendingLoad`, so a `(goto:)` reached inside a via-lambda can't
+clobber a dispatch's queued navigation. See `EnchantmentMacroSupport`,
+`EnchantmentPass.Apply`, and the string-target / via-lambda / error tests in
+`EnchantMacroTests`. Original finding below.
 
 - **Ours**: `EnchantmentMacroSupport.Validate` requires first arg `HookName`
   and second arg `Changer`. Rejects string targets and rejects `Lambda`
@@ -446,10 +465,11 @@ architecture.
 
 **Blocked on deferred slices**:
 
-- `(change:)`/`(enchant:)` string targets + via-lambda (#4) — string-target
-  enchantment is on the candidate-next-slices list ("String-target
-  click/hover") and naturally extends to here.
-- `(click:)` family expansion (#5) — same parent slice as #4. The
+- ~~`(change:)`/`(enchant:)` string targets + via-lambda (#4).~~ ✅ done —
+  landed directly, no parent slice needed: string-target resolution reuses
+  `TextOccurrenceFinder` inside the (idempotent) enchant pass.
+- `(click:)` family expansion (#5) — can now reuse #4's machinery (tagged
+  string-occurrence wraps re-resolved by a persistent pass). The
   `(click-rerun:)` macro is also part of this.
 
 ---

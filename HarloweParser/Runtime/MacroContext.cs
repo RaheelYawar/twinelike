@@ -190,5 +190,66 @@ namespace Harlowe.Runtime
 
     /// <summary>Pull and consume the next unique region id for an interactive wrap. Format <c>"r-N"</c>.</summary>
     public string AllocateRegionId() => "r-" + NextRegionIndex++;
+
+    /// <summary>
+    /// Snapshot the session-owned mutable state that a pass-time expression
+    /// evaluation must not leak — pending navigation
+    /// (<see cref="PendingGoto"/>/<see cref="PendingLoad"/>), the persistent
+    /// <see cref="Enchantments"/>/<see cref="Interactions"/> registration lists,
+    /// and the <see cref="Rng"/> stream position — and restore it on dispose.
+    /// Used to sandbox <c>via</c>-lambda evaluation inside
+    /// <see cref="EnchantmentPass"/>: a lambda's only job is to produce a
+    /// changer, but our evaluator runs command macros in expression position
+    /// (a documented divergence), so a clause reaching a <c>(goto:)</c>,
+    /// <c>(enchant:)</c>, or <c>(random:)</c> would otherwise clobber a queued
+    /// navigation, grow the very list the pass is iterating, or desync the
+    /// reproducible RNG the save model records. The variable store is
+    /// deliberately not snapshotted — a per-match deep copy would be a hot-path
+    /// cost, and a <c>(set:)</c> reached this way already surfaces as a "not a
+    /// changer" error.
+    /// </summary>
+    public IDisposable PushSideEffectGuard() => new SideEffectGuard(this);
+
+    private sealed class SideEffectGuard : IDisposable
+    {
+      private readonly MacroContext _ctx;
+      private readonly string _pendingGoto;
+      private readonly Saving.DeserialiseResult _pendingLoad;
+      private readonly int _enchantments;
+      private readonly int _interactions;
+      private readonly bool _hasRng;
+      private readonly string _seed;
+      private readonly int _seedIter;
+
+      public SideEffectGuard(MacroContext ctx)
+      {
+        _ctx = ctx;
+        _pendingGoto = ctx.PendingGoto;
+        _pendingLoad = ctx.PendingLoad;
+        _enchantments = ctx.Enchantments?.Count ?? 0;
+        _interactions = ctx.Interactions?.Count ?? 0;
+        _hasRng = ctx.Rng != null;
+        _seed = _hasRng ? ctx.Rng.Seed : null;
+        _seedIter = _hasRng ? ctx.Rng.SeedIter : 0;
+      }
+
+      public void Dispose()
+      {
+        _ctx.PendingGoto = _pendingGoto;
+        _ctx.PendingLoad = _pendingLoad;
+        Truncate(_ctx.Enchantments, _enchantments);
+        Truncate(_ctx.Interactions, _interactions);
+        // Restore the stream position only when a draw actually advanced it —
+        // SetSeed re-derives the generator state in O(1) from (seed, iter).
+        if (_hasRng && _ctx.Rng != null
+            && (_ctx.Rng.Seed != _seed || _ctx.Rng.SeedIter != _seedIter))
+          _ctx.Rng.SetSeed(_seed, _seedIter);
+      }
+
+      private static void Truncate<T>(List<T> list, int count)
+      {
+        if (list != null && list.Count > count) list.RemoveRange(count, list.Count - count);
+      }
+    }
   }
 }

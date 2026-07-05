@@ -130,6 +130,25 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
+    /// Whether this changer may be given to <c>(change:)</c>/<c>(enchant:)</c>:
+    /// false when any patch is a revision or interaction — those describe how to
+    /// <em>produce</em> content, which makes no sense against already-rendered
+    /// targets. The analogue of reference Harlowe's <c>canEnchant</c> flag on
+    /// <c>ts/datatypes/changer.ts</c> (set false for the revision/interaction/link
+    /// macros, ANDed on compose — our derived form ANDs for free because
+    /// <see cref="Compose"/> concatenates patch lists).
+    /// </summary>
+    public bool CanEnchant
+    {
+      get
+      {
+        for (int i = 0; i < _patches.Count; i++)
+          if (_patches[i] is RevisionPatch || _patches[i] is InteractionPatch) return false;
+        return true;
+      }
+    }
+
+    /// <summary>
     /// Construct a changer from a fixed sequence of patches. Used by macros
     /// that need to express more than one patch in a single produced changer —
     /// e.g. <c>(text-style: "none", "bold")</c> emits a

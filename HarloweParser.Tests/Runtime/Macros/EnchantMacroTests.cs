@@ -16,21 +16,39 @@ namespace Harlowe.Tests.Runtime.Macros
   public class EnchantMacroTests
   {
     private static BufferedRenderOutput Render(string source, out RenderRoot root)
+      => Render(source, out root, out _);
+
+    private static BufferedRenderOutput Render(string source, out RenderRoot root, out MacroContext ctx)
     {
       var registry = new MacroRegistry();
       StandardMacros.RegisterAll(registry);
-      var ctx = new MacroContext { Store = new HarloweVariableStore(), Invoker = registry };
+      ctx = new MacroContext { Store = new HarloweVariableStore(), Invoker = registry };
       registry.Context = ctx;
 
       var ast = new HarloweBodyParser().Parse(new HarloweTokenizer().Tokenize(source));
       var builder = new RenderTreeBuilder();
       new BodyRenderer(builder, registry, ctx).Render(ast);
-      EnchantmentPass.Update(builder.Root, ctx.Enchantments);
+      EnchantmentPass.Update(builder.Root, ctx.Enchantments, ctx);
       root = builder.Root;
 
       var buf = new BufferedRenderOutput();
       RenderTreeFlusher.Flush(builder.Root, buf);
       return buf;
+    }
+
+    private static BufferedRenderOutput Flush(RenderRoot root)
+    {
+      var buf = new BufferedRenderOutput();
+      RenderTreeFlusher.Flush(root, buf);
+      return buf;
+    }
+
+    private static System.Collections.Generic.List<StyleSpec> PushedStyles(BufferedRenderOutput buf)
+    {
+      var styles = new System.Collections.Generic.List<StyleSpec>();
+      foreach (var e in buf.Entries)
+        if (e.Kind == BufferedRenderOutput.Kind.PushStyle) styles.Add(e.Style);
+      return styles;
     }
 
     private static string Styled(BufferedRenderOutput buf)
@@ -127,14 +145,135 @@ namespace Harlowe.Tests.Runtime.Macros
       Assert.Equal("beforeafter", buf.Text);
     }
 
+    // --- String targets ---
+
+    [Fact]
+    public void Change_StringTarget_StylesOccurrences()
+      => Assert.Equal("<b>gold</> here and <b>gold</>",
+        Styled(Render("gold here and gold(change: \"gold\", (text-style: \"bold\"))", out _)));
+
+    [Fact]
+    public void Change_StringTarget_DoesNotCatchLaterText()
+      => Assert.Equal("gold", Styled(Render("(change: \"gold\", (text-style: \"bold\"))gold", out _)));
+
+    [Fact]
+    public void Enchant_StringTarget_CatchesTextDeclaredAfter()
+      => Assert.Equal("buy <b>gold</>",
+        Styled(Render("(enchant: \"gold\", (text-style: \"bold\"))buy gold", out _)));
+
+    [Fact]
+    public void Enchant_StringTarget_IdempotentAcrossPasses()
+    {
+      var buf = Render("(enchant: \"o\", (text-style: \"bold\"))look", out var root, out var ctx);
+      Assert.Equal("l<b>o</><b>o</>k", Styled(buf));
+
+      // A dispatch re-runs the pass; the disenchant sweep must unwind the
+      // previous pass's occurrence wraps too, or wraps nest one level per run.
+      EnchantmentPass.Update(root, ctx.Enchantments, ctx);
+      EnchantmentPass.Update(root, ctx.Enchantments, ctx);
+      Assert.Equal("l<b>o</><b>o</>k", Styled(Flush(root)));
+    }
+
+    // --- via lambdas ---
+
+    [Fact]
+    public void Change_ViaLambda_AppliesPerMatch()
+      => Assert.Equal("<b>1</><b>2</>",
+        Styled(Render("|a>[1]|a>[2](change: ?a, via (text-style: \"bold\"))", out _)));
+
+    [Fact]
+    public void Change_ViaLambda_PosDistinguishesMatches()
+    {
+      var styles = PushedStyles(Render("|a>[1]|a>[2](change: ?a, via (opacity: pos * 0.25))", out _));
+      Assert.Equal(2, styles.Count);
+      Assert.Equal(0.25, styles[0].Opacity);
+      Assert.Equal(0.5, styles[1].Opacity);
+    }
+
+    [Fact]
+    public void Enchant_ViaLambda_OnStringTarget_PosCountsOccurrences()
+    {
+      var styles = PushedStyles(Render("(enchant: \"o\", via (opacity: pos * 0.25))oo", out _));
+      Assert.Equal(2, styles.Count);
+      Assert.Equal(0.25, styles[0].Opacity);
+      Assert.Equal(0.5, styles[1].Opacity);
+    }
+
+    [Fact]
+    public void Change_ViaLambda_NonChangerResult_ReplacesMatchWithError()
+    {
+      var buf = Render("|a>[x](change: ?a, via 5)", out _);
+      var error = Assert.Single(buf.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error);
+      Assert.Contains("must return a changer", error.Content);
+      Assert.DoesNotContain("x", buf.Text);
+    }
+
+    [Fact]
+    public void Change_ViaLambda_ErrorStopsRemainingMatches()
+    {
+      // Reference replaces the first failing match with the error and ignores
+      // the rest of the scope — the second hook survives, unstyled.
+      var buf = Render("|a>[1]|a>[2](change: ?a, via 5)", out _);
+      Assert.Single(buf.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error);
+      Assert.DoesNotContain("1", buf.Text);
+      Assert.Contains("2", buf.Text);
+      Assert.Empty(PushedStyles(buf));
+    }
+
+    // --- Empty hooks (reference's `:empty` skip) ---
+
+    [Fact]
+    public void Enchant_EmptyHook_NotEnchanted()
+      => Assert.Empty(PushedStyles(Render("|a>[](enchant: ?a, (text-style: \"bold\"))", out _)));
+
+    [Fact]
+    public void Change_ViaLambda_EmptyHookDoesNotAdvancePos()
+    {
+      var styles = PushedStyles(Render("|a>[]|a>[x](change: ?a, via (opacity: pos * 0.25))", out _));
+      var style = Assert.Single(styles);
+      Assert.Equal(0.25, style.Opacity);
+    }
+
     // --- Errors ---
 
     [Fact]
-    public void Change_NonHookNameTarget_EmitsError()
+    public void Change_NumberTarget_EmitsError()
     {
-      var buf = Render("|m>[x](change: \"m\", (text-style: \"bold\"))", out _);
+      var buf = Render("|m>[x](change: 5, (text-style: \"bold\"))", out _);
       var error = Assert.Single(buf.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error);
-      Assert.Contains("hook name", error.Content);
+      Assert.Contains("hook name or string", error.Content);
+    }
+
+    [Fact]
+    public void Change_RevisionChangerSecondArg_EmitsError()
+    {
+      var buf = Render("|a>[x](change: ?a, (replace: ?b))", out _);
+      var error = Assert.Single(buf.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error);
+      Assert.Contains("can't include a revision", error.Content);
+    }
+
+    [Fact]
+    public void Enchant_InteractionChangerSecondArg_EmitsError()
+    {
+      var buf = Render("|a>[x](enchant: ?a, (click: ?b))", out _);
+      var error = Assert.Single(buf.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error);
+      Assert.Contains("can't include a revision, enchantment, or interaction changer", error.Content);
+    }
+
+    [Fact]
+    public void Enchant_ComposedInteractionChanger_EmitsError()
+    {
+      var buf = Render("|a>[x](enchant: ?a, (text-style: \"bold\") + (click: ?b))", out _);
+      Assert.Single(buf.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error);
+      Assert.Empty(PushedStyles(buf));
+    }
+
+    [Fact]
+    public void Enchant_WhereLambdaSecondArg_EmitsError()
+    {
+      var buf = Render("|a>[x](enchant: ?a, _x where _x > 0)", out _);
+      var error = Assert.Single(buf.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error);
+      Assert.Contains("'via' lambda", error.Content);
     }
 
     [Fact]
@@ -181,31 +320,63 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
-    public void EnchantmentPassCannotMutatePendingGoto_StructuralGuard()
+    public void EnchantmentPassCannotMutatePendingGoto()
     {
       // StorySession.DispatchEvent runs EnchantmentPass.Update BEFORE checking
-      // the deferred hook's PendingGoto. That ordering is only safe because
-      // EnchantmentPass.Update has no path to mutate MacroContext.PendingGoto:
-      //
-      //   - EnchantmentPass.Update(root, enchantments) takes no MacroContext.
-      //   - Changer.ApplyTo(container, source) — the enchant-path apply — also
-      //     takes no MacroContext (only Changer.Apply, used by the *render*
-      //     path, does).
-      //
-      // If a future refactor threads MacroContext into either signature, a
-      // changer running inside the enchant pass could clobber the click's
-      // queued (goto:) and the dispatch path would silently navigate to the
-      // wrong target. Pin both signatures here so that regression vector
-      // surfaces as a failing test instead of as a runtime bug.
-      var updateMethod = typeof(EnchantmentPass).GetMethod(nameof(EnchantmentPass.Update));
-      Assert.NotNull(updateMethod);
-      foreach (var p in updateMethod.GetParameters())
-        Assert.NotEqual(typeof(MacroContext), p.ParameterType);
+      // the deferred hook's PendingGoto, so pass-time evaluation must never
+      // clobber a queued navigation. Since via-lambdas run macros through the
+      // context's invoker, a (goto:) reached inside one *does* stage a
+      // navigation — the pass must revert it (a lambda's job is to produce a
+      // changer; reference never navigates there because its commands don't
+      // run in expression position at all).
+      var registry = new MacroRegistry();
+      StandardMacros.RegisterAll(registry);
+      var ctx = new MacroContext { Store = new HarloweVariableStore(), Invoker = registry };
+      registry.Context = ctx;
 
-      var applyToMethod = typeof(Changer).GetMethod(nameof(Changer.ApplyTo));
-      Assert.NotNull(applyToMethod);
-      foreach (var p in applyToMethod.GetParameters())
-        Assert.NotEqual(typeof(MacroContext), p.ParameterType);
+      var ast = new HarloweBodyParser().Parse(new HarloweTokenizer().Tokenize(
+        "|m>[x](enchant: ?m, via (goto: \"Elsewhere\"))"));
+      var builder = new RenderTreeBuilder();
+      new BodyRenderer(builder, registry, ctx).Render(ast);
+
+      ctx.PendingGoto = "Queued"; // the click-deferred hook's navigation
+      EnchantmentPass.Update(builder.Root, ctx.Enchantments, ctx);
+      Assert.Equal("Queued", ctx.PendingGoto);
+
+      // The lambda still failed loudly — (goto:) doesn't produce a changer.
+      var buf = Flush(builder.Root);
+      var error = Assert.Single(buf.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error);
+      Assert.Contains("must return a changer", error.Content);
+    }
+
+    [Fact]
+    public void EnchantmentPass_ViaLambda_DoesNotGrowRegistrationList()
+    {
+      // A via-lambda's job is to produce a changer, but our evaluator runs
+      // command macros in expression position, so an inner (enchant:) registers
+      // against the very list the pass is iterating. Without the side-effect
+      // guard that registration leaks and re-appends every pass, so the list
+      // grows unboundedly across dispatches. The guard rolls it back.
+      var buf = Render("|a>[x]|b>[y](enchant: ?a, via (enchant: ?b, (text-style: \"bold\")))",
+        out var root, out var ctx);
+      Assert.Single(ctx.Enchantments);
+
+      EnchantmentPass.Update(root, ctx.Enchantments, ctx);
+      EnchantmentPass.Update(root, ctx.Enchantments, ctx);
+      Assert.Single(ctx.Enchantments);
+    }
+
+    [Fact]
+    public void EnchantmentPass_ViaLambda_DoesNotAdvanceRng()
+    {
+      // A pass-time (random:) draw would desync the reproducible RNG the save
+      // model records off SeedIter. The guard rolls the draw back, so the pass
+      // leaves no net advance even though the lambda ran (and failed).
+      var buf = Render("|a>[x](enchant: ?a, via (random: 1, 6))", out var root, out var ctx);
+      Assert.Equal(0, ctx.Rng.SeedIter);
+
+      EnchantmentPass.Update(root, ctx.Enchantments, ctx);
+      Assert.Equal(0, ctx.Rng.SeedIter);
     }
   }
 }
