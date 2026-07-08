@@ -159,15 +159,30 @@ namespace Harlowe.Runtime.Rendering
     /// <c>(click: "text", …)</c>-family interaction), or <c>null</c> for
     /// authored hooks and enchantment wraps. <see cref="InteractionPass.StripWraps"/>
     /// unwraps tagged wraps back to plain prose before each pass re-matches —
-    /// the interaction mirror of <see cref="SourceEnchantment"/>.
+    /// the interaction mirror of <see cref="SourceEnchantment"/>. Also how the
+    /// dispatch finds a combo's string-occurrence splice targets.
     /// </summary>
     public string SourceRegionId;
+
+    /// <summary>
+    /// Set when this node is the <em>reveal anchor</em> a plain
+    /// <c>(click:)</c>-family macro planted at its own position: the region id
+    /// whose dispatch fills this node with the deferred hook's render.
+    /// <see cref="RenderNode.Clone"/> copies it, and the dispatch resolves the
+    /// anchor by <em>searching the live tree for this tag</em> rather than by
+    /// node reference — so an anchor that reaches the tree as a clone (its
+    /// macro ran inside a revision-deferred render that was spliced) still
+    /// receives its reveal. Deliberately distinct from
+    /// <see cref="SourceRegionId"/>: anchors are permanent structure and must
+    /// survive <see cref="InteractionPass.StripWraps"/>.
+    /// </summary>
+    public string RevealRegionId;
 
     public List<RenderNode> Children { get; } = new List<RenderNode>();
 
     public override RenderNode Clone()
     {
-      var copy = new RenderHookNode { Name = Name, Anchor = Anchor, SourceEnchantment = SourceEnchantment, SourceRegionId = SourceRegionId };
+      var copy = new RenderHookNode { Name = Name, Anchor = Anchor, SourceEnchantment = SourceEnchantment, SourceRegionId = SourceRegionId, RevealRegionId = RevealRegionId };
       RenderNodes.CloneInto(Children, copy.Children);
       return copy;
     }
@@ -283,6 +298,26 @@ namespace Harlowe.Runtime.Rendering
       }
       children.Clear();
       children.AddRange(rebuilt);
+    }
+
+    /// <summary>
+    /// Depth-first sweep collecting every descendant of
+    /// <paramref name="container"/> (document order) for which
+    /// <paramref name="match"/> returns true. How the dispatch resolves nodes
+    /// by tag — reveal anchors by <see cref="RenderHookNode.RevealRegionId"/>,
+    /// string-occurrence wraps by <see cref="RenderHookNode.SourceRegionId"/> —
+    /// where a held node reference would go stale the moment a splice clones
+    /// the subtree.
+    /// </summary>
+    public static void CollectWhere(IRenderContainer container, Func<RenderNode, bool> match, List<RenderNode> results)
+    {
+      if (container == null || results == null) return;
+      var children = container.Children;
+      for (int i = 0; i < children.Count; i++)
+      {
+        if (match(children[i])) results.Add(children[i]);
+        if (children[i] is IRenderContainer c) CollectWhere(c, match, results);
+      }
     }
 
     /// <summary>

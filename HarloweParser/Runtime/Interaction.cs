@@ -27,8 +27,9 @@ namespace Harlowe.Runtime
 
     /// <summary>
     /// Combo splice mode (<c>(click-replace:)</c> etc.), or <c>null</c> for the
-    /// plain macros, whose deferred hook reveals at <see cref="RevealAnchor"/>
-    /// instead of rewriting the target.
+    /// plain macros, whose deferred hook reveals at the macro's own position —
+    /// the anchor node tagged <see cref="RenderHookNode.RevealRegionId"/> that
+    /// <see cref="Changer"/> planted when the changer applied.
     /// </summary>
     public RevisionMode? Mode;
 
@@ -56,14 +57,6 @@ namespace Harlowe.Runtime
 
     /// <summary>Renders the deferred hook into a given output on dispatch.</summary>
     public Action<IRenderOutput> RenderDeferredHook;
-
-    /// <summary>
-    /// The empty anonymous hook planted at the macro's own position when the
-    /// changer applied — where a plain (non-combo) interaction's deferred hook
-    /// renders on dispatch, mirroring reference's hidden attached-hook element.
-    /// Null for combos, and when the changer applied outside a tree builder.
-    /// </summary>
-    public RenderHookNode RevealAnchor;
 
     /// <summary>
     /// Region id, allocated once when the interaction is recorded and kept
@@ -114,7 +107,6 @@ namespace Harlowe.Runtime
         if (interaction == null) continue;
 
         IReadOnlyList<RenderNode> targets;
-        List<IRenderContainer> stringWraps = null;
         if (interaction.Target != null)
         {
           targets = HookResolver.Resolve(root, interaction.Target);
@@ -122,15 +114,14 @@ namespace Harlowe.Runtime
         else if (interaction.StringTarget != null)
         {
           // Wrap each occurrence fresh (StripWraps unwound the previous
-          // pass's), tagged with the region id so the next strip finds them.
+          // pass's), tagged with the region id so the next strip finds them —
+          // and so the dispatch can resolve a combo's splice targets by tag.
           var wraps = TextOccurrenceFinder.FindAndWrap(root, interaction.StringTarget);
           var list = new List<RenderNode>(wraps.Count);
-          stringWraps = new List<IRenderContainer>(wraps.Count);
           for (int j = 0; j < wraps.Count; j++)
           {
             wraps[j].SourceRegionId = interaction.RegionId;
             list.Add(wraps[j]);
-            stringWraps.Add(wraps[j]);
           }
           targets = list;
         }
@@ -214,12 +205,10 @@ namespace Harlowe.Runtime
           {
             RenderDeferredHook = interaction.RenderDeferredHook,
             Target = interaction.Target,
-            StringWraps = stringWraps,
             Mode = interaction.Mode,
             Once = interaction.Once,
             Kind = interaction.Kind,
-            Styles = interaction.Styles,
-            RevealAnchor = interaction.RevealAnchor
+            Styles = interaction.Styles
           };
         }
       }

@@ -807,34 +807,49 @@ namespace Harlowe.Runtime
       {
         // Combo: splice the source into every target. A hook-name query is
         // re-resolved fresh, matching Harlowe's "?name is a query" rule; a
-        // string target reuses the occurrence wraps the last pass produced
-        // (nothing mutated the tree since). The consumed region's leftover
-        // wrap is harmless: the interaction pass strips all wraps next.
+        // string target's occurrence wraps are found by their region-id tag —
+        // a wrap that left the tree (e.g. replaced by a via-lambda error) is
+        // simply not found, and one that arrived as a clone still is. The
+        // consumed region's leftover wrap is harmless: the interaction pass
+        // strips all wraps next.
+        IReadOnlyList<Rendering.RenderNode> targets;
         if (handler.Target != null)
         {
-          var targets = Rendering.HookResolver.Resolve(_liveRoot, handler.Target);
-          for (int i = 0; i < targets.Count; i++)
-          {
-            if (targets[i] is Rendering.IRenderContainer container)
-              Rendering.RenderNodes.Splice(container, source, handler.Mode.Value);
-          }
+          targets = Rendering.HookResolver.Resolve(_liveRoot, handler.Target);
         }
-        else if (handler.StringWraps != null)
+        else
         {
-          for (int i = 0; i < handler.StringWraps.Count; i++)
-            Rendering.RenderNodes.Splice(handler.StringWraps[i], source, handler.Mode.Value);
+          var wraps = new List<Rendering.RenderNode>();
+          Rendering.RenderNodes.CollectWhere(_liveRoot,
+            n => n is Rendering.RenderHookNode h && h.SourceRegionId == regionId, wraps);
+          targets = wraps;
+        }
+        for (int i = 0; i < targets.Count; i++)
+        {
+          if (targets[i] is Rendering.IRenderContainer container)
+            Rendering.RenderNodes.Splice(container, source, handler.Mode.Value);
         }
       }
-      else if (handler.RevealAnchor != null)
+      else
       {
-        // Plain macro: the deferred hook shows at the macro's own position.
-        // Nodes are moved, not cloned, so a nested (click:)'s reveal anchor
-        // keeps its identity into the live tree and chains keep working.
-        // (click-rerun:) replaces the previous run's content each activation
-        // (reference's append:'replace'); a once interaction fills the anchor
-        // exactly once, so append and replace are equivalent there.
-        if (!handler.Once) handler.RevealAnchor.Children.Clear();
-        handler.RevealAnchor.Children.AddRange(source);
+        // Plain macro: the deferred hook shows at the macro's own position —
+        // every anchor tagged with this region id. Tag search (clones inherit
+        // the tag) rather than a held node reference, so an anchor whose
+        // (click:) ran inside a revision-deferred render — spliced into the
+        // live tree as a clone — still reveals; one that never reached the
+        // live tree is simply not found, and nothing shows (reference's
+        // removed-hidden-hook behaviour). (click-rerun:) replaces the previous
+        // run's content each activation (reference's append:'replace'); a once
+        // interaction fills its anchor exactly once, so append and replace are
+        // equivalent there.
+        var anchors = new List<Rendering.RenderNode>();
+        Rendering.RenderNodes.CollectWhere(_liveRoot,
+          n => n is Rendering.RenderHookNode h && h.RevealRegionId == regionId, anchors);
+        for (int i = 0; i < anchors.Count; i++)
+        {
+          if (anchors[i] is Rendering.IRenderContainer anchor)
+            Rendering.RenderNodes.Splice(anchor, source, handler.Once ? RevisionMode.Append : RevisionMode.Replace);
+        }
       }
 
       // Re-run both passes (strip + re-apply — idempotent). The interaction

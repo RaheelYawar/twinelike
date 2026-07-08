@@ -340,12 +340,15 @@ namespace Harlowe.Runtime
     ///
     /// <para>
     /// For a plain (non-combo) interaction, also plants an empty anonymous
-    /// hook at the current output position — the reveal anchor the dispatch
-    /// fills with the deferred hook's render, mirroring reference's hidden
-    /// attached-hook element. The composed style layers wrap that deferred
-    /// render, not the armed region (reference applies the descriptor's
-    /// styles at the event's <c>renderInto</c>); the armed region is styled
-    /// by the macro's optional second argument.
+    /// hook at the current output position, tagged with the region id — the
+    /// reveal anchor the dispatch fills with the deferred hook's render,
+    /// mirroring reference's hidden attached-hook element. The dispatch finds
+    /// it by tag (clones inherit it), so an anchor planted in a detached
+    /// builder and spliced into the live tree still reveals. The composed
+    /// style layers wrap that deferred render, not the armed region
+    /// (reference applies the descriptor's styles at the event's
+    /// <c>renderInto</c>); the armed region is styled by the macro's optional
+    /// second argument.
     /// </para>
     /// </summary>
     private static void RunInteraction(HookDescriptor d, IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx)
@@ -360,9 +363,9 @@ namespace Harlowe.Runtime
       var styles = new List<StyleSpec>(d.Styles.Count);
       for (int i = 0; i < d.Styles.Count; i++) styles.Add(d.Styles[i]?.Clone());
 
-      Rendering.RenderHookNode anchor = null;
+      string regionId = ctx.AllocateRegionId();
       if (spec.Mode == null && output is Rendering.RenderTreeBuilder builder)
-        anchor = builder.PlantAnchor();
+        builder.PlantAnchor(regionId);
 
       ctx.Interactions.Add(new Interaction
       {
@@ -375,8 +378,7 @@ namespace Harlowe.Runtime
         ArmLambda = spec.ArmLambda,
         Styles = styles,
         RenderDeferredHook = renderHook,
-        RevealAnchor = anchor,
-        RegionId = ctx.AllocateRegionId()
+        RegionId = regionId
       });
     }
 

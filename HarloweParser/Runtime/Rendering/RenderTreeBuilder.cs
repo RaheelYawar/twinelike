@@ -123,17 +123,19 @@ namespace Harlowe.Runtime.Rendering
     }
 
     /// <summary>
-    /// Plant an empty anonymous hook node at the current position and return
-    /// it. The reveal anchor for a plain <c>(click:)</c>-family macro: the
-    /// analogue of reference Harlowe's hidden attached-hook element
-    /// (<c>desc.enabled = false</c> leaves an empty <c>&lt;tw-hook&gt;</c> in
-    /// the DOM), which <see cref="StorySession.DispatchEvent"/> fills with the
-    /// deferred hook's render when the region fires. Anonymous, so no
-    /// <c>?name</c> query can match it while empty.
+    /// Plant an empty anonymous hook node at the current position, tagged with
+    /// <paramref name="revealRegionId"/>. The reveal anchor for a plain
+    /// <c>(click:)</c>-family macro: the analogue of reference Harlowe's hidden
+    /// attached-hook element (<c>desc.enabled = false</c> leaves an empty
+    /// <c>&lt;tw-hook&gt;</c> in the DOM), which
+    /// <see cref="StorySession.DispatchEvent"/> fills with the deferred hook's
+    /// render when the region fires — found by tag, so it works even when this
+    /// builder is detached and the anchor reaches the live tree as a clone.
+    /// Anonymous, so no <c>?name</c> query can match it while empty.
     /// </summary>
-    public RenderHookNode PlantAnchor()
+    public RenderHookNode PlantAnchor(string revealRegionId)
     {
-      var node = new RenderHookNode();
+      var node = new RenderHookNode { RevealRegionId = revealRegionId };
       Current.Children.Add(node);
       return node;
     }

@@ -666,6 +666,57 @@ namespace Harlowe.Tests.Runtime.Macros
       Assert.Equal(1, CountKind(second, BufferedRenderOutput.Kind.BeginInteractive));
     }
 
+    // --- Reveal anchors resolve by tag, not node reference — so a (click:)
+    // whose anchor reached the live tree as a clone still reveals. ---
+
+    [Fact]
+    public void Dispatch_ClickInsideReplaceHook_RevealsInsideSplicedContent()
+    {
+      // The (click:) runs inside (replace:)'s detached render; its anchor
+      // enters the live tree as a clone via the revision splice. The dispatch
+      // finds it by its RevealRegionId tag (clones inherit it) — a held node
+      // reference would point at the discarded detached original and the
+      // reveal would vanish.
+      var session = Session("|t>[old]|a>[A](replace: ?t)[(click: ?a)[X]]");
+      var initial = session.Render();
+      Assert.Equal("A", initial.Text);
+      var id = FirstRegionId(initial);
+      Assert.NotNull(id);
+
+      var after = session.DispatchEvent(id);
+      Assert.Equal("XA", after.Text);
+    }
+
+    [Fact]
+    public void Dispatch_ClickInsideMultiTargetReplace_RevealsInEveryClone()
+    {
+      // Two ?t matches → the revision splices two clones of the deferred
+      // content, each carrying an anchor clone with the same tag. The reveal
+      // fills every tagged anchor — reference's per-target render.
+      var session = Session("|t>[x]|t>[y](replace: ?t)[(click: ?a)[X]]|a>[A]");
+      var initial = session.Render();
+      Assert.Equal("A", initial.Text);
+
+      var after = session.DispatchEvent(FirstRegionId(initial));
+      Assert.Equal("XXA", after.Text);
+    }
+
+    [Fact]
+    public void Dispatch_ComboString_ViaLambdaFailure_SplicesSurvivingOccurrences()
+    {
+      // The failed via-lambda replaced the first occurrence wrap with an error
+      // node; tag-based resolution simply doesn't find it at dispatch, and the
+      // surviving occurrence still splices.
+      var session = Session("bob(click-replace: \"b\", via 5)[x]");
+      var initial = session.Render();
+      Assert.Equal("ob", initial.Text);
+      var id = FirstRegionId(initial);
+      Assert.NotNull(id);
+
+      var after = session.DispatchEvent(id);
+      Assert.Equal("ox", after.Text);
+    }
+
     // --- Empty hooks are never armed (reference's :empty filter) ---
 
     [Fact]
