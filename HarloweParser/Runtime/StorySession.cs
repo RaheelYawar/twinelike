@@ -731,7 +731,7 @@ namespace Harlowe.Runtime
       // (strip + re-apply), so DispatchEvent re-runs them after click-driven
       // mutations without double-wrapping. Interactions first so enchantment
       // restylings layer outside the interactive wraps, matching prior nesting.
-      InteractionPass.Update(builder.Root, ctx.Interactions, ctx.ClickHandlers);
+      InteractionPass.Update(builder.Root, ctx.Interactions, ctx.ClickHandlers, ctx);
       EnchantmentPass.Update(builder.Root, ctx.Enchantments, ctx);
 
       // Remember the live tree + context for DispatchEvent.
@@ -745,11 +745,17 @@ namespace Harlowe.Runtime
     /// Report a user interaction (click, hover-enter, hover-leave) reported
     /// by the host engine for one of the regions the most recent
     /// <see cref="RenderResult"/> exposed. The session fires the registered
-    /// handler — unwrapping the consumed interactive region, rendering the
-    /// deferred prose into the targeted nodes via the same revision machinery
-    /// <c>(replace:)</c> uses, and re-running the enchantment pass — and
-    /// returns a fresh <see cref="RenderResult"/> reflecting the updated live
-    /// tree. Single-use: the handler is removed from the registry on dispatch.
+    /// handler — rendering the deferred prose (wrapped in its composed styles)
+    /// and either <em>revealing</em> it at the macro's own position (plain
+    /// <c>(click:)</c>-family macros fill their planted anchor, reference's
+    /// hidden attached-hook model) or splicing it into the targeted nodes via
+    /// the same revision machinery <c>(replace:)</c> uses (the
+    /// <c>-replace</c>/<c>-append</c>/<c>-prepend</c> combos) — then re-runs
+    /// the interaction + enchantment passes and returns a fresh
+    /// <see cref="RenderResult"/> reflecting the updated live tree. Single-use
+    /// (the fired interaction is dropped, its targets disenchanted by the next
+    /// pass) unless it came from <c>(click-rerun:)</c>, which stays armed and
+    /// re-renders per activation.
     ///
     /// <para>
     /// An unknown <paramref name="regionId"/> (one the engine reports for a
@@ -765,16 +771,20 @@ namespace Harlowe.Runtime
       if (regionId == null || !_liveContext.ClickHandlers.TryGetValue(regionId, out var handler))
         return BuildResultFromLiveTree();
 
-      // Consume — single-use. Remove the fired interaction from the persistent
-      // list so the interaction pass below won't re-wrap or re-register it.
-      // (The handler dictionary is rebuilt from the list by the pass, so there
-      // is no separate registry entry to remove.)
-      for (int i = 0; i < _liveContext.Interactions.Count; i++)
+      // Consume — single-use unless (click-rerun:). Remove the fired
+      // interaction from the persistent list so the interaction pass below
+      // won't re-wrap or re-register it. (The handler dictionary is rebuilt
+      // from the list by the pass, so there is no separate registry entry to
+      // remove.)
+      if (handler.Once)
       {
-        if (_liveContext.Interactions[i].RegionId == regionId)
+        for (int i = 0; i < _liveContext.Interactions.Count; i++)
         {
-          _liveContext.Interactions.RemoveAt(i);
-          break;
+          if (_liveContext.Interactions[i].RegionId == regionId)
+          {
+            _liveContext.Interactions.RemoveAt(i);
+            break;
+          }
         }
       }
 
@@ -782,19 +792,49 @@ namespace Harlowe.Runtime
       // context — so inner (click:)/(enchant:)/(replace:) calls inside the
       // deferred hook register against the live session state (e.g. a nested
       // (click:) appends to _liveContext.Interactions and is picked up below).
+      // The composed style layers wrap the render: (b)+(click: ?a)[x] bolds
+      // the revealed x, matching reference's renderInto of the descriptor.
       var detached = new Rendering.RenderTreeBuilder();
+      var styles = handler.Styles;
+      if (styles != null)
+        for (int i = 0; i < styles.Count; i++) detached.PushStyle(styles[i]);
       handler.RenderDeferredHook?.Invoke(detached);
+      if (styles != null)
+        for (int i = styles.Count - 1; i >= 0; i--) detached.PopStyle();
       var source = detached.Root.Children;
 
-      // Splice the source into every node the target re-resolves to right
-      // now — the query is fresh, matching Harlowe's "?name is a query" rule.
-      // The consumed region's leftover wrap (still present for append/prepend)
-      // is harmless: the interaction pass strips all wraps next.
-      var targets = Rendering.HookResolver.Resolve(_liveRoot, handler.Target);
-      for (int i = 0; i < targets.Count; i++)
+      if (handler.Mode != null)
       {
-        if (targets[i] is Rendering.IRenderContainer container)
-          Rendering.RenderNodes.Splice(container, source, handler.Mode);
+        // Combo: splice the source into every target. A hook-name query is
+        // re-resolved fresh, matching Harlowe's "?name is a query" rule; a
+        // string target reuses the occurrence wraps the last pass produced
+        // (nothing mutated the tree since). The consumed region's leftover
+        // wrap is harmless: the interaction pass strips all wraps next.
+        if (handler.Target != null)
+        {
+          var targets = Rendering.HookResolver.Resolve(_liveRoot, handler.Target);
+          for (int i = 0; i < targets.Count; i++)
+          {
+            if (targets[i] is Rendering.IRenderContainer container)
+              Rendering.RenderNodes.Splice(container, source, handler.Mode.Value);
+          }
+        }
+        else if (handler.StringWraps != null)
+        {
+          for (int i = 0; i < handler.StringWraps.Count; i++)
+            Rendering.RenderNodes.Splice(handler.StringWraps[i], source, handler.Mode.Value);
+        }
+      }
+      else if (handler.RevealAnchor != null)
+      {
+        // Plain macro: the deferred hook shows at the macro's own position.
+        // Nodes are moved, not cloned, so a nested (click:)'s reveal anchor
+        // keeps its identity into the live tree and chains keep working.
+        // (click-rerun:) replaces the previous run's content each activation
+        // (reference's append:'replace'); a once interaction fills the anchor
+        // exactly once, so append and replace are equivalent there.
+        if (!handler.Once) handler.RevealAnchor.Children.Clear();
+        handler.RevealAnchor.Children.AddRange(source);
       }
 
       // Re-run both passes (strip + re-apply — idempotent). The interaction
@@ -803,14 +843,14 @@ namespace Harlowe.Runtime
       // then enchantments re-layer.
       //
       // Ordering invariant: both passes run BEFORE the PendingGoto check below.
-      // The enchant pass takes the context (its via-lambdas need the store and
-      // invoker) but sandboxes every lambda evaluation with a side-effect guard
-      // that rolls back navigation, the registration lists, and RNG position, so
-      // pass-time macro execution cannot clobber the click's queued navigation
-      // (nor grow the enchant list or desync the RNG);
-      // EnchantmentPassCannotMutatePendingGoto in the test suite guards that.
-      // InteractionPass takes no context at all.
-      InteractionPass.Update(_liveRoot, _liveContext.Interactions, _liveContext.ClickHandlers);
+      // Both take the context (enchant via-lambdas and armed-region lambdas
+      // need the store and invoker) but sandbox every lambda evaluation with a
+      // side-effect guard that rolls back navigation, the registration lists,
+      // and RNG position, so pass-time macro execution cannot clobber the
+      // click's queued navigation (nor grow the lists being iterated or desync
+      // the RNG); EnchantmentPassCannotMutatePendingGoto in the test suite
+      // guards that.
+      InteractionPass.Update(_liveRoot, _liveContext.Interactions, _liveContext.ClickHandlers, _liveContext);
       EnchantmentPass.Update(_liveRoot, _liveContext.Enchantments, _liveContext);
 
       // A (load-game:) inside the deferred hook installs its timeline now and

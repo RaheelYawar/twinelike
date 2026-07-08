@@ -78,10 +78,12 @@ namespace Harlowe.Runtime
 
     /// <summary>
     /// Construct an interaction changer (<c>(click:)</c>, <c>(mouseover-append:)</c>,
-    /// …). When applied, the changer wraps every match of the spec's target in
-    /// a <see cref="RenderInteractiveNode"/> and registers a deferred
-    /// <see cref="ClickHandler"/> on <see cref="MacroContext.ClickHandlers"/>
-    /// keyed by the wrap's region id — see <see cref="Apply"/>.
+    /// …). When applied, the changer records a persistent <see cref="Interaction"/>
+    /// (and, for plain non-combo macros, plants the reveal anchor the dispatch
+    /// fills); <see cref="InteractionPass"/> wraps every match of the spec's
+    /// target in a <see cref="RenderInteractiveNode"/> and registers the
+    /// deferred <see cref="ClickHandler"/> keyed by the region id — see
+    /// <see cref="Apply"/>.
     /// </summary>
     public static Changer FromInteraction(InteractionSpec interaction)
       => new Changer(new List<IChangerPatch> { new InteractionPatch { Interaction = interaction } });
@@ -335,26 +337,45 @@ namespace Harlowe.Runtime
     /// render and after every dispatch, so a target declared later in the
     /// passage — or created by a click-deferred hook — is still caught. (Eager
     /// apply-time resolution used to miss those.)
+    ///
+    /// <para>
+    /// For a plain (non-combo) interaction, also plants an empty anonymous
+    /// hook at the current output position — the reveal anchor the dispatch
+    /// fills with the deferred hook's render, mirroring reference's hidden
+    /// attached-hook element. The composed style layers wrap that deferred
+    /// render, not the armed region (reference applies the descriptor's
+    /// styles at the event's <c>renderInto</c>); the armed region is styled
+    /// by the macro's optional second argument.
+    /// </para>
     /// </summary>
     private static void RunInteraction(HookDescriptor d, IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx)
     {
       if (ctx == null) { output.Error("interaction changers require a render context"); return; }
 
       var spec = d.Interaction;
-      if (spec?.HookTarget == null) return;
+      if (spec == null || (spec.HookTarget == null && spec.StringTarget == null)) return;
 
-      // Snapshot the composed style layers; InteractionPass clones them again
-      // per match, so these stay an immutable template across passes.
+      // Snapshot the composed style layers; the dispatch clones them again
+      // when rendering, so these stay an immutable template across passes.
       var styles = new List<StyleSpec>(d.Styles.Count);
       for (int i = 0; i < d.Styles.Count; i++) styles.Add(d.Styles[i]?.Clone());
+
+      Rendering.RenderHookNode anchor = null;
+      if (spec.Mode == null && output is Rendering.RenderTreeBuilder builder)
+        anchor = builder.PlantAnchor();
 
       ctx.Interactions.Add(new Interaction
       {
         Target = spec.HookTarget,
+        StringTarget = spec.StringTarget,
         Kind = spec.Kind,
         Mode = spec.Mode,
+        Once = spec.Once,
+        ArmChanger = spec.ArmChanger,
+        ArmLambda = spec.ArmLambda,
         Styles = styles,
         RenderDeferredHook = renderHook,
+        RevealAnchor = anchor,
         RegionId = ctx.AllocateRegionId()
       });
     }
@@ -449,7 +470,9 @@ namespace Harlowe.Runtime
       return descriptor;
     }
 
-    /// <summary>Build the descriptor and return its style layers — the shared front of <see cref="ApplyTo"/> / <see cref="ApplyToNode"/>. Empty when a composed conditional disabled the descriptor, so <c>(change: ?x, (if: false) + (colour: red))</c> applies nothing.</summary>
+    /// <summary>Build the descriptor and return its style layers — the shared front of <see cref="ApplyTo"/> / <see cref="ApplyToNode"/>, also read by <see cref="InteractionPass"/> for armed-region styling. Empty when a composed conditional disabled the descriptor, so <c>(change: ?x, (if: false) + (colour: red))</c> applies nothing.</summary>
+    internal List<StyleSpec> GetStyleLayers() => BuildStyles();
+
     private List<StyleSpec> BuildStyles()
     {
       var descriptor = BuildDescriptor();

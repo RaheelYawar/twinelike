@@ -11,7 +11,7 @@ for the save-model slice (which lands `(history:)` semantics).
 
 ## Counts
 
-- **High severity (1 active, 4 fixed)**: silent wrong result or breaks documented Harlowe idioms.
+- **High severity (0 active, 5 fixed)**: silent wrong result or breaks documented Harlowe idioms.
 - **Medium severity (4 active, 6 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
 - **Low severity (1 active, 1 fixed)**: documented as deliberate or marginal.
 
@@ -129,7 +129,47 @@ clobber a dispatch's queued navigation. See `EnchantmentMacroSupport`,
 - **User-visible**: The headline `(change:)` / `(enchant:)` examples in the
   docs all use string-target or `via`-lambda. They all error in our impl.
 
-### 5. `(click:)` family rejects string targets and second-arg changers
+### 5. `(click:)` family rejects string targets and second-arg changers — ✅ FIXED (2026-07-07)
+
+**Resolved.** All thirteen interaction changers now match reference's shared
+signature `[either(HookSet, String), optional(either(Changer,
+Lambda.TypeSignature('via')))]` (`newEnchantmentMacroFns` in
+`ts/macrolib/enchantments.ts`). A string target's occurrences are wrapped as
+armed regions per `InteractionPass` (reusing `TextOccurrenceFinder`; wraps
+carry `RenderHookNode.SourceRegionId` so `StripWraps` unwinds them — the
+interaction mirror of the enchant pass's disenchant tag), an empty string
+errors with reference's *"A string given to this (click:) macro was empty."*,
+and empty hooks are never armed (reference's `:empty` filter). The optional
+second argument styles the *armed* region: a changer (gated by the same
+`notRevisionChanger` check as `(enchant:)`) or a `via`-lambda evaluated per
+non-empty match with 1-based `pos` through the shared
+`EnchantmentPass.EvaluateViaLambda` (failure replaces the match with the
+in-prose error, reference's `enchantScope` path). `(click-rerun:)` registers
+with `once: false` — click only, as in reference — staying armed and
+re-rendering its hook over the previous run's content each activation.
+
+Fixing the family surfaced two adjacent divergences in the dispatch model,
+both re-aligned to reference in the same slice:
+
+- **Plain `(click:)`/`(mouseover:)`/`(mouseout:)` now reveal the attached hook
+  at the macro's own position** (an anonymous anchor node planted at apply
+  time — reference's hidden attached-hook element; the target just loses its
+  armed styling), instead of behaving like `(click-replace:)`. Reference test:
+  `[cool]<foo|(click:?foo)[beans]` → click → `coolbeans`. Only the
+  `-replace`/`-append`/`-prepend` combos splice into the target
+  (`enchantDesc.rerender`).
+- **Composed styles apply to the revealed/spliced content, not the armed
+  region** — `(text-style:"bold")+(click: ?a)[x]` reveals a bold `x`
+  (reference applies the descriptor's styles at the event's `renderInto`);
+  the armed region is styled by the new second argument instead.
+
+Still open (not part of this finding): `(click-goto:)`/`(mouseover-goto:)`/
+`(mouseout-goto:)`/`(click-undo:)` etc. are separate *commands* (no attached
+hook; registered by `Macros.addCommand` over the same enchant machinery) and
+remain unimplemented, as does the Harlowe 3.3 `doubleclick` interaction type.
+See `InteractionMacros.cs`, `Interaction.cs` (`InteractionPass`),
+`StorySession.DispatchEvent`, and the string-target / second-arg / rerun /
+reveal tests in `InteractionMacroTests`. Original finding below.
 
 - **Ours**: `MinArgs=MaxArgs=1`, first arg must be `HookName` (string targets
   explicitly deferred per `InteractionChangers.Build`). No optional second
@@ -468,9 +508,13 @@ architecture.
 - ~~`(change:)`/`(enchant:)` string targets + via-lambda (#4).~~ ✅ done —
   landed directly, no parent slice needed: string-target resolution reuses
   `TextOccurrenceFinder` inside the (idempotent) enchant pass.
-- `(click:)` family expansion (#5) — can now reuse #4's machinery (tagged
+- ~~`(click:)` family expansion (#5) — can now reuse #4's machinery (tagged
   string-occurrence wraps re-resolved by a persistent pass). The
-  `(click-rerun:)` macro is also part of this.
+  `(click-rerun:)` macro is also part of this.~~ ✅ done — reused exactly that
+  machinery, and re-aligned plain-`(click:)` reveal semantics + composed-style
+  routing to reference in the same slice (see #5's resolution note). The
+  `-goto`/`-undo` command variants remain (filed in `TODO.md`'s candidate
+  list alongside the `(link:)` family).
 
 ---
 

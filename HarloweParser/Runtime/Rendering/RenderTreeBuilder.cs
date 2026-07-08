@@ -122,6 +122,22 @@ namespace Harlowe.Runtime.Rendering
       if (_stack.Count > 1) _stack.Pop();
     }
 
+    /// <summary>
+    /// Plant an empty anonymous hook node at the current position and return
+    /// it. The reveal anchor for a plain <c>(click:)</c>-family macro: the
+    /// analogue of reference Harlowe's hidden attached-hook element
+    /// (<c>desc.enabled = false</c> leaves an empty <c>&lt;tw-hook&gt;</c> in
+    /// the DOM), which <see cref="StorySession.DispatchEvent"/> fills with the
+    /// deferred hook's render when the region fires. Anonymous, so no
+    /// <c>?name</c> query can match it while empty.
+    /// </summary>
+    public RenderHookNode PlantAnchor()
+    {
+      var node = new RenderHookNode();
+      Current.Children.Add(node);
+      return node;
+    }
+
     public void BeginInteractive(InteractiveRegion region)
     {
       var node = new RenderInteractiveNode { Region = region };

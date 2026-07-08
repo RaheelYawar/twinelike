@@ -16,20 +16,54 @@ namespace Harlowe.Runtime
   /// </summary>
   public class Interaction
   {
-    /// <summary>The hook-name query, re-resolved against the live tree each pass.</summary>
+    /// <summary>The hook-name query, re-resolved against the live tree each pass. Null when <see cref="StringTarget"/> is set.</summary>
     public HookNameValue Target;
+
+    /// <summary>Literal prose to match (<c>(click: "gold")</c>). Each occurrence is wrapped as an armed region per pass. Null when <see cref="Target"/> is set.</summary>
+    public string StringTarget;
 
     /// <summary>Which event kind the engine reports for this region.</summary>
     public InteractionKind Kind;
 
-    /// <summary>How the deferred hook's source splices into the target on dispatch.</summary>
-    public RevisionMode Mode;
+    /// <summary>
+    /// Combo splice mode (<c>(click-replace:)</c> etc.), or <c>null</c> for the
+    /// plain macros, whose deferred hook reveals at <see cref="RevealAnchor"/>
+    /// instead of rewriting the target.
+    /// </summary>
+    public RevisionMode? Mode;
 
-    /// <summary>Composed style layers wrapped around the interactive node (innermost = last layer); cloned per wrap.</summary>
+    /// <summary>
+    /// False for <c>(click-rerun:)</c>: the interaction survives dispatch and
+    /// each activation re-renders the deferred hook over the previous run's
+    /// content (reference's <c>once: false</c>).
+    /// </summary>
+    public bool Once = true;
+
+    /// <summary>
+    /// Composed style layers for the <em>deferred content</em> (outermost =
+    /// first layer): <c>(text-style:"bold")+(click: ?a)[x]</c> bolds the
+    /// revealed <c>x</c>, not the armed region — reference applies the
+    /// descriptor's styles when the event's <c>renderInto</c> runs. The armed
+    /// region is styled by <see cref="ArmChanger"/>/<see cref="ArmLambda"/>.
+    /// </summary>
     public List<StyleSpec> Styles;
+
+    /// <summary>Optional second-argument changer styling the armed region while it waits; cloned style layers re-wrap every pass.</summary>
+    public Changer ArmChanger;
+
+    /// <summary>Optional second-argument <c>via</c> lambda producing the armed-region changer per match (1-based <c>pos</c>), as in <c>(enchant:)</c>.</summary>
+    public LambdaValue ArmLambda;
 
     /// <summary>Renders the deferred hook into a given output on dispatch.</summary>
     public Action<IRenderOutput> RenderDeferredHook;
+
+    /// <summary>
+    /// The empty anonymous hook planted at the macro's own position when the
+    /// changer applied — where a plain (non-combo) interaction's deferred hook
+    /// renders on dispatch, mirroring reference's hidden attached-hook element.
+    /// Null for combos, and when the changer applied outside a tree builder.
+    /// </summary>
+    public RenderHookNode RevealAnchor;
 
     /// <summary>
     /// Region id, allocated once when the interaction is recorded and kept
@@ -47,12 +81,14 @@ namespace Harlowe.Runtime
   ///
   /// <para>
   /// Idempotent by construction: <see cref="Update"/> first <see cref="StripWraps"/>
-  /// — removes every interactive wrap and region-tagged style node — then
-  /// re-wraps each live interaction fresh and re-registers its handler. So
-  /// running the pass any number of times leaves a single correct application,
-  /// regardless of how the tree mutated between passes. A consumed interaction
-  /// (removed from the list on dispatch) simply stops being re-wrapped, which
-  /// is the single-use semantics.
+  /// — removes every interactive wrap, region-tagged style node, and
+  /// region-tagged string-occurrence hook wrap — then re-wraps each live
+  /// interaction fresh and re-registers its handler. So running the pass any
+  /// number of times leaves a single correct application, regardless of how
+  /// the tree mutated between passes. A consumed interaction (removed from the
+  /// list on dispatch) simply stops being re-wrapped, which is the single-use
+  /// semantics — and how a fired <c>(click:)</c>'s targets lose their armed
+  /// styling.
   /// </para>
   /// </summary>
   public static class InteractionPass
@@ -60,10 +96,12 @@ namespace Harlowe.Runtime
     /// <summary>
     /// Strip prior wraps, then re-resolve and re-wrap every interaction in
     /// <paramref name="interactions"/> against <paramref name="root"/>, rebuilding
-    /// <paramref name="clickHandlers"/> from scratch. Null-safe; tolerant of
-    /// malformed entries.
+    /// <paramref name="clickHandlers"/> from scratch. <paramref name="ctx"/>
+    /// supplies the store and invoker for armed-region <c>via</c>-lambda
+    /// evaluation; when null, lambda-styled interactions still arm, just
+    /// unstyled. Null-safe; tolerant of malformed entries.
     /// </summary>
-    public static void Update(RenderRoot root, IReadOnlyList<Interaction> interactions, Dictionary<string, ClickHandler> clickHandlers)
+    public static void Update(RenderRoot root, IReadOnlyList<Interaction> interactions, Dictionary<string, ClickHandler> clickHandlers, MacroContext ctx = null)
     {
       if (root == null || interactions == null || clickHandlers == null) return;
 
@@ -73,10 +111,37 @@ namespace Harlowe.Runtime
       for (int i = 0; i < interactions.Count; i++)
       {
         var interaction = interactions[i];
-        if (interaction?.Target == null) continue;
+        if (interaction == null) continue;
 
-        var targets = HookResolver.Resolve(root, interaction.Target);
+        IReadOnlyList<RenderNode> targets;
+        List<IRenderContainer> stringWraps = null;
+        if (interaction.Target != null)
+        {
+          targets = HookResolver.Resolve(root, interaction.Target);
+        }
+        else if (interaction.StringTarget != null)
+        {
+          // Wrap each occurrence fresh (StripWraps unwound the previous
+          // pass's), tagged with the region id so the next strip finds them.
+          var wraps = TextOccurrenceFinder.FindAndWrap(root, interaction.StringTarget);
+          var list = new List<RenderNode>(wraps.Count);
+          stringWraps = new List<IRenderContainer>(wraps.Count);
+          for (int j = 0; j < wraps.Count; j++)
+          {
+            wraps[j].SourceRegionId = interaction.RegionId;
+            list.Add(wraps[j]);
+            stringWraps.Add(wraps[j]);
+          }
+          targets = list;
+        }
+        else
+        {
+          continue;
+        }
+
         bool wrappedAny = false;
+        int pos = 0;
+        bool lambdaFailed = false;
         for (int j = 0; j < targets.Count; j++)
         {
           // A leaf match (a ?link RenderLinkNode) is skipped here: wrapping it as a
@@ -86,6 +151,30 @@ namespace Harlowe.Runtime
           // dead link is worse than a no-op, so click/hover on ?link waits for that.
           // (?link styling via (enchant:)/(change:) works — see Changer.ApplyToNode.)
           if (!(targets[j] is IRenderContainer container)) continue;
+
+          // Reference never arms completely empty hooks (`[]<foo|` gets no
+          // <tw-enchantment> — the `:empty` filter), and they don't advance pos.
+          if (container.Children.Count == 0) continue;
+          pos++;
+
+          // Armed-region styling: the fixed second-arg changer, or the changer
+          // its via-lambda produces for this match. A lambda failure replaces
+          // the match with the in-prose error and stops producing styles for
+          // the rest of the scope, but later matches still arm (reference
+          // nulls the lambda out and keeps enchanting).
+          Changer armChanger = interaction.ArmChanger;
+          if (interaction.ArmLambda != null)
+          {
+            armChanger = null;
+            if (!lambdaFailed && ctx != null)
+            {
+              var item = interaction.Target != null
+                ? HarloweValue.OfHookName(interaction.Target)
+                : HarloweValue.OfString(interaction.StringTarget);
+              armChanger = EnchantmentPass.EvaluateViaLambda(root, interaction.ArmLambda, item, pos, ctx, targets[j], out lambdaFailed);
+              if (lambdaFailed) continue; // the match is now the error node — don't arm it
+            }
+          }
           wrappedAny = true;
 
           var content = new List<RenderNode>(container.Children);
@@ -98,15 +187,16 @@ namespace Harlowe.Runtime
           };
           interactiveNode.Children.AddRange(content);
 
-          // Fold the composed style layers around the interactive node,
+          // Fold the armed-region style layers around the interactive node,
           // innermost = last layer, each cloned + tagged with the region id so
           // StripWraps removes it alongside the interactive node next pass.
           RenderNode wrapped = interactiveNode;
-          if (interaction.Styles != null)
+          var armStyles = armChanger?.GetStyleLayers();
+          if (armStyles != null)
           {
-            for (int s = interaction.Styles.Count - 1; s >= 0; s--)
+            for (int s = armStyles.Count - 1; s >= 0; s--)
             {
-              var styleNode = new RenderStyleNode { Style = interaction.Styles[s]?.Clone(), SourceRegionId = interaction.RegionId };
+              var styleNode = new RenderStyleNode { Style = armStyles[s]?.Clone(), SourceRegionId = interaction.RegionId };
               styleNode.Children.Add(wrapped);
               wrapped = styleNode;
             }
@@ -124,17 +214,22 @@ namespace Harlowe.Runtime
           {
             RenderDeferredHook = interaction.RenderDeferredHook,
             Target = interaction.Target,
+            StringWraps = stringWraps,
             Mode = interaction.Mode,
-            Kind = interaction.Kind
+            Once = interaction.Once,
+            Kind = interaction.Kind,
+            Styles = interaction.Styles,
+            RevealAnchor = interaction.RevealAnchor
           };
         }
       }
     }
 
     /// <summary>
-    /// Remove every <see cref="RenderInteractiveNode"/> and every
+    /// Remove every <see cref="RenderInteractiveNode"/>, every
     /// <see cref="RenderStyleNode"/> tagged with a non-null
-    /// <see cref="RenderStyleNode.SourceRegionId"/> from
+    /// <see cref="RenderStyleNode.SourceRegionId"/>, and every string-occurrence
+    /// <see cref="RenderHookNode"/> tagged likewise from
     /// <paramref name="container"/>, hoisting their children in place — the
     /// id-agnostic generalization of the former per-id unwrap sweep. Recurse
     /// first so descendants are processed before this level's list is rebuilt
@@ -142,6 +237,8 @@ namespace Harlowe.Runtime
     /// </summary>
     public static void StripWraps(IRenderContainer container)
       => RenderNodes.UnwrapWhere(container, n =>
-           n is RenderInteractiveNode || (n is RenderStyleNode sn && sn.SourceRegionId != null));
+           n is RenderInteractiveNode
+        || (n is RenderStyleNode sn && sn.SourceRegionId != null)
+        || (n is RenderHookNode hn && hn.SourceRegionId != null));
   }
 }

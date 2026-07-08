@@ -153,11 +153,21 @@ namespace Harlowe.Runtime.Rendering
     /// </summary>
     public Enchantment SourceEnchantment;
 
+    /// <summary>
+    /// The interactive region whose string target created this wrap
+    /// (<see cref="TextOccurrenceFinder"/> occurrence for a
+    /// <c>(click: "text", …)</c>-family interaction), or <c>null</c> for
+    /// authored hooks and enchantment wraps. <see cref="InteractionPass.StripWraps"/>
+    /// unwraps tagged wraps back to plain prose before each pass re-matches —
+    /// the interaction mirror of <see cref="SourceEnchantment"/>.
+    /// </summary>
+    public string SourceRegionId;
+
     public List<RenderNode> Children { get; } = new List<RenderNode>();
 
     public override RenderNode Clone()
     {
-      var copy = new RenderHookNode { Name = Name, Anchor = Anchor, SourceEnchantment = SourceEnchantment };
+      var copy = new RenderHookNode { Name = Name, Anchor = Anchor, SourceEnchantment = SourceEnchantment, SourceRegionId = SourceRegionId };
       RenderNodes.CloneInto(Children, copy.Children);
       return copy;
     }

@@ -172,8 +172,6 @@ namespace Harlowe.Runtime
     private static Changer EvaluateLambda(RenderRoot root, Enchantment enchantment, RenderNode target,
                                           int pos, MacroContext ctx, out bool failed)
     {
-      failed = false;
-
       // Reference binds the lambda's `it` to the i-th match of the scope
       // (`scope.getProperty(i)`, a narrowed HookSet). No shipped macro that may
       // appear in an enchant lambda consumes a hook name, so the un-narrowed
@@ -182,9 +180,30 @@ namespace Harlowe.Runtime
         ? HarloweValue.OfHookName(enchantment.Target)
         : HarloweValue.OfString(enchantment.StringTarget);
 
+      return EvaluateViaLambda(root, enchantment.Lambda, item, pos, ctx, target, out failed);
+    }
+
+    /// <summary>
+    /// Evaluate a per-match <c>via</c> lambda that must produce an enchantable
+    /// changer — the shared core of the enchantment pass's lambda form and the
+    /// interaction macros' second-argument lambda (reference runs both through
+    /// the same <c>enchantScope</c> loop). Binds <paramref name="item"/> to
+    /// <c>it</c> and <paramref name="pos"/> to <c>pos</c>; sandboxed by
+    /// <see cref="MacroContext.PushSideEffectGuard"/> so pass-time evaluation
+    /// can't clobber queued navigation, the registration lists, or the RNG. A
+    /// non-changer result, an error, or a changer that can't enchant replaces
+    /// <paramref name="target"/> with an in-prose error and sets
+    /// <paramref name="failed"/> (reference replaces the element and ignores
+    /// the rest of the scope).
+    /// </summary>
+    internal static Changer EvaluateViaLambda(RenderRoot root, LambdaValue lambda, HarloweValue item,
+                                              int pos, MacroContext ctx, RenderNode target, out bool failed)
+    {
+      failed = false;
+
       HarloweValue result;
       using (ctx.PushSideEffectGuard())
-        result = LambdaInvoker.EvalTransform(enchantment.Lambda, item, pos, ctx);
+        result = LambdaInvoker.EvalTransform(lambda, item, pos, ctx);
 
       string message;
       if (result.IsError)

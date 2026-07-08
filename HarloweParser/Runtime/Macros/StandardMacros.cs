@@ -87,15 +87,20 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new PrependMacro());
       registry.Register(new ChangeMacro());
       registry.Register(new EnchantMacro());
-      registry.Register(new InteractionMacro("click", InteractionKind.Click, RevisionMode.Replace));
+      // Plain interaction macros (combo mode null) reveal their attached hook
+      // at the macro's own position; (click-rerun:) — click only, as in
+      // reference — survives dispatch and re-renders per activation; the
+      // -replace/-append/-prepend combos splice into the target instead.
+      registry.Register(new InteractionMacro("click", InteractionKind.Click));
+      registry.Register(new InteractionMacro("click-rerun", InteractionKind.Click, null, once: false));
       registry.Register(new InteractionMacro("click-replace", InteractionKind.Click, RevisionMode.Replace));
       registry.Register(new InteractionMacro("click-append", InteractionKind.Click, RevisionMode.Append));
       registry.Register(new InteractionMacro("click-prepend", InteractionKind.Click, RevisionMode.Prepend));
-      registry.Register(new InteractionMacro("mouseover", InteractionKind.MouseOver, RevisionMode.Replace));
+      registry.Register(new InteractionMacro("mouseover", InteractionKind.MouseOver));
       registry.Register(new InteractionMacro("mouseover-replace", InteractionKind.MouseOver, RevisionMode.Replace));
       registry.Register(new InteractionMacro("mouseover-append", InteractionKind.MouseOver, RevisionMode.Append));
       registry.Register(new InteractionMacro("mouseover-prepend", InteractionKind.MouseOver, RevisionMode.Prepend));
-      registry.Register(new InteractionMacro("mouseout", InteractionKind.MouseOut, RevisionMode.Replace));
+      registry.Register(new InteractionMacro("mouseout", InteractionKind.MouseOut));
       registry.Register(new InteractionMacro("mouseout-replace", InteractionKind.MouseOut, RevisionMode.Replace));
       registry.Register(new InteractionMacro("mouseout-append", InteractionKind.MouseOut, RevisionMode.Append));
       registry.Register(new InteractionMacro("mouseout-prepend", InteractionKind.MouseOut, RevisionMode.Prepend));

@@ -139,17 +139,21 @@ namespace Harlowe.Tests.Runtime.Macros
       Assert.Equal(regions[0].Id, regions[1].Id);
     }
 
-    // --- Dispatch revisions ---
+    // --- Dispatch: plain macros reveal at the macro's position (reference:
+    // `[cool]<foo|(click:?foo)[beans]` → click → "coolbeans"), combos splice
+    // into the target. ---
 
     [Fact]
-    public void Dispatch_Click_ReplacesTarget()
+    public void Dispatch_Click_RevealsAttachedHookAtMacroPosition()
     {
+      // The target keeps its content and just loses the armed region; the
+      // attached hook renders where the (click:) call sits.
       var session = Session("|m>[cake](click: ?m)[surprise]");
       var initial = session.Render();
       Assert.Equal("cake", initial.Text);
 
       var after = session.DispatchEvent(FirstRegionId(initial));
-      Assert.Equal("surprise", after.Text);
+      Assert.Equal("cakesurprise", after.Text);
     }
 
     [Fact]
@@ -180,12 +184,17 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
-    public void Dispatch_AcrossMultipleMatches_RewritesAll()
+    public void Dispatch_AcrossMultipleMatches_RevealsOnceAndDisenchantsAll()
     {
+      // Both matches are armed under one region id; firing it reveals the
+      // hook once (at the macro's position) and disenchants every match.
       var session = Session("|m>[a]|m>[b](click: ?m)[X]");
       var initial = session.Render();
+      Assert.Equal(2, Regions(initial).Count);
+
       var after = session.DispatchEvent(FirstRegionId(initial));
-      Assert.Equal("XX", after.Text);
+      Assert.Equal("abX", after.Text);
+      Assert.Equal(0, CountKind(after, BufferedRenderOutput.Kind.BeginInteractive));
     }
 
     [Fact]
@@ -198,7 +207,7 @@ namespace Harlowe.Tests.Runtime.Macros
 
       // Second dispatch of the same id is a no-op — the handler was consumed.
       var second = session.DispatchEvent(id);
-      Assert.Equal("surprise", second.Text);
+      Assert.Equal("cakesurprise", second.Text);
       Assert.Equal(0, CountKind(second, BufferedRenderOutput.Kind.BeginInteractive));
     }
 
@@ -276,14 +285,15 @@ namespace Harlowe.Tests.Runtime.Macros
       // ?cake is declared AFTER the macro. The persistent interaction pass
       // re-resolves the target against the finished tree, so the forward
       // reference is caught (eager apply-time resolution used to miss it) and
-      // dispatching the region replaces "late" with "surprise".
+      // dispatching the region reveals "surprise" at the macro's position —
+      // before the |cake> hook.
       var session = Session("(click: ?cake)[surprise]|cake>[late]");
       var result = session.Render();
       Assert.Equal(1, CountKind(result, BufferedRenderOutput.Kind.BeginInteractive));
       Assert.Equal("late", result.Text);
 
       var after = session.DispatchEvent(FirstRegionId(result));
-      Assert.Equal("surprise", after.Text);
+      Assert.Equal("surpriselate", after.Text);
     }
 
     [Fact]
@@ -296,22 +306,25 @@ namespace Harlowe.Tests.Runtime.Macros
       Assert.Equal(InteractionKind.MouseOver, region.Kind);
 
       var after = session.DispatchEvent(FirstRegionId(result));
-      Assert.Equal("hi", after.Text);
+      Assert.Equal("hit", after.Text);
     }
 
     [Fact]
-    public void Click_ComposedStyle_ForwardRef_WrapsWithStyleOutside()
+    public void Click_ComposedStyle_ForwardRef_ArmsUnstyled_RevealsStyled()
     {
-      // Composed style + a forward-referenced target: the style layer wraps
-      // outside the interactive region, same as the in-order case.
+      // Composed style + a forward-referenced target: the armed region is
+      // unstyled (composed styles belong to the revealed content, reference's
+      // renderInto of the descriptor), and the reveal carries the style.
       var session = Session("(click: ?late) + (text-style: \"bold\")[after]|late>[t]");
       var result = session.Render();
       Assert.Collection(result.Entries,
-        e => Assert.Equal(BufferedRenderOutput.Kind.PushStyle, e.Kind),
         e => Assert.Equal(BufferedRenderOutput.Kind.BeginInteractive, e.Kind),
         e => { Assert.Equal(BufferedRenderOutput.Kind.Text, e.Kind); Assert.Equal("t", e.Content); },
-        e => Assert.Equal(BufferedRenderOutput.Kind.EndInteractive, e.Kind),
-        e => Assert.Equal(BufferedRenderOutput.Kind.PopStyle, e.Kind));
+        e => Assert.Equal(BufferedRenderOutput.Kind.EndInteractive, e.Kind));
+
+      var after = session.DispatchEvent(FirstRegionId(result));
+      Assert.Equal("aftert", after.Text);
+      Assert.Equal(1, CountKind(after, BufferedRenderOutput.Kind.PushStyle));
     }
 
     [Fact]
@@ -351,67 +364,68 @@ namespace Harlowe.Tests.Runtime.Macros
     public void Click_Passage_WrapsWholeRender()
     {
       // ?passage selects the render root; (click: ?passage) makes the entire
-      // passage one clickable region.
+      // passage one clickable region. Firing it reveals the hook in place —
+      // the passage text survives.
       var session = Session("hello(click: ?passage)[wow]");
       var initial = session.Render();
       Assert.Equal(1, CountKind(initial, BufferedRenderOutput.Kind.BeginInteractive));
 
       var after = session.DispatchEvent(FirstRegionId(initial));
-      Assert.Equal("wow", after.Text);
+      Assert.Equal("hellowow", after.Text);
     }
 
     // --- Composition + enchant interaction ---
 
     [Fact]
-    public void Click_ComposedWithStyle_StyleWrapsTheRegion()
+    public void Click_ComposedWithStyle_StylesRevealedContent_NotArmedRegion()
     {
+      // Reference applies the descriptor's composed styles when the event's
+      // renderInto runs — so (click: ?m)+(text-style:"bold")[after] arms ?m
+      // unstyled and reveals a bold "after". (The armed region is styled by
+      // the macro's optional second argument instead.)
       var session = Session("|m>[x]"
         + "(click: ?m) + (text-style: \"bold\")[after]");
       var result = session.Render();
 
-      // Expected order: PushStyle(bold), BeginInteractive, Text(x), EndInteractive, PopStyle.
       Assert.Collection(result.Entries,
-        e => Assert.Equal(BufferedRenderOutput.Kind.PushStyle, e.Kind),
         e => Assert.Equal(BufferedRenderOutput.Kind.BeginInteractive, e.Kind),
         e => { Assert.Equal(BufferedRenderOutput.Kind.Text, e.Kind); Assert.Equal("x", e.Content); },
-        e => Assert.Equal(BufferedRenderOutput.Kind.EndInteractive, e.Kind),
-        e => Assert.Equal(BufferedRenderOutput.Kind.PopStyle, e.Kind));
+        e => Assert.Equal(BufferedRenderOutput.Kind.EndInteractive, e.Kind));
+
+      var after = session.DispatchEvent(FirstRegionId(result));
+      Assert.Equal("xafter", after.Text);
+      Assert.Equal(1, CountKind(after, BufferedRenderOutput.Kind.PushStyle));
     }
 
     [Fact]
-    public void ClickAppendComposedWithStyle_AfterDispatch_StyleWrapDisappearsWithRegion()
+    public void ClickAppendComposedWithStyle_StylesTheSplicedContent()
     {
-      // A composed (click-append: ?m) + (text-style: "bold") wraps both the
-      // interactive node AND its surrounding style layer around the original
-      // content. When the region fires, the style wrap is owned by the
-      // interaction and must disappear alongside the interactive node — so
-      // the post-dispatch tree shows the original content unstyled and the
-      // appended deferred content unstyled. Regression test for the
-      // outer-wrap-survives bug.
+      // For a combo, the composed style layer travels with the deferred
+      // content into the target: the armed region is unstyled, and after
+      // dispatch the appended " added" carries the bold wrap while the
+      // original content stays plain.
       var session = Session("|m>[orig](click-append: ?m) + (text-style: \"bold\")[ added]");
       var initial = session.Render();
-      Assert.Equal(1, CountKind(initial, BufferedRenderOutput.Kind.PushStyle));
+      Assert.Equal(0, CountKind(initial, BufferedRenderOutput.Kind.PushStyle));
 
       var after = session.DispatchEvent(FirstRegionId(initial));
       Assert.Equal("orig added", after.Text);
-      // The style wrap consumed with the region — no PushStyle in the
-      // re-flushed post-dispatch tree.
-      Assert.Equal(0, CountKind(after, BufferedRenderOutput.Kind.PushStyle));
-      Assert.Equal(0, CountKind(after, BufferedRenderOutput.Kind.PopStyle));
+      Assert.Equal(1, CountKind(after, BufferedRenderOutput.Kind.PushStyle));
+      Assert.Equal(1, CountKind(after, BufferedRenderOutput.Kind.PopStyle));
     }
 
     [Fact]
     public void Enchant_AcrossDispatch_StaysSingleWrapped()
     {
       // (enchant:) re-runs after dispatch. Its idempotency (disenchant first)
-      // means no double-wrapping after a click rewrites the target.
+      // means no double-wrapping after a click mutates the tree.
       var session = Session(
         "|x>[content](enchant: ?x, (text-style: \"bold\"))(click: ?x)[after]");
       var initial = session.Render();
       Assert.Equal(1, CountKind(initial, BufferedRenderOutput.Kind.PushStyle));
 
       var after = session.DispatchEvent(FirstRegionId(initial));
-      Assert.Equal("after", after.Text);
+      Assert.Equal("contentafter", after.Text);
       // Still just one bold wrap — the enchant pass disenchanted before
       // re-applying, so the post-dispatch tree isn't doubled.
       Assert.Equal(1, CountKind(after, BufferedRenderOutput.Kind.PushStyle));
@@ -421,9 +435,9 @@ namespace Harlowe.Tests.Runtime.Macros
     public void Enchant_CatchesClickSplicedContent()
     {
       // The enchantment is registered before any click happens. After the
-      // click rewrites ?x, the enchant pass catches the new content.
+      // combo click rewrites ?x, the enchant pass catches the new content.
       var session = Session(
-        "(enchant: ?x, (text-style: \"bold\"))|x>[old](click: ?x)[NEW]");
+        "(enchant: ?x, (text-style: \"bold\"))|x>[old](click-replace: ?x)[NEW]");
       var initial = session.Render();
       Assert.Equal("old", initial.Text);
 
@@ -449,18 +463,20 @@ namespace Harlowe.Tests.Runtime.Macros
       Assert.True(found, "expected an error entry mentioning 'hook name'");
     }
 
-    // --- Combo coverage ---
+    // --- Whole-family coverage: plain macros reveal at the macro's position
+    // (target keeps its content), combos splice into the target. ---
 
     [Theory]
-    [InlineData("click", "cake", "surprise", "surprise")]
+    [InlineData("click", "cake", "surprise", "cakesurprise")]
+    [InlineData("click-rerun", "cake", "surprise", "cakesurprise")]
     [InlineData("click-replace", "cake", "surprise", "surprise")]
     [InlineData("click-append", "cake", " more", "cake more")]
     [InlineData("click-prepend", "fox", "the ", "the fox")]
-    [InlineData("mouseover", "cake", "surprise", "surprise")]
+    [InlineData("mouseover", "cake", "surprise", "cakesurprise")]
     [InlineData("mouseover-replace", "cake", "surprise", "surprise")]
     [InlineData("mouseover-append", "cake", " more", "cake more")]
     [InlineData("mouseover-prepend", "fox", "the ", "the fox")]
-    [InlineData("mouseout", "cake", "surprise", "surprise")]
+    [InlineData("mouseout", "cake", "surprise", "cakesurprise")]
     [InlineData("mouseout-replace", "cake", "surprise", "surprise")]
     [InlineData("mouseout-append", "cake", " more", "cake more")]
     [InlineData("mouseout-prepend", "fox", "the ", "the fox")]
@@ -470,6 +486,194 @@ namespace Harlowe.Tests.Runtime.Macros
       var first = session.Render();
       var after = session.DispatchEvent(FirstRegionId(first));
       Assert.Equal(expected, after.Text);
+    }
+
+    // --- String targets: (click: "text") arms every occurrence, reference's
+    // `wow(click:'wow')[ gosh ]wow` spec. ---
+
+    [Fact]
+    public void ClickString_ArmsEveryOccurrence_UnderOneRegionId()
+    {
+      var session = Session("wow(click: \"wow\")[ gosh ]wow");
+      var result = session.Render();
+      Assert.Equal("wowwow", result.Text);
+
+      var regions = Regions(result);
+      Assert.Equal(2, regions.Count);
+      Assert.Equal(regions[0].Id, regions[1].Id);
+      Assert.Equal(InteractionKind.Click, regions[0].Kind);
+    }
+
+    [Fact]
+    public void Dispatch_ClickString_RevealsAtMacroPosition_AndDisenchantsAll()
+    {
+      // Reference: `wow(click:'wow')[ gosh ]wow` → click → "wow gosh wow",
+      // zero enchantments left.
+      var session = Session("wow(click: \"wow\")[ gosh ]wow");
+      var initial = session.Render();
+
+      var after = session.DispatchEvent(FirstRegionId(initial));
+      Assert.Equal("wow gosh wow", after.Text);
+      Assert.Equal(0, CountKind(after, BufferedRenderOutput.Kind.BeginInteractive));
+    }
+
+    [Fact]
+    public void Dispatch_ClickReplaceString_SplicesEveryOccurrence()
+    {
+      // The combo form rewrites the matched text itself.
+      var session = Session("bob(click-replace: \"b\")[x]");
+      var initial = session.Render();
+      Assert.Equal("bob", initial.Text);
+      Assert.Equal(2, Regions(initial).Count);
+
+      var after = session.DispatchEvent(FirstRegionId(initial));
+      Assert.Equal("xox", after.Text);
+    }
+
+    [Fact]
+    public void ClickString_MatchAddedLater_ArmsOnNextPass()
+    {
+      // The string interaction matches nothing on the first render (no handler
+      // registered), then arms the "wow" a later click reveals — reference's
+      // "enchants additional matching strings added to the passage".
+      var session = Session("(click: \"wow\")[gosh]|a>[A](click: ?a)[wow]");
+      var initial = session.Render();
+      Assert.Equal("A", initial.Text);
+      Assert.Equal(1, CountKind(initial, BufferedRenderOutput.Kind.BeginInteractive));
+
+      var second = session.DispatchEvent(FirstRegionId(initial));
+      Assert.Equal("Awow", second.Text);
+      Assert.Equal(1, CountKind(second, BufferedRenderOutput.Kind.BeginInteractive));
+
+      var third = session.DispatchEvent(FirstRegionId(second));
+      Assert.Equal("goshAwow", third.Text);
+    }
+
+    [Fact]
+    public void ClickEmptyString_EmitsError()
+    {
+      // Reference: "A string given to this (click:) macro was empty."
+      var session = Session("(click: \"\")[x]");
+      var result = session.Render();
+      bool found = false;
+      for (int i = 0; i < result.Entries.Count; i++)
+        if (result.Entries[i].Kind == BufferedRenderOutput.Kind.Error
+            && result.Entries[i].Content.Contains("was empty"))
+          found = true;
+      Assert.True(found, "expected an error entry mentioning 'was empty'");
+    }
+
+    // --- Optional second argument: a changer (or via-lambda) styling the
+    // armed region, reference's `(click:?foo, (size: 2*24px))` spec. ---
+
+    [Fact]
+    public void Click_SecondArgChanger_StylesTheArmedRegion()
+    {
+      var session = Session("|m>[x](click: ?m, (text-style: \"bold\"))[y]");
+      var result = session.Render();
+
+      Assert.Collection(result.Entries,
+        e => { Assert.Equal(BufferedRenderOutput.Kind.PushStyle, e.Kind); Assert.True(e.Style.Bold); },
+        e => Assert.Equal(BufferedRenderOutput.Kind.BeginInteractive, e.Kind),
+        e => { Assert.Equal(BufferedRenderOutput.Kind.Text, e.Kind); Assert.Equal("x", e.Content); },
+        e => Assert.Equal(BufferedRenderOutput.Kind.EndInteractive, e.Kind),
+        e => Assert.Equal(BufferedRenderOutput.Kind.PopStyle, e.Kind));
+
+      // The armed styling disenchants with the region when it fires.
+      var after = session.DispatchEvent(FirstRegionId(result));
+      Assert.Equal("xy", after.Text);
+      Assert.Equal(0, CountKind(after, BufferedRenderOutput.Kind.PushStyle));
+    }
+
+    [Fact]
+    public void Click_SecondArgViaLambda_StylesPerMatch_WithPos()
+    {
+      // Reference: `(click:?foo+?bar, via (size: pos*48px))[]` styles each
+      // match by its 1-based position.
+      var session = Session("|m>[a]|m>[b](click: ?m, via (opacity: pos * 0.25))[y]");
+      var result = session.Render();
+
+      var styles = new List<StyleSpec>();
+      for (int i = 0; i < result.Entries.Count; i++)
+        if (result.Entries[i].Kind == BufferedRenderOutput.Kind.PushStyle)
+          styles.Add(result.Entries[i].Style);
+      Assert.Equal(2, styles.Count);
+      Assert.Equal(0.25, styles[0].Opacity);
+      Assert.Equal(0.5, styles[1].Opacity);
+    }
+
+    [Fact]
+    public void Click_SecondArgRevisionChanger_EmitsError()
+    {
+      // The same notRevisionChanger gate (enchant:) uses.
+      var session = Session("|m>[x](click: ?m, (replace: ?z))[y]");
+      var result = session.Render();
+      bool found = false;
+      for (int i = 0; i < result.Entries.Count; i++)
+        if (result.Entries[i].Kind == BufferedRenderOutput.Kind.Error
+            && result.Entries[i].Content.Contains("can't include a revision"))
+          found = true;
+      Assert.True(found, "expected an error entry mentioning 'can't include a revision'");
+    }
+
+    [Fact]
+    public void Click_SecondArgNonChanger_EmitsError()
+    {
+      var session = Session("|m>[x](click: ?m, \"bold\")[y]");
+      var result = session.Render();
+      bool found = false;
+      for (int i = 0; i < result.Entries.Count; i++)
+        if (result.Entries[i].Kind == BufferedRenderOutput.Kind.Error
+            && result.Entries[i].Content.Contains("changer or a 'via' lambda"))
+          found = true;
+      Assert.True(found, "expected an error entry mentioning the second-argument types");
+    }
+
+    [Fact]
+    public void Click_SecondArgLambdaNonChangerResult_ReplacesMatchWithError()
+    {
+      // A lambda producing a non-changer replaces the match with the in-prose
+      // error and arms nothing (reference's enchantScope failure path).
+      var session = Session("|m>[x](click: ?m, via 5)[y]");
+      var result = session.Render();
+      Assert.Equal(0, CountKind(result, BufferedRenderOutput.Kind.BeginInteractive));
+      bool found = false;
+      for (int i = 0; i < result.Entries.Count; i++)
+        if (result.Entries[i].Kind == BufferedRenderOutput.Kind.Error
+            && result.Entries[i].Content.Contains("must return a changer"))
+          found = true;
+      Assert.True(found, "expected an error entry mentioning 'must return a changer'");
+    }
+
+    // --- (click-rerun:) — once:false, re-renders per activation ---
+
+    [Fact]
+    public void ClickRerun_StaysArmed_AndReRendersEachActivation()
+    {
+      // Reference: `(click-rerun:?foo)[(set:$b to it+1)$b]` keeps the target
+      // armed and replaces the revealed content on every activation.
+      var session = Session("(set: $n to 0)|m>[cool](click-rerun: ?m)[(set: $n to $n + 1)$n]");
+      var initial = session.Render();
+      Assert.Equal("cool", initial.Text);
+      var id = FirstRegionId(initial);
+
+      var first = session.DispatchEvent(id);
+      Assert.Equal("cool1", first.Text);
+      Assert.Equal(1, CountKind(first, BufferedRenderOutput.Kind.BeginInteractive));
+
+      var second = session.DispatchEvent(id);
+      Assert.Equal("cool2", second.Text);
+      Assert.Equal(1, CountKind(second, BufferedRenderOutput.Kind.BeginInteractive));
+    }
+
+    // --- Empty hooks are never armed (reference's :empty filter) ---
+
+    [Fact]
+    public void Click_EmptyHookTarget_IsNotArmed()
+    {
+      var session = Session("|m>[](click: ?m)[x]");
+      var result = session.Render();
+      Assert.Equal(0, CountKind(result, BufferedRenderOutput.Kind.BeginInteractive));
     }
 
     // --- ?link styling target (a leaf RenderLinkNode, not a hook) ---

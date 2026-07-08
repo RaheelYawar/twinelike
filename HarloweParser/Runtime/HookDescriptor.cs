@@ -101,23 +101,53 @@ namespace Harlowe.Runtime
 
   /// <summary>
   /// The interaction instruction a click/hover changer leaves on a descriptor.
-  /// Combines the targeting query with the kind of event to listen for and the
-  /// revision mode that decides what to do with the deferred hook on dispatch
-  /// — <c>(click: ?x)</c> ≡ <c>(click-replace: ?x)</c> = Click + Replace;
-  /// <c>(mouseover-append: ?x)</c> = MouseOver + Append; etc. The deferred
-  /// hook itself is held by the registered <see cref="ClickHandler"/>, not
-  /// here — this spec is the static description of what kind of interaction
-  /// the changer represents.
+  /// Combines the targeting query (hook name or literal string) with the kind
+  /// of event to listen for and what happens to the deferred hook on dispatch:
+  /// a plain macro (<c>(click: ?x)</c>, <see cref="Mode"/> null) <em>reveals</em>
+  /// the attached hook at the macro's own position, while a combo
+  /// (<c>(click-replace: ?x)</c>, <c>(mouseover-append: ?x)</c>, …) splices it
+  /// into the target — reference's <c>enchantDesc.rerender</c> distinction in
+  /// <c>ts/macrolib/enchantments.ts</c>. The deferred hook itself is held by
+  /// the registered <see cref="ClickHandler"/>, not here — this spec is the
+  /// static description of what kind of interaction the changer represents.
   /// </summary>
   public class InteractionSpec
   {
-    /// <summary>Hook-name target (the targets of the wrap and the dispatch revision are the same).</summary>
+    /// <summary>Hook-name target. Null when <see cref="StringTarget"/> is set.</summary>
     public HookNameValue HookTarget;
+
+    /// <summary>Literal prose to match (<c>(click: "gold")</c>); each occurrence is wrapped as an armed region per pass. Null when <see cref="HookTarget"/> is set.</summary>
+    public string StringTarget;
 
     /// <summary>Which interaction kind fires the dispatch handler.</summary>
     public InteractionKind Kind;
 
-    /// <summary>Whether the dispatched deferred hook replaces, follows, or precedes the target's existing content.</summary>
-    public RevisionMode Mode;
+    /// <summary>
+    /// Combo splice mode, or <c>null</c> for the plain macros, whose deferred
+    /// hook reveals at the macro's own position instead of rewriting the target.
+    /// </summary>
+    public RevisionMode? Mode;
+
+    /// <summary>
+    /// False for <c>(click-rerun:)</c>: the interaction survives dispatch and
+    /// each activation re-renders the deferred hook in place of the previous
+    /// run's content (reference's <c>once: false</c> + <c>append: 'replace'</c>).
+    /// </summary>
+    public bool Once = true;
+
+    /// <summary>
+    /// Optional second-argument changer styling the <em>armed</em> region while
+    /// it waits (<c>(click: ?hat, (text-style: "bold"))</c>). Must be
+    /// enchantable. Null when absent or when <see cref="ArmLambda"/> is set.
+    /// </summary>
+    public Changer ArmChanger;
+
+    /// <summary>
+    /// Optional second-argument <c>via</c> lambda producing the armed-region
+    /// changer per match, with <c>pos</c> bound 1-based — the same machinery
+    /// as <c>(enchant:)</c>'s lambda form. Null when absent or when
+    /// <see cref="ArmChanger"/> is set.
+    /// </summary>
+    public LambdaValue ArmLambda;
   }
 }
