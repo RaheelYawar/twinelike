@@ -13,7 +13,7 @@ for the save-model slice (which lands `(history:)` semantics).
 
 - **High severity (0 active, 5 fixed)**: silent wrong result or breaks documented Harlowe idioms.
 - **Medium severity (4 active, 6 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
-- **Low severity (1 active, 1 fixed)**: documented as deliberate or marginal.
+- **Low severity (2 active, 1 fixed)**: documented as deliberate or marginal.
 
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
 items are kept and marked rather than renumbered.
@@ -355,10 +355,11 @@ half-width centred block with `margin-left`/`max-width`/`display:block`. See
 
 - **Ours**: Requires every value to share the first value's kind; a mixed-kind
   input errors with "(sorted:) can't compare values of different types".
-  Numbers sort numerically, strings via `string.CompareOrdinal`. The docstring
-  claims "Matches stock Harlowe 3.3.8" — that claim is **false** for the
-  mixed-type case. See `HarloweParser\Runtime\Macros\SortedMacro.cs` (the
-  `item.Kind != kind` check). (The ordinal-vs-alphanumeric string ordering is a
+  Numbers sort numerically, strings via `string.CompareOrdinal`. (The
+  docstring has since been rewritten to document this divergence honestly —
+  2026-07-07 audit; the behaviour itself is unchanged.) See
+  `HarloweParser\Runtime\Macros\SortedMacro.cs` (the `item.Kind != kind`
+  check). (The ordinal-vs-alphanumeric string ordering is a
   separate, deliberately-documented divergence — see CLAUDE.md.)
 - **Reference**: Sorts mixed arrays, numbers ahead of strings. The doc's own
   example `(sorted: ...$a)` over `(a:'A','C','E','G',2,1)` produces
@@ -444,6 +445,31 @@ finding below.
   turn — ours errors, reference reloads. Host navigation (the normal player flow)
   clears the guard identically. A direct consequence of the documented intra-turn
   `(goto:)` model, not an independent bug.
+
+---
+
+### 18. Stacked interactions on one hook nest in reverse order (found 2026-07-07 audit)
+
+- **Ours**: When several `(click:)`-family macros target the same hook, each
+  pass wraps the container's current content in turn, so the *last* macro's
+  region ends up outermost — `|f>[A](click:?f)[1](click:?f)[2]` flushes as
+  `Begin(r-1) Begin(r-0) … End End`. Both regions fire correctly and, fired in
+  passage order, accumulate exactly as reference does (`A1`, then `A12`); only
+  the nesting — and therefore which region a host that fires
+  "outermost-first" picks — diverges. See the wrap loop in
+  `InteractionPass.Update`.
+- **Reference**: `<tw-enchantment>`s wrap "outward-to-inward first-to-last",
+  and the shared event handler sorts by `compareDocumentPosition` to execute
+  the outermost first — so stacked interactions activate in passage order,
+  top to bottom (`generalEnchantmentEvent` in `ts/macrolib/enchantments.ts`;
+  pinned by the "multiple enchantments are triggered in order" spec).
+- **Trigger**: `[A]<foo|(click:?foo)[1](click:?foo)[2](click:?foo)[3]` — click
+  the text three times.
+- **User-visible**: only through the host's choice of which nested region a
+  click on the shared text reports; a host that dispatches the outermost
+  region first will fire ours in reverse passage order. Reversing our wrap
+  loop (or documenting "innermost = first macro" as the host contract) would
+  align it.
 
 ---
 
