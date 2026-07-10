@@ -37,49 +37,22 @@ namespace Harlowe.Runtime.Macros
     {
       var spec = new InteractionSpec { Kind = kind, Mode = mode, Once = once };
 
-      var target = args[0];
-      if (target.IsError) return target;
-      if (target.Kind == HarloweValueKind.HookName)
-      {
-        spec.HookTarget = target.AsHookName;
-      }
-      else if (target.Kind == HarloweValueKind.String)
-      {
-        // Reference: "A string given to this (click:) macro was empty."
-        if (string.IsNullOrEmpty(target.AsString))
-          return HarloweValue.OfError($"A string given to this {macroName} macro was empty.");
-        spec.StringTarget = target.AsString;
-      }
-      else
-      {
-        return HarloweValue.OfError($"{macroName} requires a hook name or string as its first argument, got {target.Kind}");
-      }
+      var error = EnchantmentMacroSupport.ValidateTarget(args[0], macroName, out var hookTarget, out var stringTarget);
+      if (error != null) return error;
+      // Reference: "A string given to this (click:) macro was empty." — the
+      // click family errors here (newEnchantmentMacroFns); (enchant:)/(change:)
+      // deliberately don't, so the check sits on this side of the shared helper.
+      if (hookTarget == null && string.IsNullOrEmpty(stringTarget))
+        return HarloweValue.OfError($"A string given to this {macroName} macro was empty.");
+      spec.HookTarget = hookTarget;
+      spec.StringTarget = stringTarget;
 
       if (args.Count > 1)
       {
-        var styler = args[1];
-        if (styler.IsError) return styler;
-        if (styler.Kind == HarloweValueKind.Changer)
-        {
-          // Reference performs the same notRevisionChanger check used for (enchant:).
-          if (!styler.AsChanger.CanEnchant)
-            return HarloweValue.OfError($"The changer given to {macroName} can't include a revision, enchantment, or interaction changer like (replace:), (click:), or (link:)");
-          spec.ArmChanger = styler.AsChanger;
-        }
-        else if (styler.Kind == HarloweValueKind.Lambda)
-        {
-          // Reference's Lambda.TypeSignature(`via`) demands exactly a via clause:
-          // where/each/making/when lambdas are a different shape and rejected.
-          var node = styler.AsLambda?.Node;
-          if (node == null || node.ViaClause == null || node.WhereClause != null
-              || node.MakingName != null || node.WhenClause != null || node.IsEach)
-            return HarloweValue.OfError($"{macroName} requires a changer or a 'via' lambda as its second argument");
-          spec.ArmLambda = styler.AsLambda;
-        }
-        else
-        {
-          return HarloweValue.OfError($"{macroName} requires a changer or a 'via' lambda as its second argument, got {styler.Kind}");
-        }
+        error = EnchantmentMacroSupport.ValidateStyler(args[1], macroName, out var armChanger, out var armLambda);
+        if (error != null) return error;
+        spec.ArmChanger = armChanger;
+        spec.ArmLambda = armLambda;
       }
 
       return HarloweValue.OfChanger(Changer.FromInteraction(spec));

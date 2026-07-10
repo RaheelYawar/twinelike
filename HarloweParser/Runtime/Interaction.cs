@@ -7,12 +7,26 @@ namespace Harlowe.Runtime
   /// <summary>
   /// A registered, persistent interaction: a <c>(click:)</c>/<c>(mouseover:)</c>
   /// -family macro's target query plus everything needed to re-wrap its matches
-  /// and register a handler. The interaction analogue of <see cref="Enchantment"/>
+  /// and fire on event. The interaction analogue of <see cref="Enchantment"/>
   /// — held on <see cref="MacroContext.Interactions"/> and re-applied by
   /// <see cref="InteractionPass"/> after the body render and after every
   /// dispatch, so a target declared <em>after</em> the macro (or created by a
   /// click-deferred hook) is still caught. Mirrors reference Harlowe, which
   /// models clicks/hovers as enchantments refreshed whenever the tree changes.
+  ///
+  /// <para>
+  /// Armed entries are indexed by region id in
+  /// <see cref="MacroContext.ClickHandlers"/>; when the host reports an event,
+  /// <see cref="StorySession.DispatchEvent"/> renders
+  /// <see cref="RenderDeferredHook"/> into a detached builder (wrapped in
+  /// <see cref="Styles"/>), then either fills the reveal anchor(s) tagged
+  /// <see cref="RenderHookNode.RevealRegionId"/> (plain macros) or splices into
+  /// every target using <see cref="Mode"/> (combos — string-occurrence targets
+  /// found by their <see cref="RenderHookNode.SourceRegionId"/> tag).
+  /// Tag-based resolution means a node that reached the tree as a clone still
+  /// resolves. Single-use unless <see cref="Once"/> is false
+  /// (<c>(click-rerun:)</c>).
+  /// </para>
   /// </summary>
   public class Interaction
   {
@@ -94,7 +108,7 @@ namespace Harlowe.Runtime
     /// evaluation; when null, lambda-styled interactions still arm, just
     /// unstyled. Null-safe; tolerant of malformed entries.
     /// </summary>
-    public static void Update(RenderRoot root, IReadOnlyList<Interaction> interactions, Dictionary<string, ClickHandler> clickHandlers, MacroContext ctx = null)
+    public static void Update(RenderRoot root, IReadOnlyList<Interaction> interactions, Dictionary<string, Interaction> clickHandlers, MacroContext ctx = null)
     {
       if (root == null || interactions == null || clickHandlers == null) return;
 
@@ -106,29 +120,12 @@ namespace Harlowe.Runtime
         var interaction = interactions[i];
         if (interaction == null) continue;
 
-        IReadOnlyList<RenderNode> targets;
-        if (interaction.Target != null)
-        {
-          targets = HookResolver.Resolve(root, interaction.Target);
-        }
-        else if (interaction.StringTarget != null)
-        {
-          // Wrap each occurrence fresh (StripWraps unwound the previous
-          // pass's), tagged with the region id so the next strip finds them —
-          // and so the dispatch can resolve a combo's splice targets by tag.
-          var wraps = TextOccurrenceFinder.FindAndWrap(root, interaction.StringTarget);
-          var list = new List<RenderNode>(wraps.Count);
-          for (int j = 0; j < wraps.Count; j++)
-          {
-            wraps[j].SourceRegionId = interaction.RegionId;
-            list.Add(wraps[j]);
-          }
-          targets = list;
-        }
-        else
-        {
-          continue;
-        }
+        // String occurrences are wrapped fresh (StripWraps unwound the
+        // previous pass's), tagged with the region id so the next strip finds
+        // them — and so the dispatch can resolve a combo's splice targets by tag.
+        var targets = EnchantmentPass.ResolveTargets(root, interaction.Target, interaction.StringTarget,
+          wrap => wrap.SourceRegionId = interaction.RegionId);
+        if (targets == null) continue;
 
         bool wrappedAny = false;
         int pos = 0;
@@ -163,10 +160,8 @@ namespace Harlowe.Runtime
             armChanger = null;
             if (!lambdaFailed && ctx != null)
             {
-              var item = interaction.Target != null
-                ? HarloweValue.OfHookName(interaction.Target)
-                : HarloweValue.OfString(interaction.StringTarget);
-              armChanger = EnchantmentPass.EvaluateViaLambda(root, interaction.ArmLambda, item, pos, ctx, targets[j], out lambdaFailed);
+              armChanger = EnchantmentPass.EvaluateViaLambda(root, interaction.ArmLambda,
+                interaction.Target, interaction.StringTarget, pos, ctx, targets[j], out lambdaFailed);
               if (lambdaFailed) continue; // the match is now the error node — don't arm it
             }
           }
@@ -204,17 +199,7 @@ namespace Harlowe.Runtime
         // No match wrapped → no event can fire, so don't register a stale
         // handler. A later pass (once the target exists) registers it.
         if (wrappedAny)
-        {
-          clickHandlers[interaction.RegionId] = new ClickHandler
-          {
-            RenderDeferredHook = interaction.RenderDeferredHook,
-            Target = interaction.Target,
-            Mode = interaction.Mode,
-            Once = interaction.Once,
-            Kind = interaction.Kind,
-            Styles = interaction.Styles
-          };
-        }
+          clickHandlers[interaction.RegionId] = interaction;
       }
     }
 

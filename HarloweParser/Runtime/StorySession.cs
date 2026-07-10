@@ -768,7 +768,7 @@ namespace Harlowe.Runtime
     public RenderResult DispatchEvent(string regionId)
     {
       if (_liveRoot == null || _liveContext == null) return EmptyResult(_currentPassage);
-      if (regionId == null || !_liveContext.ClickHandlers.TryGetValue(regionId, out var handler))
+      if (regionId == null || !_liveContext.ClickHandlers.TryGetValue(regionId, out var fired))
         return BuildResultFromLiveTree();
 
       // Consume — single-use unless (click-rerun:). Remove the fired
@@ -776,17 +776,8 @@ namespace Harlowe.Runtime
       // won't re-wrap or re-register it. (The handler dictionary is rebuilt
       // from the list by the pass, so there is no separate registry entry to
       // remove.)
-      if (handler.Once)
-      {
-        for (int i = 0; i < _liveContext.Interactions.Count; i++)
-        {
-          if (_liveContext.Interactions[i].RegionId == regionId)
-          {
-            _liveContext.Interactions.RemoveAt(i);
-            break;
-          }
-        }
-      }
+      if (fired.Once)
+        _liveContext.Interactions.Remove(fired);
 
       // Render the deferred hook into a detached subtree using the live
       // context — so inner (click:)/(enchant:)/(replace:) calls inside the
@@ -795,15 +786,15 @@ namespace Harlowe.Runtime
       // The composed style layers wrap the render: (b)+(click: ?a)[x] bolds
       // the revealed x, matching reference's renderInto of the descriptor.
       var detached = new Rendering.RenderTreeBuilder();
-      var styles = handler.Styles;
+      var styles = fired.Styles;
       if (styles != null)
         for (int i = 0; i < styles.Count; i++) detached.PushStyle(styles[i]);
-      handler.RenderDeferredHook?.Invoke(detached);
+      fired.RenderDeferredHook?.Invoke(detached);
       if (styles != null)
         for (int i = styles.Count - 1; i >= 0; i--) detached.PopStyle();
       var source = detached.Root.Children;
 
-      if (handler.Mode != null)
+      if (fired.Mode != null)
       {
         // Combo: splice the source into every target. A hook-name query is
         // re-resolved fresh, matching Harlowe's "?name is a query" rule; a
@@ -813,9 +804,9 @@ namespace Harlowe.Runtime
         // consumed region's leftover wrap is harmless: the interaction pass
         // strips all wraps next.
         IReadOnlyList<Rendering.RenderNode> targets;
-        if (handler.Target != null)
+        if (fired.Target != null)
         {
-          targets = Rendering.HookResolver.Resolve(_liveRoot, handler.Target);
+          targets = Rendering.HookResolver.Resolve(_liveRoot, fired.Target);
         }
         else
         {
@@ -827,7 +818,7 @@ namespace Harlowe.Runtime
         for (int i = 0; i < targets.Count; i++)
         {
           if (targets[i] is Rendering.IRenderContainer container)
-            Rendering.RenderNodes.Splice(container, source, handler.Mode.Value);
+            Rendering.RenderNodes.Splice(container, source, fired.Mode.Value);
         }
       }
       else
@@ -848,7 +839,7 @@ namespace Harlowe.Runtime
         for (int i = 0; i < anchors.Count; i++)
         {
           if (anchors[i] is Rendering.IRenderContainer anchor)
-            Rendering.RenderNodes.Splice(anchor, source, handler.Once ? RevisionMode.Append : RevisionMode.Replace);
+            Rendering.RenderNodes.Splice(anchor, source, fired.Once ? RevisionMode.Append : RevisionMode.Replace);
         }
       }
 

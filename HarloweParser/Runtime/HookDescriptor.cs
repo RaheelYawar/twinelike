@@ -108,7 +108,7 @@ namespace Harlowe.Runtime
   /// (<c>(click-replace: ?x)</c>, <c>(mouseover-append: ?x)</c>, …) splices it
   /// into the target — reference's <c>enchantDesc.rerender</c> distinction in
   /// <c>ts/macrolib/enchantments.ts</c>. The deferred hook itself is held by
-  /// the registered <see cref="ClickHandler"/>, not here — this spec is the
+  /// the recorded <see cref="Interaction"/>, not here — this spec is the
   /// static description of what kind of interaction the changer represents.
   /// </summary>
   public class InteractionSpec

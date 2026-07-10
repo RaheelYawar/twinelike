@@ -132,14 +132,16 @@ namespace Harlowe.Runtime
     public List<Interaction> Interactions = new List<Interaction>();
 
     /// <summary>
-    /// Registered interaction handlers keyed by <see cref="InteractiveRegion"/>
-    /// id. Rebuilt from <see cref="Interactions"/> by
-    /// <see cref="InteractionPass.Update"/> each pass; consumed by
-    /// <see cref="StorySession.DispatchEvent"/>. Shared with the session — the
-    /// same dictionary is reused across the main render and any subsequent
-    /// dispatch re-renders.
+    /// The armed interactions keyed by <see cref="InteractiveRegion"/> id — a
+    /// pure index into <see cref="Interactions"/> holding only the entries
+    /// whose target matched something this pass (an unmatched interaction has
+    /// no region to fire). Rebuilt by <see cref="InteractionPass.Update"/> each
+    /// pass; consumed by <see cref="StorySession.DispatchEvent"/>, which the
+    /// host calls with the region id the user activated. Shared with the
+    /// session — the same dictionary is reused across the main render and any
+    /// subsequent dispatch re-renders.
     /// </summary>
-    public Dictionary<string, ClickHandler> ClickHandlers = new Dictionary<string, ClickHandler>();
+    public Dictionary<string, Interaction> ClickHandlers = new Dictionary<string, Interaction>();
 
     /// <summary>
     /// The live render tree the session is building or has built. Macros that

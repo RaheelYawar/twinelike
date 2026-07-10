@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Harlowe.Runtime.Rendering;
 
@@ -100,29 +101,12 @@ namespace Harlowe.Runtime
       if (root == null || enchantment == null) return;
       if (enchantment.Changer == null && enchantment.Lambda == null) return;
 
-      IReadOnlyList<RenderNode> targets;
-      if (enchantment.Target != null)
-      {
-        targets = HookResolver.Resolve(root, enchantment.Target);
-      }
-      else if (enchantment.StringTarget != null)
-      {
-        var wraps = TextOccurrenceFinder.FindAndWrap(root, enchantment.StringTarget);
-        var list = new List<RenderNode>(wraps.Count);
-        for (int i = 0; i < wraps.Count; i++)
-        {
-          // Tag persistent wraps so the next pass's disenchant unwinds them
-          // back to plain prose before re-matching; (change:)'s (source null)
-          // stay, exactly like its style layers.
-          wraps[i].SourceEnchantment = source;
-          list.Add(wraps[i]);
-        }
-        targets = list;
-      }
-      else
-      {
-        return;
-      }
+      // Tag persistent wraps so the next pass's disenchant unwinds them back
+      // to plain prose before re-matching; (change:)'s (source null) stay,
+      // exactly like its style layers.
+      var targets = ResolveTargets(root, enchantment.Target, enchantment.StringTarget,
+        wrap => wrap.SourceEnchantment = source);
+      if (targets == null) return;
 
       int pos = 0;
       bool lambdaFailed = false;
@@ -141,7 +125,8 @@ namespace Harlowe.Runtime
           // First lambda failure replaced its match with the error and killed
           // the lambda for the remaining matches (reference nulls it out).
           if (lambdaFailed || ctx == null) continue;
-          changer = EvaluateLambda(root, enchantment, target, pos, ctx, out lambdaFailed);
+          changer = EvaluateViaLambda(root, enchantment.Lambda, enchantment.Target, enchantment.StringTarget,
+                                      pos, ctx, target, out lambdaFailed);
           if (changer == null) continue;
         }
         else
@@ -154,41 +139,11 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
-    /// Evaluate the enchantment's <c>via</c> lambda for one match: binds the
-    /// target value to <c>it</c> and <paramref name="pos"/> to <c>pos</c> and
-    /// expects a changer back. A non-changer result, an error, or a changer
-    /// that can't enchant replaces the match with an in-prose error and sets
-    /// <paramref name="failed"/> (reference replaces the element and ignores
-    /// the rest of the scope). The whole evaluation is sandboxed by
-    /// <see cref="MacroContext.PushSideEffectGuard"/>, so any session side
-    /// effect a clause macro stages — a <c>(goto:)</c>/<c>(load-game:)</c>
-    /// navigation, an <c>(enchant:)</c> registration, an RNG draw — is rolled
-    /// back: a lambda's job is to produce a changer, and pass-time evaluation
-    /// must never clobber a navigation queued by the render or dispatch that
-    /// triggered the pass, grow the list this pass is iterating, or desync the
-    /// reproducible RNG (see the ordering invariant in
-    /// <see cref="StorySession.DispatchEvent"/>).
-    /// </summary>
-    private static Changer EvaluateLambda(RenderRoot root, Enchantment enchantment, RenderNode target,
-                                          int pos, MacroContext ctx, out bool failed)
-    {
-      // Reference binds the lambda's `it` to the i-th match of the scope
-      // (`scope.getProperty(i)`, a narrowed HookSet). No shipped macro that may
-      // appear in an enchant lambda consumes a hook name, so the un-narrowed
-      // query (or the matched string) is indistinguishable in practice.
-      var item = enchantment.Target != null
-        ? HarloweValue.OfHookName(enchantment.Target)
-        : HarloweValue.OfString(enchantment.StringTarget);
-
-      return EvaluateViaLambda(root, enchantment.Lambda, item, pos, ctx, target, out failed);
-    }
-
-    /// <summary>
     /// Evaluate a per-match <c>via</c> lambda that must produce an enchantable
     /// changer — the shared core of the enchantment pass's lambda form and the
     /// interaction macros' second-argument lambda (reference runs both through
-    /// the same <c>enchantScope</c> loop). Binds <paramref name="item"/> to
-    /// <c>it</c> and <paramref name="pos"/> to <c>pos</c>; sandboxed by
+    /// the same <c>enchantScope</c> loop). The target value binds to <c>it</c>
+    /// and <paramref name="pos"/> to <c>pos</c>; sandboxed by
     /// <see cref="MacroContext.PushSideEffectGuard"/> so pass-time evaluation
     /// can't clobber queued navigation, the registration lists, or the RNG. A
     /// non-changer result, an error, or a changer that can't enchant replaces
@@ -196,10 +151,19 @@ namespace Harlowe.Runtime
     /// <paramref name="failed"/> (reference replaces the element and ignores
     /// the rest of the scope).
     /// </summary>
-    internal static Changer EvaluateViaLambda(RenderRoot root, LambdaValue lambda, HarloweValue item,
+    internal static Changer EvaluateViaLambda(RenderRoot root, LambdaValue lambda,
+                                              HookNameValue hookTarget, string stringTarget,
                                               int pos, MacroContext ctx, RenderNode target, out bool failed)
     {
       failed = false;
+
+      // Reference binds the lambda's `it` to the i-th match of the scope
+      // (`scope.getProperty(i)`, a narrowed HookSet). No shipped macro that may
+      // appear in an enchant lambda consumes a hook name, so the un-narrowed
+      // query (or the matched string) is indistinguishable in practice.
+      var item = hookTarget != null
+        ? HarloweValue.OfHookName(hookTarget)
+        : HarloweValue.OfString(stringTarget);
 
       HarloweValue result;
       using (ctx.PushSideEffectGuard())
@@ -218,6 +182,31 @@ namespace Harlowe.Runtime
       failed = true;
       ReplaceWithError(root, target, message);
       return null;
+    }
+
+    /// <summary>
+    /// Resolve a hook-name-or-string target against the tree — the shared
+    /// front of the enchant and interaction passes (and their per-pass
+    /// re-resolution contract: a hook name is a fresh query, a string target's
+    /// occurrences are wrapped fresh via <see cref="TextOccurrenceFinder"/>).
+    /// Each new occurrence wrap is handed to <paramref name="tagWrap"/> so the
+    /// caller stamps its own strip/disenchant tag. Returns <c>null</c> when the
+    /// entry has no target at all.
+    /// </summary>
+    internal static IReadOnlyList<RenderNode> ResolveTargets(RenderRoot root, HookNameValue hookTarget,
+                                                             string stringTarget, Action<RenderHookNode> tagWrap)
+    {
+      if (hookTarget != null) return HookResolver.Resolve(root, hookTarget);
+      if (stringTarget == null) return null;
+
+      var wraps = TextOccurrenceFinder.FindAndWrap(root, stringTarget);
+      var list = new List<RenderNode>(wraps.Count);
+      for (int i = 0; i < wraps.Count; i++)
+      {
+        tagWrap?.Invoke(wraps[i]);
+        list.Add(wraps[i]);
+      }
+      return list;
     }
 
     /// <summary>

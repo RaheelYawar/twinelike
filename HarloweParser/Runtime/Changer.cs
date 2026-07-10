@@ -81,9 +81,9 @@ namespace Harlowe.Runtime
     /// …). When applied, the changer records a persistent <see cref="Interaction"/>
     /// (and, for plain non-combo macros, plants the reveal anchor the dispatch
     /// fills); <see cref="InteractionPass"/> wraps every match of the spec's
-    /// target in a <see cref="RenderInteractiveNode"/> and registers the
-    /// deferred <see cref="ClickHandler"/> keyed by the region id — see
-    /// <see cref="Apply"/>.
+    /// target in a <see cref="RenderInteractiveNode"/> and indexes the armed
+    /// interaction in <see cref="MacroContext.ClickHandlers"/> by its region id
+    /// — see <see cref="Apply"/>.
     /// </summary>
     public static Changer FromInteraction(InteractionSpec interaction)
       => new Changer(new List<IChangerPatch> { new InteractionPatch { Interaction = interaction } });
