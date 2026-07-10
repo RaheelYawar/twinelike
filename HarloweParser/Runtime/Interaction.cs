@@ -151,8 +151,12 @@ namespace Harlowe.Runtime
           // Armed-region styling: the fixed second-arg changer, or the changer
           // its via-lambda produces for this match. A lambda failure replaces
           // the match with the in-prose error and stops producing styles for
-          // the rest of the scope, but later matches still arm (reference
-          // nulls the lambda out and keeps enchanting).
+          // the rest of the scope, but later matches still arm — and the next
+          // pass retries the lambda against the surviving matches. Both are
+          // deliberate: reference's enchantScope() nulls only a destructured
+          // local `lambda` on failure, so each updateEnchantments() re-runs
+          // the stored one, eating one more string occurrence per update.
+          // This pass-local flag reproduces exactly that.
           Changer armChanger = interaction.ArmChanger;
           if (interaction.ArmLambda != null)
           {
