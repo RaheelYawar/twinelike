@@ -301,6 +301,8 @@ namespace Harlowe.Tests
     [InlineData("(print: 'a\\'b')", "a'b")]
     [InlineData("(print: \"a\\0b\")", "a\0b")]
     [InlineData("(print: \"a\\bb\")", "a\bb")]
+    [InlineData("(print: \"a\\fb\")", "a\fb")]
+    [InlineData("(print: \"a\\vb\")", "a\vb")]
     public void StringLiteral_NamedEscape_Decoded(string source, string expectedValue)
     {
       // Reference Harlowe inherits the JS string-literal escape set via its

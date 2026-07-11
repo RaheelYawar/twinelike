@@ -459,6 +459,19 @@ namespace Harlowe.Tests.Runtime.Macros
       Assert.True(v.IsError);
     }
 
+    [Fact]
+    public void EvalFold_NoParameterName_BindsOnlyItAndAccumulator()
+    {
+      // The parser requires a parameter before `making`, but the AST is public —
+      // a hand-built parameterless fold lambda must still evaluate, with the
+      // item reachable through `it`.
+      var (reg, ctx) = Setup();
+      var lambda = ParseLambda("_item making _acc via _acc + it");
+      lambda.Node.ParameterName = null;
+      var v = LambdaInvoker.EvalFold(lambda, HarloweValue.OfNumber(10), HarloweValue.OfNumber(3), 2, ctx);
+      Assert.Equal(13, v.AsNumber);
+    }
+
     // --- (folded:) ---
 
     [Fact]

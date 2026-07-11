@@ -449,6 +449,21 @@ namespace Harlowe.Tests
                                         && e.Content.Contains("'<='"));
     }
 
+    [Theory]
+    [InlineData("(print: $)")]   // bare story-var sigil in expression position
+    [InlineData("(print: _)")]   // bare temp-var sigil
+    [InlineData("(print: 's)")]  // 's after whitespace: ' opens an unterminated string
+    [InlineData("(a: 1,'s)")]    // 's directly after a comma: rejected as the 's operator
+    public void MalformedExpressionCharacter_RecoversWithInProseError(string body)
+    {
+      const string htmlTemplate = "<html><body><tw-storydata name=\"T\" startnode=\"1\">"
+        + "<tw-passagedata pid=\"1\" name=\"P\">{0}</tw-passagedata>"
+        + "</tw-storydata></body></html>";
+      var story = new Harlowe(string.Format(htmlTemplate, body));
+      var result = new StorySession(story).Render();
+      Assert.Contains(result.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error);
+    }
+
     [Fact]
     public void Constructor_DuplicatePassageNames_Throws()
     {

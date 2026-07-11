@@ -166,6 +166,36 @@ namespace Harlowe.Tests.Twee
       => Assert.Throws<HarloweParseException>(() => Read("nope"));
 
     [Fact]
+    public void MissingCommaInObject_Throws()
+      => Assert.Throws<HarloweParseException>(() => Read("{\"a\":1 \"b\":2}"));
+
+    [Fact]
+    public void MissingCommaInArray_Throws()
+      => Assert.Throws<HarloweParseException>(() => Read("[1 2]"));
+
+    [Fact]
+    public void NonHexUnicodeEscape_Throws()
+      => Assert.Throws<HarloweParseException>(() => Read("\"\\uZZZZ\""));
+
+    [Fact]
+    public void BareMinusSign_Throws()
+      => Assert.Throws<HarloweParseException>(() => Read("-"));
+
+    [Fact]
+    public void TruncatedKeyword_Throws()
+    {
+      Assert.Throws<HarloweParseException>(() => Read("tru"));
+      Assert.Throws<HarloweParseException>(() => Read("nul"));
+    }
+
+    [Fact]
+    public void MissingColonInObject_Throws()
+    {
+      Assert.Throws<HarloweParseException>(() => Read("{\"a\" 1}"));   // wrong char
+      Assert.Throws<HarloweParseException>(() => Read("{\"a\""));      // end of input
+    }
+
+    [Fact]
     public void InvalidEscape_Throws()
       => Assert.Throws<HarloweParseException>(() => Read("\"\\x\""));
 

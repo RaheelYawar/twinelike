@@ -545,6 +545,22 @@ namespace Harlowe.Tests.Twee
         Steps = new List<HookRefStep> { new HookRefStep { Index = 2, FromEnd = true } }
       }));
 
+    [Fact]
+    public void HookRef_ThirdAndFourthOrdinalSuffixes()
+    {
+      // The "rd" and "th" suffix branches — 1st/2nd alone leave them unprinted.
+      Assert.Equal("?cake's 3rd", Print(new HookRefNode
+      {
+        Name = "cake",
+        Steps = new List<HookRefStep> { new HookRefStep { Index = 3, FromEnd = false } }
+      }));
+      Assert.Equal("?cake's 4th", Print(new HookRefNode
+      {
+        Name = "cake",
+        Steps = new List<HookRefStep> { new HookRefStep { Index = 4, FromEnd = false } }
+      }));
+    }
+
     // ----- Empty / null inputs -----
 
     [Fact]

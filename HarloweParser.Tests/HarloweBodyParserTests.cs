@@ -43,6 +43,43 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void StrayHookClose_SilentlySkipped()
+    {
+      // A `]` with no opener is tolerated, not a parse error — the parser
+      // skips the stray closer and keeps the surrounding prose.
+      var body = Parse("a]b");
+      var text = new System.Text.StringBuilder();
+      foreach (var child in body.Children)
+      {
+        Assert.IsNotType<ParseErrorNode>(child);
+        if (child is TextNode t) text.Append(t.Content);
+      }
+      Assert.Equal("ab", text.ToString());
+    }
+
+    [Fact]
+    public void RightAnchoredHookName_WithoutBody_ProducesEmptyNamedHook()
+    {
+      // `|name>` not followed by `[` — a named anchor with no hook body.
+      var body = Parse("|mark>x");
+      var hook = Assert.IsType<HookNode>(body.Children[0]);
+      Assert.Equal("mark", hook.Name);
+      Assert.Empty(hook.Children);
+      Assert.Equal("x", Assert.IsType<TextNode>(body.Children[1]).Content);
+    }
+
+    [Fact]
+    public void Link_FormatDelimiterInside_StaysProse()
+    {
+      // Inside [[...]] the tokenizer accumulates everything except ]] and the
+      // arrows into plain text, so format markup is literal link text.
+      var body = Parse("[[a''b->P]]");
+      var link = Assert.IsType<LinkNode>(Assert.Single(body.Children));
+      Assert.Equal("P", link.Target);
+      Assert.Equal("a''b", link.Text);
+    }
+
+    [Fact]
     public void Newline_ProducesNewlineNode()
     {
       var body = Parse("a\nb");

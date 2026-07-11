@@ -203,5 +203,45 @@ namespace Harlowe.Tests.Runtime.Saving
       Assert.False(r.Ok);
       Assert.Contains("x", r.Error);
     }
+
+    [Fact]
+    public void MissingVersion_FailsLoad()
+    {
+      var (reg, ctx) = Env();
+      var r = SaveSerializer.DeserialiseTimeline("{ \"moments\": [ \"P1\" ] }", Story("P1"), reg, ctx);
+      Assert.False(r.Ok);
+      Assert.Contains("version", r.Error);
+    }
+
+    [Fact]
+    public void MissingMoments_FailsLoad()
+    {
+      var (reg, ctx) = Env();
+      var r = SaveSerializer.DeserialiseTimeline("{ \"version\": 1 }", Story("P1"), reg, ctx);
+      Assert.False(r.Ok);
+      Assert.Contains("moments", r.Error);
+    }
+
+    [Fact]
+    public void MomentWithoutPassageName_FailsLoad()
+    {
+      var (reg, ctx) = Env();
+      var blob = "{ \"version\": 1, \"moments\": [ { \"seedIter\": 0 } ] }";
+      var r = SaveSerializer.DeserialiseTimeline(blob, Story("P1"), reg, ctx);
+      Assert.False(r.Ok);
+      Assert.Contains("passage name", r.Error);
+    }
+
+    [Fact]
+    public void ObjectMomentWithVanishedPassage_FailsLoad()
+    {
+      // The full-object moment form has its own passage-existence check,
+      // separate from the compressed bare-string form's.
+      var (reg, ctx) = Env();
+      var blob = "{ \"version\": 1, \"moments\": [ { \"passage\": \"Ghost\" } ] }";
+      var r = SaveSerializer.DeserialiseTimeline(blob, Story("P1"), reg, ctx);
+      Assert.False(r.Ok);
+      Assert.Contains("no longer exists", r.Error);
+    }
   }
 }

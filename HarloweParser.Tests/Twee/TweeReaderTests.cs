@@ -389,6 +389,32 @@ namespace Harlowe.Tests.Twee
     }
 
     [Fact]
+    public void HeaderJunkAfterTagBlock_IsIgnored()
+    {
+      var story = Read(":: First [alpha] junk\nbody");
+      var p = story.GetPassage("First");
+      Assert.NotNull(p);
+      Assert.Contains("alpha", p.Tags);
+      Assert.Equal("body", p.RawBody);
+    }
+
+    [Fact]
+    public void UnclosedTagBlock_StillLoadsThePassage()
+    {
+      var story = Read(":: First [unclosed\nbody");
+      Assert.Equal(1, story.PassageCount);
+    }
+
+    [Fact]
+    public void Branches_CollectedFromPassageContainingHtml()
+    {
+      // BranchCollector must walk past HtmlNodes to reach the links.
+      var story = Read(":: First\n<b>bold</b> [[Next]]");
+      var branches = story.GetPassage("First").Branches;
+      Assert.Contains(branches, b => b.Name == "Next");
+    }
+
+    [Fact]
     public void TokenizerFailure_RecoversPerPassage_AndRoundTrips()
     {
       // `=<` throws in the tokenizer itself (the reversed-operator authoring

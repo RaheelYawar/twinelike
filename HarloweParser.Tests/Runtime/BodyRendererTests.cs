@@ -774,6 +774,14 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
+    public void BarePipe_InProse_StaysProse()
+    {
+      // A `|` that doesn't start a hook name (`|name>`) is ordinary prose.
+      var h = Render("a | b");
+      Assert.Equal("a | b", h.Buf.Text);
+    }
+
+    [Fact]
     public void AttachedBool_OnMacroCall_True_ShowsHook()
     {
       // A macro call (not a variable) returning a Bool with an attached hook —

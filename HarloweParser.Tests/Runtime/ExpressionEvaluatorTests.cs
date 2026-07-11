@@ -1092,6 +1092,16 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
+    public void HookRefStep_HashMatchesEquality()
+    {
+      var a = new HookRefStep { Index = 2, FromEnd = true };
+      var b = new HookRefStep { Index = 2, FromEnd = true };
+      Assert.Equal(a, b);
+      Assert.Equal(a.GetHashCode(), b.GetHashCode());
+      Assert.NotEqual(a, new HookRefStep { Index = 2, FromEnd = false });
+    }
+
+    [Fact]
     public void Lambda_HasNoVisibleText_AndStableHash()
     {
       var lambda = Eval("where it > 1");

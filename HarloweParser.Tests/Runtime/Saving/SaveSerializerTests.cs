@@ -263,5 +263,16 @@ namespace Harlowe.Tests.Runtime.Saving
       var result = SaveSerializer.Deserialise("$x", registry, null);
       Assert.True(result.IsError);
     }
+
+    [Fact]
+    public void Deserialise_MultipleExpressions_ReturnsError()
+    {
+      // Tampered source holding two comma-separated expressions parses cleanly
+      // but isn't a single value — must degrade to an error, not evaluate the
+      // first and drop the rest.
+      var v = Deser("1,2");
+      Assert.True(v.IsError);
+      Assert.Contains("single expression", v.ErrorMessage);
+    }
   }
 }

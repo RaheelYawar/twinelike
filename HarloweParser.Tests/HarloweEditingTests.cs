@@ -679,6 +679,17 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void TweeWriter_AstNulledByConsumer_FallsBackToRawBody()
+    {
+      // Public-field DTO: a consumer can null a passage's Ast after adding it.
+      // The writer must fall back to RawBody rather than throw or emit nothing.
+      var story = new Harlowe();
+      story.AddPassage(MakePassage("P", "raw text"));   // MakePassage marks IsDirty
+      story.GetPassage("P").Ast = null;
+      Assert.Contains("raw text", new TweeWriter().Write(story));
+    }
+
+    [Fact]
     public void AddPassage_TokenizerFailure_RecoversWithStub()
     {
       // `=<` throws in the tokenizer itself; AddPassage's AST hydration must

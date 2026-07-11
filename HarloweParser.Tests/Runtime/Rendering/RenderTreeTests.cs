@@ -384,6 +384,7 @@ namespace Harlowe.Tests.Runtime.Rendering
       builder.BeginInteractive(new InteractiveRegion { Id = "r-9", Kind = InteractionKind.Click });
       builder.Text("armed");
       builder.EndInteractive();
+      builder.AssertBalanced(); // the happy path: closed brackets don't throw
 
       var node = Assert.IsType<RenderInteractiveNode>(Assert.Single(builder.Root.Children));
       Assert.Equal("r-9", node.Region.Id);
