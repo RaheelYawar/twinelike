@@ -36,6 +36,15 @@ namespace Harlowe.Runtime
     /// <summary>Literal prose to match (<c>(click: "gold")</c>). Each occurrence is wrapped as an armed region per pass. Null when <see cref="Target"/> is set.</summary>
     public string StringTarget;
 
+    /// <summary>
+    /// True for the <c>(link:)</c>-family macros (and <c>(link-undo:)</c>),
+    /// which are <em>self-armed</em>: the target is the label the macro
+    /// planted, resolved each pass by its
+    /// <see cref="RenderHookNode.LabelRegionId"/> tag rather than by query.
+    /// <see cref="Target"/> and <see cref="StringTarget"/> are null.
+    /// </summary>
+    public bool LabelTarget;
+
     /// <summary>Which event kind the engine reports for this region.</summary>
     public InteractionKind Kind;
 
@@ -48,11 +57,20 @@ namespace Harlowe.Runtime
     public RevisionMode? Mode;
 
     /// <summary>
-    /// False for <c>(click-rerun:)</c>: the interaction survives dispatch and
-    /// each activation re-renders the deferred hook over the previous run's
-    /// content (reference's <c>once: false</c>).
+    /// False for <c>(click-rerun:)</c>, <c>(link-repeat:)</c>, and
+    /// <c>(link-rerun:)</c>: the interaction survives dispatch and re-renders
+    /// the deferred hook per activation (reference's <c>once: false</c>).
     /// </summary>
     public bool Once = true;
+
+    /// <summary>
+    /// How each activation's render splices into the reveal anchor(s): Append
+    /// accumulates/fills (plain click, <c>(link-reveal:)</c>,
+    /// <c>(link-repeat:)</c>), Replace overwrites the previous content —
+    /// and, for <c>(link-replace:)</c>, the label nested inside the anchor
+    /// (<c>(click-rerun:)</c>, <c>(link-rerun:)</c>).
+    /// </summary>
+    public RevisionMode RevealMode = RevisionMode.Append;
 
     /// <summary>
     /// Passage to navigate to on fire — the <c>(click-goto:)</c>/<c>(mouseover-goto:)</c>/
@@ -138,11 +156,25 @@ namespace Harlowe.Runtime
         var interaction = interactions[i];
         if (interaction == null) continue;
 
-        // String occurrences are wrapped fresh (StripWraps unwound the
-        // previous pass's), tagged with the region id so the next strip finds
-        // them — and so the dispatch can resolve a combo's splice targets by tag.
-        var targets = EnchantmentPass.ResolveTargets(root, interaction.Target, interaction.StringTarget,
-          wrap => wrap.SourceRegionId = interaction.RegionId);
+        // A (link:)-family interaction is self-armed: its target is the label
+        // it planted, resolved by tag so a label that reached the tree as a
+        // clone still arms. Otherwise: string occurrences are wrapped fresh
+        // (StripWraps unwound the previous pass's), tagged with the region id
+        // so the next strip finds them — and so the dispatch can resolve a
+        // combo's splice targets by tag.
+        IReadOnlyList<RenderNode> targets;
+        if (interaction.LabelTarget)
+        {
+          var labels = new List<RenderNode>();
+          RenderNodes.CollectWhere(root,
+            n => n is RenderHookNode h && h.LabelRegionId == interaction.RegionId, labels);
+          targets = labels;
+        }
+        else
+        {
+          targets = EnchantmentPass.ResolveTargets(root, interaction.Target, interaction.StringTarget,
+            wrap => wrap.SourceRegionId = interaction.RegionId);
+        }
         if (targets == null) continue;
 
         bool wrappedAny = false;

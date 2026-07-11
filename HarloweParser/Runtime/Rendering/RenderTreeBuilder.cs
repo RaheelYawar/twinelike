@@ -152,6 +152,33 @@ namespace Harlowe.Runtime.Rendering
       return node;
     }
 
+    /// <summary>
+    /// Plant a <c>(link:)</c>-family label at the current position: an
+    /// anonymous hook tagged <see cref="RenderHookNode.LabelRegionId"/> holding
+    /// the label text, which <see cref="InteractionPass"/> arms each pass —
+    /// the analogue of reference's created <c>&lt;tw-link&gt;</c>. When
+    /// <paramref name="revealReplacesLabel"/> (<c>(link:)</c>/<c>(link-replace:)</c>),
+    /// the label nests inside a reveal anchor so the dispatch's Replace fill
+    /// removes the link along with showing the content; otherwise the caller
+    /// plants any sibling anchor itself (<c>(link-undo:)</c> plants none — it
+    /// never reveals).
+    /// </summary>
+    public void PlantLinkLabel(string regionId, string label, bool revealReplacesLabel)
+    {
+      var labelHook = new RenderHookNode { LabelRegionId = regionId };
+      labelHook.Children.Add(new RenderTextNode { Content = label });
+      if (revealReplacesLabel)
+      {
+        var anchor = new RenderHookNode { RevealRegionId = regionId };
+        anchor.Children.Add(labelHook);
+        Current.Children.Add(anchor);
+      }
+      else
+      {
+        Current.Children.Add(labelHook);
+      }
+    }
+
     public void BeginInteractive(InteractiveRegion region)
     {
       var node = new RenderInteractiveNode { Region = region };

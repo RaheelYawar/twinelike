@@ -169,12 +169,19 @@ namespace Harlowe.Runtime
     public override bool Equals(object obj)
     {
       if (!(obj is InteractionPatch other)) return false;
-      if (Interaction == null || other.Interaction == null) return Interaction == other.Interaction;
-      if (Interaction.Kind != other.Interaction.Kind) return false;
-      if (Interaction.Mode != other.Interaction.Mode) return false;
-      if (Interaction.HookTarget == null || other.Interaction.HookTarget == null)
-        return Interaction.HookTarget == other.Interaction.HookTarget;
-      return Interaction.HookTarget.Equals(other.Interaction.HookTarget);
+      var a = Interaction;
+      var b = other.Interaction;
+      if (a == null || b == null) return a == b;
+      if (a.Kind != b.Kind) return false;
+      if (a.Mode != b.Mode) return false;
+      if (a.Once != b.Once) return false;
+      if (a.StringTarget != b.StringTarget) return false;
+      if (a.LinkText != b.LinkText) return false;
+      if (a.LinkReplacesLabel != b.LinkReplacesLabel) return false;
+      if (a.RevealMode != b.RevealMode) return false;
+      if (a.HookTarget == null || b.HookTarget == null)
+        return a.HookTarget == b.HookTarget;
+      return a.HookTarget.Equals(b.HookTarget);
     }
 
     public override int GetHashCode()
@@ -183,7 +190,12 @@ namespace Harlowe.Runtime
       if (Interaction != null)
       {
         h = (h * 397) ^ (int)Interaction.Kind;
-        h = (h * 397) ^ (int)Interaction.Mode;
+        // Nullable hash (0 for null) — an unwrapping (int) cast would throw
+        // for the plain macros, whose Mode is null.
+        h = (h * 397) ^ Interaction.Mode.GetHashCode();
+        h = (h * 397) ^ Interaction.Once.GetHashCode();
+        if (Interaction.StringTarget != null) h = (h * 397) ^ Interaction.StringTarget.GetHashCode();
+        if (Interaction.LinkText != null) h = (h * 397) ^ Interaction.LinkText.GetHashCode();
         if (Interaction.HookTarget != null) h = (h * 397) ^ Interaction.HookTarget.GetHashCode();
       }
       return h;

@@ -350,13 +350,21 @@ namespace Harlowe.Runtime
     /// <c>renderInto</c>); the armed region is styled by the macro's optional
     /// second argument.
     /// </para>
+    ///
+    /// <para>
+    /// A <c>(link:)</c>-family interaction (<see cref="InteractionSpec.LinkText"/>
+    /// set) is <em>self-armed</em>: instead of targeting existing content it
+    /// plants its own label (armed each pass by tag) plus the reveal anchor —
+    /// wrapping the label for the <c>-replace</c> variants so the fill removes
+    /// the link, a sibling otherwise so the link stays.
+    /// </para>
     /// </summary>
     private static void RunInteraction(HookDescriptor d, IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx)
     {
       if (ctx == null) { output.Error("interaction changers require a render context"); return; }
 
       var spec = d.Interaction;
-      if (spec == null || (spec.HookTarget == null && spec.StringTarget == null)) return;
+      if (spec == null || (spec.HookTarget == null && spec.StringTarget == null && spec.LinkText == null)) return;
 
       // Snapshot the composed style layers; the dispatch clones them again
       // when rendering, so these stay an immutable template across passes.
@@ -364,16 +372,32 @@ namespace Harlowe.Runtime
       for (int i = 0; i < d.Styles.Count; i++) styles.Add(d.Styles[i]?.Clone());
 
       string regionId = ctx.AllocateRegionId();
-      if (spec.Mode == null && output is Rendering.RenderTreeBuilder builder)
-        builder.PlantAnchor(regionId);
+      if (output is Rendering.RenderTreeBuilder builder)
+      {
+        if (spec.LinkText != null)
+        {
+          // (link:)-family: the macro's own footprint replaces the hook — a
+          // tagged label the pass arms, plus the reveal anchor the dispatch
+          // fills (wrapping the label for the -replace variants, a sibling
+          // otherwise, so replace's fill removes the link and the rest keep it).
+          builder.PlantLinkLabel(regionId, spec.LinkText, spec.LinkReplacesLabel);
+          if (!spec.LinkReplacesLabel) builder.PlantAnchor(regionId);
+        }
+        else if (spec.Mode == null)
+        {
+          builder.PlantAnchor(regionId);
+        }
+      }
 
       ctx.Interactions.Add(new Interaction
       {
         Target = spec.HookTarget,
         StringTarget = spec.StringTarget,
+        LabelTarget = spec.LinkText != null,
         Kind = spec.Kind,
         Mode = spec.Mode,
         Once = spec.Once,
+        RevealMode = spec.RevealMode ?? (spec.Once ? RevisionMode.Append : RevisionMode.Replace),
         ArmChanger = spec.ArmChanger,
         ArmLambda = spec.ArmLambda,
         Styles = styles,

@@ -149,5 +149,32 @@ namespace Harlowe.Runtime
     /// <see cref="ArmChanger"/> is set.
     /// </summary>
     public LambdaValue ArmLambda;
+
+    /// <summary>
+    /// Link text for the <c>(link:)</c>-family changers, which <em>create</em>
+    /// their own armed label at the macro's position instead of targeting
+    /// existing content — reference renders <c>&lt;tw-link&gt;${text}&lt;/tw-link&gt;</c>
+    /// in place of the hook (<c>ts/macrolib/links.ts</c>). Null for the
+    /// click/hover family; when set, <see cref="HookTarget"/> and
+    /// <see cref="StringTarget"/> are null and <see cref="ArmChanger"/> styles
+    /// the label.
+    /// </summary>
+    public string LinkText;
+
+    /// <summary>
+    /// True for <c>(link:)</c>/<c>(link-replace:)</c>: the reveal anchor wraps
+    /// the label, so the dispatch's fill removes the link along with showing
+    /// the content. False for the reveal/repeat/rerun variants, whose label
+    /// stays and whose content lands in a sibling anchor.
+    /// </summary>
+    public bool LinkReplacesLabel;
+
+    /// <summary>
+    /// How the dispatch splices each activation's render into the reveal
+    /// anchor. Null derives from <see cref="Once"/> (the click family's
+    /// append-once / rerun-replace); the link family sets it explicitly —
+    /// reveal/repeat append, replace/rerun replace.
+    /// </summary>
+    public RevisionMode? RevealMode;
   }
 }

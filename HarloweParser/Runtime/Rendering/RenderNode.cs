@@ -223,11 +223,24 @@ namespace Harlowe.Runtime.Rendering
     /// </summary>
     public string RevealRegionId;
 
+    /// <summary>
+    /// Set when this node is the <em>label</em> a <c>(link:)</c>-family macro
+    /// planted (the created link's text — reference's rendered
+    /// <c>&lt;tw-link&gt;</c>): the region id whose interaction arms this
+    /// node's children each pass. Permanent structure like
+    /// <see cref="RevealRegionId"/> — survives strips, copied by <c>Clone</c>,
+    /// resolved by tag; also what makes the label match <c>?link</c>. The
+    /// dispatch clears it when a single-use link is consumed, so a spent
+    /// <c>(link-reveal:)</c> label reverts to plain prose (reference unwraps
+    /// the element).
+    /// </summary>
+    public string LabelRegionId;
+
     public List<RenderNode> Children { get; } = new List<RenderNode>();
 
     public override RenderNode Clone()
     {
-      var copy = new RenderHookNode { Name = Name, Anchor = Anchor, SourceEnchantment = SourceEnchantment, SourceRegionId = SourceRegionId, RevealRegionId = RevealRegionId };
+      var copy = new RenderHookNode { Name = Name, Anchor = Anchor, SourceEnchantment = SourceEnchantment, SourceRegionId = SourceRegionId, RevealRegionId = RevealRegionId, LabelRegionId = LabelRegionId };
       RenderNodes.CloneInto(Children, copy.Children);
       return copy;
     }

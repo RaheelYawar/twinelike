@@ -112,6 +112,16 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new InteractionCommandMacro("mouseover-undo", InteractionKind.MouseOver, undo: true));
       registry.Register(new InteractionCommandMacro("mouseout-goto", InteractionKind.MouseOut, undo: false));
       registry.Register(new InteractionCommandMacro("mouseout-undo", InteractionKind.MouseOut, undo: true));
+      // The (link:) family creates its own armed label in place of the hook;
+      // the variants differ in what survives the click (see LinkMacro).
+      registry.Register(new LinkMacro("link", RevisionMode.Replace, once: true, replacesLabel: true));
+      registry.Register(new LinkMacro("link-replace", RevisionMode.Replace, once: true, replacesLabel: true));
+      registry.Register(new LinkMacro("link-reveal", RevisionMode.Append, once: true, replacesLabel: false));
+      registry.Register(new LinkMacro("link-append", RevisionMode.Append, once: true, replacesLabel: false));
+      registry.Register(new LinkMacro("link-repeat", RevisionMode.Append, once: false, replacesLabel: false));
+      registry.Register(new LinkMacro("link-rerun", RevisionMode.Replace, once: false, replacesLabel: false));
+      registry.Register(new LinkGotoMacro());
+      registry.Register(new LinkUndoMacro());
     }
   }
 }

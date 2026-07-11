@@ -49,7 +49,11 @@ namespace Harlowe.Runtime.Rendering
       }
       else if (string.Equals(n, "link", StringComparison.OrdinalIgnoreCase))
       {
-        Collect(tree, node => node is RenderLinkNode, matches);
+        // Passage links and live (link:)-family labels — reference's ?Link
+        // matches created <tw-link> elements too. A consumed single-use label
+        // has its tag cleared by the dispatch, so it stops matching here.
+        Collect(tree, node => node is RenderLinkNode
+          || (node is RenderHookNode hook && hook.LabelRegionId != null), matches);
       }
       else
       {

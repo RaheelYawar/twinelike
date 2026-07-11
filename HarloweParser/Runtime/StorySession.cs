@@ -840,23 +840,37 @@ namespace Harlowe.Runtime
       }
       else
       {
-        // Plain macro: the deferred hook shows at the macro's own position —
-        // every anchor tagged with this region id. Tag search (clones inherit
-        // the tag) rather than a held node reference, so an anchor whose
-        // (click:) ran inside a revision-deferred render — spliced into the
-        // live tree as a clone — still reveals; one that never reached the
-        // live tree is simply not found, and nothing shows (reference's
-        // removed-hidden-hook behaviour). (click-rerun:) replaces the previous
-        // run's content each activation (reference's append:'replace'); a once
-        // interaction fills its anchor exactly once, so append and replace are
-        // equivalent there.
+        // Plain macro or (link:)-family changer: the deferred hook shows at
+        // the macro's own position — every anchor tagged with this region id.
+        // Tag search (clones inherit the tag) rather than a held node
+        // reference, so an anchor whose macro ran inside a revision-deferred
+        // render — spliced into the live tree as a clone — still reveals; one
+        // that never reached the live tree is simply not found, and nothing
+        // shows (reference's removed-hidden-hook behaviour). The interaction's
+        // RevealMode decides the splice: Append accumulates/fills (plain
+        // click, (link-reveal:), (link-repeat:)), Replace overwrites the
+        // previous run — and, for (link-replace:), the label nested inside
+        // the anchor ((click-rerun:), (link-rerun:)).
         var anchors = new List<Rendering.RenderNode>();
         Rendering.RenderNodes.CollectWhere(_liveRoot,
           n => n is Rendering.RenderHookNode h && h.RevealRegionId == regionId, anchors);
         for (int i = 0; i < anchors.Count; i++)
         {
           if (anchors[i] is Rendering.IRenderContainer anchor)
-            Rendering.RenderNodes.Splice(anchor, source, fired.Once ? RevisionMode.Append : RevisionMode.Replace);
+            Rendering.RenderNodes.Splice(anchor, source, fired.RevealMode);
+        }
+
+        // A consumed link-changer's label reverts to plain prose: clear the
+        // tag so ?link stops matching it and no pass re-arms a spent link
+        // (reference unwraps the <tw-link> on click). Surviving repeat/rerun
+        // labels keep theirs.
+        if (fired.LabelTarget && fired.Once)
+        {
+          var labels = new List<Rendering.RenderNode>();
+          Rendering.RenderNodes.CollectWhere(_liveRoot,
+            n => n is Rendering.RenderHookNode h && h.LabelRegionId == regionId, labels);
+          for (int i = 0; i < labels.Count; i++)
+            ((Rendering.RenderHookNode)labels[i]).LabelRegionId = null;
         }
       }
 
