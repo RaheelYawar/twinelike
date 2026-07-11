@@ -21,7 +21,6 @@ namespace Harlowe.Runtime.Macros
   {
     private readonly string _name;
 
-    public BackgroundMacro() : this("background") { }
     public BackgroundMacro(string name) { _name = name; }
 
     public string Name => _name;

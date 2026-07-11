@@ -16,7 +16,6 @@ namespace Harlowe.Runtime.Macros
   {
     private readonly string _name;
 
-    public TextSizeMacro() : this("text-size") { }
     public TextSizeMacro(string name) { _name = name; }
 
     public string Name => _name;
