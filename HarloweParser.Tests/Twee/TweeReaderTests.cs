@@ -387,5 +387,23 @@ namespace Harlowe.Tests.Twee
       Assert.Equal("1", story.GetPassage("First").Pid);
       Assert.Equal("2", story.GetPassage("Second").Pid);
     }
+
+    [Fact]
+    public void TokenizerFailure_RecoversPerPassage_AndRoundTrips()
+    {
+      // `=<` throws in the tokenizer itself (the reversed-operator authoring
+      // hint), so this exercises the Twee loader's catch + stub substitution
+      // rather than the body parser's per-node recovery.
+      var story = Read(":: Bad\n(if: $x =< 5)[low]\n\n:: Good\nhello");
+      Assert.NotNull(story.GetPassage("Good"));
+
+      var bad = story.GetPassage("Bad");
+      Assert.True(Ast.Body.ParseErrorNode.IsWhollyParseError(bad.Ast));
+      Assert.Contains("=< 5", bad.RawBody);
+
+      // RawBody is preserved verbatim, so write-out reproduces the broken source.
+      string output = new TweeWriter().Write(story);
+      Assert.Contains("(if: $x =< 5)[low]", output);
+    }
   }
 }

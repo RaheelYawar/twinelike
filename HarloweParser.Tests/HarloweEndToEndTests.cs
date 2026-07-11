@@ -422,6 +422,43 @@ namespace Harlowe.Tests
       Assert.NotNull(passage.Tags);
       Assert.Empty(passage.Tags);
     }
+
+    [Fact]
+    public void Constructor_TokenizerFailure_RecoversWithSyntheticAst()
+    {
+      // `=<` makes the *tokenizer* itself throw (the reversed-operator
+      // authoring hint) before the body parser ever runs — unlike the
+      // parser-level failure above, this exercises the loader's outer catch
+      // and the wholly-stubbed AST it substitutes.
+      const string html = "<html><body><tw-storydata name=\"T\" startnode=\"2\">"
+        + "<tw-passagedata pid=\"1\" name=\"Bad\">(if: $x =&lt; 5)[low]</tw-passagedata>"
+        + "<tw-passagedata pid=\"2\" name=\"Good\">hello</tw-passagedata>"
+        + "</tw-storydata></body></html>";
+
+      var story = new Harlowe(html);
+      Assert.Equal(2, story.PassageCount);
+      Assert.True(ParseErrorNode.IsWhollyParseError(story.GetPassage("Bad").Ast));
+      Assert.Equal("(if: $x =< 5)[low]", story.GetPassage("Bad").RawBody);
+
+      var session = new StorySession(story);
+      Assert.Equal("hello", session.Render().Text);
+      var result = session.Goto("Bad");
+      Assert.Contains(result.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error
+                                        && e.Content.Contains("parse error")
+                                        && e.Content.Contains("Bad")
+                                        && e.Content.Contains("'<='"));
+    }
+
+    [Fact]
+    public void Constructor_DuplicatePassageNames_Throws()
+    {
+      const string html = "<html><body><tw-storydata name=\"T\" startnode=\"1\">"
+        + "<tw-passagedata pid=\"1\" name=\"Twin\">a</tw-passagedata>"
+        + "<tw-passagedata pid=\"2\" name=\"Twin\">b</tw-passagedata>"
+        + "</tw-storydata></body></html>";
+      var ex = Assert.Throws<HarloweParseException>(() => new Harlowe(html));
+      Assert.Contains("duplicate passage name 'Twin'", ex.Message);
+    }
   }
 
 }

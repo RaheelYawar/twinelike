@@ -590,5 +590,16 @@ namespace Harlowe.Tests.Runtime.Macros
       var v = reg.Invoke("history", new List<HarloweValue> { HarloweValue.OfNumber(1) }, ctx);
       Assert.True(v.IsError);
     }
+
+    [Fact]
+    public void Num_InfinityStrings_CoerceToInfinities()
+    {
+      // JS Number() coerces the literal Infinity spellings; whitespace trims.
+      var (reg, ctx) = Setup();
+      Assert.True(double.IsPositiveInfinity(Call(reg, ctx, "num", HarloweValue.OfString("Infinity")).AsNumber));
+      Assert.True(double.IsPositiveInfinity(Call(reg, ctx, "num", HarloweValue.OfString("+Infinity")).AsNumber));
+      Assert.True(double.IsNegativeInfinity(Call(reg, ctx, "num", HarloweValue.OfString("-Infinity")).AsNumber));
+      Assert.True(double.IsPositiveInfinity(Call(reg, ctx, "number", HarloweValue.OfString(" Infinity ")).AsNumber));
+    }
   }
 }

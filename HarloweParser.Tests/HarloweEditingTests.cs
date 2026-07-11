@@ -677,5 +677,19 @@ namespace Harlowe.Tests
       Assert.True(idxA >= 0 && idxB2 > idxA && idxC > idxB2,
         $"expected A < B2 < C in output, got A={idxA} B2={idxB2} C={idxC}");
     }
+
+    [Fact]
+    public void AddPassage_TokenizerFailure_RecoversWithStub()
+    {
+      // `=<` throws in the tokenizer itself; AddPassage's AST hydration must
+      // apply the same catch + stub recovery the loaders use rather than let
+      // the exception escape to the caller.
+      var story = new Harlowe();
+      story.AddPassage(new HarlowePassage { Name = "Bad", RawBody = "(if: $x =< 5)[low]" });
+
+      var stored = story.GetPassage("Bad");
+      Assert.True(ParseErrorNode.IsWhollyParseError(stored.Ast));
+      Assert.Equal("(if: $x =< 5)[low]", stored.RawBody);
+    }
   }
 }

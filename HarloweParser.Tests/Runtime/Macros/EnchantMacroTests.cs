@@ -378,5 +378,48 @@ namespace Harlowe.Tests.Runtime.Macros
       EnchantmentPass.Update(root, ctx.Enchantments, ctx);
       Assert.Equal(0, ctx.Rng.SeedIter);
     }
+
+    // --- via-lambda failure modes ---
+
+    private static System.Collections.Generic.List<string> Errors(BufferedRenderOutput buf)
+    {
+      var list = new System.Collections.Generic.List<string>();
+      foreach (var e in buf.Entries)
+        if (e.Kind == BufferedRenderOutput.Kind.Error) list.Add(e.Content);
+      return list;
+    }
+
+    [Fact]
+    public void Enchant_ViaLambdaEvaluationError_ReplacesMatchWithIt()
+    {
+      // The lambda's clause itself errors — the match is swapped for the error
+      // (reference's e.replaceWith(error.render())), the rest of the pass stops.
+      var buf = Render("gold(enchant: \"gold\", via $missing)", out _);
+      var err = Assert.Single(Errors(buf));
+      Assert.Contains("$missing is not set", err);
+      Assert.DoesNotContain("gold", buf.Text);
+    }
+
+    [Fact]
+    public void Enchant_ViaLambdaNonEnchantableChanger_ReplacesMatchWithError()
+    {
+      // The lambda produced a changer, but a revision changer can't enchant —
+      // the same notRevisionChanger gate the direct-changer form applies.
+      var buf = Render("gold(enchant: \"gold\", via (replace: ?m))", out _);
+      var err = Assert.Single(Errors(buf));
+      Assert.Contains("revision", err);
+      Assert.DoesNotContain("gold", buf.Text);
+    }
+
+    [Fact]
+    public void Enchant_PageTarget_ViaFailure_ReplacesRootContent()
+    {
+      // ?page resolves to the root, which has no parent to be replaced in —
+      // its content becomes the error instead.
+      var buf = Render("gold(enchant: ?page, via (replace: ?m))", out _);
+      var err = Assert.Single(Errors(buf));
+      Assert.Contains("via", err);
+      Assert.DoesNotContain("gold", buf.Text);
+    }
   }
 }

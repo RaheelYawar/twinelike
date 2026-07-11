@@ -303,5 +303,41 @@ namespace Harlowe.Tests.Runtime
       stamped.Source = "(text-style:\"bold\")";
       Assert.Equal("[A (text-style:) changer]", HarloweValue.OfChanger(stamped).ToHarloweString());
     }
+
+    [Fact]
+    public void GetHashCode_EqualValues_HashEqual_AcrossCompositeKinds()
+    {
+      HarloweValue Arr() => HarloweValue.OfArray(
+        new List<HarloweValue> { HarloweValue.OfNumber(1), HarloweValue.OfString("x") });
+      Assert.Equal(Arr().GetHashCode(), Arr().GetHashCode());
+
+      HarloweValue Map() => HarloweValue.OfDatamap(
+        new Dictionary<string, HarloweValue> { ["a"] = HarloweValue.OfNumber(1) });
+      Assert.Equal(Map().GetHashCode(), Map().GetHashCode());
+
+      Assert.Equal(HarloweValue.OfError("boom").GetHashCode(),
+                   HarloweValue.OfError("boom").GetHashCode());
+
+      HarloweValue Bold() => HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { Bold = true }));
+      Assert.Equal(Bold().GetHashCode(), Bold().GetHashCode());
+
+      // Hook names hash case-insensitively, matching their equality.
+      var h1 = HarloweValue.OfHookName(new HookNameValue { Name = "Cake" });
+      var h2 = HarloweValue.OfHookName(new HookNameValue { Name = "cake" });
+      Assert.Equal(h1, h2);
+      Assert.Equal(h1.GetHashCode(), h2.GetHashCode());
+
+      // Lambdas hash by node identity, matching their reference equality.
+      var lambda = new LambdaValue { Node = new Ast.Expression.LambdaNode() };
+      Assert.Equal(HarloweValue.OfLambda(lambda).GetHashCode(),
+                   HarloweValue.OfLambda(lambda).GetHashCode());
+    }
+
+    [Fact]
+    public void GetHashCode_EmptyArray_HandlesNoFirstElement()
+    {
+      Assert.Equal(HarloweValue.OfArray(new List<HarloweValue>()).GetHashCode(),
+                   HarloweValue.OfArray(new List<HarloweValue>()).GetHashCode());
+    }
   }
 }

@@ -772,5 +772,22 @@ namespace Harlowe.Tests.Runtime
       Assert.Contains("5", h.Buf.Text);
       Assert.Equal(0, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
     }
+
+    [Fact]
+    public void AttachedBool_OnMacroCall_True_ShowsHook()
+    {
+      // A macro call (not a variable) returning a Bool with an attached hook —
+      // the MacroNode twin of the `$x[hook]` variable path.
+      var h = Render("(either: true)[shown]");
+      Assert.Equal("shown", h.Buf.Text);
+    }
+
+    [Fact]
+    public void AttachedBool_OnMacroCall_False_HidesHook_AndPairsWithElse()
+    {
+      var h = Render("(either: false)[hidden](else:)[else-ran]");
+      Assert.Equal("else-ran", h.Buf.Text);
+      Assert.Equal(0, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+    }
   }
 }

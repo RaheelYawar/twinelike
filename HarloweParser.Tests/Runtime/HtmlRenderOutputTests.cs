@@ -542,5 +542,53 @@ namespace Harlowe.Tests.Runtime
       Assert.Contains("font-weight: bold;", buf.Text);
       Assert.EndsWith("</span>", buf.Text);
     }
+
+    [Theory]
+    [InlineData(TextEffect.Superscript, "vertical-align: super;")]
+    [InlineData(TextEffect.Subscript, "vertical-align: sub;")]
+    [InlineData(TextEffect.Condense, "letter-spacing: -0.08em;")]
+    [InlineData(TextEffect.Expand, "letter-spacing: 0.08em;")]
+    [InlineData(TextEffect.Outline, "1px 1px 0 #fff")]
+    [InlineData(TextEffect.Shadow, "text-shadow: 0.08em 0.08em 0.08em #000;")]
+    [InlineData(TextEffect.Emboss, "text-shadow: 0 1px 0 #fff, 0 -1px 0 #000;")]
+    [InlineData(TextEffect.Smear, "0 0 0.08em currentColor")]
+    [InlineData(TextEffect.Blurrier, "text-shadow: 0 0 0.2em currentColor;")]
+    [InlineData(TextEffect.UpsideDown, "transform: scaleY(-1);")]
+    public void Effect_EmitsItsCssRecipe(TextEffect effect, string expectedCss)
+    {
+      var (buf, sink) = NewSink();
+      var s = new StyleSpec();
+      s.Effects.Add(effect);
+      sink.PushStyle(s);
+      sink.Text("x");
+      sink.PopStyle();
+      Assert.Contains(expectedCss, buf.Text);
+    }
+
+    [Fact]
+    public void UnderlineAndStrike_FoldIntoOneTextDecoration_OnTheSpanPath()
+    {
+      // A value field forces the span path, where the two decoration flags
+      // must merge into a single text-decoration declaration.
+      var (buf, sink) = NewSink();
+      sink.PushStyle(new StyleSpec { Underline = true, Strikethrough = true, Color = "red" });
+      sink.Text("x");
+      sink.PopStyle();
+      Assert.Contains("text-decoration: underline line-through;", buf.Text);
+      Assert.Contains("color: red;", buf.Text);
+    }
+
+    [Fact]
+    public void SuperscriptFlag_FoldsIntoSpan_WhenValueFieldPresent()
+    {
+      // Flag-only superscript takes the <sup> short-tag path; alongside a
+      // value field it folds into the span as the parallel CSS recipe.
+      var (buf, sink) = NewSink();
+      sink.PushStyle(new StyleSpec { Superscript = true, Color = "red" });
+      sink.Text("x");
+      sink.PopStyle();
+      Assert.Contains("vertical-align: super;", buf.Text);
+      Assert.Contains("font-size: 0.83em;", buf.Text);
+    }
   }
 }

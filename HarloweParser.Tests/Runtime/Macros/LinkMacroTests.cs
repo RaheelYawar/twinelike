@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Harlowe.Runtime;
+using Harlowe.Runtime.Macros;
 using Xunit;
 
 namespace Harlowe.Tests.Runtime.Macros
@@ -311,6 +312,66 @@ namespace Harlowe.Tests.Runtime.Macros
       var after = session.DispatchEvent(region.Id);
       Assert.Equal("P1", after.PassageName);
       Assert.Equal("origin", after.Text);
+    }
+
+    // --- Argument validation and standalone (no session/tree) degradation ---
+
+    [Fact]
+    public void LinkGoto_NonStringText_RendersError()
+    {
+      Assert.True(HasError(Session("(link-goto: 5)").Render(), "(link-goto:)"));
+    }
+
+    [Fact]
+    public void LinkGoto_NonStringPassage_RendersError()
+    {
+      Assert.True(HasError(Session("(link-goto: \"t\", 5)").Render(), "second argument"));
+    }
+
+    [Fact]
+    public void LinkUndo_NonStringAlt_RendersError()
+    {
+      Assert.True(HasError(Session("(link-undo: \"t\", 5)").Render(), "second argument"));
+    }
+
+    private static (MacroRegistry reg, MacroContext ctx) Standalone()
+    {
+      var reg = new MacroRegistry();
+      StandardMacros.RegisterAll(reg);
+      var ctx = new MacroContext { Store = new HarloweVariableStore() };
+      reg.Context = ctx;
+      return (reg, ctx);
+    }
+
+    [Fact]
+    public void LinkGoto_NoOutput_ReturnsProseOnlyError()
+    {
+      var (reg, ctx) = Standalone();
+      var v = reg.Invoke("link-goto", new List<HarloweValue> { HarloweValue.OfString("t") }, ctx);
+      Assert.True(v.IsError);
+      Assert.Contains("passage prose", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void LinkUndo_NoOutput_ReturnsProseOnlyError()
+    {
+      var (reg, ctx) = Standalone();
+      var v = reg.Invoke("link-undo", new List<HarloweValue> { HarloweValue.OfString("t") }, ctx);
+      Assert.True(v.IsError);
+      Assert.Contains("passage prose", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void LinkUndo_PlainBufferOutput_DegradesToVisibleLabel()
+    {
+      // Outside a tree-building render there is nothing to arm — the label
+      // must still show rather than vanish or error.
+      var (reg, ctx) = Standalone();
+      var buf = new BufferedRenderOutput();
+      ctx.Output = buf;
+      var v = reg.Invoke("link-undo", new List<HarloweValue> { HarloweValue.OfString("Back") }, ctx);
+      Assert.True(v == null || !v.IsError);
+      Assert.Equal("Back", buf.Text);
     }
   }
 }

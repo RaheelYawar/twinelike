@@ -359,5 +359,36 @@ namespace Harlowe.Tests.Runtime.Rendering
       Assert.Equal("Go on", clone.Text);
       Assert.Equal("P2", clone.Target);
     }
+
+    [Fact]
+    public void Clone_CoversHtmlErrorAndRootNodes()
+    {
+      var root = new RenderRoot();
+      root.Children.Add(new RenderHtmlNode { RawHtml = "<hr>" });
+      root.Children.Add(new RenderErrorNode { Message = "boom" });
+
+      var copy = (RenderRoot)root.Clone();
+      ((RenderHtmlNode)root.Children[0]).RawHtml = "mutated";
+      ((RenderErrorNode)root.Children[1]).Message = "mutated";
+
+      Assert.Equal("<hr>", ((RenderHtmlNode)copy.Children[0]).RawHtml);
+      Assert.Equal("boom", ((RenderErrorNode)copy.Children[1]).Message);
+    }
+
+    [Fact]
+    public void Builder_InteractiveBrackets_NestContentInInteractiveNode()
+    {
+      // The builder's IRenderOutput bracket pair — a replayed BeginInteractive/
+      // EndInteractive stream must rebuild the same tree shape the passes make.
+      var builder = new RenderTreeBuilder();
+      builder.BeginInteractive(new InteractiveRegion { Id = "r-9", Kind = InteractionKind.Click });
+      builder.Text("armed");
+      builder.EndInteractive();
+
+      var node = Assert.IsType<RenderInteractiveNode>(Assert.Single(builder.Root.Children));
+      Assert.Equal("r-9", node.Region.Id);
+      var text = Assert.IsType<RenderTextNode>(Assert.Single(node.Children));
+      Assert.Equal("armed", text.Content);
+    }
   }
 }

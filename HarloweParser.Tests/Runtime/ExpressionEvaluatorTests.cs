@@ -943,5 +943,206 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void HookName_HasNoVisibleText()
       => Assert.Equal(string.Empty, Eval("?cake").ToHarloweString());
+
+    // contains / is in — Array and Datamap containers -------------------------
+
+    private static HarloweVariableStore StoreWith(string name, HarloweValue value)
+    {
+      var store = new HarloweVariableStore();
+      store.Set(name, false, value);
+      return store;
+    }
+
+    private static HarloweValue Numbers(params double[] ns)
+    {
+      var items = new List<HarloweValue>();
+      foreach (var n in ns) items.Add(HarloweValue.OfNumber(n));
+      return HarloweValue.OfArray(items);
+    }
+
+    private static HarloweValue OneKeyMap(string key, double value)
+      => HarloweValue.OfDatamap(new Dictionary<string, HarloweValue> { [key] = HarloweValue.OfNumber(value) });
+
+    [Fact]
+    public void Contains_Array_FindsElement()
+      => Assert.True(Eval("$arr contains 2", StoreWith("arr", Numbers(1, 2, 3))).AsBool);
+
+    [Fact]
+    public void Contains_Array_MissingElement_False()
+      => Assert.False(Eval("$arr contains 9", StoreWith("arr", Numbers(1, 2, 3))).AsBool);
+
+    [Fact]
+    public void IsIn_Array_IsContainsReversed()
+      => Assert.True(Eval("3 is in $arr", StoreWith("arr", Numbers(1, 2, 3))).AsBool);
+
+    [Fact]
+    public void DoesNotContain_Array_Negates()
+      => Assert.True(Eval("$arr does not contain 9", StoreWith("arr", Numbers(1, 2, 3))).AsBool);
+
+    [Fact]
+    public void Contains_Datamap_ChecksKeys()
+    {
+      var store = StoreWith("dm", OneKeyMap("hp", 10));
+      Assert.True(Eval("$dm contains \"hp\"", store).AsBool);
+      Assert.False(Eval("$dm contains \"mp\"", store).AsBool);
+    }
+
+    [Fact]
+    public void Contains_Datamap_NonStringKey_Errors()
+    {
+      var v = Eval("$dm contains 5", StoreWith("dm", OneKeyMap("hp", 10)));
+      Assert.True(v.IsError);
+      Assert.Contains("Datamap key must be a String", v.ErrorMessage);
+    }
+
+    // passage identifier -------------------------------------------------------
+
+    [Fact]
+    public void Passage_Identifier_ReadsContext()
+    {
+      var ctx = new StubContext { Passage = HarloweValue.OfString("P1") };
+      Assert.Equal("P1", Eval("passage", null, ctx).AsString);
+    }
+
+    [Fact]
+    public void Passage_Identifier_WithoutContext_Errors()
+    {
+      var v = Eval("passage");
+      Assert.True(v.IsError);
+      Assert.Contains("outside a story session", v.ErrorMessage);
+    }
+
+    // Polymorphic + / - on unsupported kinds ----------------------------------
+
+    [Fact]
+    public void Plus_UnsupportedKinds_Errors()
+    {
+      // Same-kind but not a kind + supports: HookName + HookName falls through
+      // to the type error (Bool + Bool is logical OR, so it can't be used here).
+      var v = Eval("?a + ?b");
+      Assert.True(v.IsError);
+      Assert.Contains("+ does not apply", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void Minus_UnsupportedKinds_Errors()
+    {
+      var v = Eval("true - false");
+      Assert.True(v.IsError);
+      Assert.Contains("- does not apply", v.ErrorMessage);
+    }
+
+    // Property / index error paths --------------------------------------------
+
+    [Fact]
+    public void ArrayProperty_Unknown_Errors()
+    {
+      var v = Eval("$arr's foo", StoreWith("arr", Numbers(1)));
+      Assert.True(v.IsError);
+      Assert.Contains("no property 'foo'", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void DatamapComputedKey_Missing_Errors()
+    {
+      var v = Eval("$dm's (\"mp\")", StoreWith("dm", OneKeyMap("hp", 10)));
+      Assert.True(v.IsError);
+      Assert.Contains("no key 'mp'", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void StringComputedIndex_NonNumber_Errors()
+    {
+      var v = Eval("\"abc\"'s (true)");
+      Assert.True(v.IsError);
+      Assert.Contains("string index must be a Number", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void ComputedAccessorOnBool_Errors()
+    {
+      var v = Eval("$b's (1)", StoreWith("b", HarloweValue.OfBool(true)));
+      Assert.True(v.IsError);
+      Assert.Contains("has no properties", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void ArrayComputedIndex_Fractional_Errors()
+    {
+      var v = Eval("$arr's (1.5)", StoreWith("arr", Numbers(1, 2)));
+      Assert.True(v.IsError);
+      Assert.Contains("whole number", v.ErrorMessage);
+    }
+
+    // Lambda values ------------------------------------------------------------
+
+    [Fact]
+    public void Lambdas_EqualOnlyByIdentity()
+    {
+      var lambda = Eval("where it > 1");
+      Assert.Equal(HarloweValueKind.Lambda, lambda.Kind);
+
+      var store = new HarloweVariableStore();
+      store.Set("a", false, lambda);
+      store.Set("b", false, lambda);
+      Assert.True(Eval("$a is $b", store).AsBool);
+
+      store.Set("c", false, Eval("where it > 1"));
+      Assert.False(Eval("$a is $c", store).AsBool);
+    }
+
+    [Fact]
+    public void Lambda_HasNoVisibleText_AndStableHash()
+    {
+      var lambda = Eval("where it > 1");
+      Assert.Equal(string.Empty, lambda.ToHarloweString());
+      Assert.Equal(lambda.GetHashCode(), lambda.GetHashCode());
+    }
+
+    // Changer equality through `is` — recurses into per-patch structural
+    // equality (ClearStyles/Iteration/Revision/Interaction patches) ------------
+
+    private static IMacroInvoker Registry()
+    {
+      var reg = new MacroRegistry();
+      StandardMacros.RegisterAll(reg);
+      var ctx = new MacroContext { Store = new HarloweVariableStore(), Invoker = reg };
+      reg.Context = ctx;
+      return reg;
+    }
+
+    [Fact]
+    public void Changers_RevisionPatch_EqualByModeAndTarget()
+    {
+      var reg = Registry();
+      Assert.True(Eval("(replace: ?x) is (replace: ?x)", null, null, reg).AsBool);
+      Assert.False(Eval("(replace: ?x) is (append: ?x)", null, null, reg).AsBool);
+      Assert.False(Eval("(replace: ?x) is (replace: ?y)", null, null, reg).AsBool);
+    }
+
+    [Fact]
+    public void Changers_InteractionPatch_EqualByKindAndTarget()
+    {
+      var reg = Registry();
+      Assert.True(Eval("(click: \"x\") is (click: \"x\")", null, null, reg).AsBool);
+      Assert.False(Eval("(click: \"x\") is (click: \"y\")", null, null, reg).AsBool);
+      Assert.False(Eval("(click: \"x\") is (mouseover: \"x\")", null, null, reg).AsBool);
+    }
+
+    [Fact]
+    public void Changers_ClearStylesPatch_Equal()
+    {
+      var reg = Registry();
+      Assert.True(Eval("(text-style: \"none\") is (text-style: \"none\")", null, null, reg).AsBool);
+    }
+
+    [Fact]
+    public void Changers_IterationPatch_LambdaIdentityMakesFreshForsUnequal()
+    {
+      // (for:)'s lambda compares by reference — two separately-written (for:)s
+      // are never equal, matching LambdaValue's identity discipline.
+      var reg = Registry();
+      Assert.False(Eval("(for: each _x, 1) is (for: each _x, 1)", null, null, reg).AsBool);
+    }
   }
 }

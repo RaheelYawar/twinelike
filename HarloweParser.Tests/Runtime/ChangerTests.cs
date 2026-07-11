@@ -120,5 +120,141 @@ namespace Harlowe.Tests.Runtime
       Changer.FromStyle(null).Apply(output, o => o.Text("z"));
       Assert.Equal(new[] { "P:?", "T:z", "/P" }, output.Calls);
     }
+
+    // Patch structural equality — the per-patch Equals/GetHashCode contract
+    // Changer.Equals recurses into when authors compare stored changers with
+    // `is` (see HarloweValue.Equals) ----------------------------------------
+
+    private static HookNameValue Hook(string name) => new HookNameValue { Name = name };
+
+    [Fact]
+    public void ClearStylesPatch_EqualsAnyOtherInstance()
+    {
+      Assert.True(new ClearStylesPatch().Equals(new ClearStylesPatch()));
+      Assert.False(new ClearStylesPatch().Equals(new StylePatch()));
+      Assert.Equal(new ClearStylesPatch().GetHashCode(), new ClearStylesPatch().GetHashCode());
+    }
+
+    [Fact]
+    public void ConditionalPatch_HashesByKindAndValue()
+    {
+      var a = new ConditionalPatch { Kind = ConditionalKind.If, Value = true };
+      var b = new ConditionalPatch { Kind = ConditionalKind.If, Value = true };
+      Assert.Equal(a, b);
+      Assert.Equal(a.GetHashCode(), b.GetHashCode());
+      Assert.NotEqual(a.GetHashCode(),
+        new ConditionalPatch { Kind = ConditionalKind.Unless, Value = true }.GetHashCode());
+    }
+
+    [Fact]
+    public void IterationPatch_EqualityComparesParamAndItems()
+    {
+      IterationPatch Make(string param, double item) => new IterationPatch
+      {
+        Iteration = new IterationSpec
+        {
+          ParamName = param,
+          ParamIsTemporary = true,
+          Items = new List<HarloweValue> { HarloweValue.OfNumber(item) },
+        }
+      };
+
+      var a = Make("x", 1);
+      Assert.Equal(a, Make("x", 1));
+      Assert.Equal(a.GetHashCode(), Make("x", 1).GetHashCode());
+      Assert.NotEqual(a, Make("y", 1));
+      Assert.NotEqual(a, Make("x", 2));
+
+      // Null-spec pairs are equal; a null spec never equals a populated one.
+      Assert.Equal(new IterationPatch(), new IterationPatch());
+      Assert.NotEqual(a, new IterationPatch());
+      Assert.Equal(new IterationPatch().GetHashCode(), new IterationPatch().GetHashCode());
+    }
+
+    [Fact]
+    public void IterationPatch_LambdaComparesByReference()
+    {
+      var shared = new LambdaValue { Node = new Ast.Expression.LambdaNode() };
+      IterationPatch With(LambdaValue lambda) => new IterationPatch
+      {
+        Iteration = new IterationSpec { Lambda = lambda, ParamName = "x" }
+      };
+
+      Assert.Equal(With(shared), With(shared));
+      Assert.NotEqual(With(shared), With(new LambdaValue { Node = new Ast.Expression.LambdaNode() }));
+    }
+
+    [Fact]
+    public void RevisionPatch_EqualityByModeAndTarget()
+    {
+      RevisionPatch HookTargeted(RevisionMode mode, string hook) => new RevisionPatch
+      {
+        Revision = new RevisionSpec { Mode = mode, HookTarget = Hook(hook) }
+      };
+      RevisionPatch StringTargeted(string needle) => new RevisionPatch
+      {
+        Revision = new RevisionSpec { Mode = RevisionMode.Replace, StringTarget = needle }
+      };
+
+      var a = HookTargeted(RevisionMode.Replace, "x");
+      Assert.Equal(a, HookTargeted(RevisionMode.Replace, "X")); // hook names are case-insensitive
+      Assert.Equal(a.GetHashCode(), HookTargeted(RevisionMode.Replace, "x").GetHashCode());
+      Assert.NotEqual(a, HookTargeted(RevisionMode.Append, "x"));
+      Assert.NotEqual(a, StringTargeted("x"));
+      Assert.Equal(StringTargeted("old"), StringTargeted("old"));
+      Assert.Equal(StringTargeted("old").GetHashCode(), StringTargeted("old").GetHashCode());
+      Assert.Equal(new RevisionPatch(), new RevisionPatch());
+      Assert.NotEqual(a, new RevisionPatch());
+    }
+
+    [Fact]
+    public void InteractionPatch_EqualityComparesEveryField()
+    {
+      InteractionSpec Spec() => new InteractionSpec
+      {
+        Kind = InteractionKind.Click,
+        Mode = RevisionMode.Append,
+        Once = true,
+        StringTarget = "gold",
+        LinkText = null,
+        LinkReplacesLabel = false,
+        RevealMode = RevisionMode.Append,
+      };
+      InteractionPatch Patch(InteractionSpec spec) => new InteractionPatch { Interaction = spec };
+
+      var a = Patch(Spec());
+      Assert.Equal(a, Patch(Spec()));
+      Assert.Equal(a.GetHashCode(), Patch(Spec()).GetHashCode());
+
+      var kind = Spec(); kind.Kind = InteractionKind.MouseOver;
+      Assert.NotEqual(a, Patch(kind));
+      var mode = Spec(); mode.Mode = null;
+      Assert.NotEqual(a, Patch(mode));
+      var once = Spec(); once.Once = false;
+      Assert.NotEqual(a, Patch(once));
+      var target = Spec(); target.StringTarget = "silver";
+      Assert.NotEqual(a, Patch(target));
+      var link = Spec(); link.LinkText = "Go";
+      Assert.NotEqual(a, Patch(link));
+      var replaces = Spec(); replaces.LinkReplacesLabel = true;
+      Assert.NotEqual(a, Patch(replaces));
+      var reveal = Spec(); reveal.RevealMode = RevisionMode.Replace;
+      Assert.NotEqual(a, Patch(reveal));
+
+      var hookA = Spec(); hookA.StringTarget = null; hookA.HookTarget = Hook("h");
+      var hookB = Spec(); hookB.StringTarget = null; hookB.HookTarget = Hook("H");
+      Assert.Equal(Patch(hookA), Patch(hookB));
+      Assert.NotEqual(a, Patch(hookA));
+
+      Assert.Equal(new InteractionPatch(), new InteractionPatch());
+      Assert.NotEqual(a, new InteractionPatch());
+    }
+
+    [Fact]
+    public void HookNameValue_HashMatchesCaseInsensitiveEquality()
+    {
+      Assert.Equal(Hook("Cake"), Hook("cake"));
+      Assert.Equal(Hook("Cake").GetHashCode(), Hook("cake").GetHashCode());
+    }
   }
 }

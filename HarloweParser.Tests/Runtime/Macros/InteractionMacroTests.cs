@@ -1056,5 +1056,21 @@ namespace Harlowe.Tests.Runtime.Macros
       var after = session.DispatchEvent(region.Id);
       Assert.Equal("P1", after.PassageName);
     }
+
+    [Fact]
+    public void Click_GotoInDeferredHook_NavigatesAfterDispatch()
+    {
+      // A literal (goto:) inside the click's attached hook — distinct from the
+      // (click-goto:) command — stages a PendingGoto during the deferred render;
+      // the session must navigate once the dispatch completes.
+      var session = TwoPassageSession("gold(click: \"gold\")[(goto: \"P2\")]", "arrived");
+      var first = session.Render();
+      var region = Assert.Single(Regions(first));
+
+      var after = session.DispatchEvent(region.Id);
+      Assert.Equal("P2", after.PassageName);
+      Assert.Equal("P2", session.CurrentPassage);
+      Assert.Equal("arrived", after.Text);
+    }
   }
 }

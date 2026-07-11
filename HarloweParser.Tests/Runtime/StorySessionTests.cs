@@ -1261,5 +1261,16 @@ namespace Harlowe.Tests.Runtime
       var inert = session.DispatchEvent("r-0");
       Assert.Equal(string.Empty, inert.Text);
     }
+
+    [Fact]
+    public void Render_StoryWithNoPassages_ReturnsEmptyResult()
+    {
+      // A freshly-constructed story has no start passage, so the session has
+      // no current passage — Render must return an empty result, not throw.
+      var session = new StorySession(new Harlowe());
+      var result = session.Render();
+      Assert.Equal(string.Empty, result.Text);
+      Assert.Empty(result.Entries);
+    }
   }
 }

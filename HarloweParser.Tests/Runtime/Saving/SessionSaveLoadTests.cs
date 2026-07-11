@@ -117,5 +117,42 @@ namespace Harlowe.Tests.Runtime.Saving
       Assert.True(s2.LoadGame("slot"));
       Assert.Equal("7", s2.Render().Text);
     }
+
+    /// <summary>A backend that refuses every write — the quota-exceeded shape.</summary>
+    private sealed class RejectingStorage : ISaveStorage
+    {
+      public bool TryWrite(string key, string blob, string filename) => false;
+      public bool TryRead(string key, out string blob) { blob = null; return false; }
+      public bool TryDelete(string key) => false;
+      public System.Collections.Generic.IEnumerable<SavedGameInfo> Enumerate()
+        => new SavedGameInfo[0];
+    }
+
+    [Fact]
+    public void RejectingBackend_SaveGameFalse_SetsError()
+    {
+      var session = new StorySession(Story("p1"), new RejectingStorage());
+      session.Render();
+      Assert.False(session.SaveGame("slot"));
+      Assert.Contains("rejected", session.LastSaveError);
+    }
+
+    [Fact]
+    public void LoadGame_NullBackend_ReturnsFalse_SetsError()
+    {
+      var session = new StorySession(Story("p1"), (ISaveStorage)null);
+      Assert.False(session.LoadGame("slot"));
+      Assert.Contains("disabled", session.LastLoadError);
+    }
+
+    [Fact]
+    public void SeededCtor_WithBackend_IsDeterministic()
+    {
+      // The (story, seed, storage) overload: same seed → same (random:) draws.
+      var story = Story("(print: (random: 1, 1000000))");
+      var a = new StorySession(story, 42, new InMemorySaveStorage()).Render().Text;
+      var b = new StorySession(story, 42, new InMemorySaveStorage()).Render().Text;
+      Assert.Equal(a, b);
+    }
   }
 }

@@ -127,5 +127,19 @@ namespace Harlowe.Tests.Runtime.Saving
       Assert.NotNull(session.LastLoadError);
       Assert.Equal("P1", session.CurrentPassage); // no navigation on failure
     }
+
+    [Fact]
+    public void SaveGameMacro_NonStringSlot_RendersError()
+    {
+      var session = new StorySession(Story("(save-game: 5)"));
+      Assert.True(HasError(session.Render()));
+    }
+
+    [Fact]
+    public void SaveGameMacro_NonStringFilename_RendersError()
+    {
+      var session = new StorySession(Story("(save-game: \"s\", 5)"));
+      Assert.True(HasError(session.Render()));
+    }
   }
 }
