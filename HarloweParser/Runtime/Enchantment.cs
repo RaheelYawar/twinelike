@@ -114,8 +114,8 @@ namespace Harlowe.Runtime
       {
         var target = targets[i];
         // Reference skips completely empty hooks — `|A>[]` is hidden by CSS
-        // there and must not be enchanted nor advance pos. Leaves (a ?link
-        // match) are never "empty".
+        // there and must not be enchanted nor advance pos (the `:empty` filter,
+        // which also covers a link whose label a revision emptied).
         if (target is IRenderContainer c && c.Children.Count == 0) continue;
         pos++;
 

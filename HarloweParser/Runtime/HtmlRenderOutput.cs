@@ -133,6 +133,12 @@ namespace Harlowe.Runtime
     public void Link(string text, string target) => _inner.Link(EscapeText(text), target);
     public void Error(string message) => _inner.Error(EscapeText(message));
 
+    // BeginLink/EndLink forward as typed entries like Link (target raw, per
+    // the IRenderOutput escaping contract); the label content between them
+    // arrives through Text/Html and is escaped by those channels.
+    public void BeginLink(string target) => _inner.BeginLink(target);
+    public void EndLink() => _inner.EndLink();
+
     /// <summary>
     /// Map an interactive region to an HTML <c>&lt;a&gt;</c> anchor with the
     /// region id stamped onto <c>data-region-id</c> and the interaction kind

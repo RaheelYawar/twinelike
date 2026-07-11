@@ -428,25 +428,31 @@ namespace Harlowe.Runtime
 
     /// <summary>
     /// Apply this changer's style layers to a resolved target, dispatching on its
-    /// shape: a container (a hook) has its children wrapped via
-    /// <see cref="ApplyTo(IRenderContainer, Enchantment)"/>; a <em>leaf</em> (a
-    /// <see cref="RenderLinkNode"/> matched by <c>?link</c>) is wrapped node-and-all
-    /// in place within <paramref name="root"/> via <see cref="ApplyToNode"/>. Lets
-    /// <c>(enchant:)</c>/<c>(change:)</c> style links — reference Harlowe's <c>?Link</c>
-    /// built-in target.
+    /// shape: a hook has its children wrapped via
+    /// <see cref="ApplyTo(IRenderContainer, Enchantment)"/>; a
+    /// <see cref="RenderLinkNode"/> matched by <c>?link</c> — a container too,
+    /// but one whose element the host renders — is wrapped <em>node-and-all</em>
+    /// in place within <paramref name="root"/> via <see cref="ApplyToNode"/>,
+    /// keeping the style layer around the link the way reference wraps
+    /// <c>&lt;tw-enchantment&gt;</c> around <c>&lt;tw-link&gt;</c> (and the flat
+    /// <see cref="IRenderOutput.Link"/> event intact inside it). Lets
+    /// <c>(enchant:)</c>/<c>(change:)</c> style links — reference Harlowe's
+    /// <c>?Link</c> built-in target.
     /// </summary>
     public void ApplyToTarget(IRenderContainer root, RenderNode target, Enchantment source = null)
     {
-      if (target is IRenderContainer container) ApplyTo(container, source);
+      if (target is RenderLinkNode) ApplyToNode(root, target, source);
+      else if (target is IRenderContainer container) ApplyTo(container, source);
       else ApplyToNode(root, target, source);
     }
 
     /// <summary>
-    /// Wrap a single leaf <paramref name="target"/> in this changer's style layers,
-    /// replacing it in place within <paramref name="root"/> — the leaf has no children
-    /// of its own, so the wrap goes around the node itself. The style nodes carry
-    /// <paramref name="source"/> so <see cref="EnchantmentPass.Disenchant"/> unwraps
-    /// them by tag, exactly as on the container path.
+    /// Wrap <paramref name="target"/> node-and-all in this changer's style layers,
+    /// replacing it in place within <paramref name="root"/> — the wrap goes around
+    /// the node itself rather than its children (how <c>?link</c> matches are
+    /// styled). The style nodes carry <paramref name="source"/> so
+    /// <see cref="EnchantmentPass.Disenchant"/> unwraps them by tag, exactly as on
+    /// the container path.
     /// </summary>
     public void ApplyToNode(IRenderContainer root, RenderNode target, Enchantment source = null)
     {

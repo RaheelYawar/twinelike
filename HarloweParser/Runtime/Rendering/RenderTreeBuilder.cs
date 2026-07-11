@@ -81,6 +81,18 @@ namespace Harlowe.Runtime.Rendering
     public void Link(string text, string target)
       => Current.Children.Add(new RenderLinkNode { Text = text, Target = target });
 
+    public void BeginLink(string target)
+    {
+      var node = new RenderLinkNode { Target = target };
+      Current.Children.Add(node);
+      _stack.Push(node);
+    }
+
+    public void EndLink()
+    {
+      if (_stack.Count > 1) _stack.Pop();
+    }
+
     public void Error(string message) => Current.Children.Add(new RenderErrorNode { Message = message });
 
     public void PushStyle(StyleSpec style)

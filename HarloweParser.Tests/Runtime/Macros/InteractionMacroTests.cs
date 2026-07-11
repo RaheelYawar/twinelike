@@ -727,9 +727,11 @@ namespace Harlowe.Tests.Runtime.Macros
       Assert.Equal(0, CountKind(result, BufferedRenderOutput.Kind.BeginInteractive));
     }
 
-    // --- ?link styling target (a leaf RenderLinkNode, not a hook) ---
-    // (enchant:)/(change:) on ?link work via Changer.ApplyToNode; click/replace on
-    // ?link need the container model (BeginLink/EndLink follow-up) and stay no-ops.
+    // --- ?link targets. RenderLinkNode is a container: styling and arming wrap
+    // node-and-all around the link (reference's <tw-enchantment> around
+    // <tw-link>), revision macros and combos splice into its label. A label of
+    // plain text keeps the flat Link event; structured content flushes as a
+    // BeginLink/EndLink bracket. ---
 
     [Fact]
     public void Enchant_Link_StylesTheLink()
@@ -747,6 +749,156 @@ namespace Harlowe.Tests.Runtime.Macros
       var session = Session("[[Go->P2]](change: ?link, (text-style: \"bold\"))");
       var r = session.Render();
       Assert.Equal(1, CountKind(r, BufferedRenderOutput.Kind.PushStyle));
+    }
+
+    /// <summary>The first Link entry, or null if none.</summary>
+    private static BufferedRenderOutput.Entry FirstLink(RenderResult r)
+    {
+      for (int i = 0; i < r.Entries.Count; i++)
+        if (r.Entries[i].Kind == BufferedRenderOutput.Kind.Link) return r.Entries[i];
+      return null;
+    }
+
+    /// <summary>Index of the first entry of a kind, or -1.</summary>
+    private static int IndexOfKind(RenderResult r, BufferedRenderOutput.Kind k)
+    {
+      for (int i = 0; i < r.Entries.Count; i++)
+        if (r.Entries[i].Kind == k) return i;
+      return -1;
+    }
+
+    [Fact]
+    public void Replace_Link_ReplacesLabel_KeepsFlatLinkEvent()
+    {
+      var session = Session("[[Go->P2]](replace: ?link)[Run]");
+      var r = session.Render();
+      var link = FirstLink(r);
+      Assert.NotNull(link);
+      Assert.Equal("Run", link.Content);
+      Assert.Equal("P2", link.Target);
+    }
+
+    [Fact]
+    public void Append_Link_AppendsToLabel()
+    {
+      // The spliced label is still plain text (two text nodes), so the link
+      // keeps its flat event with the concatenated label.
+      var session = Session("[[Go->P2]](append: ?link)[ on]");
+      var r = session.Render();
+      var link = FirstLink(r);
+      Assert.NotNull(link);
+      Assert.Equal("Go on", link.Content);
+      Assert.Equal(0, CountKind(r, BufferedRenderOutput.Kind.BeginLink));
+    }
+
+    [Fact]
+    public void Replace_Link_StyledContent_FlushesBracketedLink()
+    {
+      // A styled label can't flatten to one string: the link flushes as a
+      // BeginLink/EndLink bracket with the label events inside.
+      var session = Session("[[Go->P2]](replace: ?link)[''R'']");
+      var r = session.Render();
+      Assert.Equal(0, CountKind(r, BufferedRenderOutput.Kind.Link));
+      int begin = IndexOfKind(r, BufferedRenderOutput.Kind.BeginLink);
+      int end = IndexOfKind(r, BufferedRenderOutput.Kind.EndLink);
+      Assert.True(begin >= 0 && end > begin, "expected a BeginLink/EndLink bracket");
+      Assert.Equal("P2", r.Entries[begin].Target);
+      int push = IndexOfKind(r, BufferedRenderOutput.Kind.PushStyle);
+      Assert.True(push > begin && push < end, "expected the style inside the bracket");
+    }
+
+    [Fact]
+    public void Replace_Link_EmptyHook_FlatEmptyLabel()
+    {
+      // Reference leaves the emptied link element in place; the label is
+      // still plain (no) prose, so the link keeps its flat event.
+      var session = Session("[[Go->P2]](replace: ?link)[]");
+      var r = session.Render();
+      var link = FirstLink(r);
+      Assert.NotNull(link);
+      Assert.Equal(string.Empty, link.Content);
+      Assert.Equal("P2", link.Target);
+    }
+
+    [Fact]
+    public void Replace_String_InsideLinkLabel_Splices()
+    {
+      // String occurrences match inside link labels (reference's text-node
+      // search is tree-wide). The occurrence wrap is a structural hook, so a
+      // plain-prose splice keeps the flat link event with the merged label —
+      // and labels stay out of RenderResult.Text as always.
+      var session = Session("[[Golden path->P2]](replace: \"Golden\")[Muddy]");
+      var r = session.Render();
+      var link = FirstLink(r);
+      Assert.NotNull(link);
+      Assert.Equal("Muddy path", link.Content);
+      Assert.Equal("P2", link.Target);
+      Assert.Equal(string.Empty, r.Text);
+    }
+
+    [Fact]
+    public void Click_Link_ArmsAroundTheLink()
+    {
+      var session = Session("[[Go->P2]](click: ?link)[hi]");
+      var r = session.Render();
+      var region = Assert.Single(Regions(r));
+      Assert.Equal(InteractionKind.Click, region.Kind);
+      // The armed bracket wraps around the link: the flat Link event sits
+      // between BeginInteractive and EndInteractive, so the link's own
+      // navigation stays live alongside the region event.
+      int begin = IndexOfKind(r, BufferedRenderOutput.Kind.BeginInteractive);
+      int link = IndexOfKind(r, BufferedRenderOutput.Kind.Link);
+      int end = IndexOfKind(r, BufferedRenderOutput.Kind.EndInteractive);
+      Assert.True(begin < link && link < end, "expected Link inside the interactive bracket");
+    }
+
+    [Fact]
+    public void Dispatch_ClickLink_RevealsAtMacroPosition_LinkSurvives()
+    {
+      var session = Session("[[Go->P2]](click: ?link)[hi]");
+      var initial = session.Render();
+      var after = session.DispatchEvent(FirstRegionId(initial));
+      Assert.Contains("hi", after.Text);
+      var link = FirstLink(after);
+      Assert.NotNull(link);
+      Assert.Equal("Go", link.Content);
+      Assert.Equal(0, CountKind(after, BufferedRenderOutput.Kind.BeginInteractive));
+    }
+
+    [Fact]
+    public void Dispatch_ClickReplaceLink_SplicesIntoLabel()
+    {
+      var session = Session("[[Go->P2]](click-replace: ?link)[X]");
+      var initial = session.Render();
+      Assert.Single(Regions(initial));
+      var after = session.DispatchEvent(FirstRegionId(initial));
+      var link = FirstLink(after);
+      Assert.NotNull(link);
+      Assert.Equal("X", link.Content);
+      Assert.Equal("P2", link.Target);
+    }
+
+    [Fact]
+    public void Click_StringMatchingLinkLabel_ArmsInsideLink()
+    {
+      var session = Session("[[Go->P2]](click: \"Go\")[hi]");
+      var initial = session.Render();
+      Assert.Single(Regions(initial));
+      var after = session.DispatchEvent(FirstRegionId(initial));
+      Assert.Contains("hi", after.Text);
+    }
+
+    [Fact]
+    public void Click_Link_WithArmChanger_StylesArmedRegion()
+    {
+      var session = Session("[[Go->P2]](click: ?link, (text-style: \"bold\"))[hi]");
+      var r = session.Render();
+      Assert.Single(Regions(r));
+      // Arm style wraps outside the interactive node, which wraps the link.
+      int push = IndexOfKind(r, BufferedRenderOutput.Kind.PushStyle);
+      int begin = IndexOfKind(r, BufferedRenderOutput.Kind.BeginInteractive);
+      int link = IndexOfKind(r, BufferedRenderOutput.Kind.Link);
+      Assert.True(push >= 0 && push < begin && begin < link, "expected style > interactive > link nesting");
     }
 
     // --- The -goto/-undo command variants ((click-goto:), (click-undo:), and

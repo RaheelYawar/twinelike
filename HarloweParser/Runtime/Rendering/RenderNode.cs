@@ -59,13 +59,58 @@ namespace Harlowe.Runtime.Rendering
     public override RenderNode Clone() => new RenderHtmlNode { RawHtml = RawHtml };
   }
 
-  /// <summary>A passage-to-passage navigation link. Flushes to <see cref="IRenderOutput.Link"/>.</summary>
-  public class RenderLinkNode : RenderNode
+  /// <summary>
+  /// A passage-to-passage navigation link. A container: the display content is
+  /// its <see cref="Children"/> (seeded with one text node when built), so
+  /// revision macros can splice into a link's label and string targets can
+  /// match inside it — the analogue of reference's <c>&lt;tw-link&gt;</c>
+  /// element. Flushes as a flat <see cref="IRenderOutput.Link"/> event while
+  /// the content is plain text, else as a <see cref="IRenderOutput.BeginLink"/>
+  /// / <see cref="IRenderOutput.EndLink"/> bracket around the content's events.
+  /// </summary>
+  public class RenderLinkNode : RenderNode, IRenderContainer
   {
-    public string Text;
+    /// <summary>The passage-name reference the link navigates to.</summary>
     public string Target;
 
-    public override RenderNode Clone() => new RenderLinkNode { Text = Text, Target = Target };
+    public List<RenderNode> Children { get; } = new List<RenderNode>();
+
+    /// <summary>
+    /// Display-text convenience over <see cref="Children"/>: get flattens every
+    /// descendant text node in document order; set replaces the content with a
+    /// single text node. Structural edits go through <see cref="Children"/>.
+    /// </summary>
+    public string Text
+    {
+      get
+      {
+        var sb = new System.Text.StringBuilder();
+        AppendText(this, sb);
+        return sb.ToString();
+      }
+      set
+      {
+        Children.Clear();
+        Children.Add(new RenderTextNode { Content = value });
+      }
+    }
+
+    private static void AppendText(IRenderContainer container, System.Text.StringBuilder sb)
+    {
+      var children = container.Children;
+      for (int i = 0; i < children.Count; i++)
+      {
+        if (children[i] is RenderTextNode t) sb.Append(t.Content);
+        else if (children[i] is IRenderContainer c) AppendText(c, sb);
+      }
+    }
+
+    public override RenderNode Clone()
+    {
+      var copy = new RenderLinkNode { Target = Target };
+      RenderNodes.CloneInto(Children, copy.Children);
+      return copy;
+    }
   }
 
   /// <summary>An in-prose error message. Flushes to <see cref="IRenderOutput.Error"/>.</summary>
@@ -323,11 +368,13 @@ namespace Harlowe.Runtime.Rendering
     /// <summary>
     /// Find <paramref name="target"/> among <paramref name="root"/>'s descendants
     /// (by reference) and replace it in place with <paramref name="replacement"/>;
-    /// returns true if found. Lets the enchant/interaction passes wrap a <em>leaf</em>
-    /// match — a <see cref="RenderLinkNode"/> resolved by <c>?link</c> — in their
-    /// style/interactive layer, where the rest of the machinery only ever wraps a
-    /// container's own children. The inverse unwrap is just <see cref="UnwrapWhere"/>,
-    /// which hoists the leaf back out by tag.
+    /// returns true if found. Lets the enchant/interaction passes wrap a
+    /// <see cref="RenderLinkNode"/> resolved by <c>?link</c> <em>node-and-all</em>
+    /// in their style/interactive layer (the wrap goes around the link, as
+    /// reference wraps <c>&lt;tw-enchantment&gt;</c> around <c>&lt;tw-link&gt;</c>),
+    /// where the rest of the machinery wraps a container's own children. The
+    /// inverse unwrap is just <see cref="UnwrapWhere"/>, which hoists the node
+    /// back out by tag.
     /// </summary>
     public static bool ReplaceChild(IRenderContainer root, RenderNode target, RenderNode replacement)
     {

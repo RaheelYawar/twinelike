@@ -25,6 +25,8 @@ namespace Harlowe.Tests.Runtime
       public void PopStyle() => Calls.Add("/P");
       public void BeginInteractive(InteractiveRegion region) => Calls.Add("I:" + region?.Id);
       public void EndInteractive() => Calls.Add("/I");
+      public void BeginLink(string target) => Calls.Add("BL:" + target);
+      public void EndLink() => Calls.Add("/BL");
 
       private static string Describe(StyleSpec s)
       {

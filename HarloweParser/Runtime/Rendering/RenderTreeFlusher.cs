@@ -31,6 +31,23 @@ namespace Harlowe.Runtime.Rendering
       for (int i = 0; i < children.Count; i++) FlushNode(children[i], output);
     }
 
+    /// <summary>
+    /// True when a link label is expressible as one flat string: every node is
+    /// a text node or a hook wrap (structural — flushes nothing of its own)
+    /// recursively holding only such content. Vacuously true when empty, so an
+    /// emptied link flushes flat with a <c>""</c> label.
+    /// </summary>
+    private static bool IsPlainTextLabel(List<RenderNode> children)
+    {
+      for (int i = 0; i < children.Count; i++)
+      {
+        if (children[i] is RenderTextNode) continue;
+        if (children[i] is RenderHookNode hk && IsPlainTextLabel(hk.Children)) continue;
+        return false;
+      }
+      return true;
+    }
+
     private static void FlushNode(RenderNode node, IRenderOutput output)
     {
       switch (node)
@@ -42,7 +59,19 @@ namespace Harlowe.Runtime.Rendering
           output.Html(h.RawHtml);
           break;
         case RenderLinkNode l:
-          output.Link(l.Text, l.Target);
+          // Flush parity: a label that is plain prose — text nodes, possibly
+          // inside flush-transparent hook wraps (revision sources, string-
+          // occurrence wraps) — keeps the flat Link event, an emptied label
+          // included. Content the host must receive as events (styles, armed
+          // regions, html, errors) brackets with BeginLink/EndLink instead.
+          if (IsPlainTextLabel(l.Children))
+            output.Link(l.Text, l.Target);
+          else
+          {
+            output.BeginLink(l.Target);
+            FlushChildren(l.Children, output);
+            output.EndLink();
+          }
           break;
         case RenderErrorNode e:
           output.Error(e.Message);

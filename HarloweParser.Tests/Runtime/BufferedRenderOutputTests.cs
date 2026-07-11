@@ -85,5 +85,26 @@ namespace Harlowe.Tests.Runtime
       Assert.Empty(buf.Entries);
       Assert.Equal(string.Empty, buf.Text);
     }
+
+    [Fact]
+    public void BeginLink_RecordsTarget_LabelSuppressedFromText()
+    {
+      // A bracketed link's label fragments are entries but stay out of Text,
+      // matching the flat Link shape (whose label never contributed).
+      var buf = new BufferedRenderOutput();
+      IRenderOutput sink = buf;
+      sink.Text("go ");
+      sink.BeginLink("P2");
+      sink.Text("label");
+      sink.EndLink();
+      sink.Text(" now");
+
+      Assert.Equal("go  now", buf.Text);
+      Assert.Equal(BufferedRenderOutput.Kind.BeginLink, buf.Entries[1].Kind);
+      Assert.Equal("P2", buf.Entries[1].Target);
+      Assert.Equal(BufferedRenderOutput.Kind.Text, buf.Entries[2].Kind);
+      Assert.Equal("label", buf.Entries[2].Content);
+      Assert.Equal(BufferedRenderOutput.Kind.EndLink, buf.Entries[3].Kind);
+    }
   }
 }

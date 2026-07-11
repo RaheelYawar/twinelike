@@ -69,7 +69,7 @@ string twee = new TweeWriter().Write(story);
 
 ## The IRenderOutput contract
 
-`StorySession.Render()` and `Goto()` push events through an `IRenderOutput` you supply. Six channels:
+`StorySession.Render()` and `Goto()` push events through an `IRenderOutput` you supply. Ten channels — four flat, three bracket pairs:
 
 ```mermaid
 flowchart LR
@@ -77,8 +77,9 @@ flowchart LR
   R -->|"Html(string)"| O
   R -->|"Link(text, target)"| O
   R -->|"Error(string)"| O
-  R -->|"PushStyle(StyleSpec)"| O
-  R -->|"PopStyle()"| O
+  R -->|"PushStyle(StyleSpec) / PopStyle()"| O
+  R -->|"BeginInteractive(region) / EndInteractive()"| O
+  R -->|"BeginLink(target) / EndLink()"| O
   O --> Y[Your adapter]
 ```
 
@@ -86,10 +87,11 @@ flowchart LR
 |---|---|---|
 | `Text` | Plain prose | Always |
 | `Html` | Raw author HTML in passage source | When the author writes literal `<b>foo</b>` |
-| `Link` | Text + target passage name | For `[[passage]]` links |
+| `Link` | Text + target passage name | For `[[passage]]` links whose label is plain prose (the common case) |
 | `Error` | Inline error message | Failed expression / unknown macro / arity mismatch |
-| `PushStyle` | `StyleSpec` (semantic styling layer) | Changer macros entering scope |
-| `PopStyle` | — | Changer macros leaving scope (paired with PushStyle) |
+| `PushStyle` / `PopStyle` | `StyleSpec` (semantic styling layer) | Changer macros entering / leaving scope |
+| `BeginInteractive` / `EndInteractive` | `InteractiveRegion` (id + kind) | Click/hover macros arming a region — report the user's event back via `StorySession.DispatchEvent(regionId)` |
+| `BeginLink` / `EndLink` | Target passage name | Instead of `Link` when a link's label carries structure (styles or armed regions, e.g. after `(replace: ?link)[''bold'']`) — the label arrives as ordinary events in between; render both shapes as the same navigable link |
 
 **Style is semantic, not HTML.** A `StyleSpec` describes one styling layer with named flags (`Bold`/`Italic`/`Underline`/`Strikethrough`) and value fields (`Color`/`BackgroundColor`/`FontFamily`/`FontSize`). You map it to whatever your renderer accepts — TextMeshPro tags for Unity, BBCode for Godot, ANSI for a terminal, HTML for a browser. The library never bakes in HTML.
 

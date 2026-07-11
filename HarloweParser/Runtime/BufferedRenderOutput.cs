@@ -20,9 +20,9 @@ namespace Harlowe.Runtime
   public class BufferedRenderOutput : IRenderOutput
   {
     /// <summary>Kind tag for an entry in <see cref="Entries"/>.</summary>
-    public enum Kind { Text, Html, Link, Error, PushStyle, PopStyle, BeginInteractive, EndInteractive }
+    public enum Kind { Text, Html, Link, Error, PushStyle, PopStyle, BeginInteractive, EndInteractive, BeginLink, EndLink }
 
-    /// <summary>One recorded callback. <see cref="Target"/> is non-null only for <see cref="Kind.Link"/>; <see cref="Style"/> is non-null only for <see cref="Kind.PushStyle"/>; <see cref="Region"/> is non-null only for <see cref="Kind.BeginInteractive"/>.</summary>
+    /// <summary>One recorded callback. <see cref="Target"/> is non-null only for <see cref="Kind.Link"/> and <see cref="Kind.BeginLink"/>; <see cref="Style"/> is non-null only for <see cref="Kind.PushStyle"/>; <see cref="Region"/> is non-null only for <see cref="Kind.BeginInteractive"/>.</summary>
     public class Entry
     {
       public Kind Kind;
@@ -37,24 +37,42 @@ namespace Harlowe.Runtime
 
     private readonly StringBuilder _text = new StringBuilder();
 
-    /// <summary>Concatenation of every <see cref="IRenderOutput.Text"/> and <see cref="IRenderOutput.Html"/> fragment received, in order. Style events do not contribute.</summary>
+    // Depth of open BeginLink brackets. Link labels never contribute to Text
+    // — a flat Link entry's text doesn't, so a bracketed label's fragments
+    // are suppressed too, keeping the property's meaning stable across the
+    // two link shapes.
+    private int _linkDepth;
+
+    /// <summary>Concatenation of every <see cref="IRenderOutput.Text"/> and <see cref="IRenderOutput.Html"/> fragment received, in order. Style events and link labels (either shape) do not contribute.</summary>
     public string Text => _text.ToString();
 
     void IRenderOutput.Text(string content)
     {
       Entries.Add(new Entry { Kind = Kind.Text, Content = content });
-      _text.Append(content);
+      if (_linkDepth == 0) _text.Append(content);
     }
 
     void IRenderOutput.Html(string rawHtml)
     {
       Entries.Add(new Entry { Kind = Kind.Html, Content = rawHtml });
-      _text.Append(rawHtml);
+      if (_linkDepth == 0) _text.Append(rawHtml);
     }
 
     void IRenderOutput.Link(string text, string target)
     {
       Entries.Add(new Entry { Kind = Kind.Link, Content = text, Target = target });
+    }
+
+    void IRenderOutput.BeginLink(string target)
+    {
+      Entries.Add(new Entry { Kind = Kind.BeginLink, Target = target });
+      _linkDepth++;
+    }
+
+    void IRenderOutput.EndLink()
+    {
+      Entries.Add(new Entry { Kind = Kind.EndLink });
+      if (_linkDepth > 0) _linkDepth--;
     }
 
     void IRenderOutput.Error(string message)

@@ -300,5 +300,64 @@ namespace Harlowe.Tests.Runtime.Rendering
       Assert.Equal("r-1", clone.Region.Id);
       Assert.Equal(InteractionKind.Click, clone.Region.Kind);
     }
+
+    // --- Link container (BeginLink/EndLink) ---
+
+    [Fact]
+    public void Builder_BeginEndLink_RoundTripsStructuredLabel()
+    {
+      var builder = new RenderTreeBuilder();
+      IRenderOutput sink = builder;
+      sink.BeginLink("P2");
+      sink.Text("a");
+      sink.PushStyle(new StyleSpec { Bold = true });
+      sink.Text("b");
+      sink.PopStyle();
+      sink.EndLink();
+      Assert.True(builder.IsBalanced);
+
+      var buf = new BufferedRenderOutput();
+      RenderTreeFlusher.Flush(builder.Root, buf);
+      Assert.Equal(BufferedRenderOutput.Kind.BeginLink, buf.Entries[0].Kind);
+      Assert.Equal("P2", buf.Entries[0].Target);
+      Assert.Equal(BufferedRenderOutput.Kind.Text, buf.Entries[1].Kind);
+      Assert.Equal(BufferedRenderOutput.Kind.PushStyle, buf.Entries[2].Kind);
+      Assert.Equal(BufferedRenderOutput.Kind.Text, buf.Entries[3].Kind);
+      Assert.Equal(BufferedRenderOutput.Kind.PopStyle, buf.Entries[4].Kind);
+      Assert.Equal(BufferedRenderOutput.Kind.EndLink, buf.Entries[5].Kind);
+    }
+
+    [Fact]
+    public void Flusher_PlainTextLabel_KeepsFlatLinkEvent()
+    {
+      // Flat Link() and an all-text BeginLink bracket flush identically.
+      var builder = new RenderTreeBuilder();
+      IRenderOutput sink = builder;
+      sink.BeginLink("P2");
+      sink.Text("Go");
+      sink.EndLink();
+
+      var buf = new BufferedRenderOutput();
+      RenderTreeFlusher.Flush(builder.Root, buf);
+      var entry = Assert.Single(buf.Entries);
+      Assert.Equal(BufferedRenderOutput.Kind.Link, entry.Kind);
+      Assert.Equal("Go", entry.Content);
+      Assert.Equal("P2", entry.Target);
+    }
+
+    [Fact]
+    public void LinkNode_TextProperty_FlattensDescendants_AndClones()
+    {
+      var link = new RenderLinkNode { Target = "P2", Text = "Go" };
+      var style = new RenderStyleNode { Style = new StyleSpec { Bold = true } };
+      style.Children.Add(new RenderTextNode { Content = " on" });
+      link.Children.Add(style);
+      Assert.Equal("Go on", link.Text);
+
+      var clone = (RenderLinkNode)link.Clone();
+      ((RenderTextNode)link.Children[0]).Content = "mutated";
+      Assert.Equal("Go on", clone.Text);
+      Assert.Equal("P2", clone.Target);
+    }
   }
 }

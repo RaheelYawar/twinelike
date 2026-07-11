@@ -34,17 +34,27 @@ namespace Harlowe.Runtime
   /// </para>
   ///
   /// <para>
+  /// <b>Link channel.</b> An untouched link arrives as one flat
+  /// <see cref="Link"/> event. A link whose label carries structure — content
+  /// spliced in by <c>(replace: ?link)</c>, style or occurrence wraps inside
+  /// the label — arrives instead as a <see cref="BeginLink"/> /
+  /// <see cref="EndLink"/> bracket with the label content flowing through the
+  /// ordinary channels in between. Hosts render both shapes as the same
+  /// navigable link.
+  /// </para>
+  ///
+  /// <para>
   /// <b>Escaping contract.</b> <see cref="Text"/>, <see cref="Link"/>'s text
   /// arg, and <see cref="Error"/> all carry author-controlled prose. The
   /// built-in <see cref="HtmlRenderOutput"/> HTML-escapes those three on its
   /// way to the inner sink; <see cref="Html"/> is raw markup and forwarded
-  /// verbatim; <see cref="Link"/>'s target arg is a passage-name reference
-  /// the consumer resolves semantically (lookup/dispatch) and is NOT escaped
-  /// (consumers embedding it directly into an <c>href</c> attribute must
-  /// attribute-escape at that point). Adapters that wrap or replace
-  /// <see cref="HtmlRenderOutput"/> must respect this split — escaping the
-  /// already-escaped channels a second time produces <c>&amp;amp;lt;</c>
-  /// corruption.
+  /// verbatim; <see cref="Link"/>'s and <see cref="BeginLink"/>'s target arg
+  /// is a passage-name reference the consumer resolves semantically
+  /// (lookup/dispatch) and is NOT escaped (consumers embedding it directly
+  /// into an <c>href</c> attribute must attribute-escape at that point).
+  /// Adapters that wrap or replace <see cref="HtmlRenderOutput"/> must
+  /// respect this split — escaping the already-escaped channels a second
+  /// time produces <c>&amp;amp;lt;</c> corruption.
   /// </para>
   /// </summary>
   public interface IRenderOutput
@@ -55,8 +65,14 @@ namespace Harlowe.Runtime
     /// <summary>Raw HTML pass-through from author-written inline HTML in passage source (e.g. <c>&lt;b&gt;</c>). Forwarded verbatim by HtmlRenderOutput. Engine consumers that don't render HTML may drop or escape this channel.</summary>
     void Html(string rawHtml);
 
-    /// <summary>A passage-to-passage navigation link. <paramref name="text"/> is display prose and is HTML-escaped by HtmlRenderOutput; <paramref name="target"/> is the passage-name reference and is forwarded raw — consumers embedding it in an HTML attribute must attribute-escape at that point.</summary>
+    /// <summary>A passage-to-passage navigation link whose label is plain text. <paramref name="text"/> is display prose and is HTML-escaped by HtmlRenderOutput; <paramref name="target"/> is the passage-name reference and is forwarded raw — consumers embedding it in an HTML attribute must attribute-escape at that point.</summary>
     void Link(string text, string target);
+
+    /// <summary>Open a navigation link whose label carries structure a flat <see cref="Link"/> string can't express (styled or revision-spliced content). The label arrives as ordinary events until the matching <see cref="EndLink"/>. <paramref name="target"/> follows <see cref="Link"/>'s raw-target contract.</summary>
+    void BeginLink(string target);
+
+    /// <summary>Close the most recently opened link. Always paired with a prior <see cref="BeginLink"/> on the same render path.</summary>
+    void EndLink();
 
     /// <summary>An in-prose error message produced by a failed expression or macro. Routed through this channel rather than thrown. HtmlRenderOutput HTML-escapes this channel — see the interface-level escaping contract.</summary>
     void Error(string message);

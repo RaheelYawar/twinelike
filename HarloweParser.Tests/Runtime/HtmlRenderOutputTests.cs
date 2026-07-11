@@ -17,6 +17,19 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
+    public void BeginLink_ForwardsTyped_LabelEscapedByTextChannel()
+    {
+      var (buf, sink) = NewSink();
+      sink.BeginLink("P2");
+      sink.Text("a<b");
+      sink.EndLink();
+      Assert.Equal(BufferedRenderOutput.Kind.BeginLink, buf.Entries[0].Kind);
+      Assert.Equal("P2", buf.Entries[0].Target);
+      Assert.Equal("a&lt;b", buf.Entries[1].Content);
+      Assert.Equal(BufferedRenderOutput.Kind.EndLink, buf.Entries[2].Kind);
+    }
+
+    [Fact]
     public void Bold_EmitsBTags()
     {
       var (buf, sink) = NewSink();

@@ -150,16 +150,11 @@ namespace Harlowe.Runtime
         bool lambdaFailed = false;
         for (int j = 0; j < targets.Count; j++)
         {
-          // A leaf match (a ?link RenderLinkNode) is skipped here: wrapping it as a
-          // clickable region is easy, but the click's dispatch reveal splices content
-          // *into* the target, which needs the link to be a container — the same
-          // BeginLink/EndLink follow-up that (replace: ?link) needs. A clickable-but-
-          // dead link is worse than a no-op, so click/hover on ?link waits for that.
-          // (?link styling via (enchant:)/(change:) works — see Changer.ApplyToNode.)
           if (!(targets[j] is IRenderContainer container)) continue;
 
-          // Reference never arms completely empty hooks (`[]<foo|` gets no
-          // <tw-enchantment> — the `:empty` filter), and they don't advance pos.
+          // Reference never arms completely empty hooks or links (`[]<foo|`
+          // gets no <tw-enchantment> — the `:empty` filter), and they don't
+          // advance pos.
           if (container.Children.Count == 0) continue;
           pos++;
 
@@ -185,7 +180,6 @@ namespace Harlowe.Runtime
           }
           wrappedAny = true;
 
-          var content = new List<RenderNode>(container.Children);
           // Each wrap gets its own InteractiveRegion instance (sharing the id
           // and kind) so a later in-place mutation on one match's region can't
           // propagate to its siblings; matching identity is the id string.
@@ -193,7 +187,6 @@ namespace Harlowe.Runtime
           {
             Region = new InteractiveRegion { Id = interaction.RegionId, Kind = interaction.Kind }
           };
-          interactiveNode.Children.AddRange(content);
 
           // Fold the armed-region style layers around the interactive node,
           // innermost = last layer, each cloned + tagged with the region id so
@@ -210,8 +203,24 @@ namespace Harlowe.Runtime
             }
           }
 
-          container.Children.Clear();
-          container.Children.Add(wrapped);
+          if (targets[j] is RenderLinkNode)
+          {
+            // A link arms node-and-all: the armed bracket goes around the
+            // RenderLinkNode (reference wraps <tw-enchantment> around
+            // <tw-link>), so the host keeps the flat Link event inside the
+            // interactive wrap and the link's own navigation stays live
+            // alongside the region event. StripWraps hoists the link back out
+            // through the same generalized unwrap.
+            interactiveNode.Children.Add(targets[j]);
+            RenderNodes.ReplaceChild(root, targets[j], wrapped);
+          }
+          else
+          {
+            var content = new List<RenderNode>(container.Children);
+            interactiveNode.Children.AddRange(content);
+            container.Children.Clear();
+            container.Children.Add(wrapped);
+          }
         }
 
         // No match wrapped → no event can fire, so don't register a stale
