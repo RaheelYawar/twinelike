@@ -680,6 +680,7 @@ namespace Harlowe.Runtime
       };
       ctx.RenderPassage = (name, output) => InlineDisplayPassage(name, output, ctx);
       ctx.PassageExists = name => _story.GetPassage(name) != null;
+      ctx.CanUndo = () => _past.Count > 0;
       ctx.SaveGame = (s, fn) => SaveGame(s, fn);
       ctx.SavedGames = SavedGames;
       ctx.PrepareLoad = PrepareLoad;
@@ -763,6 +764,8 @@ namespace Harlowe.Runtime
     /// the current view is returned unchanged. A deferred hook that runs
     /// <c>(goto:)</c> transitions to the new passage via <see cref="Goto"/>; one
     /// that runs <c>(load-game:)</c> installs the save and shows its passage.
+    /// A region armed by a <c>(click-goto:)</c>/<c>(click-undo:)</c>-family
+    /// command navigates directly — no content is revealed or spliced.
     /// </para>
     /// </summary>
     public RenderResult DispatchEvent(string regionId)
@@ -770,6 +773,20 @@ namespace Harlowe.Runtime
       if (_liveRoot == null || _liveContext == null) return EmptyResult(_currentPassage);
       if (regionId == null || !_liveContext.ClickHandlers.TryGetValue(regionId, out var fired))
         return BuildResultFromLiveTree();
+
+      // Command variants ((click-goto:)/(click-undo:) and the hover mirrors):
+      // the event navigates instead of filling anything — reference's
+      // enchantDesc goto/undo branches skip the target fill and call
+      // Engine.goToPassage/goBack. Goto starts a fresh turn through the same
+      // path a deferred-hook (goto:) takes below; undo restores the previous
+      // turn (tearing down this live tree) and re-renders it. Branching before
+      // the consume block keeps the rare failed-undo path — unreachable while
+      // the macro rejects first-turn registration, but guarded — a true no-op
+      // with the region still armed.
+      if (fired.GotoPassage != null)
+        return Goto(fired.GotoPassage);
+      if (fired.Undo)
+        return Undo() ? Render() : BuildResultFromLiveTree();
 
       // Consume — single-use unless (click-rerun:). Remove the fired
       // interaction from the persistent list so the interaction pass below

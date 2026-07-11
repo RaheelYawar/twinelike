@@ -748,5 +748,161 @@ namespace Harlowe.Tests.Runtime.Macros
       var r = session.Render();
       Assert.Equal(1, CountKind(r, BufferedRenderOutput.Kind.PushStyle));
     }
+
+    // --- The -goto/-undo command variants ((click-goto:), (click-undo:), and
+    // the hover mirrors): commands with no attached hook whose dispatch
+    // navigates instead of revealing content. Reference registers them via
+    // Macros.addCommand over the same enchant machinery. ---
+
+    private static StorySession TwoPassageSession(string p1, string p2)
+    {
+      var sb = new System.Text.StringBuilder();
+      sb.Append("<html><body><tw-storydata name=\"T\" startnode=\"1\" creator=\"\" creator-version=\"\">");
+      sb.Append("<tw-passagedata pid=\"1\" name=\"P1\" tags=\"\">").Append(p1).Append("</tw-passagedata>");
+      sb.Append("<tw-passagedata pid=\"2\" name=\"P2\" tags=\"\">").Append(p2).Append("</tw-passagedata>");
+      sb.Append("</tw-storydata></body></html>");
+      return new StorySession(new Harlowe(sb.ToString()));
+    }
+
+    private static bool HasError(RenderResult r, string substring)
+    {
+      for (int i = 0; i < r.Entries.Count; i++)
+        if (r.Entries[i].Kind == BufferedRenderOutput.Kind.Error
+            && r.Entries[i].Content.Contains(substring))
+          return true;
+      return false;
+    }
+
+    [Fact]
+    public void ClickGoto_ArmsTarget_NoOutputOfItsOwn()
+    {
+      var session = TwoPassageSession("|m>[cake](click-goto: ?m, \"P2\")", "dest");
+      var result = session.Render();
+      var region = Assert.Single(Regions(result));
+      Assert.Equal(InteractionKind.Click, region.Kind);
+      Assert.Equal("cake", result.Text);
+    }
+
+    [Fact]
+    public void Dispatch_ClickGoto_NavigatesToPassage()
+    {
+      var session = TwoPassageSession("|m>[cake](click-goto: ?m, \"P2\")", "dest");
+      var initial = session.Render();
+      var after = session.DispatchEvent(FirstRegionId(initial));
+      Assert.Equal("P2", after.PassageName);
+      Assert.Equal("dest", after.Text);
+      Assert.Equal("P2", session.CurrentPassage);
+    }
+
+    [Fact]
+    public void Dispatch_ClickGoto_IsAFreshTurn_UndoReturnsToOrigin()
+    {
+      var session = TwoPassageSession("|m>[cake](click-goto: ?m, \"P2\")", "dest");
+      var initial = session.Render();
+      session.DispatchEvent(FirstRegionId(initial));
+      Assert.True(session.Undo());
+      Assert.Equal("cake", session.Render().Text);
+    }
+
+    [Fact]
+    public void ClickGoto_StringTarget_ArmsOccurrence_AndNavigates()
+    {
+      var session = TwoPassageSession("pure gold(click-goto: \"gold\", \"P2\")", "dest");
+      var initial = session.Render();
+      Assert.Single(Regions(initial));
+      var after = session.DispatchEvent(FirstRegionId(initial));
+      Assert.Equal("P2", after.PassageName);
+    }
+
+    [Fact]
+    public void ClickGoto_TargetDeclaredLater_StillArms()
+    {
+      // The command registers a persistent interaction, so the pass catches a
+      // target hook declared after the macro — same as the changer family.
+      var session = TwoPassageSession("(click-goto: ?m, \"P2\")|m>[later]", "dest");
+      var initial = session.Render();
+      Assert.Single(Regions(initial));
+      var after = session.DispatchEvent(FirstRegionId(initial));
+      Assert.Equal("P2", after.PassageName);
+    }
+
+    [Fact]
+    public void MouseoverGoto_RegionKindIsMouseOver_AndNavigates()
+    {
+      var session = TwoPassageSession("|m>[hover me](mouseover-goto: ?m, \"P2\")", "dest");
+      var initial = session.Render();
+      var region = Assert.Single(Regions(initial));
+      Assert.Equal(InteractionKind.MouseOver, region.Kind);
+      var after = session.DispatchEvent(FirstRegionId(initial));
+      Assert.Equal("P2", after.PassageName);
+    }
+
+    [Fact]
+    public void ClickGoto_MissingPassage_EmitsError_NothingArmed()
+    {
+      // Reference: "I can't (click-goto:) the passage 'Nope' because it doesn't exist."
+      var session = Session("|m>[x](click-goto: ?m, \"Nope\")");
+      var result = session.Render();
+      Assert.True(HasError(result, "because it doesn't exist"));
+      Assert.Equal(0, CountKind(result, BufferedRenderOutput.Kind.BeginInteractive));
+    }
+
+    [Fact]
+    public void ClickGoto_EmptyStringTarget_EmitsError()
+    {
+      var session = TwoPassageSession("(click-goto: \"\", \"P2\")", "dest");
+      Assert.True(HasError(session.Render(), "was empty"));
+    }
+
+    [Fact]
+    public void ClickGoto_EmptyPassageName_EmitsError()
+    {
+      var session = Session("|m>[x](click-goto: ?m, \"\")");
+      Assert.True(HasError(session.Render(), "was empty"));
+    }
+
+    [Fact]
+    public void ClickGoto_NonStringPassage_EmitsError()
+    {
+      var session = Session("|m>[x](click-goto: ?m, 5)");
+      Assert.True(HasError(session.Render(), "passage name String"));
+    }
+
+    [Fact]
+    public void ClickUndo_FirstTurn_EmitsError_NothingArmed()
+    {
+      // Reference: "I can't (undo:) on the first turn."
+      var session = Session("|m>[x](click-undo: ?m)");
+      var result = session.Render();
+      Assert.True(HasError(result, "on the first turn"));
+      Assert.Equal(0, CountKind(result, BufferedRenderOutput.Kind.BeginInteractive));
+    }
+
+    [Fact]
+    public void Dispatch_ClickUndo_ReturnsToPreviousTurn()
+    {
+      var session = TwoPassageSession("origin", "|m>[back](click-undo: ?m)");
+      session.Render();
+      var atP2 = session.Goto("P2");
+      var region = Assert.Single(Regions(atP2));
+      Assert.Equal(InteractionKind.Click, region.Kind);
+
+      var after = session.DispatchEvent(region.Id);
+      Assert.Equal("P1", after.PassageName);
+      Assert.Equal("origin", after.Text);
+      Assert.Equal("P1", session.CurrentPassage);
+    }
+
+    [Fact]
+    public void MouseoutUndo_RegionKindIsMouseOut()
+    {
+      var session = TwoPassageSession("origin", "|m>[back](mouseout-undo: ?m)");
+      session.Render();
+      var atP2 = session.Goto("P2");
+      var region = Assert.Single(Regions(atP2));
+      Assert.Equal(InteractionKind.MouseOut, region.Kind);
+      var after = session.DispatchEvent(region.Id);
+      Assert.Equal("P1", after.PassageName);
+    }
   }
 }

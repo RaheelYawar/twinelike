@@ -55,6 +55,24 @@ namespace Harlowe.Runtime
     public bool Once = true;
 
     /// <summary>
+    /// Passage to navigate to on fire — the <c>(click-goto:)</c>/<c>(mouseover-goto:)</c>/
+    /// <c>(mouseout-goto:)</c> commands. When set, the dispatch navigates via
+    /// <see cref="StorySession.Goto"/> instead of rendering deferred content
+    /// (reference's <c>enchantDesc.goto</c> branch: "instead of filling the
+    /// target with the source", <c>Engine.goToPassage</c>). Null for the
+    /// changer family and the undo commands.
+    /// </summary>
+    public string GotoPassage;
+
+    /// <summary>
+    /// True for the <c>(click-undo:)</c>/<c>(mouseover-undo:)</c>/<c>(mouseout-undo:)</c>
+    /// commands: the dispatch undoes the current turn and re-renders the restored
+    /// one instead of rendering deferred content (reference's
+    /// <c>enchantDesc.undo</c> branch).
+    /// </summary>
+    public bool Undo;
+
+    /// <summary>
     /// Composed style layers for the <em>deferred content</em> (outermost =
     /// first layer): <c>(text-style:"bold")+(click: ?a)[x]</c> bolds the
     /// revealed <c>x</c>, not the armed region — reference applies the

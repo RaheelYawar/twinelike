@@ -53,6 +53,15 @@ namespace Harlowe.Runtime
     public Func<string, bool> PassageExists;
 
     /// <summary>
+    /// True when a past turn exists to undo to. Set by <see cref="StorySession"/>
+    /// so the <c>(click-undo:)</c>-family commands can reject first-turn use
+    /// (reference Harlowe's <c>State.pastLength &lt; 1</c> check). Null in
+    /// standalone tests with no session — callers skip the check, same
+    /// convention as <see cref="PassageExists"/>.
+    /// </summary>
+    public Func<bool> CanUndo;
+
+    /// <summary>
     /// The active body-position render sink. <see cref="BodyRenderer"/> sets
     /// this around each macro dispatch and clears it on the way out; the
     /// expression evaluator never sets it. Command macros like

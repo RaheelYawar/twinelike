@@ -163,13 +163,18 @@ both re-aligned to reference in the same slice:
   (reference applies the descriptor's styles at the event's `renderInto`);
   the armed region is styled by the new second argument instead.
 
-Still open (not part of this finding): `(click-goto:)`/`(mouseover-goto:)`/
-`(mouseout-goto:)`/`(click-undo:)` etc. are separate *commands* (no attached
-hook; registered by `Macros.addCommand` over the same enchant machinery) and
-remain unimplemented, as does the Harlowe 3.3 `doubleclick` interaction type.
-See `InteractionMacros.cs`, `Interaction.cs` (`InteractionPass`),
-`StorySession.DispatchEvent`, and the string-target / second-arg / rerun /
-reveal tests in `InteractionMacroTests`. Original finding below.
+The adjacent *command* variants — `(click-goto:)`/`(click-undo:)` and the
+hover mirrors, no attached hook, registered by `Macros.addCommand` over the
+same enchant machinery — shipped separately (2026-07-10):
+`InteractionCommandMacro` registers a persistent `Interaction` directly
+(goto: passage existence-checked at call time; undo: reference's *"I can't
+(undo:) on the first turn."*), and `DispatchEvent` navigates via
+`Goto`/`Undo`+re-render instead of filling anything (reference's
+`enchantDesc.goto`/`undo` branches). Only the Harlowe 3.3 `doubleclick`
+interaction type remains unimplemented. See `InteractionMacros.cs`,
+`Interaction.cs` (`InteractionPass`), `StorySession.DispatchEvent`, and the
+string-target / second-arg / rerun / reveal / command tests in
+`InteractionMacroTests`. Original finding below.
 
 - **Ours**: `MinArgs=MaxArgs=1`, first arg must be `HookName` (string targets
   explicitly deferred per `InteractionChangers.Build`). No optional second
@@ -539,8 +544,8 @@ architecture.
   `(click-rerun:)` macro is also part of this.~~ ✅ done — reused exactly that
   machinery, and re-aligned plain-`(click:)` reveal semantics + composed-style
   routing to reference in the same slice (see #5's resolution note). The
-  `-goto`/`-undo` command variants remain (filed in `TODO.md`'s candidate
-  list alongside the `(link:)` family).
+  `-goto`/`-undo` command variants shipped as a follow-up (2026-07-10, see
+  #5's resolution note).
 
 ---
 

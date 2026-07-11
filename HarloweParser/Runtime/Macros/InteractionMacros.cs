@@ -90,4 +90,83 @@ namespace Harlowe.Runtime.Macros
     public HarloweValue Invoke(List<HarloweValue> args, MacroContext context)
       => InteractionChangers.Build(args, _kind, _mode, _once, "(" + _name + ":)");
   }
+
+  /// <summary>
+  /// One click/hover <em>command</em> macro — <c>(click-goto: target,
+  /// "Passage")</c> / <c>(click-undo: target)</c> and the mouseover/mouseout
+  /// mirrors. Unlike <see cref="InteractionMacro"/> these take no attached
+  /// hook: used bare in prose, they register an <see cref="Interaction"/>
+  /// directly (the way <c>(enchant:)</c> registers its enchantment) whose
+  /// dispatch <em>navigates</em> — reference: "<c>(click-goto: ?1, 'Passage
+  /// Name')</c> is equivalent to <c>(click: ?1)[(goto:'Passage Name')]</c>" —
+  /// or undoes the turn, rather than revealing deferred content. Reference
+  /// registers them via <c>Macros.addCommand</c> over the same enchant
+  /// machinery (the <c>[`goto`,`undo`].forEach</c> block in
+  /// <c>ts/macrolib/enchantments.ts</c>): signature
+  /// <c>[either(HookSet,String), String]</c> for <c>-goto</c> (passage
+  /// existence-checked at call time), <c>[either(HookSet,String)]</c> for
+  /// <c>-undo</c> (errors on the first turn). Registered six times in
+  /// <see cref="StandardMacros"/>.
+  /// </summary>
+  public class InteractionCommandMacro : IMacro
+  {
+    private readonly string _name;
+    private readonly InteractionKind _kind;
+    private readonly bool _undo;
+
+    public InteractionCommandMacro(string name, InteractionKind kind, bool undo)
+    {
+      _name = name;
+      _kind = kind;
+      _undo = undo;
+    }
+
+    public string Name => _name;
+    public int MinArgs => _undo ? 1 : 2;
+    public int MaxArgs => _undo ? 1 : 2;
+
+    public HarloweValue Invoke(List<HarloweValue> args, MacroContext context)
+    {
+      string display = "(" + _name + ":)";
+
+      var error = EnchantmentMacroSupport.ValidateTarget(args[0], display, out var hookTarget, out var stringTarget);
+      if (error != null) return error;
+      if (hookTarget == null && string.IsNullOrEmpty(stringTarget))
+        return HarloweValue.OfError($"A string given to this {display} macro was empty.");
+
+      string passage = null;
+      if (_undo)
+      {
+        // Reference checks State.pastLength when the command runs — so the
+        // error is in-prose on the first turn, not deferred to click time.
+        if (context.CanUndo != null && !context.CanUndo())
+          return HarloweValue.OfError("I can't (undo:) on the first turn.");
+      }
+      else
+      {
+        var v = args[1];
+        if (v.Kind != HarloweValueKind.String)
+          return HarloweValue.OfError($"{display} requires a passage name String as its second argument, got {v.Kind}");
+        passage = v.AsString;
+        if (passage.Length == 0)
+          return HarloweValue.OfError($"A string given to this {display} macro was empty.");
+        if (context.PassageExists != null && !context.PassageExists(passage))
+          return HarloweValue.OfError($"I can't {display} the passage '{passage}' because it doesn't exist.");
+      }
+
+      // No reveal anchor and no deferred renderer: the dispatch navigates
+      // instead of filling anything, so the only render-tree footprint is the
+      // armed wrap InteractionPass puts around each target match.
+      context.Interactions.Add(new Interaction
+      {
+        Target = hookTarget,
+        StringTarget = stringTarget,
+        Kind = _kind,
+        GotoPassage = passage,
+        Undo = _undo,
+        RegionId = context.AllocateRegionId()
+      });
+      return null;
+    }
+  }
 }

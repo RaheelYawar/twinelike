@@ -104,6 +104,14 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new InteractionMacro("mouseout-replace", InteractionKind.MouseOut, RevisionMode.Replace));
       registry.Register(new InteractionMacro("mouseout-append", InteractionKind.MouseOut, RevisionMode.Append));
       registry.Register(new InteractionMacro("mouseout-prepend", InteractionKind.MouseOut, RevisionMode.Prepend));
+      // The -goto/-undo command variants (no attached hook): firing navigates
+      // to the passage / undoes the turn instead of revealing content.
+      registry.Register(new InteractionCommandMacro("click-goto", InteractionKind.Click, undo: false));
+      registry.Register(new InteractionCommandMacro("click-undo", InteractionKind.Click, undo: true));
+      registry.Register(new InteractionCommandMacro("mouseover-goto", InteractionKind.MouseOver, undo: false));
+      registry.Register(new InteractionCommandMacro("mouseover-undo", InteractionKind.MouseOver, undo: true));
+      registry.Register(new InteractionCommandMacro("mouseout-goto", InteractionKind.MouseOut, undo: false));
+      registry.Register(new InteractionCommandMacro("mouseout-undo", InteractionKind.MouseOut, undo: true));
     }
   }
 }
