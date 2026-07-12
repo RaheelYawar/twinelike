@@ -275,9 +275,33 @@ namespace Harlowe.Runtime
     /// variable delta as an undo entry, increments the target's visit count,
     /// clears passage-scoped variables, and returns the rendered result. Any
     /// <c>(goto:)</c> macros in the target passage are followed automatically.
+    ///
+    /// <para>An unknown passage is <em>refused</em>: the current view comes back
+    /// with an error entry appended and not one byte of session state is touched
+    /// — no turn is finalised, no Moment is pushed, <see cref="CurrentPassage"/>
+    /// doesn't move. This is load-bearing, not defensive. The timeline is what
+    /// <see cref="SaveGame"/> serialises and what <c>LoadGame</c> validates
+    /// passage-by-passage, so letting a nonexistent name into it means the save
+    /// written afterwards can never be loaded again. (The renderer no longer
+    /// hands the host a link to a missing passage, but the host can pass any
+    /// string here, and a passage can be removed through the editing API between
+    /// render and click.)</para>
     /// </summary>
     public RenderResult Goto(string passageName)
     {
+      if (_story.GetPassage(passageName) == null)
+      {
+        // Mirrors DispatchEvent's failed-undo branch: a navigation that didn't
+        // happen returns the unchanged live view rather than blanking it.
+        var refused = BuildResultFromLiveTree();
+        refused.Entries.Add(new BufferedRenderOutput.Entry
+        {
+          Kind = BufferedRenderOutput.Kind.Error,
+          Content = $"I can't go to the passage '{passageName}' because it doesn't exist."
+        });
+        return refused;
+      }
+
       // A host-driven navigation to a new turn ends the just-loaded state, re-permitting
       // (load-game:) (reference clears section.loadedGame on the next showPassage).
       _loadedGame = false;

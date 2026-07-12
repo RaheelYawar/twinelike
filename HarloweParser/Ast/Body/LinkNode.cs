@@ -14,6 +14,16 @@ namespace Harlowe.Ast.Body
     /// <summary>The name of the passage to navigate to when clicked.</summary>
     public string Target;
 
+    /// <summary>
+    /// 1-based line of the opening <c>[[</c> in the passage body, or <c>0</c>
+    /// when unknown (a hand-built AST). Carried so a diagnostic can point the
+    /// author at the link — see <see cref="Harlowe.GetBrokenLinks"/>.
+    /// </summary>
+    public int Line;
+
+    /// <summary>1-based column of the opening <c>[[</c>; <c>0</c> when unknown.</summary>
+    public int Column;
+
     public void Accept(IBodyVisitor visitor) => visitor.Visit(this);
   }
 }

@@ -11,7 +11,7 @@ for the save-model slice (which lands `(history:)` semantics).
 
 ## Counts
 
-- **High severity (1 active, 5 fixed)**: silent wrong result or breaks documented Harlowe idioms.
+- **High severity (0 active, 6 fixed)**: silent wrong result or breaks documented Harlowe idioms.
 - **Medium severity (4 active, 7 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
 - **Low severity (2 active, 1 fixed)**: documented as deliberate or marginal.
 
@@ -22,7 +22,34 @@ items are kept and marked rather than renumbered.
 
 ## High-severity divergences
 
-### 19. Links to nonexistent passages are live, and following one poisons the save (found 2026-07-12 audit)
+### 19. Links to nonexistent passages are live, and following one poisons the save — ✅ FIXED (2026-07-12)
+
+**Resolved.** A link is now existence-checked where it is *built* — both
+`BodyRenderer.Visit(LinkNode)` and `LinkGotoMacro`, through the same
+`MacroContext.PassageExists` gate `(goto:)` uses (skipped when no story is wired,
+so standalone renderer tests are unaffected). A dangling target renders its label
+as plain prose plus an in-prose error and emits **no `Link` event at all**, so the
+bug is closed structurally: there is nothing for a host to make clickable.
+`StorySession.Goto` refuses an unknown passage outright — returning the current
+view with an error appended, before touching a single field — so a host passing an
+arbitrary string, or clicking a link whose target was removed through the editing
+API between render and click, still can't get a nonexistent name into the timeline
+and from there into an unloadable save. `Harlowe.GetBrokenLinks()` was added
+alongside as the authoring/CI check (it reads the `Branches` inventory
+`BranchCollector` already derives, so it costs an index lookup).
+
+**Deliberate divergence recorded:** reference renders an unclickable red
+`<tw-broken-link>` and no error; we render the label plus an error. We have no HTML
+to hand an engine-agnostic host, and a dedicated broken-link render channel wasn't
+worth the surface. The un-navigable half is reproduced exactly; the *visible* half
+rides the error channel, which hosts already silence in production builds if they
+want reference's quieter presentation. Note this also makes us **stricter** than
+reference in one place: reference shows a broken link silently, we report it.
+
+See `BrokenLinkTests.cs` — in particular
+`DeadLink_Clicked_Saved_ThenLoaded_Survives`, which walks the whole original chain
+(dead link → click → save → load) and fails on the pre-fix code. Original finding
+below.
 
 - **Ours**: nothing checks that a link's target exists.
   `BodyRenderer.Visit(LinkNode)` is `_output.Link(node.Text, node.Target)` flat,
@@ -45,18 +72,14 @@ items are kept and marked rather than renumbered.
   *"the Harlowe engine actually converts all standard links into (link-goto:)
   macro calls internally — the link syntax is, essentially, a syntactic shorthand
   for (link-goto:)"*. The click never happens, so the rest of the chain can't.
-- **Trigger**: `[[Go->Missing]]`, click it, `(save-game: "1")`, reload.
-  `TestFiles/testFile.html` ships passages linking to absent passages, so this is
-  the shape of real imported stories.
+- **Trigger**: `[[Go->Missing]]`, click it, `(save-game: "1")`, reload. Reached in a
+  real story either by a typo'd target or by `RemovePassage` orphaning a link under
+  a live session — which is how the fix was driven end to end. (An earlier draft of
+  this entry claimed `TestFiles/testFile.html` ships dangling links; it doesn't —
+  `GetBrokenLinks()` reports it clean, and the note in `CLAUDE.md` that said
+  otherwise has been corrected.)
 - **User-visible**: dead links look and behave like live ones; following one blanks
   the passage with no diagnostic; any save taken afterwards can never be loaded.
-- **Fix**: check existence where the link is *built* (both `Visit(LinkNode)` and
-  `LinkGotoMacro`) and tell the host the link is broken — `IRenderOutput` grows
-  additively, so a `BrokenLink(text, target)` channel (or a flag on `Link`) fits
-  the existing contract; the host renders it unclickable. Belt-and-braces:
-  `StorySession.Goto` should refuse an unknown passage with an `Error` entry
-  rather than a silent empty result, so a host that ignores the new channel still
-  can't corrupt the timeline.
 
 ### 1. `(goto:)` doesn't validate target exists — ✅ FIXED (2026-06-01)
 
@@ -65,11 +88,14 @@ items are kept and marked rather than renumbered.
 missing target surfaces `I can't (goto:) to the passage 'X' because it doesn't
 exist.` instead of silently navigating to a blank result. The check is skipped
 when no story is wired (standalone renderer tests leave `PassageExists` null),
-preserving the bare record-the-goto behaviour there. Scoped to the `(goto:)`
-*macro*; the host `StorySession.Goto(name)` API still returns an empty result
-for an unknown name (that's the host's explicit request, not an authoring
-mistake). See `GotoMacro.cs`, `MacroContext.PassageExists`, and the
-`PendingGoto_MacroToMissingPassage_*` tests. Original finding below.
+preserving the bare record-the-goto behaviour there. See `GotoMacro.cs`,
+`MacroContext.PassageExists`, and the `PendingGoto_MacroToMissingPassage_*` tests.
+
+*Amended 2026-07-12:* this note used to add that the host `StorySession.Goto(name)`
+API "still returns an empty result for an unknown name (that's the host's explicit
+request, not an authoring mistake)." That reasoning was wrong, and #19 is what it
+cost: an empty result still advanced the timeline onto the nonexistent name, which
+went into the save and made it unloadable. `Goto` now refuses. Original finding below.
 
 - **Ours**: `GotoMacro` records the requested target via `context.RequestGoto`
   with no existence check. `StorySession.RenderInternal` then calls
@@ -579,14 +605,11 @@ something changes.
 
 ## Recommended ordering
 
-**Do #19 first.** Broken links (#19) is the only active high-severity item and
-the only one that can destroy player data: a dead link is clickable, following
-it blanks the screen with no diagnostic, and the save taken afterwards can never
-be loaded again. It's also cheap — an existence check at the two sites that build
-a link, one additive `IRenderOutput` channel so the host can render it
-unclickable, and a guard in `StorySession.Goto`.
+~~**Do #19 first.**~~ ✅ done (2026-07-12) — broken links no longer emit a `Link`
+event and `StorySession.Goto` refuses an unknown passage, so nothing active can
+destroy player data any more. **No high-severity divergences remain.**
 
-Otherwise, the items group naturally by size:
+The rest group naturally by size:
 
 **Small contained fixes** (1–2 hours each, isolated changes):
 

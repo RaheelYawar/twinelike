@@ -111,12 +111,22 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
-    public void Goto_UnknownPassage_ReturnsEmptyResult()
+    public void Goto_UnknownPassage_IsRefused_AndLeavesTheSessionUntouched()
     {
+      // Goto to a passage that doesn't exist used to strand the session on that
+      // name — which then went into the timeline, into the save, and made the
+      // blob permanently unloadable (LoadGame validates every passage). It is now
+      // refused outright: the current view comes back with an error appended and
+      // no session state moves.
       var session = new StorySession(OnePassage("p1"));
+      session.Render();
+
       var r = session.Goto("NoSuchPassage");
-      Assert.Equal(string.Empty, r.Text);
-      Assert.Empty(r.Entries);
+
+      Assert.True(CountKind(r, BufferedRenderOutput.Kind.Error) >= 1);
+      Assert.Contains("p1", r.Text);                    // still showing the current passage
+      Assert.Equal("P1", session.CurrentPassage);       // navigation did not happen
+      Assert.Equal(1, session.Turns.AsNumber);          // no turn was recorded
     }
 
     // -----------------------------------------------------------------------
@@ -1212,48 +1222,48 @@ namespace Harlowe.Tests.Runtime
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void GotoMissingPassage_ClearsLiveStateSoDispatchIsNoOp()
+    public void GotoMissingPassage_IsRefused_SoThePassageStaysLiveAndClickable()
     {
-      // Set up a session with a clickable region in the first passage.
+      // The inverse of the old contract, and the point of refusing the Goto: the
+      // navigation never happened, so we're still *on* the first passage — its
+      // tree is still live and its armed regions still fire. Previously the
+      // session walked off to the missing name and the whole passage went inert.
       var story = TwoPassages(
         "|m>[cake](click: ?m)[surprise]",
         "second");
       var session = new StorySession(story);
       var first = session.Render();
 
-      // Capture the region id from the first render.
       string regionId = null;
       for (int i = 0; i < first.Entries.Count; i++)
         if (first.Entries[i].Kind == BufferedRenderOutput.Kind.BeginInteractive)
           regionId = first.Entries[i].Region?.Id;
       Assert.NotNull(regionId);
 
-      // Goto a passage that doesn't exist. The session moves to that name
-      // but no tree is produced for it.
       var failed = session.Goto("DoesNotExist");
-      Assert.Equal("DoesNotExist", session.CurrentPassage);
-      Assert.Equal(string.Empty, failed.Text);
+      Assert.Equal("P1", session.CurrentPassage);
+      Assert.True(CountKind(failed, BufferedRenderOutput.Kind.Error) >= 1);
+      Assert.Contains("cake", failed.Text);
 
-      // DispatchEvent must NOT mutate the previous passage's tree (which it
-      // would, pre-fix, because _liveRoot still pointed at it). The result
-      // should be empty / inert.
+      // Still armed — the click works exactly as if the bad Goto never happened.
       var dispatched = session.DispatchEvent(regionId);
-      Assert.Equal(string.Empty, dispatched.Text);
-      Assert.Empty(dispatched.Entries);
+      Assert.Contains("surprise", dispatched.Text);
     }
 
     [Fact]
     public void RenderWithMissingPassage_ClearsLiveStateFromPriorRender()
     {
-      // Same scenario but via direct EnterPassage state: render the first
-      // passage, then construct a fresh session pointed at a missing start.
+      // A render whose current passage has vanished must clear the live tree, so
+      // a dispatch can't fire handlers against a stale one under a passage name
+      // that no longer resolves. Goto can no longer strand us on a missing
+      // passage (it refuses), so the way to reach this state is the editing API:
+      // remove the passage out from under a live session.
       var story = OnePassage("hello (click: ?passage)[wow]");
       var session = new StorySession(story);
       var initial = session.Render();
       Assert.NotEmpty(initial.Entries);
 
-      // Now manually point at a missing passage and render again.
-      session.Goto("Phantom");
+      Assert.True(story.RemovePassage("P1"));
       var blank = session.Render();
       Assert.Equal(string.Empty, blank.Text);
 

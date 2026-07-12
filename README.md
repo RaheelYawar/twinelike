@@ -189,6 +189,7 @@ public class ConsoleOutput : IRenderOutput
 | Twine 2 HTML import | ✓ |
 | Twee 3 read & write | ✓ |
 | Programmatic editing (`AddPassage`/`RemovePassage`/`RenamePassage` with inbound-link rewrite) | ✓ |
+| Broken-link report (`GetBrokenLinks()` — `[[…]]` *and* `(goto:)`/`(display:)`/… targets, with line + column) | ✓ |
 | Lazy reserialization — clean passages round-trip byte-for-byte | ✓ |
 | Save / load via pluggable `ISaveStorage` backend (IFID-namespaced slots) | ✓ |
 | Reproducible `(random:)`/`(either:)` across undo, redo, and save/load (seedable RNG) | ✓ |
@@ -276,6 +277,25 @@ None at runtime. The shipped `twinelike.dll` is a single self-contained assembly
 ## Errors are inline, not exceptional
 
 The runtime never throws on the render hot path. A bad expression renders an inline error message at the spot it happened (delivered through `IRenderOutput.Error`) and the rest of the passage keeps rendering — mirroring Harlowe's authoring model, where one broken macro doesn't take down the whole story. Engine integrations don't need `try`/`catch` around every render call.
+
+### Catching dead links before the player does
+
+Inline errors only fire when the player *reaches* them, so a typo'd passage name down an unplayed branch stays invisible. `GetBrokenLinks()` finds them all up front — call it once at load and show the results to whoever is building the story:
+
+```csharp
+var story = new Harlowe(File.ReadAllText("story.html"));
+
+foreach (var problem in story.GetBrokenLinks())
+    Debug.LogWarning(problem.Message);
+    // In passage 'Start' (line 4, column 14): (goto:) points to
+    // the passage 'Dragon Lair', which doesn't exist.
+```
+
+Each `BrokenLink` also breaks out `PassageName` / `Line` / `Column` / `Target` / `MacroName` (and `IsLink`) if you'd rather build your own inspector row than print the message.
+
+It covers both the `[[…]]` syntax and a literal passage name given to `(goto:)`, `(display:)`, `(link-goto:)`, or the `(click-goto:)` family — including calls nested in hooks and expressions, so a dead `(goto:)` inside an `(if:)` branch is found. A *computed* target (`(goto: $next)`) can't be checked statically and is skipped; those still surface as inline errors at render time.
+
+Links themselves fail safe: a `[[…]]` whose target doesn't exist renders its label as plain prose and emits **no link event at all**, so it can't be clicked into a passage that isn't there.
 
 ## License
 

@@ -99,7 +99,35 @@ namespace Harlowe.Runtime
 
     public void Visit(HtmlNode node) => _output.Html(node.RawHtml);
 
-    public void Visit(LinkNode node) => _output.Link(node.Text, node.Target);
+    /// <summary>
+    /// A <c>[[…]]</c> link. The target is existence-checked first
+    /// (<see cref="MacroContext.PassageExists"/>, the same gate <c>(goto:)</c>
+    /// uses — null when no story is wired, as in standalone renderer tests, and
+    /// then skipped): a link to a passage that isn't there emits its label as
+    /// plain prose plus an in-prose error, and <em>no</em>
+    /// <see cref="IRenderOutput.Link"/> event at all, so nothing downstream can
+    /// make it clickable. That matters beyond cosmetics — a followed dead link
+    /// used to strand the session on a passage that doesn't exist and write that
+    /// name into the save, after which the blob could never be loaded again.
+    ///
+    /// <para>Reference instead renders an unclickable red
+    /// <c>&lt;tw-broken-link&gt;</c> and no error (<c>ts/macrolib/links.ts</c>,
+    /// gated on <c>Passages.hasValid</c>). We have no HTML to give the host, and
+    /// modelling "broken link" as its own render channel isn't worth the surface
+    /// — so the un-navigable half is reproduced structurally and the visible half
+    /// through the error channel, which hosts already silence in production
+    /// builds if they want reference's quieter behaviour.</para>
+    /// </summary>
+    public void Visit(LinkNode node)
+    {
+      if (_context.PassageExists != null && !_context.PassageExists(node.Target))
+      {
+        if (!string.IsNullOrEmpty(node.Text)) _output.Text(node.Text);
+        _output.Error($"I can't link to the passage '{node.Target}' because it doesn't exist.");
+        return;
+      }
+      _output.Link(node.Text, node.Target);
+    }
 
     public void Visit(ParseErrorNode node) => _output.Error(node.Message);
 

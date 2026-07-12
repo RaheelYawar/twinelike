@@ -79,11 +79,15 @@ namespace Harlowe.Runtime.Macros
   /// syntactic shorthand for (link-goto:)", and this engine keeps that exact
   /// symmetry by emitting the same <see cref="IRenderOutput.Link"/> event
   /// <c>[[text-&gt;passage]]</c> produces. The passage name defaults to the
-  /// text (<c>(link-goto: "Cellar")</c> ≡ <c>[[Cellar]]</c>). A missing
-  /// passage still emits the link, exactly as the link syntax does here — the
-  /// host resolves it (reference renders a broken-link element instead; this
-  /// engine has no broken-link channel and defers that presentation to the
-  /// host, its behaviour for all dangling links).
+  /// text (<c>(link-goto: "Cellar")</c> ≡ <c>[[Cellar]]</c>).
+  ///
+  /// <para>A dangling target emits the label as plain prose plus an in-prose
+  /// error and <em>no</em> link event — the same treatment
+  /// <see cref="BodyRenderer.Visit(Ast.Body.LinkNode)"/> gives
+  /// <c>[[text-&gt;passage]]</c>, so the shorthand symmetry holds for broken
+  /// links too. Reference gates on <c>Passages.hasValid</c> and renders an
+  /// unclickable <c>&lt;tw-broken-link&gt;</c>; see that method for why we spend
+  /// the error channel rather than a broken-link one.</para>
   /// </summary>
   public class LinkGotoMacro : IMacro
   {
@@ -107,6 +111,15 @@ namespace Harlowe.Runtime.Macros
 
       if (context.Output == null)
         return HarloweValue.OfError("(link-goto:) can only be used in passage prose in this engine");
+
+      // Existence check skipped when no story is wired (standalone renderer
+      // tests leave PassageExists null), as in (goto:).
+      if (context.PassageExists != null && !context.PassageExists(passage))
+      {
+        if (!string.IsNullOrEmpty(text)) context.Output.Text(text);
+        return HarloweValue.OfError($"I can't link to the passage '{passage}' because it doesn't exist.");
+      }
+
       context.Output.Link(text, passage);
       return null;
     }

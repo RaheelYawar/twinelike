@@ -318,6 +318,61 @@ namespace Harlowe
     }
 
     /// <summary>
+    /// Every navigation reference in the story that points at a passage which
+    /// doesn't exist — in passage order, then source order. Empty when the story
+    /// is clean; never throws.
+    ///
+    /// <para><b>What this is for.</b> A host engine calls it once at load and
+    /// shows the results to the developer: each <see cref="BrokenLink"/> carries
+    /// its passage, line, column, and a ready-to-print
+    /// <see cref="BrokenLink.Message"/>. It is also the answer to the mess
+    /// <see cref="RemovePassage"/> leaves behind — deleting a passage silently
+    /// orphans every reference into it.</para>
+    ///
+    /// <para><b>Both syntaxes.</b> The <c>[[…]]</c> forms <em>and</em> a literal
+    /// passage name given to <c>(goto:)</c>, <c>(display:)</c>,
+    /// <c>(link-goto:)</c>, or the <c>(click-goto:)</c> family — including calls
+    /// nested inside hooks and expressions, so a <c>(goto: "Typo")</c> buried in
+    /// an <c>(if:)</c> branch is found. Reporting only the <c>[[…]]</c> half
+    /// would be worse than useless: an engine would tell the author their
+    /// navigation is clean while a dead <c>(goto:)</c> waits down a branch they
+    /// hadn't played.</para>
+    ///
+    /// <para><b>What it can't see.</b> A <em>computed</em> target
+    /// (<c>(goto: $next)</c>) is beyond any static check and is skipped rather
+    /// than guessed at — those still surface as in-prose errors at render time.
+    /// And a passage that failed to parse is an error stub with no AST to walk,
+    /// so its references can't be scanned; it already renders as an in-prose
+    /// error of its own.</para>
+    /// </summary>
+    public IReadOnlyList<BrokenLink> GetBrokenLinks()
+    {
+      var broken = new List<BrokenLink>();
+      for (int i = 0; i < _passageOrder.Count; i++)
+      {
+        var passage = _passages[_passageOrder[i]];
+        if (passage.Ast == null) continue;
+
+        var references = ReferenceCollector.Collect(passage.Ast);
+        for (int j = 0; j < references.Count; j++)
+        {
+          var reference = references[j];
+          if (reference.Target != null && _passages.ContainsKey(reference.Target)) continue;
+          broken.Add(new BrokenLink
+          {
+            PassageName = passage.Name,
+            Target = reference.Target,
+            LinkText = reference.LinkText,
+            MacroName = reference.MacroName,
+            Line = reference.Line,
+            Column = reference.Column
+          });
+        }
+      }
+      return broken;
+    }
+
+    /// <summary>
     /// Renames the passage <paramref name="oldName"/> to
     /// <paramref name="newName"/>, re-keying the internal lookup so
     /// <see cref="GetPassage"/> still works after the rename. Returns false

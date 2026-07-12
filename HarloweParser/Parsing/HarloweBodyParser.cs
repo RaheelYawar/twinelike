@@ -398,7 +398,13 @@ namespace Harlowe.Parsing
       }
 
       // Plain body macro path
-      var macro = new MacroNode { Name = name, Arguments = args };
+      var macro = new MacroNode
+      {
+        Name = name,
+        Arguments = args,
+        Line = nameToken.Line,
+        Column = nameToken.Column
+      };
       AttachOptionalHook(cursor, h => macro.AttachedHook = h);
       return macro;
     }
@@ -600,6 +606,8 @@ namespace Harlowe.Parsing
     /// </summary>
     private LinkNode ParseLink(TokenCursor cursor)
     {
+      // The `[[` token, before it's consumed — the link's source position.
+      var open = cursor.Current;
       cursor.Advance();
 
       var left = new System.Text.StringBuilder();
@@ -634,10 +642,16 @@ namespace Harlowe.Parsing
       if (cursor.Current.Type == TokenType.LinkClose) cursor.Advance();
 
       string leftStr = left.ToString();
-      if (!sawArrow) return new LinkNode { Text = leftStr, Target = leftStr };
       string rightStr = right.ToString();
-      if (arrowIsRight) return new LinkNode { Text = leftStr, Target = rightStr };
-      return new LinkNode { Text = rightStr, Target = leftStr };
+
+      LinkNode node;
+      if (!sawArrow) node = new LinkNode { Text = leftStr, Target = leftStr };
+      else if (arrowIsRight) node = new LinkNode { Text = leftStr, Target = rightStr };
+      else node = new LinkNode { Text = rightStr, Target = leftStr };
+
+      node.Line = open.Line;
+      node.Column = open.Column;
+      return node;
     }
   }
 }

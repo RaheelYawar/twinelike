@@ -132,6 +132,10 @@ The session runs on a `Moment[]` timeline — completed turns behind, the live t
 
 `Harlowe` exposes mutation: `AddPassage`, `RemovePassage`, `RenamePassage` (re-keys the lookup; direct `passage.Name = "..."` mutation is a silent footgun), public setters for metadata. Edits flip `HarlowePassage.IsDirty`; `TweeWriter` uses that flag to decide whether to emit `RawBody` verbatim (clean) or re-canonicalize via `MarkupPrinter` (dirty). Cross-tool diffs through Twee stay scoped to actually-edited passages.
 
+`GetBrokenLinks()` reports every navigation reference pointing at a passage that doesn't exist — the `[[…]]` syntax *and* a literal passage name given to `(goto:)`, `(display:)`, `(link-goto:)`, or the `(click-goto:)` family, including calls nested in hooks and expressions. Each `BrokenLink` carries its passage, line, column, and a ready-to-print `Message`, because the intended caller is a host engine surfacing the problem to whoever is building the story — inline errors only fire when a player *reaches* them, so a typo down an unplayed branch would otherwise stay invisible until it shipped. It's also the answer to what `RemovePassage` leaves behind: deleting a passage silently orphans every reference into it. Computed targets (`(goto: $next)`) are undecidable statically and skipped.
+
+Links fail safe at render time too: a `[[…]]` whose target is absent emits **no link event at all** (just its label as prose, plus an inline error), and `StorySession.Goto` refuses an unknown passage without touching session state — so a dead link can't strand the session on a nonexistent passage and write that name into a save the player could then never load.
+
 ---
 
 # Part 2 — Internal architecture

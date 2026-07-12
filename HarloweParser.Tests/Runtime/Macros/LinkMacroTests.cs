@@ -260,16 +260,20 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
-    public void LinkGoto_MissingPassage_StillEmitsLink()
+    public void LinkGoto_MissingPassage_IsBroken_NoLinkEvent()
     {
-      // Deliberate engine behaviour: same host deferral as a dangling
-      // [[link]] (reference renders a broken-link element instead).
+      // A dangling target is a broken link: the label renders as prose and the
+      // problem is reported, but NO Link event is emitted — so the host cannot
+      // make it clickable, and a click can't strand the session on a passage
+      // that doesn't exist (which used to poison the save). Same treatment the
+      // [[…]] syntax gets; reference renders an unclickable broken-link element.
       var session = Session("(link-goto: \"Enter\", \"Nope\")");
       var result = session.Render();
-      var link = FirstLink(result);
-      Assert.NotNull(link);
-      Assert.Equal("Nope", link.Target);
-      Assert.Equal(0, CountKind(result, BufferedRenderOutput.Kind.Error));
+
+      Assert.Null(FirstLink(result));
+      Assert.Equal(0, CountKind(result, BufferedRenderOutput.Kind.Link));
+      Assert.Contains("Enter", result.Text);
+      Assert.True(HasError(result, "'Nope'"));
     }
 
     [Fact]

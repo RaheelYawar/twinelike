@@ -13,13 +13,21 @@ namespace Harlowe.Tests.Runtime.Macros
   /// </summary>
   public class InteractionMacroTests
   {
+    /// <summary>
+    /// The passage under test, plus an empty <c>P2</c> for its links to point at.
+    /// P2 has to exist: a link to a passage that doesn't is a <em>broken</em>
+    /// link, which renders as prose + an error and emits no Link event at all, so
+    /// the <c>?link</c> tests below would have nothing to target.
+    /// </summary>
     private static Harlowe OnePassage(string body)
     {
       var sb = new System.Text.StringBuilder();
       sb.Append("<html><body><tw-storydata name=\"T\" startnode=\"1\" creator=\"\" creator-version=\"\">");
       sb.Append("<tw-passagedata pid=\"1\" name=\"P1\" tags=\"\">");
       sb.Append(body);
-      sb.Append("</tw-passagedata></tw-storydata></body></html>");
+      sb.Append("</tw-passagedata>");
+      sb.Append("<tw-passagedata pid=\"2\" name=\"P2\" tags=\"\"></tw-passagedata>");
+      sb.Append("</tw-storydata></body></html>");
       return new Harlowe(sb.ToString());
     }
 
