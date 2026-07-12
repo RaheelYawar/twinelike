@@ -16,9 +16,30 @@ namespace Harlowe.Ast.Body
   public class ParseErrorNode : IBodyNode
   {
     /// <summary>
-    /// The diagnostic shown to the author when this node renders.
+    /// The diagnostic shown to the author when this node renders — a finished
+    /// sentence (<c>parse error in passage 'X' at line 2, column 5: …</c>), since
+    /// the renderer pushes it straight through <c>IRenderOutput.Error</c>.
+    ///
+    /// <para>Prose, not data. Tooling that wants to *act* on the error — jump to
+    /// the line, group by passage — reads <see cref="Detail"/> /
+    /// <see cref="Line"/> / <see cref="Column"/> instead, which carry the same
+    /// facts structured. Both are set from the same exception at the same spot,
+    /// so they can't drift.</para>
     /// </summary>
     public string Message;
+
+    /// <summary>
+    /// The parser's raw diagnostic, without the <c>parse error in passage 'X' at
+    /// line N</c> wrapper <see cref="Message"/> bakes around it — e.g.
+    /// <c>use 'is' instead of 'eq'</c>. The structured half of the message.
+    /// </summary>
+    public string Detail;
+
+    /// <summary>1-based line in the passage body where the parse failed; <c>0</c> when unknown.</summary>
+    public int Line;
+
+    /// <summary>1-based column where the parse failed; <c>0</c> when unknown.</summary>
+    public int Column;
 
     /// <summary>
     /// The original source text this node stands in for, when available.

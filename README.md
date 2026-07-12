@@ -190,6 +190,7 @@ public class ConsoleOutput : IRenderOutput
 | Twee 3 read & write | ✓ |
 | Programmatic editing (`AddPassage`/`RemovePassage`/`RenamePassage` with inbound-link rewrite) | ✓ |
 | Broken-link report (`GetBrokenLinks()` — `[[…]]` *and* `(goto:)`/`(display:)`/… targets, with line + column) | ✓ |
+| Parse-error report (`GetParseErrors()` — every passage that didn't parse, with line + column) | ✓ |
 | Lazy reserialization — clean passages round-trip byte-for-byte | ✓ |
 | Save / load via pluggable `ISaveStorage` backend (IFID-namespaced slots) | ✓ |
 | Reproducible `(random:)`/`(either:)` across undo, redo, and save/load (seedable RNG) | ✓ |
@@ -278,12 +279,17 @@ None at runtime. The shipped `twinelike.dll` is a single self-contained assembly
 
 The runtime never throws on the render hot path. A bad expression renders an inline error message at the spot it happened (delivered through `IRenderOutput.Error`) and the rest of the passage keeps rendering — mirroring Harlowe's authoring model, where one broken macro doesn't take down the whole story. Engine integrations don't need `try`/`catch` around every render call.
 
-### Catching dead links before the player does
+### Catching problems before the player does
 
-Inline errors only fire when the player *reaches* them, so a typo'd passage name down an unplayed branch stays invisible. `GetBrokenLinks()` finds them all up front — call it once at load and show the results to whoever is building the story:
+Inline errors only fire when the player *reaches* them. A typo'd passage name — or an outright syntax error — down an unplayed branch stays invisible right up until it ships. Two load-time reports find them all up front; call them once when you load the story and show the results to whoever is building it.
 
 ```csharp
 var story = new Harlowe(File.ReadAllText("story.html"));
+
+foreach (var problem in story.GetParseErrors())
+    Debug.LogError(problem.Message);
+    // In passage 'Doomed' (line 1, column 15): use 'is' instead of 'eq'.
+    // The whole passage failed to parse and won't render.
 
 foreach (var problem in story.GetBrokenLinks())
     Debug.LogWarning(problem.Message);
@@ -291,9 +297,11 @@ foreach (var problem in story.GetBrokenLinks())
     // the passage 'Dragon Lair', which doesn't exist.
 ```
 
-Each `BrokenLink` also breaks out `PassageName` / `Line` / `Column` / `Target` / `MacroName` (and `IsLink`) if you'd rather build your own inspector row than print the message.
+Both DTOs also break out their fields — `PassageName` / `Line` / `Column` / `Detail` / `Target` / … — if you'd rather build an inspector row than print the message.
 
-It covers both the `[[…]]` syntax and a literal passage name given to `(goto:)`, `(display:)`, `(link-goto:)`, or the `(click-goto:)` family — including calls nested in hooks and expressions, so a dead `(goto:)` inside an `(if:)` branch is found. A *computed* target (`(goto: $next)`) can't be checked statically and is skipped; those still surface as inline errors at render time.
+**`GetParseErrors()`** exists precisely *because* the loaders are tolerant: a passage that won't parse doesn't abort the load, it gets a synthetic error stub and keeps quiet. `IsWholePassage` tells you whether the whole passage is dead or the parser recovered around one bad construct and the rest still works.
+
+**`GetBrokenLinks()`** covers both the `[[…]]` syntax and a literal passage name given to `(goto:)`, `(display:)`, `(link-goto:)`, or the `(click-goto:)` family — including calls nested in hooks and expressions, so a dead `(goto:)` inside an `(if:)` branch is found. A *computed* target (`(goto: $next)`) can't be checked statically and is skipped; those still surface as inline errors at render time.
 
 Links themselves fail safe: a `[[…]]` whose target doesn't exist renders its label as plain prose and emits **no link event at all**, so it can't be clicked into a passage that isn't there.
 

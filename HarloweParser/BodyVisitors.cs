@@ -228,4 +228,57 @@ namespace Harlowe
       return visitor.References;
     }
   }
+
+  /// <summary>
+  /// Collects every <see cref="ParseErrorNode"/> in a body AST, in source order.
+  /// Backs <see cref="Harlowe.GetParseErrors"/>.
+  ///
+  /// <para>Recurses into hooks (including hooks attached to macros and changer
+  /// chains) because per-node recovery can leave an error deep inside an
+  /// otherwise-fine passage — <c>(if: $x)[(for: each)]</c> parses down to the
+  /// hook and fails there, and an engine still needs to be told.</para>
+  /// </summary>
+  internal class ParseErrorCollector : IBodyVisitor
+  {
+    public readonly List<ParseErrorNode> Errors = new List<ParseErrorNode>();
+
+    public void Visit(TextNode node) { }
+    public void Visit(NewlineNode node) { }
+    public void Visit(VariableNode node) { }
+    public void Visit(Ast.Body.HtmlNode node) { }
+    public void Visit(LinkNode node) { }
+
+    public void Visit(ParseErrorNode node) => Errors.Add(node);
+
+    public void Visit(MacroNode node)
+    {
+      if (node.AttachedHook != null) node.AttachedHook.Accept(this);
+    }
+
+    public void Visit(HookNode node)
+    {
+      if (node.Children == null) return;
+      foreach (var child in node.Children) child.Accept(this);
+    }
+
+    public void Visit(FormatNode node)
+    {
+      if (node.Children == null) return;
+      foreach (var child in node.Children) child.Accept(this);
+    }
+
+    public void Visit(ChangerChainNode node)
+    {
+      if (node.AttachedHook != null) node.AttachedHook.Accept(this);
+    }
+
+    /// <summary>One-shot helper: walks <paramref name="ast"/> and returns every parse-error node in it.</summary>
+    public static List<ParseErrorNode> Collect(PassageBody ast)
+    {
+      var visitor = new ParseErrorCollector();
+      if (ast?.Children != null)
+        foreach (var child in ast.Children) child.Accept(visitor);
+      return visitor.Errors;
+    }
+  }
 }

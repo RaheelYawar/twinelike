@@ -100,6 +100,9 @@ namespace Harlowe.Parsing
           nodes.Add(new ParseErrorNode
           {
             Message = $"parse error{where}: {ex.RawMessage ?? ex.Message}",
+            Detail = ex.RawMessage ?? ex.Message,
+            Line = ex.Line,
+            Column = ex.Column,
             OriginalSource = cursor.SliceFrom(startPos),
           });
           if (!advanced) break;

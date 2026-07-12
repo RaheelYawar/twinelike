@@ -209,7 +209,14 @@ namespace Harlowe
       string where = ex.Line > 0 ? $" at line {ex.Line}, column {ex.Column}" : string.Empty;
       var message = $"parse error in passage '{passageName}'{where}: {detail}";
       var ast = new Ast.Body.PassageBody { Children = new List<Ast.Body.IBodyNode>() };
-      ast.Children.Add(new Ast.Body.ParseErrorNode { Message = message, OriginalSource = originalSource });
+      ast.Children.Add(new Ast.Body.ParseErrorNode
+      {
+        Message = message,
+        Detail = detail,
+        Line = ex.Line,
+        Column = ex.Column,
+        OriginalSource = originalSource
+      });
       return ast;
     }
 
@@ -318,6 +325,51 @@ namespace Harlowe
     }
 
     /// <summary>
+    /// Every place a passage failed to parse — in passage order, then source
+    /// order. Empty when the story is clean; never throws.
+    ///
+    /// <para><b>What this is for.</b> The sibling of <see cref="GetBrokenLinks"/>,
+    /// and the same deal: a host engine calls it once at load and shows the
+    /// results to the developer. It's needed precisely <em>because</em> the
+    /// loaders are tolerant — a passage that won't parse doesn't abort the load,
+    /// it gets a synthetic error stub and stays quiet until a player walks into
+    /// it. Without this, a syntax error down an unplayed branch ships.</para>
+    ///
+    /// <para><b>Two shapes.</b> <see cref="ParseError.IsWholePassage"/> tells them
+    /// apart: either the whole body failed (the passage is a stub and will render
+    /// nothing but the error), or the parser recovered around one bad construct
+    /// and the rest of the passage still works. Recovered errors nested inside
+    /// hooks are found too, so a broken macro inside an <c>(if:)</c> branch is
+    /// reported.</para>
+    /// </summary>
+    public IReadOnlyList<ParseError> GetParseErrors()
+    {
+      var errors = new List<ParseError>();
+      for (int i = 0; i < _passageOrder.Count; i++)
+      {
+        var passage = _passages[_passageOrder[i]];
+        if (passage.Ast == null) continue;
+
+        bool whole = Ast.Body.ParseErrorNode.IsWhollyParseError(passage.Ast);
+        var nodes = ParseErrorCollector.Collect(passage.Ast);
+        for (int j = 0; j < nodes.Count; j++)
+        {
+          var node = nodes[j];
+          errors.Add(new ParseError
+          {
+            PassageName = passage.Name,
+            Detail = node.Detail,
+            Source = node.OriginalSource,
+            Line = node.Line,
+            Column = node.Column,
+            IsWholePassage = whole
+          });
+        }
+      }
+      return errors;
+    }
+
+    /// <summary>
     /// Every navigation reference in the story that points at a passage which
     /// doesn't exist — in passage order, then source order. Empty when the story
     /// is clean; never throws.
@@ -341,9 +393,11 @@ namespace Harlowe
     /// <para><b>What it can't see.</b> A <em>computed</em> target
     /// (<c>(goto: $next)</c>) is beyond any static check and is skipped rather
     /// than guessed at — those still surface as in-prose errors at render time.
-    /// And a passage that failed to parse is an error stub with no AST to walk,
-    /// so its references can't be scanned; it already renders as an in-prose
-    /// error of its own.</para>
+    /// And a <em>wholly</em> unparseable passage is a synthetic stub with no
+    /// references left to find, so nothing in it is reported here —
+    /// <see cref="GetParseErrors"/> is what surfaces that passage. (A passage the
+    /// parser merely <em>recovered</em> inside still has a real AST, so its
+    /// surviving links and macros are scanned as normal.)</para>
     /// </summary>
     public IReadOnlyList<BrokenLink> GetBrokenLinks()
     {
