@@ -145,12 +145,14 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
-    /// JavaScript's <c>Math.round</c> — half away from zero for the positive
-    /// values used here — which every rounding step in reference's
-    /// <c>colour.ts</c> goes through. C#'s <see cref="Math.Round(double)"/> is
-    /// banker's rounding, so it would disagree on an exact <c>.5</c> with an odd
-    /// integer part (<c>126.5</c> → 126 rather than 127) and silently shift a
-    /// component by one against reference.
+    /// JavaScript's <c>Math.round</c> — half toward +∞, which is what
+    /// <c>floor(x + 0.5)</c> gives for both signs (a negative hue reaches this
+    /// through <see cref="WrapHue"/>) — and which every rounding step in
+    /// reference's <c>colour.ts</c> goes through. C#'s
+    /// <see cref="Math.Round(double)"/> is banker's rounding, so it would
+    /// disagree on an exact <c>.5</c> with an odd integer part (<c>126.5</c> →
+    /// 126 rather than 127) and silently shift a component by one against
+    /// reference.
     /// </summary>
     private static double JsRound(double x) => Math.Floor(x + 0.5);
 

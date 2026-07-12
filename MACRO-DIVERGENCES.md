@@ -11,8 +11,8 @@ for the save-model slice (which lands `(history:)` semantics).
 
 ## Counts
 
-- **High severity (0 active, 5 fixed)**: silent wrong result or breaks documented Harlowe idioms.
-- **Medium severity (3 active, 7 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
+- **High severity (1 active, 5 fixed)**: silent wrong result or breaks documented Harlowe idioms.
+- **Medium severity (4 active, 7 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
 - **Low severity (2 active, 1 fixed)**: documented as deliberate or marginal.
 
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
@@ -21,6 +21,42 @@ items are kept and marked rather than renumbered.
 ---
 
 ## High-severity divergences
+
+### 19. Links to nonexistent passages are live, and following one poisons the save (found 2026-07-12 audit)
+
+- **Ours**: nothing checks that a link's target exists.
+  `BodyRenderer.Visit(LinkNode)` is `_output.Link(node.Text, node.Target)` flat,
+  and `LinkGotoMacro` never consults `MacroContext.PassageExists` — so
+  `[[Go->Missing]]` and `(link-goto: "Click", "Nowhere")` both emit an ordinary,
+  clickable `Link` event that the host wires to `StorySession.Goto`. `Goto` then
+  doesn't validate either: it calls `EnterPassage`, finds no passage, and returns
+  `EmptyResult` — **zero entries, no `Error`, a silently blank screen** — while
+  leaving `CurrentPassage` and the present `Moment.PassageName` set to the name
+  that doesn't exist. `SaveGame` happily serialises that Moment; `DeserialiseTimeline`
+  then validates every passage on load, so the blob is rejected **forever** with
+  *"saved passage 'Missing' no longer exists"*. A dead link therefore turns into a
+  permanently unloadable save. (`(goto:)` and `(click-goto:)` *do* validate — this
+  is the un-validated half of the family.)
+- **Reference**: `Passages.hasValid(passage)` gates every link.
+  `ts/macrolib/links.ts` (search `Since the passage isn't available`) emits
+  `<tw-broken-link passage-name="…">text</tw-broken-link>` instead of `<tw-link>`
+  — documented as *"a broken link (a red link that can't be clicked) will be
+  created"*. The `[[…]]` syntax gets the same treatment: the same file notes
+  *"the Harlowe engine actually converts all standard links into (link-goto:)
+  macro calls internally — the link syntax is, essentially, a syntactic shorthand
+  for (link-goto:)"*. The click never happens, so the rest of the chain can't.
+- **Trigger**: `[[Go->Missing]]`, click it, `(save-game: "1")`, reload.
+  `TestFiles/testFile.html` ships passages linking to absent passages, so this is
+  the shape of real imported stories.
+- **User-visible**: dead links look and behave like live ones; following one blanks
+  the passage with no diagnostic; any save taken afterwards can never be loaded.
+- **Fix**: check existence where the link is *built* (both `Visit(LinkNode)` and
+  `LinkGotoMacro`) and tell the host the link is broken — `IRenderOutput` grows
+  additively, so a `BrokenLink(text, target)` channel (or a flag on `Link`) fits
+  the existing contract; the host renders it unclickable. Belt-and-braces:
+  `StorySession.Goto` should refuse an unknown passage with an `Error` entry
+  rather than a silent empty result, so a host that ignores the new channel still
+  can't corrupt the timeline.
 
 ### 1. `(goto:)` doesn't validate target exists — ✅ FIXED (2026-06-01)
 
@@ -193,6 +229,33 @@ string-target / second-arg / rerun / reveal / command tests in
 ---
 
 ## Medium-severity divergences
+
+### 20. String targets don't bestride text nodes (found 2026-07-12 audit)
+
+- **Ours**: `TextOccurrenceFinder` matches a needle **within a single
+  `RenderTextNode`** and says so in its own docstring. Adjacent prose coalesces
+  into one node (so a `(print:)` in the middle is fine), but anything that opens a
+  child container — inline formatting, a styled span, a link, a hook — splits the
+  prose into siblings, and a needle spanning the boundary is silently not found.
+  Affects every string-target consumer: `(replace:)`/`(append:)`/`(prepend:)`,
+  `(enchant:)`/`(change:)`, and the whole `(click:)`/`(mouseover:)`/`(mouseout:)`
+  family.
+- **Reference**: `findTextInNodes` in `ts/utils/renderutils.ts` accumulates
+  `examinedNodes`/`examinedText` across consecutive text nodes precisely so a match
+  can straddle them — its header comment is *"to allow transformations of exact
+  textual matches within passage text, **regardless** of the actual DOM hierarchy
+  which those matches bestride"* — and splits the run back apart around the hit.
+  (Matching is exact/case-sensitive in both, so that half already agrees.)
+- **Trigger**: `Say ''hello'' friend(replace: "hello friend")[X]` — reference
+  replaces, we render `Say hello friend` unchanged and emit no error. The control
+  `Say hello friend(replace: "hello friend")[X]` works, so the failure is invisible
+  until an author adds emphasis inside the phrase.
+- **User-visible**: a string-target macro silently no-ops whenever the phrase
+  contains markup. Newly reachable: the inline-formatting slice (`''bold''` etc.)
+  landed the most common way to split a phrase.
+- **Fix**: rework `TextOccurrenceFinder` to walk a flattened text-node run (the
+  `findTextInNodes` model) and split across nodes, instead of scanning each
+  `RenderTextNode` in isolation.
 
 ### 6. `(else:)` silently no-ops with no preceding conditional — ✅ FIXED (2026-06-01)
 
@@ -516,8 +579,14 @@ something changes.
 
 ## Recommended ordering
 
-If tackled as individual slices, the high-severity items group naturally by
-size:
+**Do #19 first.** Broken links (#19) is the only active high-severity item and
+the only one that can destroy player data: a dead link is clickable, following
+it blanks the screen with no diagnostic, and the save taken afterwards can never
+be loaded again. It's also cheap — an existence check at the two sites that build
+a link, one additive `IRenderOutput` channel so the host can render it
+unclickable, and a guard in `StorySession.Goto`.
+
+Otherwise, the items group naturally by size:
 
 **Small contained fixes** (1–2 hours each, isolated changes):
 
