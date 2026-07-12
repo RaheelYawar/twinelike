@@ -662,12 +662,32 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
-    public void Sorted_MixedKinds_Errors()
+    public void Sorted_MixedNumbersAndStrings_NumbersFirst()
     {
+      // Reference's own documented example: (sorted: ...$a) over
+      // (a:'A','C','E','G',2,1) produces (a:1,2,"A","C","E","G").
       var (reg, ctx) = Setup();
-      var v = Eval(reg, ctx, "(sorted: 1, \"two\", 3)");
-      Assert.True(v.IsError);
-      Assert.Contains("different types", v.ErrorMessage);
+      var v = Eval(reg, ctx, "(sorted: \"A\", \"C\", \"E\", \"G\", 2, 1)");
+      var arr = v.AsArray;
+      Assert.Equal(6, arr.Count);
+      Assert.Equal(1, arr[0].AsNumber);
+      Assert.Equal(2, arr[1].AsNumber);
+      Assert.Equal("A", arr[2].AsString);
+      Assert.Equal("C", arr[3].AsString);
+      Assert.Equal("E", arr[4].AsString);
+      Assert.Equal("G", arr[5].AsString);
+    }
+
+    [Fact]
+    public void Sorted_NumericString_StaysWithStrings()
+    {
+      // Documented divergence pin: reference stringifies numbers into its
+      // NaturalSort so "1" would interleave ahead of 2; ours keeps the kinds
+      // apart — every number before every string.
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(sorted: \"1\", 2)");
+      Assert.Equal(2, v.AsArray[0].AsNumber);
+      Assert.Equal("1", v.AsArray[1].AsString);
     }
 
     [Fact]
@@ -676,6 +696,80 @@ namespace Harlowe.Tests.Runtime.Macros
       var (reg, ctx) = Setup();
       var v = Eval(reg, ctx, "(sorted: true, false)");
       Assert.True(v.IsError);
+      Assert.Contains("'via' lambda", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void Sorted_ZeroValues_ReturnsEmptyArray()
+    {
+      // Reference: "As of 3.3.0, giving zero or more values (after the
+      // optional lambda) to (sorted:) will cause an empty array to be
+      // returned, rather than causing an error to occur."
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(sorted:)");
+      Assert.Equal(HarloweValueKind.Array, v.Kind);
+      Assert.Empty(v.AsArray);
+    }
+
+    [Fact]
+    public void Sorted_ViaLambda_SortsByProducedKey()
+    {
+      // Reference's example: (sorted: via its length * -1, "Gus", "Arthur",
+      // "William") produces (a: "William", "Arthur", "Gus").
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(sorted: via its length * -1, \"Gus\", \"Arthur\", \"William\")");
+      var arr = v.AsArray;
+      Assert.Equal("William", arr[0].AsString);
+      Assert.Equal("Arthur", arr[1].AsString);
+      Assert.Equal("Gus", arr[2].AsString);
+    }
+
+    [Fact]
+    public void Sorted_ViaLambda_EqualKeys_StableOrder()
+    {
+      // Reference's stability example: sorting only by first letter always
+      // produces (a:"Alice","Bob","Blake","Bella","Bertrude") — equal-keyed
+      // values keep their given order.
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx,
+        "(sorted: via its 1st, \"Bob\", \"Alice\", \"Blake\", \"Bella\", \"Bertrude\")");
+      var arr = v.AsArray;
+      Assert.Equal("Alice", arr[0].AsString);
+      Assert.Equal("Bob", arr[1].AsString);
+      Assert.Equal("Blake", arr[2].AsString);
+      Assert.Equal("Bella", arr[3].AsString);
+      Assert.Equal("Bertrude", arr[4].AsString);
+    }
+
+    [Fact]
+    public void Sorted_ViaLambda_SortsNonScalarItemsByKey()
+    {
+      // With a lambda, the values themselves may be any kind — only the
+      // produced keys must be numbers or strings.
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx,
+        "(sorted: via its name, (dm: \"name\", \"Zed\"), (dm: \"name\", \"Amy\"))");
+      var arr = v.AsArray;
+      Assert.Equal("Amy", arr[0].AsDatamap["name"].AsString);
+      Assert.Equal("Zed", arr[1].AsDatamap["name"].AsString);
+    }
+
+    [Fact]
+    public void Sorted_ViaLambda_NonViaLambda_Errors()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(sorted: _x where _x > 0, 1, 2)");
+      Assert.True(v.IsError);
+      Assert.Contains("'via' lambda", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void Sorted_ViaLambda_NonScalarKey_Errors()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(sorted: via (a: it), 1, 2)");
+      Assert.True(v.IsError);
+      Assert.Contains("number or string", v.ErrorMessage);
     }
 
     [Fact]

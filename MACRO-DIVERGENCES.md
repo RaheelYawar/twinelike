@@ -12,7 +12,7 @@ for the save-model slice (which lands `(history:)` semantics).
 ## Counts
 
 - **High severity (0 active, 5 fixed)**: silent wrong result or breaks documented Harlowe idioms.
-- **Medium severity (4 active, 6 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
+- **Medium severity (3 active, 7 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
 - **Low severity (2 active, 1 fixed)**: documented as deliberate or marginal.
 
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
@@ -356,7 +356,22 @@ half-width centred block with `margin-left`/`max-width`/`display:block`. See
 - **User-visible**: The reference's documented example errors in ours;
   off-centre alignment is unreachable.
 
-### 14. `(sorted:)` rejects mixed number+string input
+### 14. `(sorted:)` rejects mixed number+string input — ✅ FIXED (2026-07-11)
+
+**Resolved.** `SortedMacro` sorts mixed numbers+strings (numbers numerically
+ahead of strings ordinally — reference's own `(a:'A','C','E','G',2,1)` →
+`(a:1,2,"A","C","E","G")` example now reproduces), accepts the optional
+leading `via` key-lambda through the existing `LambdaInvoker.EvalTransform`
+(keys must evaluate to numbers or strings; the values themselves may be any
+kind; equal keys keep their given order via an index tie-break — reference
+documents the sort as stable), validates the lambda is `via`-only (reference's
+"must be a 'via' lambda" error), and returns an empty array for zero values
+(reference's 3.3.0 behaviour; `MinArgs` 0). Remaining deliberate divergences,
+documented in the macro docstring: string keys order ordinally rather than by
+reference's locale-collated alphanumeric NaturalSort (`ts/utils/naturalsort.ts`),
+and — since reference stringifies numbers into that same sort — a numeric
+string like `"1"` interleaves with numbers there but sorts with the strings
+here. See the `Sorted_*` tests in `LambdaMacroTests`. Original finding below.
 
 - **Ours**: Requires every value to share the first value's kind; a mixed-kind
   input errors with "(sorted:) can't compare values of different types".
@@ -514,8 +529,9 @@ size:
 - ~~`(for:)` zero-item + `(loop:)` alias (#10) — `MinArgs` change + register.~~ ✅ done.
 - ~~`(num:)` semantics + `(number:)` alias (#12) — refactor + register.~~ ✅ done.
 - ~~`(align:)` regex-based parsing (#13) — replace the four-string lookup.~~ ✅ done.
-- `(sorted:)` mixed-type ordering (#14) — relax the `item.Kind != kind` check;
-  sort numbers ahead of strings in one comparer.
+- ~~`(sorted:)` mixed-type ordering (#14) — relax the `item.Kind != kind` check;
+  sort numbers ahead of strings in one comparer.~~ ✅ done — and the `via`
+  key-lambda landed with it, closing #14 whole.
 - ~~`(random:)` fractional truncation (#16) — relax the `TryAsBound` check.~~ ✅ done.
 
 Total: ~10 small slices, sized appropriately for a single PR each, no shared
