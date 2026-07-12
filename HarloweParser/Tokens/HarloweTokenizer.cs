@@ -399,6 +399,9 @@ namespace Harlowe.Tokens
         case '?':
           if (TryScanHookRef(startPos, startLine, startCol)) return;
           break;
+        case '#':
+          if (TryScanHexColour(startPos, startLine, startCol)) return;
+          break;
       }
 
       if (IsAsciiDigit(c))
@@ -753,6 +756,16 @@ namespace Harlowe.Tokens
         return;
       }
 
+      // A word in property-name position names a data key, whatever else it
+      // would otherwise mean. Checked before every other classification so a
+      // key called `a` (a colour's alpha, or a datamap key) isn't stolen by the
+      // `a` word-operator, and `red` isn't stolen by the colour rule.
+      if (IsPropertyNamePosition())
+      {
+        Emit(TokenType.Identifier, word, startPos, startLine, startCol);
+        return;
+      }
+
       if (TryFuseMultiWordOperator(word, startPos, startLine, startCol))
         return;
 
@@ -776,9 +789,65 @@ namespace Harlowe.Tokens
 
       if (WordOperators.Contains(word))
         Emit(TokenType.Operator, word, startPos, startLine, startCol);
+      else if (Runtime.ColourValue.IsNamed(word))
+        // Built-in colour names lex as colour literals in expression mode,
+        // matching reference's `colour` rule in ts/markup/patterns.ts (which
+        // outranks plain identifiers). Case-insensitive, whole-word — the
+        // identifier scan already guarantees the boundary.
+        Emit(TokenType.ColourLiteral, word, startPos, startLine, startCol);
       else
         Emit(TokenType.Identifier, word, startPos, startLine, startCol);
     }
+
+    /// <summary>
+    /// True when the word being scanned sits in a property-name position, where
+    /// it names a data key rather than a value — <c>$dm's red</c>, <c>its red</c>,
+    /// or <c>red of $dm</c>. Reference gets this for free: its property rules
+    /// capture the name <em>inside</em> the possessive token (the
+    /// <c>property</c>, <c>itsProperty</c>, and <c>belongingProperty</c> patterns
+    /// in <c>ts/markup/patterns.ts</c>), so a name there never reaches the
+    /// <c>colour</c> or operator rules. Our possessive is a standalone operator
+    /// token, so the check is explicit: look behind for <c>'s</c>/<c>its</c>, and
+    /// ahead for <c>of</c>.
+    ///
+    /// <para>Two names would otherwise be stolen: <c>$dm's red</c> would read the
+    /// key as a colour value, and <c>$colour's a</c> (a colour's alpha, or any
+    /// datamap key called <c>a</c>) would read the <c>a</c> word-operator.</para>
+    /// </summary>
+    private bool IsPropertyNamePosition()
+    {
+      if (_tokens.Count > 0)
+      {
+        var prev = _tokens[_tokens.Count - 1];
+        if (prev.Type == TokenType.Operator && (prev.Value == "'s" || prev.Value == "its"))
+          return true;
+      }
+      // `red of $dm` — the name sits before `of` (reference's belongingProperty).
+      return PeekNextWordFrom(_pos, out _) == "of";
+    }
+
+    /// <summary>
+    /// Cursor is at <c>#</c> in expression mode. Consumes a hex colour literal
+    /// — exactly 3 or 6 hex digits, per reference's <c>colour</c> pattern
+    /// (<c>#[\dA-Fa-f]{3}(?:[\dA-Fa-f]{3})?</c>) — and emits
+    /// <see cref="TokenType.ColourLiteral"/> carrying the full lexeme.
+    /// Returns false (nothing consumed) on any other digit count, so a
+    /// malformed <c>#ff</c> falls through to the generic unknown-char skip.
+    /// </summary>
+    private bool TryScanHexColour(int startPos, int startLine, int startCol)
+    {
+      int look = _pos + 1;
+      while (look < _src.Length && IsHexDigit(_src[look])) look++;
+      int digits = look - (_pos + 1);
+      if (digits != 3 && digits != 6) return false;
+      string lexeme = _src.Substring(_pos, digits + 1);
+      AdvanceN(digits + 1);
+      Emit(TokenType.ColourLiteral, lexeme, startPos, startLine, startCol);
+      return true;
+    }
+
+    private static bool IsHexDigit(char c) =>
+      (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 
     /// <summary>
     /// Tries to fuse <paramref name="firstWord"/> (already consumed; cursor sits
@@ -885,7 +954,7 @@ namespace Harlowe.Tokens
       if (prev != TokenType.Variable && prev != TokenType.TempVariable && prev != TokenType.Identifier
           && prev != TokenType.ParenClose && prev != TokenType.BracketClose && prev != TokenType.MacroClose
           && prev != TokenType.StringLiteral && prev != TokenType.NumberLiteral && prev != TokenType.BoolLiteral
-          && prev != TokenType.HookRef)
+          && prev != TokenType.HookRef && prev != TokenType.ColourLiteral)
         return false;
       AdvanceN(2);
       Emit(TokenType.Operator, "'s", startPos, startLine, startCol);

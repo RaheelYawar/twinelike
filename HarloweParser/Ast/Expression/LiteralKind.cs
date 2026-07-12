@@ -8,6 +8,13 @@ namespace Harlowe.Ast.Expression
     /// <summary><c>42</c>, <c>3.14</c>, etc.</summary>
     Number,
     /// <summary><c>true</c> or <c>false</c>.</summary>
-    Bool
+    Bool,
+    /// <summary>
+    /// A colour literal — a built-in name (<c>red</c>) or hex form
+    /// (<c>#a4e</c>). <see cref="LiteralNode.Value"/> holds the raw lexeme
+    /// <see cref="string"/> so printing round-trips verbatim; the evaluator
+    /// converts to a <c>ColourValue</c> on evaluation.
+    /// </summary>
+    Colour
   }
 }

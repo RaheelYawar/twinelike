@@ -70,6 +70,33 @@ namespace Harlowe.Tests.Runtime.Saving
       Assert.Equal(b, back.AsBool);
     }
 
+    [Theory]
+    [InlineData(230, 25, 25, 1)]      // a named colour (red)
+    [InlineData(170, 68, 238, 1)]     // a hex colour (#a4e)
+    [InlineData(12.5, 34, 56, 0.5)]   // fractional components + alpha
+    [InlineData(0, 0, 0, 0)]          // transparent
+    public void Colour_RoundTrips(double r, double g, double b, double a)
+    {
+      var back = RoundTrip(HarloweValue.OfColour(new ColourValue(r, g, b, a)));
+      Assert.Equal(HarloweValueKind.Colour, back.Kind);
+      Assert.Equal(r, back.AsColour.R);
+      Assert.Equal(g, back.AsColour.G);
+      Assert.Equal(b, back.AsColour.B);
+      Assert.Equal(a, back.AsColour.A);
+    }
+
+    [Fact]
+    public void Colour_InsideCollection_RoundTrips()
+    {
+      var map = new System.Collections.Generic.Dictionary<string, HarloweValue>
+      {
+        { "sky", HarloweValue.OfColour(new ColourValue(25, 127, 230)) },
+      };
+      var back = RoundTrip(HarloweValue.OfDatamap(map));
+      Assert.Equal(HarloweValueKind.Colour, back.AsDatamap["sky"].Kind);
+      Assert.Equal(127, back.AsDatamap["sky"].AsColour.G);
+    }
+
     // ----- collections -----
 
     [Fact]

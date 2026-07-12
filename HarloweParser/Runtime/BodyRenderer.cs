@@ -391,6 +391,7 @@ namespace Harlowe.Runtime
         case HarloweValueKind.Bool:
         case HarloweValueKind.Array:
         case HarloweValueKind.Datamap:
+        case HarloweValueKind.Colour:
           _output.Text(result.ToHarloweString());
           return;
       }

@@ -136,6 +136,7 @@ public class ConsoleOutput : IRenderOutput
 | Feature | Status |
 |---|---|
 | Variables (`$story`, `_temp`) and full expression grammar | ✓ |
+| Colour values: `red`, `#a4e`, `(rgb:)`/`(hsl:)`, `+` mixing, `'s r`/`'s h` data names | ✓ |
 | Every operator from the Harlowe 3.3.8 precedence table | ✓ |
 | Property access (`'s`, `of`, `its`) | ✓ |
 | Ordinal indexing (`1st`, `last`, `Nthlast`) | ✓ |
@@ -158,13 +159,14 @@ public class ConsoleOutput : IRenderOutput
 | `(random:)`, `(either:)`, `(history:)` | ✓ |
 | `(save-game:)`, `(load-game:)`, `(saved-games:)` | ✓ |
 | `(a:)`, `(dm:)`, `(modulo:)`, `(text:)`, `(num:)` | ✓ |
+| `(rgb:)`, `(rgba:)`, `(hsl:)`, `(hsla:)` (`lch`/`oklch`/`mix`/`complement` pending) | ⚠ |
 | `(round:)`, `(min:)`, `(max:)`, `(floor:)`, `(ceil:)`, `(trunc:)`, `(abs:)`, `(sign:)` (`sqrt`/`pow`/`log`/trig pending) | ⚠ |
 | `(uppercase:)`, `(lowercase:)`, `(upperfirst:)`, `(lowerfirst:)`, `(substring:)`, `(words:)`, `(str-reversed:)`, `(str-repeated:)`, `(str-nth:)` | ✓ |
 | `(find:)`, `(all-pass:)`, `(some-pass:)`, `(none-pass:)`, `(altered:)` | ✓ |
 | `(for:)`, `(folded:)`, `(rotated-to:)`, `(sorted:)` | ✓ |
 | `(text-style:)` — full name set incl. mark, outline, shadow, blur, mirror, shudder, blink, fade-in-out, … (variadic, with `"none"` reset) | ✓ |
 | `(text-color:)` / `(text-colour:)` / `(color:)` / `(colour:)` | ✓ |
-| `(background:)` / `(bg:)` (colour or image url) | ✓ |
+| `(background:)` / `(bg:)` — colour value, hex string, or image url | ✓ |
 | `(font:)`, `(text-size:)` / `(size:)`, `(opacity:)`, `(align:)` | ✓ |
 | `(border:)`, `(border-colour:)`, `(border-size:)`, `(corner-radius:)`, `(rotate:)` | ✗ |
 | `(hover-style:)`, `(line-style:)`, `(char-style:)`, `(link-style:)` | ✗ |

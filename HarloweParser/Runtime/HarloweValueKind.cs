@@ -57,6 +57,13 @@ namespace Harlowe.Runtime
     /// macros re-resolve it against the live render tree each time. Stored as a
     /// <see cref="HookNameValue"/> on <see cref="HarloweValue.Raw"/>.
     /// </summary>
-    HookName
+    HookName,
+
+    /// <summary>
+    /// A Harlowe colour — built-in named values (<c>red</c>, <c>navy</c>),
+    /// hex literals (<c>#a4e</c>), or the products of <c>(rgb:)</c>/<c>(hsl:)</c>.
+    /// Stored as a <see cref="ColourValue"/> on <see cref="HarloweValue.Raw"/>.
+    /// </summary>
+    Colour
   }
 }

@@ -67,6 +67,10 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new TextColorMacro("colour"));
       registry.Register(new BackgroundMacro("background"));
       registry.Register(new BackgroundMacro("bg"));
+      registry.Register(new RgbMacro("rgb"));
+      registry.Register(new RgbMacro("rgba"));
+      registry.Register(new HslMacro("hsl"));
+      registry.Register(new HslMacro("hsla"));
       registry.Register(new FontMacro());
       registry.Register(new TextSizeMacro("text-size"));
       registry.Register(new TextSizeMacro("size"));

@@ -17,6 +17,7 @@ Save/load, an undo/redo timeline with reproducible randomness, the `(link:)` fam
 - **String targets + `via`-lambdas** for `(change:)`, `(enchant:)`, and the whole click/hover family — each occurrence of the string is targeted, and a `via` lambda can compute the changer per match (1-based `pos`).
 - **Interaction commands and modes.** `(click-rerun:)` (re-armable), and the `-goto`/`-undo` command variants for `click`/`mouseover`/`mouseout` (e.g. `(click-goto: "target", "passage")`).
 - **Inline text formatting.** `''bold''`, `//italic//`, `~~strike~~`, `^^sup^^` markup, with bare URLs protected so their slashes never read as italics. Markdown `*em*`/`**strong**` are still pending.
+- **Colour values.** Bare colour keywords (`red`, `navy`, `transparent`, …) and hex literals (`#a4e`, `#691212`) are now typed values, not identifiers or strings — as are the results of the new `(rgb:)`/`(rgba:)`/`(hsl:)`/`(hsla:)` macros. Colours mix with `+` (`red + white`), compare with `is`, expose `'s r`/`'s g`/`'s b`/`'s a`/`'s h`/`'s s`/`'s l` data names, survive save/load, and can be passed to `(text-colour:)` and `(background:)`. The LCH/OKLCH model — `(lch:)`, `(oklch:)`, `(mix:)`, `(complement:)`, the `lch` data name — plus `(gradient:)` are not implemented yet.
 - **Maths macros.** `(round:)`, `(min:)`, `(max:)`, `(floor:)`, `(ceil:)`, `(trunc:)`, `(abs:)`, `(sign:)`.
 - **String macros.** `(uppercase:)`, `(lowercase:)`, `(upperfirst:)`, `(lowerfirst:)`, `(substring:)`, `(words:)`, `(str-reversed:)`, `(str-repeated:)`, `(str-nth:)` (with `string-` aliases), all surrogate-pair-safe.
 - **`(sorted:)` upgrades.** Sorts mixed numbers+strings (numbers first, matching reference's documented example), takes an optional leading `via` key-lambda with stable ordering for equal keys, and returns an empty array for zero values.
@@ -26,6 +27,7 @@ Save/load, an undo/redo timeline with reproducible randomness, the `(link:)` fam
 
 ### Changed
 
+- **`(background:)` / `(bg:)` now reads a plain string as an image URL, not a colour name.** Aligning with reference Harlowe: a value is a colour only when it's a colour *value* (`navy`, `#a4e`, `(rgb: …)`), a hex-shaped string, or a CSS function call (`"rgb(0,0,255)"`); anything else is an image path. **Migration: drop the quotes** — `(bg: "navy")` becomes `(bg: navy)`. (Stories written against real Harlowe already do this, since `(bg: "navy")` is an image path there too.) A gradient-shaped string now raises an explicit "not implemented" error instead of silently emitting CSS the browser drops.
 - **`IRenderOutput` gained `BeginLink(string target)` / `EndLink()`.** A link whose label carries structure (styles, armed regions, spliced content) now arrives as this bracket pair with the label flowing through the ordinary channels; plain-label links keep the flat `Link` event. Existing implementations must add the two members.
 - **Interactions re-resolve persistently.** Click/hover targets are re-matched against the full render tree after every render and dispatch (mirroring enchantments), so a `(click: ?b)` written before `|b>[...]` arms correctly and click-chains keep working across dispatches.
 - **Plain `(click:)`/`(mouseover:)`/`(mouseout:)` reveal in place** — the attached hook appears at the macro's own position on trigger (reference behaviour), rather than replacing the target; composed styles land on the revealed content, not the armed region.
@@ -46,6 +48,7 @@ Save/load, an undo/redo timeline with reproducible randomness, the `(link:)` fam
 - **Unterminated `[[`** degrades to a hook opener so the rest of the passage still parses.
 - **`is (not $x)` round-trips** — the printer preserves the parens that keep it from re-lexing as `is not`.
 - **Error messages format numbers invariantly** (no `2,5` on comma-decimal locales), and error values passed as macro arguments propagate from a single central gate instead of being masked by per-macro type errors.
+- **Data keys named after operators are readable.** `$dm's a` read the `a` word-operator instead of the key; a name in property position is now always a property name (matching how reference lexes it).
 
 ### Security
 

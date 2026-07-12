@@ -70,12 +70,62 @@ namespace Harlowe.Tests.Runtime.Macros
     // --- (background:) ---
 
     [Fact]
-    public void Background_ColorString_SetsBackgroundColor()
+    public void Background_BareColourName_SetsBackgroundColor()
     {
+      // The reference idiom: a bare colour keyword is a typed Colour value,
+      // emitted as its CSS rgba() form.
+      var buf = RenderRaw("(background: navy)[hi]");
+      var s = FirstPushedStyle(buf);
+      Assert.Equal("rgba(25, 25, 230, 1)", s.BackgroundColor);
+      Assert.Null(s.BackgroundImage);
+    }
+
+    [Fact]
+    public void Background_HexString_SetsBackgroundColor()
+    {
+      // A hex-shaped string is reference's other colour test (Colour.isHexString).
+      var buf = RenderRaw("(background: \"#a4e\")[hi]");
+      var s = FirstPushedStyle(buf);
+      Assert.Equal("#a4e", s.BackgroundColor);
+      Assert.Null(s.BackgroundImage);
+    }
+
+    [Fact]
+    public void Background_CssFunctionString_SetsBackgroundColor()
+    {
+      // Reference's `/^\s*(?:\w+)\(/` colour test.
+      var buf = RenderRaw("(background: \"rgb(0,0,255)\")[hi]");
+      var s = FirstPushedStyle(buf);
+      Assert.Equal("rgb(0,0,255)", s.BackgroundColor);
+      Assert.Null(s.BackgroundImage);
+    }
+
+    [Fact]
+    public void Background_ColourNameAsString_IsImageUrl()
+    {
+      // Reference-aligned (and a deliberate break from our old heuristic): a
+      // plain string that isn't hex- or function-shaped is an image URL, so a
+      // named colour must be written bare. Reference: "default to url(value)".
       var buf = RenderRaw("(background: \"navy\")[hi]");
       var s = FirstPushedStyle(buf);
-      Assert.Equal("navy", s.BackgroundColor);
-      Assert.Null(s.BackgroundImage);
+      Assert.Equal("navy", s.BackgroundImage);
+      Assert.Null(s.BackgroundColor);
+    }
+
+    [Fact]
+    public void Background_GradientString_Errors()
+    {
+      // Gradients need the Gradient value type; say so rather than emitting
+      // url(linear-gradient(…)) that the host silently drops.
+      var buf = RenderRaw("(background: \"linear-gradient(red, blue)\")[hi]");
+      AssertError(buf, "gradient");
+    }
+
+    [Fact]
+    public void Background_RgbMacroResult_SetsBackgroundColor()
+    {
+      var buf = RenderRaw("(background: (rgb: 255, 0, 47))[hi]");
+      Assert.Equal("rgba(255, 0, 47, 1)", FirstPushedStyle(buf).BackgroundColor);
     }
 
     [Fact]
@@ -98,8 +148,8 @@ namespace Harlowe.Tests.Runtime.Macros
     [Fact]
     public void Background_BgAlias_Works()
     {
-      var buf = RenderRaw("(bg: \"yellow\")[hi]");
-      Assert.Equal("yellow", FirstPushedStyle(buf).BackgroundColor);
+      var buf = RenderRaw("(bg: yellow)[hi]");
+      Assert.Equal("rgba(229, 230, 25, 1)", FirstPushedStyle(buf).BackgroundColor);
     }
 
     // --- (font:) ---

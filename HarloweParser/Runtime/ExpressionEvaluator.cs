@@ -51,6 +51,16 @@ namespace Harlowe.Runtime
         case LiteralKind.Number: _result = HarloweValue.OfNumber((double)node.Value); break;
         case LiteralKind.String: _result = HarloweValue.OfString((string)node.Value); break;
         case LiteralKind.Bool: _result = HarloweValue.OfBool((bool)node.Value); break;
+        case LiteralKind.Colour:
+        {
+          // Value is the raw lexeme; the tokenizer only emits valid forms, so
+          // a null here is a parser-construction bug surfaced in-prose.
+          var colour = ColourValue.FromLexeme((string)node.Value);
+          _result = colour != null
+            ? HarloweValue.OfColour(colour)
+            : HarloweValue.OfError($"malformed colour literal '{node.Value}'");
+          break;
+        }
         default: _result = HarloweValue.OfError("unknown literal kind"); break;
       }
     }
@@ -352,6 +362,10 @@ namespace Harlowe.Runtime
         case HarloweValueKind.Bool:
           // Reference uses JS `||`; for booleans this is logical OR.
           return HarloweValue.OfBool(left.AsBool || right.AsBool);
+        case HarloweValueKind.Colour:
+          // Additive blend, reference colour.ts's "+": channels
+          // min(round((l+r)*0.6), 255), alpha averaged.
+          return HarloweValue.OfColour(left.AsColour.Mix(right.AsColour));
         case HarloweValueKind.Array:
         {
           var combined = new List<HarloweValue>(left.AsArray.Count + right.AsArray.Count);
@@ -525,6 +539,14 @@ namespace Harlowe.Runtime
             return IndexString(container.AsString, target);
           }
           return HarloweValue.OfError($"string has no property '{name}'");
+        case HarloweValueKind.Colour:
+        {
+          // r/g/b/a plus derived h/s/l — reference colour.ts's getProperty.
+          // (lch/oklch data names are deferred with the LCH colour models.)
+          var prop = container.AsColour.GetProperty(name);
+          if (prop != null) return prop;
+          return HarloweValue.OfError($"a colour has no property '{name}'");
+        }
         default:
           return HarloweValue.OfError($"a {container.Kind} has no properties");
       }

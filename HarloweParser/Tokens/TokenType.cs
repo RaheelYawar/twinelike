@@ -64,6 +64,14 @@ namespace Harlowe.Tokens
     /// <summary>The keywords <c>true</c> or <c>false</c> inside an expression.</summary>
     BoolLiteral,
 
+    /// <summary>
+    /// A colour literal inside an expression: a built-in name (<c>red</c>,
+    /// <c>navy</c> — reference's <c>colour</c> hue-name list in
+    /// <c>ts/markup/patterns.ts</c>) or a hex form (<c>#a4e</c>/<c>#691212</c>).
+    /// Value is the raw lexeme, preserved for round-trip printing.
+    /// </summary>
+    ColourLiteral,
+
     /// <summary>An identifier inside an expression — typically a value-returning macro name or keyword.</summary>
     Identifier,
 

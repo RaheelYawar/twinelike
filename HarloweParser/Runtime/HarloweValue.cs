@@ -56,6 +56,7 @@ namespace Harlowe.Runtime
     public static HarloweValue OfChanger(Changer changer) => new HarloweValue(HarloweValueKind.Changer, changer ?? throw new ArgumentNullException(nameof(changer)));
     public static HarloweValue OfLambda(LambdaValue lambda) => new HarloweValue(HarloweValueKind.Lambda, lambda ?? throw new ArgumentNullException(nameof(lambda)));
     public static HarloweValue OfHookName(HookNameValue hookName) => new HarloweValue(HarloweValueKind.HookName, hookName ?? throw new ArgumentNullException(nameof(hookName)));
+    public static HarloweValue OfColour(ColourValue colour) => new HarloweValue(HarloweValueKind.Colour, colour ?? throw new ArgumentNullException(nameof(colour)));
 
     public bool IsError => Kind == HarloweValueKind.Error;
 
@@ -68,6 +69,7 @@ namespace Harlowe.Runtime
     public Changer AsChanger => (Changer)Raw;
     public LambdaValue AsLambda => (LambdaValue)Raw;
     public HookNameValue AsHookName => (HookNameValue)Raw;
+    public ColourValue AsColour => (ColourValue)Raw;
 
     /// <summary>
     /// Harlowe truthiness: only <c>true</c> for a <see cref="HarloweValueKind.Bool"/>
@@ -111,6 +113,8 @@ namespace Harlowe.Runtime
           return ((LambdaValue)Raw).Equals((LambdaValue)other.Raw);
         case HarloweValueKind.HookName:
           return ((HookNameValue)Raw).Equals((HookNameValue)other.Raw);
+        case HarloweValueKind.Colour:
+          return ((ColourValue)Raw).EqualsColour((ColourValue)other.Raw);
       }
       return false;
     }
@@ -141,6 +145,7 @@ namespace Harlowe.Runtime
         case HarloweValueKind.Changer: h = (h * 397) ^ ((Changer)Raw).GetHashCode(); break;
         case HarloweValueKind.Lambda: h = (h * 397) ^ ((LambdaValue)Raw).GetHashCode(); break;
         case HarloweValueKind.HookName: h = (h * 397) ^ ((HookNameValue)Raw).GetHashCode(); break;
+        case HarloweValueKind.Colour: h = (h * 397) ^ ((ColourValue)Raw).GetHashCode(); break;
       }
       return h;
     }
@@ -237,6 +242,8 @@ namespace Harlowe.Runtime
           return new Twee.MarkupPrinter().Print(((LambdaValue)Raw).Node);
         case HarloweValueKind.HookName:
           return HookNameToSource((HookNameValue)Raw);
+        case HarloweValueKind.Colour:
+          return ((ColourValue)Raw).ToSource();
         case HarloweValueKind.Error:
           return null;
       }
@@ -319,6 +326,11 @@ namespace Harlowe.Runtime
           // A hook name alone has no visible text — it is a selector consumed
           // by revision/enchantment macros, not printed prose.
           return string.Empty;
+        case HarloweValueKind.Colour:
+          // The CSS form; the renderer's print path emits the <tw-colour>
+          // swatch instead (reference's print()), so this only surfaces via
+          // string coercion.
+          return ((ColourValue)Raw).ToCssString();
       }
       return string.Empty;
     }

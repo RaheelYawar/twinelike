@@ -74,7 +74,7 @@ namespace Harlowe.Tests.Runtime.Macros
 
     [Fact]
     public void Background_NonString_Errors()
-      => Assert.Contains("requires a String", ErrorOf("background", Five));
+      => Assert.Contains("requires a Colour or String", ErrorOf("background", Five));
 
     [Fact]
     public void Opacity_NonNumber_Errors()

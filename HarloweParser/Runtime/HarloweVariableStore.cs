@@ -198,6 +198,8 @@ namespace Harlowe.Runtime
           foreach (var kv in srcMap) dstMap[kv.Key] = DeepCopyValue(kv.Value, depth + 1);
           return HarloweValue.OfDatamap(dstMap);
         default:
+          // Scalars, colours, changers, lambdas, hook names: immutable, so
+          // sharing the instance is safe.
           return v;
       }
     }

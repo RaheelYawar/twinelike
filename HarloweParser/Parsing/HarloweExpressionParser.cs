@@ -460,6 +460,12 @@ namespace Harlowe.Parsing
           cursor.Advance();
           return new LiteralNode { Kind = LiteralKind.Bool, Value = t.Value == "true" };
 
+        case TokenType.ColourLiteral:
+          cursor.Advance();
+          // Value keeps the raw lexeme ("red", "#a4e") so MarkupPrinter
+          // round-trips the author's spelling; the evaluator converts.
+          return new LiteralNode { Kind = LiteralKind.Colour, Value = t.Value };
+
         case TokenType.Variable:
           cursor.Advance();
           return new VariableRefNode { Name = t.Value, IsTemporary = false };

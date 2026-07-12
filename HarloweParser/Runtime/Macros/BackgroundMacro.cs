@@ -3,19 +3,27 @@ using System.Collections.Generic;
 namespace Harlowe.Runtime.Macros
 {
   /// <summary>
-  /// <c>(background: "navy")[hook]</c> or <c>(background: "art/sky.png")[hook]</c>.
+  /// <c>(background: navy)[hook]</c> or <c>(background: "art/sky.png")[hook]</c>.
   /// Returns a <see cref="Changer"/> that sets either
   /// <see cref="StyleSpec.BackgroundColor"/> or
-  /// <see cref="StyleSpec.BackgroundImage"/> depending on the shape of the
-  /// argument string. Registered under <c>background</c> and the alias
-  /// <c>bg</c>.
+  /// <see cref="StyleSpec.BackgroundImage"/>. Registered under
+  /// <c>background</c> and the alias <c>bg</c>.
   ///
-  /// <para>The image vs. colour distinction is a heuristic on the string —
-  /// values that look like image references (ending in a common image
-  /// extension, starting with <c>http://</c>/<c>https://</c>/<c>data:image/</c>,
-  /// or wrapped in <c>url(...)</c>) are treated as images; anything else as a
-  /// colour. The reference impl has a typed <c>Colour</c> value; we make do
-  /// with a string heuristic until/unless a typed colour value lands.</para>
+  /// <para><b>Colour vs image.</b> A typed <see cref="HarloweValueKind.Colour"/>
+  /// (a built-in name like <c>navy</c>, a hex literal, or the product of
+  /// <c>(rgb:)</c>/<c>(hsl:)</c>) is a colour. A String is a colour only when it
+  /// is hex-shaped (<c>"#a4e"</c>) or a CSS function call (<c>"rgb(0,0,255)"</c>);
+  /// <em>every other string is an image URL</em>. This is reference's rule
+  /// (<c>ts/macrolib/stylechangers.ts</c>: hex or <c>/^\s*(?:\w+)\(/</c> → colour,
+  /// else "default to <c>url(value)</c>"), which means a named colour must be
+  /// written bare — <c>(bg: blue)</c>, not <c>(bg: "blue")</c>, since the latter
+  /// is an image path in reference too.</para>
+  ///
+  /// <para><b>Deliberate superset:</b> an author-written <c>url(...)</c> wrapper
+  /// is unwrapped and treated as an image. Reference's <c>\w+\(</c> colour test
+  /// catches <c>url(</c> and misroutes it to <c>background-color</c> (broken CSS
+  /// either way), so accepting it costs no story fidelity and spares the author
+  /// a silent failure.</para>
   /// </summary>
   public class BackgroundMacro : IMacro
   {
@@ -31,57 +39,89 @@ namespace Harlowe.Runtime.Macros
     {
       var arg = args[0];
       if (arg.IsError) return arg;
+
+      // A typed Colour is engine-generated from numeric components, so it
+      // skips the author-string validator — no author text reaches the CSS.
+      if (arg.Kind == HarloweValueKind.Colour)
+        return HarloweValue.OfChanger(
+          Changer.FromStyle(new StyleSpec { BackgroundColor = arg.AsColour.ToCssString() }));
+
       if (arg.Kind != HarloweValueKind.String)
-        return HarloweValue.OfError($"({_name}:) requires a String, got {arg.Kind}");
+        return HarloweValue.OfError($"({_name}:) requires a Colour or String, got {arg.Kind}");
 
       // Trim once up front. Incidental leading/trailing whitespace would
-      // otherwise defeat the LooksLikeImage prefix/suffix matchers — e.g.
-      // `" url(art/sky.png) "` would fail StartsWith("url(") and fall into
-      // the BackgroundColor branch, emitting `background-color: <url>` which
-      // browsers silently drop. The trimmed form is what we both validate and
-      // store, so the downstream emit doesn't carry stray whitespace either.
+      // otherwise defeat the shape matchers below — e.g. `" url(art/sky.png) "`
+      // would fail StartsWith("url(") and be treated as an image path with a
+      // stray space. The trimmed form is what we both validate and store, so
+      // the downstream emit doesn't carry the whitespace either.
       //
       // Parameterless Trim is deliberate. It strips all Unicode whitespace
-      // (NBSP, ideographic space, etc.), matching reference Harlowe's
-      // ts/macrolib/stylechangers.ts which tolerates the same set via regex
-      // `^\s*` (ECMAScript `\s` covers Unicode Space_Separator chars). An
-      // ASCII-only Trim would make this macro stricter than reference and
-      // silently misroute NBSP-padded image paths from word-processor
-      // copy-pastes to the BackgroundColor branch.
+      // (NBSP, ideographic space, etc.), matching reference Harlowe, which
+      // tolerates the same set via regex `^\s*` (ECMAScript `\s` covers Unicode
+      // Space_Separator chars). An ASCII-only Trim would make this macro
+      // stricter than reference and silently misroute NBSP-padded image paths
+      // from word-processor copy-pastes.
       var value = arg.AsString?.Trim();
       var invalid = StyleValueValidator.Validate(_name, value);
       if (invalid != null) return invalid;
-      if (LooksLikeImage(value))
+
+      // Gradients need the Gradient value type (and a raw-CSS background
+      // channel) that we don't have yet. Say so, rather than wrapping the
+      // gradient in url(...) and emitting CSS the host silently drops.
+      if (LooksLikeGradient(value))
+        return HarloweValue.OfError(
+          $"({_name}:) doesn't support gradient values yet — Gradient values and the (gradient:) macro aren't implemented");
+
+      // Authors may write the CSS-shape ("url(art/sky.png)") rather than a bare
+      // path. HtmlRenderOutput wraps BackgroundImage in url(...) when it emits,
+      // so a value already wrapped would produce url(url(...)) — strip the CSS
+      // wrapper here. An empty or malformed wrapper is an in-prose error rather
+      // than silently broken CSS.
+      if (StartsWithCssUrl(value))
       {
-        // Authors may write either a bare URL ("art/sky.png") or the CSS-shape
-        // ("url(art/sky.png)"). HtmlRenderOutput wraps BackgroundImage in
-        // url(...) when it emits, so a value already wrapped in url() would
-        // produce url(url(...)) — strip the CSS wrapper here. An empty inner
-        // URL is rejected with an in-prose error rather than emitting silently
-        // malformed CSS.
-        if (StartsWithCssUrl(value))
-        {
-          if (!TryUnwrapCssUrl(value, out var url))
-            return HarloweValue.OfError($"({_name}:) malformed url() value: '{value}'");
-          if (string.IsNullOrWhiteSpace(url))
-            return HarloweValue.OfError($"({_name}:) url() value is empty");
-          return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { BackgroundImage = url }));
-        }
-        return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { BackgroundImage = value }));
+        if (!TryUnwrapCssUrl(value, out var url))
+          return HarloweValue.OfError($"({_name}:) malformed url() value: '{value}'");
+        if (string.IsNullOrWhiteSpace(url))
+          return HarloweValue.OfError($"({_name}:) url() value is empty");
+        return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { BackgroundImage = url }));
       }
-      return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { BackgroundColor = value }));
+
+      // Reference's colour tests: a hex string, or any CSS function call
+      // (`rgb(…)`, `hsl(…)`, `color-mix(…)`). Everything else is an image.
+      if (ColourValue.FromHex(value) != null || LooksLikeCssFunction(value))
+        return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { BackgroundColor = value }));
+
+      if (value.Length == 0)
+        return HarloweValue.OfError($"({_name}:) value is empty");
+
+      return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { BackgroundImage = value }));
     }
 
-    private static bool LooksLikeImage(string s)
+    /// <summary>
+    /// Reference's <c>/^\s*(?:\w+)\(/</c> colour test — word characters
+    /// immediately followed by <c>(</c>. Already-trimmed input, so the leading
+    /// whitespace allowance is moot. Note <c>linear-gradient(</c> does NOT match
+    /// (the hyphen isn't a word char), which is why reference tests gradients
+    /// separately and why <see cref="LooksLikeGradient"/> runs first here.
+    /// </summary>
+    private static bool LooksLikeCssFunction(string s)
     {
-      if (string.IsNullOrEmpty(s)) return false;
+      int i = 0;
+      while (i < s.Length && (char.IsLetterOrDigit(s[i]) || s[i] == '_')) i++;
+      return i > 0 && i < s.Length && s[i] == '(';
+    }
+
+    /// <summary>
+    /// Reference's gradient test:
+    /// <c>/^\s*(?:repeating-)?(?:linear|radial|conic)-gradient\(/</c>.
+    /// </summary>
+    private static bool LooksLikeGradient(string s)
+    {
       var lower = s.ToLowerInvariant();
-      if (lower.StartsWith("http://") || lower.StartsWith("https://")
-       || lower.StartsWith("data:image/") || lower.StartsWith("url("))
-        return true;
-      return lower.EndsWith(".png") || lower.EndsWith(".jpg") || lower.EndsWith(".jpeg")
-          || lower.EndsWith(".gif") || lower.EndsWith(".svg") || lower.EndsWith(".webp")
-          || lower.EndsWith(".bmp");
+      if (lower.StartsWith("repeating-")) lower = lower.Substring("repeating-".Length);
+      return lower.StartsWith("linear-gradient(")
+          || lower.StartsWith("radial-gradient(")
+          || lower.StartsWith("conic-gradient(");
     }
 
     /// <summary>
