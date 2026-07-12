@@ -30,6 +30,29 @@ namespace Harlowe.Runtime
       public string Target;
       public StyleSpec Style;
       public InteractiveRegion Region;
+
+      /// <summary>
+      /// Dispatch this entry to the <see cref="IRenderOutput"/> method it
+      /// records, so a stored render (<see cref="RenderResult.Entries"/>) can
+      /// be replayed through any adapter — e.g. an
+      /// <see cref="HtmlRenderOutput"/> wrapping the host's sink.
+      /// </summary>
+      public void ReplayTo(IRenderOutput output)
+      {
+        switch (Kind)
+        {
+          case Kind.Text: output.Text(Content); break;
+          case Kind.Html: output.Html(Content); break;
+          case Kind.Link: output.Link(Content, Target); break;
+          case Kind.BeginLink: output.BeginLink(Target); break;
+          case Kind.EndLink: output.EndLink(); break;
+          case Kind.Error: output.Error(Content); break;
+          case Kind.PushStyle: output.PushStyle(Style); break;
+          case Kind.PopStyle: output.PopStyle(); break;
+          case Kind.BeginInteractive: output.BeginInteractive(Region); break;
+          case Kind.EndInteractive: output.EndInteractive(); break;
+        }
+      }
     }
 
     /// <summary>Ordered log of every render call.</summary>

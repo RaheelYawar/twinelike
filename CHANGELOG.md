@@ -6,6 +6,52 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+Save/load, an undo/redo timeline with reproducible randomness, the `(link:)` family, conditionals rebuilt as composable changers, string targets across the enchant/interaction macros, and inline text formatting. **Note:** `IRenderOutput` gained two members — see *Changed*.
+
+### Added
+
+- **Save / load.** `(save-game:)`, `(load-game:)`, `(saved-games:)` backed by a pluggable `ISaveStorage` host backend (in-memory default; Unity/Godot consumers plug their own) with IFID-namespaced slots. Values serialise as re-evaluable Harlowe source; loading is atomic and validating — a corrupt or version-newer blob errors without half-installing state.
+- **Undo/redo timeline.** The session now runs on a past/present/future `Moment` timeline: `session.Redo()` joins `Undo()`, `visits`/`(history:)`/`turns` derive from per-turn visit trails (multiple `(goto:)`s in one turn appear as their trail), and a seedable RNG makes `(random:)`/`(either:)` reproduce across undo, redo, and save/load.
+- **`(link:)` family.** `(link:)`/`(link-replace:)`, `(link-reveal:)`/`(link-append:)`, `(link-repeat:)`, `(link-rerun:)` changers plus the `(link-goto:)` and `(link-undo:)` commands. `(link-goto:)` emits the same flat link event as `[[...]]` syntax; `(link-undo:)` renders its alt text when there's no turn to undo.
+- **Conditionals are changers.** `(if:)`/`(unless:)`/`(else-if:)`/`(else:)` now return changers, so they compose with styling (`(if: $x) + (text-style: "bold")[...]`), store in variables, and survive save/load — matching reference. An `(else:)` still pairs across an intervening `(set:)`/`(print:)`.
+- **String targets + `via`-lambdas** for `(change:)`, `(enchant:)`, and the whole click/hover family — each occurrence of the string is targeted, and a `via` lambda can compute the changer per match (1-based `pos`).
+- **Interaction commands and modes.** `(click-rerun:)` (re-armable), and the `-goto`/`-undo` command variants for `click`/`mouseover`/`mouseout` (e.g. `(click-goto: "target", "passage")`).
+- **Inline text formatting.** `''bold''`, `//italic//`, `~~strike~~`, `^^sup^^` markup, with bare URLs protected so their slashes never read as italics. Markdown `*em*`/`**strong**` are still pending.
+- **Maths macros.** `(round:)`, `(min:)`, `(max:)`, `(floor:)`, `(ceil:)`, `(trunc:)`, `(abs:)`, `(sign:)`.
+- **String macros.** `(uppercase:)`, `(lowercase:)`, `(upperfirst:)`, `(lowerfirst:)`, `(substring:)`, `(words:)`, `(str-reversed:)`, `(str-repeated:)`, `(str-nth:)` (with `string-` aliases), all surrogate-pair-safe.
+- **`(sorted:)` upgrades.** Sorts mixed numbers+strings (numbers first, matching reference's documented example), takes an optional leading `via` key-lambda with stable ordering for equal keys, and returns an empty array for zero values.
+- **`Entry.ReplayTo(IRenderOutput)`.** Dispatch a stored render entry back through any adapter — the bridge from `RenderResult.Entries` to a streaming `IRenderOutput` such as `HtmlRenderOutput`.
+- **Macro-name normalisation.** Names are case-, dash-, and underscore-insensitive (`(textstyle:)` ≡ `(text-style:)`), as in reference.
+- **Exponent number literals** (`1e3`, `2.5e-2`) parse and round-trip.
+
+### Changed
+
+- **`IRenderOutput` gained `BeginLink(string target)` / `EndLink()`.** A link whose label carries structure (styles, armed regions, spliced content) now arrives as this bracket pair with the label flowing through the ordinary channels; plain-label links keep the flat `Link` event. Existing implementations must add the two members.
+- **Interactions re-resolve persistently.** Click/hover targets are re-matched against the full render tree after every render and dispatch (mirroring enchantments), so a `(click: ?b)` written before `|b>[...]` arms correctly and click-chains keep working across dispatches.
+- **Plain `(click:)`/`(mouseover:)`/`(mouseout:)` reveal in place** — the attached hook appears at the macro's own position on trigger (reference behaviour), rather than replacing the target; composed styles land on the revealed content, not the armed region.
+- **`?link` is a real target.** Styling and arming wrap around the link; `(replace:/append:/prepend: ?link)` splice into its label; string targets match inside labels.
+- **Composing incompatible changers errors** in-prose instead of silently dropping one side, and a bare unattached changer in prose (e.g. `(if: $x)` with no hook) is an in-prose error, as in reference.
+- **Consecutive text nodes coalesce** into single `Text` events — string-target matching works across what used to be node boundaries, and output granularity is coarser.
+
+### Fixed
+
+- **Twee round-trip data loss.** Passage names containing `[`/`]`/`{`/`}` now escape on write and unescape on read (per the Twee 3 spec); a leading UTF-8 BOM no longer hides the first passage; a content passage named `StoryTitle`/`StoryData` no longer collides with the metadata sigils; a story title starting with `::` round-trips.
+- **`RenamePassage` rewrites inbound `[[...]]` links** across the story (all three link forms), mirroring the Twine editor; macro string targets like `(goto: "old")` are left to the caller, as in Twine.
+- **Parser error recovery no longer swallows valid content.** A parse error after a macro's argument list closed (e.g. `(set:)` misused in a changer chain) used to eat the next well-formed macro; recovery now consumes exactly the closing parens the broken construct owes, and nested malformed macros keep their full source span for round-tripping.
+- **Malformed macro argument lists** surface an in-prose parse error instead of silently dropping tokens (and previously detaching the following hook).
+- **`it` binds to the assignment target** in `(set: $x to it + 1)`.
+- **Entity-encoded HTML attributes** (`&quot;` etc.) in Twine exports decode before parsing, so affected passages and links resolve.
+- **Multi-story HTML archives** parse the first story's passages only, instead of mixing passages across stories.
+- **String operations are code-point-aware** — `length`, indexing, and slicing treat astral characters (emoji, etc.) as single characters.
+- **Unterminated `[[`** degrades to a hook opener so the rest of the passage still parses.
+- **`is (not $x)` round-trips** — the printer preserves the parens that keep it from re-lexing as `is not`.
+- **Error messages format numbers invariantly** (no `2,5` on comma-decimal locales), and error values passed as macro arguments propagate from a single central gate instead of being masked by per-macro type errors.
+
+### Security
+
+- **Recursion depth caps everywhere user input can nest** — expression parser, body parser (hooks), value deep-copy, and the `:: StoryData` JSON reader — converting potential uncatchable stack-overflow crashes on adversarial input into in-prose errors.
+- **Save-blob hardening.** Version/seed gates reject integer-overflow bypasses; deserialisation is sandboxed so a tampered blob can't mutate live session state on a failed load.
+
 ## [0.2.0] — 2026-06-08
 
 A large correctness pass against reference Harlowe (the "divergence audit"), parse-error recovery so a single malformed passage no longer aborts a load, several new operators and macro aliases, and packaging changes. **Note:** the distributed DLL is now lower-case `twinelike.dll` — see *Changed*.

@@ -63,6 +63,63 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
+    public void ReplayTo_ReproducesEveryChannel()
+    {
+      // Entry.ReplayTo is the documented bridge from a stored RenderResult to
+      // any IRenderOutput adapter: replaying one buffer's entries into a
+      // second buffer must reproduce the identical event log.
+      var buf = new BufferedRenderOutput();
+      IRenderOutput sink = buf;
+      sink.Text("prose");
+      sink.Html("<i>raw</i>");
+      sink.Link("label", "Target");
+      sink.BeginLink("Styled");
+      sink.Text("inner");
+      sink.EndLink();
+      sink.Error("oops");
+      sink.PushStyle(new StyleSpec { Bold = true });
+      sink.Text("bold");
+      sink.PopStyle();
+      sink.BeginInteractive(new InteractiveRegion { Id = "r1", Kind = InteractionKind.Click });
+      sink.Text("armed");
+      sink.EndInteractive();
+
+      var replayed = new BufferedRenderOutput();
+      for (int i = 0; i < buf.Entries.Count; i++)
+        buf.Entries[i].ReplayTo(replayed);
+
+      Assert.Equal(buf.Entries.Count, replayed.Entries.Count);
+      for (int i = 0; i < buf.Entries.Count; i++)
+      {
+        Assert.Equal(buf.Entries[i].Kind, replayed.Entries[i].Kind);
+        Assert.Equal(buf.Entries[i].Content, replayed.Entries[i].Content);
+        Assert.Equal(buf.Entries[i].Target, replayed.Entries[i].Target);
+        Assert.Equal(buf.Entries[i].Style, replayed.Entries[i].Style);
+        Assert.Equal(buf.Entries[i].Region, replayed.Entries[i].Region);
+      }
+      Assert.Equal(buf.Text, replayed.Text);
+    }
+
+    [Fact]
+    public void ReplayTo_DrivesHtmlAdapter()
+    {
+      // The integration pattern the docs show: replay a stored render through
+      // HtmlRenderOutput to get the HTML translation after the fact.
+      var buf = new BufferedRenderOutput();
+      IRenderOutput sink = buf;
+      sink.PushStyle(new StyleSpec { Bold = true });
+      sink.Text("hi");
+      sink.PopStyle();
+
+      var htmlBuf = new BufferedRenderOutput();
+      var html = new HtmlRenderOutput(htmlBuf);
+      for (int i = 0; i < buf.Entries.Count; i++)
+        buf.Entries[i].ReplayTo(html);
+
+      Assert.Equal("<b>hi</b>", htmlBuf.Text);
+    }
+
+    [Fact]
     public void Entries_PreserveOrderAcrossKinds()
     {
       var buf = new BufferedRenderOutput();

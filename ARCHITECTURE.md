@@ -56,20 +56,25 @@ story.AddPassage(new HarlowePassage { Name = "Foo", Body = "..." });
 story.RenamePassage("Old", "New");
 
 // Run it
-var session = new StorySession(story, output);     // output is your IRenderOutput
+var session = new StorySession(story);
 var result = session.Render();                     // first passage
-result = session.Goto("PassageName");
+result = session.Goto("PassageName");              // result.Text / result.Entries
 session.Undo();
+session.Redo();
 
-// Save it back
+// Persist a playthrough (host storage is pluggable — see ISaveStorage)
+session.SaveGame("slot A", "My Save");
+session.LoadGame("slot A");
+
+// Save the story itself back to Twee
 string twee = new TweeWriter().Write(story);
 ```
 
-`StorySession` is the surface most consumers want. `Harlowe` itself is the static story model (passages + metadata); the session adds runtime state (current passage, variable store, undo stack, visit counts).
+`StorySession` is the surface most consumers want. `Harlowe` itself is the static story model (passages + metadata); the session adds runtime state (current passage, variable store, the undo/redo timeline, visit trails).
 
 ## The IRenderOutput contract
 
-`StorySession.Render()` and `Goto()` push events through an `IRenderOutput` you supply. Ten channels — four flat, three bracket pairs:
+`IRenderOutput` is the pipeline's event vocabulary. Ten channels — four flat, three bracket pairs. `StorySession.Render()`/`Goto()`/`DispatchEvent()` return the events materialised as `RenderResult.Entries` (each `BufferedRenderOutput.Entry.Kind` mirrors one interface method); walk that list after each call to drive your engine's renderer. Implement the interface itself when driving `BodyRenderer` directly or writing a translating adapter like the built-in `HtmlRenderOutput`.
 
 ```mermaid
 flowchart LR
@@ -95,16 +100,17 @@ flowchart LR
 
 **Style is semantic, not HTML.** A `StyleSpec` describes one styling layer with named flags (`Bold`/`Italic`/`Underline`/`Strikethrough`) and value fields (`Color`/`BackgroundColor`/`FontFamily`/`FontSize`). You map it to whatever your renderer accepts — TextMeshPro tags for Unity, BBCode for Godot, ANSI for a terminal, HTML for a browser. The library never bakes in HTML.
 
-For browser hosts, `HtmlRenderOutput` is a built-in adapter that wraps an inner `IRenderOutput` and translates style events to HTML on the way through. Use it as a reference impl if you're writing your own:
+For browser hosts, `HtmlRenderOutput` is a built-in adapter that wraps an inner `IRenderOutput` and translates style events to HTML on the way through — replay a render's `Entries` into it, or use it as a reference impl when writing your own:
 
 ```csharp
-var inner = new MyTmpRenderOutput();        // your engine adapter
-var session = new StorySession(story, inner);
+var html = new HtmlRenderOutput(new MyStringSink());
+foreach (var e in session.Render().Entries)
+  e.ReplayTo(html);   // dispatch each entry to its IRenderOutput method
 ```
 
 ## Errors are in-prose, never thrown
 
-A bad expression (`(set: $x to "five" * 2)`, unknown macro, type mismatch) produces an `Error` event at the point it happened. The rest of the passage continues to render. No `try/catch` needed around `Render()` / `Goto()` for runtime errors — only parse-time failures throw `HarloweParseException`.
+A bad expression (`(set: $x to "five" * 2)`, unknown macro, type mismatch) produces an `Error` event at the point it happened. The rest of the passage continues to render. No `try/catch` needed around `Render()` / `Goto()` for runtime errors. Parse-time failures are recovered too — the loaders catch `HarloweParseException` and substitute an in-prose error stub for the broken passage (or the broken node, with well-formed siblings still parsing), so it only escapes to you when you drive the tokenizer/parser classes directly.
 
 ```
 [story prose]      Text("You see ")
@@ -114,11 +120,13 @@ A bad expression (`(set: $x to "five" * 2)`, unknown macro, type mismatch) produ
 
 Engines decide what to do with errors — render them inline in red, log to console, silence in production builds.
 
-## Variables and undo
+## Variables, undo, and saving
 
 Two namespaces: **story-scoped** (`$foo`, persists across passages) and **temporary** (`_foo`, cleared on every `Goto`). The session also tracks a per-passage visit count and an "implicit it" slot for shorthand expressions.
 
-`Goto` snapshots the variable store first; `Undo` restores it. The undo stack is unbounded — snapshots are small (var store deep copy + visit-count dict) so memory grows linearly with goto depth, fine for typical stories.
+The session runs on a `Moment[]` timeline — completed turns behind, the live turn, undone turns ahead for `Redo()`. Each moment stores its turn's forward `$`-variable delta, its visit trail, and sparse RNG state; `visits`, `(history:)`, and `turns` are derived from the trails. `Undo`/`Redo` restore the store and RNG to the target turn's *start* and re-render it, so relative `(set:)`s aren't double-applied and `(random:)` reproduces. Memory grows linearly with turn count, fine for typical stories.
+
+`SaveGame(slot, filename)` / `LoadGame(slot)` / `SavedGames()` persist that timeline through an `ISaveStorage` backend you supply at session construction (in-memory default; `null` disables saving; slot keys are IFID-namespaced so one backend can serve multiple stories). Values serialise as re-evaluable Harlowe source; loading is atomic — a corrupt or version-newer blob returns `false` without touching live state. The author-facing `(save-game:)`/`(load-game:)`/`(saved-games:)` macros ride the same path.
 
 ## Editing the story object model
 
@@ -234,8 +242,13 @@ classDiagram
   class StorySession {
     +Render() RenderResult
     +Goto(name) RenderResult
+    +DispatchEvent(regionId) RenderResult
     +Undo() bool
-    -_undoStack Stack
+    +Redo() bool
+    +SaveGame(slot, filename) bool
+    +LoadGame(slot) bool
+    +SavedGames() dict
+    -_past/_present/_future Moments
   }
   class BodyRenderer
   class ExpressionEvaluator

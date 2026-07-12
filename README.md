@@ -44,7 +44,7 @@ if (session.Undo()) {
 }
 ```
 
-`RenderResult` carries the rendered content as both a flat `.Text` string and a list of typed `.Entries` (Text, Link, PushStyle, BeginInteractive, …). Pass the entries to your engine's renderer, or use the `IRenderOutput` interface below to receive them as a stream.
+`RenderResult` carries the rendered content as both a flat `.Text` string and a list of typed `.Entries` (Text, Link, PushStyle, BeginInteractive, …). Walk the entries in your engine's renderer, or call `entry.ReplayTo(output)` to stream them through an adapter implementing the `IRenderOutput` interface below.
 
 ## Engine integration
 
@@ -60,9 +60,16 @@ public interface IRenderOutput
   // or pass through depending on whether your engine wants HTML at all.
   void Html(string rawHtml);
 
-  // A passage navigation link. Wire your UI's click handler to
-  // session.Goto(target).
+  // A passage navigation link whose label is plain text. Wire your UI's
+  // click handler to session.Goto(target).
   void Link(string text, string target);
+
+  // A navigation link whose label carries structure a flat string can't
+  // express (styled or spliced content). The label arrives as ordinary
+  // events between the bracket pair; render both shapes as the same
+  // navigable link.
+  void BeginLink(string target);
+  void EndLink();
 
   // An in-prose error (bad expression, type mismatch, unknown macro).
   // The runtime never throws on the render hot path — errors come
@@ -97,7 +104,7 @@ The bracketing primitives (`PushStyle`/`PopStyle`, `BeginInteractive`/`EndIntera
 | HTML / web | `<b>...</b>` | `<a data-region-id="region.Id">...</a>` | use `HtmlRenderOutput` (built in) |
 | CLI / plain text | ANSI bold | numbered hotkey | manual prompt → dispatch |
 
-For web/HTML consumers, wrap your output in `HtmlRenderOutput` and it translates semantic events into HTML tags automatically — no manual mapping.
+For web/HTML consumers, replay a render's entries through the built-in `HtmlRenderOutput` and it translates semantic events into HTML tags automatically — no manual mapping.
 
 ### A complete minimal adapter
 
@@ -137,7 +144,7 @@ public class ConsoleOutput : IRenderOutput
 | Inline text styling: `''bold''`, `//italic//`, `~~strike~~`, `^^sup^^` (Markdown `*em*`/`**strong**` pending) | ⚠ |
 | Lambdas: `where`, `via`, `making`, `each` (incl. implicit `it`) | ✓ |
 | Hook references: `?name`, `?passage`, `?page`, `?link` (+ ordinal narrowing) | ✓ |
-| `(goto:)` with multi-step undo | ✓ |
+| `(goto:)` with multi-step undo & redo | ✓ |
 | Inline `<html>` passthrough in passage bodies | ✓ |
 | String escape sequences (`\n`/`\r`/`\t`/`\\`/`\"`/`\xHH`/`\uHHHH`, etc.) | ✓ |
 | `when` lambda clause | ✗ (reserved for `(event:)`) |
@@ -149,6 +156,7 @@ public class ConsoleOutput : IRenderOutput
 | `(set:)`, `(put:)`, `(print:)`, `(display:)` | ✓ |
 | `(if:)`, `(unless:)`, `(else-if:)`, `(else:)` | ✓ |
 | `(random:)`, `(either:)`, `(history:)` | ✓ |
+| `(save-game:)`, `(load-game:)`, `(saved-games:)` | ✓ |
 | `(a:)`, `(dm:)`, `(modulo:)`, `(text:)`, `(num:)` | ✓ |
 | `(round:)`, `(min:)`, `(max:)`, `(floor:)`, `(ceil:)`, `(trunc:)`, `(abs:)`, `(sign:)` (`sqrt`/`pow`/`log`/trig pending) | ⚠ |
 | `(uppercase:)`, `(lowercase:)`, `(upperfirst:)`, `(lowerfirst:)`, `(substring:)`, `(words:)`, `(str-reversed:)`, `(str-repeated:)`, `(str-nth:)` | ✓ |
@@ -161,11 +169,12 @@ public class ConsoleOutput : IRenderOutput
 | `(border:)`, `(border-colour:)`, `(border-size:)`, `(corner-radius:)`, `(rotate:)` | ✗ |
 | `(hover-style:)`, `(line-style:)`, `(char-style:)`, `(link-style:)` | ✗ |
 | `(replace:)`, `(append:)`, `(prepend:)` | ✓ |
-| `(change:)`, `(enchant:)` | ✓ hook-name targets (string targets pending) |
-| `(click:)` / `(click-replace:)` / `(click-append:)` / `(click-prepend:)` | ✓ |
-| `(mouseover:)` and `-replace`/`-append`/`-prepend` variants | ✓ |
-| `(mouseout:)` and `-replace`/`-append`/`-prepend` variants | ✓ |
-| `(link:)`, `(link-replace:)`, `(link-reveal:)`, `(link-goto:)` | ✗ |
+| `(change:)`, `(enchant:)` — hook-name or string targets, `via`-lambdas | ✓ |
+| `(click:)` / `-replace` / `-append` / `-prepend` / `(click-rerun:)` / `(click-goto:)` / `(click-undo:)` | ✓ |
+| `(mouseover:)` and `-replace`/`-append`/`-prepend`/`-goto`/`-undo` variants | ✓ |
+| `(mouseout:)` and `-replace`/`-append`/`-prepend`/`-goto`/`-undo` variants | ✓ |
+| `(link:)`, `(link-replace:)`, `(link-reveal:)`, `(link-append:)`, `(link-repeat:)`, `(link-rerun:)`, `(link-goto:)`, `(link-undo:)` | ✓ |
+| `(link-reveal-goto:)`, `(link-show:)`, `(cycling-link:)`, `(link-fullscreen:)`, `(link-storylet:)` | ✗ |
 | `(live:)`, `(event:)`, `(trigger:)` | ✗ |
 | `(t8n:)`, `(transition:)`, transition modifiers | ✗ |
 | Custom `(macro:)`, `(output:)` | ✗ |
@@ -177,8 +186,10 @@ public class ConsoleOutput : IRenderOutput
 |---|---|
 | Twine 2 HTML import | ✓ |
 | Twee 3 read & write | ✓ |
-| Programmatic editing (`AddPassage`/`RemovePassage`/`RenamePassage`) | ✓ |
+| Programmatic editing (`AddPassage`/`RemovePassage`/`RenamePassage` with inbound-link rewrite) | ✓ |
 | Lazy reserialization — clean passages round-trip byte-for-byte | ✓ |
+| Save / load via pluggable `ISaveStorage` backend (IFID-namespaced slots) | ✓ |
+| Reproducible `(random:)`/`(either:)` across undo, redo, and save/load (seedable RNG) | ✓ |
 
 Story writers: a story that uses only ✓ features will play unchanged. ⚠ rows mean the macro is recognised but only a subset of arguments work. ✗ macros produce an in-prose error rather than crashing — surrounding content keeps rendering.
 
