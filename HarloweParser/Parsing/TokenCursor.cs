@@ -42,6 +42,13 @@ namespace Harlowe.Parsing
     /// <summary>The next unconsumed token. Returns the EOF token at end-of-stream.</summary>
     public Token Current => _tokens[_pos];
 
+    /// <summary>
+    /// Index of the current token in the underlying stream. Pairs with
+    /// <see cref="NetMacroDepthSince"/> so parse-error recovery can measure
+    /// what a failed node parse consumed before throwing.
+    /// </summary>
+    public int Index => _pos;
+
     /// <summary>True if the cursor is at the end-of-file sentinel.</summary>
     public bool IsAtEnd => _tokens[_pos].Type == TokenType.EndOfFile;
 
@@ -97,6 +104,26 @@ namespace Harlowe.Parsing
     /// tokenizer drops whitespace and punctuation that don't surface in any
     /// <see cref="Token.Value"/>.
     /// </summary>
+    /// <summary>
+    /// Net count of <see cref="TokenType.MacroOpen"/> minus
+    /// <see cref="TokenType.MacroClose"/> tokens consumed since
+    /// <paramref name="startIndex"/> (a prior <see cref="Index"/>), floored at
+    /// zero. Tells parse-error recovery how many MacroClose tokens the
+    /// construct that failed mid-parse still owes, so the resync consumes
+    /// exactly the closes that belong to it and never a sibling macro's.
+    /// </summary>
+    public int NetMacroDepthSince(int startIndex)
+    {
+      int depth = 0;
+      for (int i = startIndex; i >= 0 && i < _pos; i++)
+      {
+        var t = _tokens[i].Type;
+        if (t == TokenType.MacroOpen) depth++;
+        else if (t == TokenType.MacroClose && depth > 0) depth--;
+      }
+      return depth;
+    }
+
     public string SliceFrom(int startPos)
     {
       if (_source == null) return null;

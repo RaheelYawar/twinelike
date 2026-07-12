@@ -66,8 +66,11 @@ namespace Harlowe.Parsing
     /// trying to resync the cursor to a safe body-mode resume point so
     /// sibling content after the broken construct still parses. The resync
     /// helper stops at the caller's terminator (so the broken hook still
-    /// closes cleanly) or skips to the next Newline / closing macro paren at
-    /// the same nesting level. When no resume point is available we stop
+    /// closes cleanly), skips to the next Newline at the same hook depth, or
+    /// consumes exactly the macro-close parens the failed node still owes —
+    /// counted via <see cref="TokenCursor.NetMacroDepthSince"/> so a
+    /// well-formed sibling macro after the broken construct is never folded
+    /// into the error span. When no resume point is available we stop
     /// parsing further siblings at this level. Loader recovery still handles
     /// tokenizer-level failures that can't be recovered here.</para>
     /// </summary>
@@ -83,6 +86,7 @@ namespace Harlowe.Parsing
         // alone can't reconstruct the run because the tokenizer drops
         // whitespace and punctuation that don't surface in Token.Value.
         int startPos = cursor.Current.Position;
+        int startIndex = cursor.Index;
         IBodyNode node;
         try
         {
@@ -91,13 +95,20 @@ namespace Harlowe.Parsing
         catch (HarloweParseException ex)
         {
           string where = ex.Line > 0 ? $" at line {ex.Line}, column {ex.Column}" : string.Empty;
-          bool advanced = TryAdvanceToResumePoint(cursor, terminator);
+          bool advanced = TryAdvanceToResumePoint(
+            cursor, terminator, cursor.NetMacroDepthSince(startIndex));
           nodes.Add(new ParseErrorNode
           {
             Message = $"parse error{where}: {ex.RawMessage ?? ex.Message}",
             OriginalSource = cursor.SliceFrom(startPos),
           });
           if (!advanced) break;
+          // The resync may resume at an unconsumed MacroOpen; termination
+          // then rests on ParseNode having consumed at least one token
+          // before throwing. Force progress if that invariant ever breaks,
+          // so a bad throw site degrades to an extra error node rather than
+          // an infinite loop.
+          if (cursor.Index == startIndex) cursor.Advance();
           continue;
         }
         if (node != null) nodes.Add(node);
@@ -206,54 +217,56 @@ namespace Harlowe.Parsing
     /// <summary>
     /// Advance the cursor to a safe body-mode resume point after a parse
     /// error, or to the caller's terminator. Returns true when the cursor
-    /// landed on a resume position (a Newline or matching MacroClose was
-    /// consumed and parsing can continue); false when the caller's
-    /// terminator was reached at this depth or end-of-input was hit.
+    /// landed on a resume position (parsing can continue); false when the
+    /// caller's terminator was reached at this depth or end-of-input was hit.
+    ///
+    /// <para><paramref name="owedMacroCloses"/> is the number of MacroClose
+    /// tokens the broken construct still owes — the net count of MacroOpen
+    /// tokens the failed node consumed before throwing (1 when an expression
+    /// error fires mid-args, 2 when it fires inside a nested macro call's
+    /// args, 0 when the throw came after the construct's parens balanced,
+    /// like the assignment-macro-in-chain check in <see cref="ParseMacro"/>).
+    /// The scan consumes exactly that many balancing closes (counting any
+    /// further opens it passes on the way) and resumes right after the last
+    /// one, so the whole broken construct — outer closers included — lands in
+    /// the error span and nothing beyond it does. With nothing owed, the next
+    /// MacroOpen at the outer hook level is itself the resume point, returned
+    /// to unconsumed: it starts a well-formed sibling that must not be folded
+    /// into the error.</para>
     ///
     /// <para>Hook nesting is tracked so a stray HookClose deeper than the
-    /// outer ParseNodes call doesn't masquerade as the terminator. Macro
-    /// parens are tracked the other direction: a MacroClose token after the
-    /// failure point typically closes the broken macro itself (the parser
-    /// had already advanced past the matching MacroOpen before the throw),
-    /// so consuming it lands us back in body mode.</para>
-    ///
-    /// <para>Known edge case: nested malformed macros. For source like
-    /// <c>(outer: (inner: bad))</c> where the throw fires inside <c>inner</c>'s
-    /// args, the cursor is mid-args of <c>inner</c> when the catch runs. The
-    /// first <c>MacroClose</c> this helper finds is <c>inner</c>'s closer;
-    /// consuming it lands the cursor on <c>outer</c>'s <c>MacroClose</c>,
-    /// which the body parser's <see cref="ParseNode"/> default branch then
-    /// silently skips as a stray closer. Net result: the AST has a single
-    /// <see cref="ParseErrorNode"/> for the inner failure, and <c>outer</c>'s
-    /// wrapper is lost (no <see cref="MacroNode"/> for it). The captured
-    /// <see cref="ParseErrorNode.OriginalSource"/> covers <c>(outer: (inner: bad)</c>
-    /// — endPos lands on <c>outer</c>'s <c>MacroClose</c> position, before
-    /// that closer is consumed — so the slice has the inner failure and
-    /// outer's opener but not outer's closer. Round-tripping a mutated AST
-    /// produces source with one fewer paren than the original.
-    ///
-    /// Fixing properly would require threading macro-call depth through the
-    /// body parser (increment on <see cref="ParseMacro"/> entry, decrement
-    /// on exit) so the catch site knows how many <c>MacroClose</c> tokens
-    /// to consume. Out of scope for current recovery work — the edge case
-    /// requires nested malformed macros + AST mutation + re-save to manifest,
-    /// which is rare enough to defer until a real bug report shows it.</para>
+    /// outer ParseNodes call doesn't masquerade as the terminator. A Newline
+    /// at the outer hook level is always a resume point, owed closes or not,
+    /// so an unterminated macro can't swallow the rest of the passage.</para>
     /// </summary>
-    private static bool TryAdvanceToResumePoint(TokenCursor cursor, TokenType? terminator)
+    private static bool TryAdvanceToResumePoint(TokenCursor cursor, TokenType? terminator, int owedMacroCloses)
     {
       int hookDepth = 0;
+      int owed = owedMacroCloses;
       while (!cursor.IsAtEnd)
       {
         var t = cursor.Current.Type;
         bool atOuter = hookDepth == 0;
         if (atOuter && terminator.HasValue && t == terminator.Value)
           return false;
-        if (atOuter && (t == TokenType.Newline || t == TokenType.MacroClose))
+        if (atOuter && t == TokenType.Newline)
         {
           cursor.Advance();
           return true;
         }
-        if (t == TokenType.HookOpen) hookDepth++;
+        if (t == TokenType.MacroOpen)
+        {
+          if (atOuter && owed == 0) return true;
+          owed++;
+        }
+        else if (t == TokenType.MacroClose && owed > 0)
+        {
+          owed--;
+          cursor.Advance();
+          if (owed == 0 && hookDepth == 0) return true;
+          continue;
+        }
+        else if (t == TokenType.HookOpen) hookDepth++;
         else if (t == TokenType.HookClose && hookDepth > 0) hookDepth--;
         cursor.Advance();
       }

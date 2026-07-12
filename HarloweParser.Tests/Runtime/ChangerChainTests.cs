@@ -165,6 +165,17 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
+    public void Parser_SetAsFirstChainComponent_FollowingMacroStillRenders()
+    {
+      // The recovery resync must not fold the well-formed macro after the
+      // broken chain into the error span: `(print: 42)` and the trailing
+      // prose still reach the output alongside the in-prose error.
+      var buf = Render("(set: $x to 5) + (print: 42) tail");
+      Assert.Contains("42", buf.Text);
+      Assert.Contains("tail", buf.Text);
+    }
+
+    [Fact]
     public void Parser_PlainSetMacro_StillParsesAsBodyMacro()
     {
       // Regression check: rejecting (set:) in chains must not affect the

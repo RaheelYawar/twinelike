@@ -25,6 +25,16 @@ namespace Harlowe.Tests
       return new HarloweBodyParser().Parse(tokens);
     }
 
+    /// <summary>
+    /// Source-aware variant of <see cref="Parse"/> so recovery tests can
+    /// assert on <see cref="ParseErrorNode.OriginalSource"/> spans.
+    /// </summary>
+    private static PassageBody ParseWithSource(string src)
+    {
+      var tokens = new HarloweTokenizer().Tokenize(src);
+      return new HarloweBodyParser().Parse(tokens, src);
+    }
+
     // --- Plain content ---
 
     [Fact]
@@ -467,6 +477,85 @@ namespace Harlowe.Tests
       }
       Assert.True(sawInner, "inner hook should be a child of the outer hook");
       Assert.True(sawMore, "post-inner-hook trailing prose should still sit inside the outer hook");
+    }
+
+    [Fact]
+    public void ChainAssignmentError_DoesNotSwallowFollowingSiblingMacro()
+    {
+      // (set:) in chain position throws AFTER its own arg list consumed the
+      // closing paren, so the broken construct owes no MacroClose. The resync
+      // used to hunt for the next MacroClose anyway and ate the well-formed
+      // sibling: `(print: 1)` vanished and only ` tail` survived. The sibling
+      // macro is now itself the resume point.
+      var body = Parse("(set: $x to 5) + (print: 1) tail");
+      ParseErrorNode err = null;
+      MacroNode print = null;
+      bool sawTail = false;
+      for (int i = 0; i < body.Children.Count; i++)
+      {
+        if (body.Children[i] is ParseErrorNode n && err == null) err = n;
+        if (body.Children[i] is MacroNode m && m.Name == "print") print = m;
+        if (body.Children[i] is TextNode t && t.Content.Contains("tail")) sawTail = true;
+      }
+      Assert.NotNull(err);
+      Assert.Contains("set", err.Message);
+      Assert.NotNull(print);
+      Assert.True(sawTail, "prose after the sibling macro should survive recovery");
+    }
+
+    [Fact]
+    public void ChainAssignmentError_ErrorSpanStopsBeforeSiblingMacro()
+    {
+      // The captured OriginalSource covers the broken construct — the (set:)
+      // call plus the dangling `+` — and nothing of the sibling that follows.
+      var body = ParseWithSource("(set: $x to 5) + (print: 1) tail");
+      ParseErrorNode err = null;
+      for (int i = 0; i < body.Children.Count; i++)
+        if (body.Children[i] is ParseErrorNode n) { err = n; break; }
+      Assert.NotNull(err);
+      Assert.Equal("(set: $x to 5) + ", err.OriginalSource);
+    }
+
+    [Fact]
+    public void NestedMalformedMacro_ErrorSpanIncludesOuterCloser_TailSurvives()
+    {
+      // The throw fires inside the inner macro's args with two MacroCloses
+      // owed. The resync used to consume only the first `)` — the outer
+      // macro's closer was then silently skipped as a stray, and the captured
+      // OriginalSource round-tripped with one paren missing. Both owed closes
+      // are now consumed into the error span.
+      var body = ParseWithSource("(outer: (inner: $x to 5)) tail");
+      ParseErrorNode err = null;
+      bool sawTail = false;
+      for (int i = 0; i < body.Children.Count; i++)
+      {
+        if (body.Children[i] is ParseErrorNode n && err == null) err = n;
+        if (body.Children[i] is TextNode t && t.Content.Contains("tail")) sawTail = true;
+      }
+      Assert.NotNull(err);
+      Assert.Equal("(outer: (inner: $x to 5))", err.OriginalSource);
+      Assert.True(sawTail, "prose after the nested broken macro should survive recovery");
+    }
+
+    [Fact]
+    public void MidArgsError_ResumesAfterOwnCloser_SiblingMacroSurvives()
+    {
+      // Regression pin for the owed-close counting: a mid-args failure owes
+      // exactly one close, so the resync consumes the broken macro's own `)`
+      // and stops there — the sibling macro on the same line still parses.
+      var body = Parse("(if: $x $y) (print: 2) tail");
+      ParseErrorNode err = null;
+      MacroNode print = null;
+      bool sawTail = false;
+      for (int i = 0; i < body.Children.Count; i++)
+      {
+        if (body.Children[i] is ParseErrorNode n && err == null) err = n;
+        if (body.Children[i] is MacroNode m && m.Name == "print") print = m;
+        if (body.Children[i] is TextNode t && t.Content.Contains("tail")) sawTail = true;
+      }
+      Assert.NotNull(err);
+      Assert.NotNull(print);
+      Assert.True(sawTail);
     }
 
     [Fact]
