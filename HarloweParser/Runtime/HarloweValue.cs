@@ -327,9 +327,10 @@ namespace Harlowe.Runtime
           // by revision/enchantment macros, not printed prose.
           return string.Empty;
         case HarloweValueKind.Colour:
-          // The CSS form; the renderer's print path emits the <tw-colour>
-          // swatch instead (reference's print()), so this only surfaces via
-          // string coercion.
+          // The CSS rgba() form — what a printed colour actually renders as,
+          // here and in the body renderer. Reference's print() emits a
+          // <tw-colour> swatch element instead; that's HTML, and the core never
+          // puts HTML into the engine-agnostic render channel.
           return ((ColourValue)Raw).ToCssString();
       }
       return string.Empty;

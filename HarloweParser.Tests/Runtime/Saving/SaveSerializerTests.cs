@@ -75,6 +75,8 @@ namespace Harlowe.Tests.Runtime.Saving
     [InlineData(170, 68, 238, 1)]     // a hex colour (#a4e)
     [InlineData(12.5, 34, 56, 0.5)]   // fractional components + alpha
     [InlineData(0, 0, 0, 0)]          // transparent
+    [InlineData(255, 0, 0, 0)]        // zero alpha but NOT transparent — the
+    [InlineData(25, 127, 230, 0)]     // channels have to survive the round-trip
     public void Colour_RoundTrips(double r, double g, double b, double a)
     {
       var back = RoundTrip(HarloweValue.OfColour(new ColourValue(r, g, b, a)));

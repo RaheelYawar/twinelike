@@ -344,9 +344,9 @@ namespace Harlowe.Runtime
     /// the same kind, but each kind has its own meaning of <c>+</c>:
     /// arithmetic for numbers, concatenation for strings and arrays, RHS-wins
     /// merge for datamaps, logical OR for booleans, changer composition for
-    /// changers. The combinations we don't support yet (Set, Colour, Gradient,
-    /// HookName) require value types we don't have; they fall through to the
-    /// type-mismatch error.
+    /// changers, additive blending for colours. The combinations we don't
+    /// support yet (Set, Gradient, HookName) require value types we don't have;
+    /// they fall through to the type-mismatch error.
     /// </summary>
     private static HarloweValue OpAdd(HarloweValue left, HarloweValue right)
     {

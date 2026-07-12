@@ -64,7 +64,29 @@ namespace Harlowe.Tests.Runtime.Macros
     public void TextColor_NonString_EmitsError()
     {
       var buf = RenderRaw("(text-color: 5)[hi]");
-      AssertError(buf, "String");
+      AssertError(buf, "requires a Colour or String");
+    }
+
+    [Theory]
+    [InlineData("navy", "rgba(25, 25, 230, 1)")]        // built-in name
+    [InlineData("#a4e", "rgba(170, 68, 238, 1)")]       // hex literal
+    [InlineData("(rgb: 255, 0, 47)", "rgba(255, 0, 47, 1)")]
+    [InlineData("(hsl: 120, 0.8, 0.5)", "rgba(25, 230, 25, 1)")]
+    [InlineData("red + white", "rgba(255, 168, 168, 1)")] // a mixed colour
+    public void TextColor_ColourValue_EmitsCssRgba(string expr, string expected)
+    {
+      // The typed-Colour arm: a Colour is emitted as its CSS rgba() form rather
+      // than going through the author-string validator.
+      var buf = RenderRaw("(text-colour: " + expr + ")[hi]");
+      Assert.Equal(expected, FirstPushedStyle(buf).Color);
+    }
+
+    [Fact]
+    public void TextColor_String_IsPassedThroughVerbatim()
+    {
+      // The String arm is our deliberate superset of reference (which takes only
+      // a Colour): the author's own vocabulary reaches the engine untouched.
+      Assert.Equal("hotpink", FirstPushedStyle(RenderRaw("(text-colour: \"hotpink\")[hi]")).Color);
     }
 
     // --- (background:) ---
@@ -143,6 +165,18 @@ namespace Harlowe.Tests.Runtime.Macros
       var buf = RenderRaw("(background: \"https://example.com/bg\")[hi]");
       var s = FirstPushedStyle(buf);
       Assert.Equal("https://example.com/bg", s.BackgroundImage);
+    }
+
+    [Fact]
+    public void Background_NonAsciiFilenameWithParens_IsImageUrl()
+    {
+      // The CSS-function test is JS `\w` — ASCII-only. A Unicode-aware
+      // letter test would let `café(` reach the `(` and misroute this
+      // filename to background-color.
+      var buf = RenderRaw("(background: \"café(1).png\")[hi]");
+      var s = FirstPushedStyle(buf);
+      Assert.Equal("café(1).png", s.BackgroundImage);
+      Assert.Null(s.BackgroundColor);
     }
 
     [Fact]

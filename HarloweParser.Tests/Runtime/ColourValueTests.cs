@@ -1,3 +1,4 @@
+using Harlowe.Ast.Body;
 using Harlowe.Parsing;
 using Harlowe.Runtime;
 using Harlowe.Runtime.Macros;
@@ -301,14 +302,37 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void Colour_ToSource_TransparentIsNamed()
     {
-      // Reference's toSource() special-cases zero alpha as `transparent`.
       Assert.Equal("transparent", Eval("transparent").ToSource());
+    }
+
+    [Fact]
+    public void Colour_ToSource_ZeroAlphaKeepsItsChannels()
+    {
+      // `transparent` names (0,0,0,0) and nothing else. Reference's toSource()
+      // returns it for *any* zero-alpha colour, which resurrects a saved
+      // transparent red as a transparent black; we emit the exact (rgb:) call.
+      var red = Eval("(rgb: 255, 0, 0, 0)");
+      Assert.Equal("(rgb:255,0,0,0)", red.ToSource());
+      Assert.True(Eval(red.ToSource()).Equals(red));
+      Assert.Equal(255, Eval(red.ToSource()).AsColour.R);
     }
 
     [Fact]
     public void Colour_ToSource_OmitsFullAlpha()
     {
       Assert.Equal("(rgb:255,0,0)", Eval("#f00").ToSource());
+    }
+
+    [Fact]
+    public void Colour_EqualColoursHashEqually()
+    {
+      // Equality has a 1e-3 per-component tolerance, so the hash may not be a
+      // function of the components — these two are `is`-equal and must agree.
+      var a = Eval("(rgb: 12.4996, 0, 0)");
+      var b = Eval("(rgb: 12.5001, 0, 0)");
+      Assert.True(a.Equals(b));
+      Assert.Equal(a.GetHashCode(), b.GetHashCode());
+      Assert.Equal(a.AsColour.GetHashCode(), b.AsColour.GetHashCode());
     }
 
     // --- Round-trip through the printer ---
@@ -342,12 +366,63 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void Colour_PropertyNamesAreNotStolenByTheColourLexer()
     {
-      // A colour name in property position is a data key, not a value —
-      // reference captures the name inside its possessive token. Likewise `a`
-      // (a colour's alpha) must not lex as the `a` word-operator.
+      // A word in property position is a data key, not a value — reference
+      // captures the name inside its possessive token, where its
+      // `validPropertyName` is a bare run of letters. So none of the colour
+      // rule (`red`), the `a` word-operator, or the boolean rule (`true`) may
+      // claim one.
       Assert.Equal(1, Eval("(dm: \"red\", 1)'s red").AsNumber);
       Assert.Equal(2, Eval("red of (dm: \"red\", 2)").AsNumber);
       Assert.Equal(0.5, Eval("(rgb: 0, 0, 0, 0.5)'s a").AsNumber, 3);
+      Assert.Equal(3, Eval("(dm: \"true\", 3)'s true").AsNumber);
+      Assert.Equal(4, Eval("true of (dm: \"true\", 4)").AsNumber);
+    }
+
+    // --- Hex lexing ---
+
+    [Fact]
+    public void HexColour_IsLexedGreedily()
+    {
+      // Reference's `#[\dA-Fa-f]{3}(?:[\dA-Fa-f]{3})?` takes six digits when six
+      // are there, else three, leaving any remainder to the next rule.
+      Assert.Equal(new[] { "#abcdef" }, ColourLexemes("(_: #abcdef)"));
+      Assert.Equal(new[] { "#abc" }, ColourLexemes("(_: #abcd)"));
+      Assert.Equal(new[] { "#abcdef" }, ColourLexemes("(_: #abcdef01)"));
+    }
+
+    [Theory]
+    [InlineData("(_: #)")]
+    [InlineData("(_: #f)")]
+    [InlineData("(_: #ff)")]
+    public void HexColour_TooFewDigits_IsAParseError(string source)
+    {
+      // Not a silent skip of the '#': `(bg: #ff)` must name the malformed
+      // colour, not degrade into an unknown identifier `ff`.
+      var ex = Assert.Throws<HarloweParseException>(
+        () => new HarloweTokenizer().Tokenize(source));
+      Assert.Contains("hexadecimal digits", ex.Message);
+    }
+
+    [Fact]
+    public void HexColour_TooFewDigits_LoadsAsAnInProseError()
+    {
+      // …and that throw stays inside the library: like every other lex-time
+      // error, the loader recovers it into an in-prose error stub, so one bad
+      // colour can't take the story down with it.
+      var story = new global::Harlowe.Harlowe();
+      var p = new HarlowePassage { Name = "Broken", Body = "(bg: #ff)[hi]" };
+      story.AddPassage(p);
+
+      var err = Assert.IsType<ParseErrorNode>(Assert.Single(p.Ast.Children));
+      Assert.Contains("hexadecimal digits", err.Message);
+    }
+
+    private static string[] ColourLexemes(string source)
+    {
+      var lexemes = new System.Collections.Generic.List<string>();
+      foreach (var t in new HarloweTokenizer().Tokenize(source))
+        if (t.Type == TokenType.ColourLiteral) lexemes.Add(t.Value);
+      return lexemes.ToArray();
     }
   }
 }

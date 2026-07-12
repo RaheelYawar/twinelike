@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Globalization;
 using System.Text;
 
 namespace Harlowe.Tokens
@@ -400,8 +399,8 @@ namespace Harlowe.Tokens
           if (TryScanHookRef(startPos, startLine, startCol)) return;
           break;
         case '#':
-          if (TryScanHexColour(startPos, startLine, startCol)) return;
-          break;
+          ScanHexColour(startPos, startLine, startCol);
+          return;
       }
 
       if (IsAsciiDigit(c))
@@ -684,18 +683,24 @@ namespace Harlowe.Tokens
     /// does not advance the cursor; the caller advances on success via
     /// <c>AdvanceN(digits + 1)</c>, or via the unknown-escape fallback on
     /// failure. Returns false if the source runs out before <paramref name="digits"/>
-    /// hex digits are available, or if a non-hex character appears. Uses
-    /// <see cref="NumberStyles.AllowHexSpecifier"/> only (not the composite
-    /// <c>HexNumber</c>) so leading/trailing whitespace in the candidate
-    /// substring falls back to the unknown-escape rule instead of silently
-    /// parsing.
+    /// hex digits are available, or if any non-hex character appears — so a
+    /// signed or whitespace-padded candidate falls back to the unknown-escape
+    /// rule instead of silently parsing.
     /// </summary>
     private bool TryDecodeHex(int digits, out int value)
     {
       value = 0;
       int scan = _pos + 1;
       if (scan + digits > _src.Length) return false;
-      return int.TryParse(_src.Substring(scan, digits), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out value);
+      int acc = 0;
+      for (int i = 0; i < digits; i++)
+      {
+        int d = Runtime.ColourValue.HexDigit(_src[scan + i]);
+        if (d < 0) return false;
+        acc = (acc << 4) | d;
+      }
+      value = acc;
+      return true;
     }
 
     /// <summary>
@@ -735,14 +740,16 @@ namespace Harlowe.Tokens
     }
 
     /// <summary>
-    /// Consumes a run of identifier characters and classifies the result:
-    /// <c>true</c>/<c>false</c> become <see cref="TokenType.BoolLiteral"/>,
-    /// known word operators (see <see cref="WordOperators"/>) become
-    /// <see cref="TokenType.Operator"/>, and anything else becomes a bare
-    /// <see cref="TokenType.Identifier"/>. Before classifying, attempts to fuse
-    /// the word with following words into a single multi-word operator (e.g.
-    /// <c>is not in</c>, <c>does not contain</c>) via
-    /// <see cref="TryFuseMultiWordOperator"/>.
+    /// Consumes a run of identifier characters and classifies it, in this order:
+    /// a word in property-name position is always a data key
+    /// (<see cref="TokenType.Identifier"/>, see
+    /// <see cref="IsPropertyNamePosition"/>); otherwise the word may fuse with
+    /// those after it into one multi-word operator (<c>is not in</c>,
+    /// <c>does not contain</c> — see <see cref="TryFuseMultiWordOperator"/>);
+    /// otherwise it becomes a <see cref="TokenType.BoolLiteral"/>
+    /// (<c>true</c>/<c>false</c>), an <see cref="TokenType.Operator"/> (see
+    /// <see cref="WordOperators"/>), a <see cref="TokenType.ColourLiteral"/> (a
+    /// built-in colour name), or a bare <see cref="TokenType.Identifier"/>.
     /// </summary>
     private void ScanIdentifierOrKeyword(int startPos, int startLine, int startCol)
     {
@@ -750,19 +757,20 @@ namespace Harlowe.Tokens
       while (_pos < _src.Length && IsIdContinue(_src[_pos])) Advance();
       string word = _src.Substring(start, _pos - start);
 
-      if (word == "true" || word == "false")
-      {
-        Emit(TokenType.BoolLiteral, word, startPos, startLine, startCol);
-        return;
-      }
-
       // A word in property-name position names a data key, whatever else it
-      // would otherwise mean. Checked before every other classification so a
-      // key called `a` (a colour's alpha, or a datamap key) isn't stolen by the
-      // `a` word-operator, and `red` isn't stolen by the colour rule.
+      // would otherwise mean — so this outranks every classification below it.
+      // Without it a key called `a` (a colour's alpha, or any datamap key) is
+      // stolen by the `a` word-operator, `red` by the colour rule, and `true`
+      // by the boolean rule.
       if (IsPropertyNamePosition())
       {
         Emit(TokenType.Identifier, word, startPos, startLine, startCol);
+        return;
+      }
+
+      if (word == "true" || word == "false")
+      {
+        Emit(TokenType.BoolLiteral, word, startPos, startLine, startCol);
         return;
       }
 
@@ -779,13 +787,9 @@ namespace Harlowe.Tokens
       // Two-word case: `or a` → "use 'or' instead of 'or a'". `or` is a valid
       // word-operator on its own; we only complain when followed (after
       // whitespace) by a bare `a` that isn't part of a larger construct.
-      if (word == "or")
-      {
-        string next = PeekNextWordFrom(_pos, out int afterNext);
-        if (next == "a")
-          throw new HarloweParseException(
-            "use 'or' instead of 'or a'", startLine, startCol);
-      }
+      if (word == "or" && NextWordIs(_pos, "a"))
+        throw new HarloweParseException(
+          "use 'or' instead of 'or a'", startLine, startCol);
 
       if (WordOperators.Contains(word))
         Emit(TokenType.Operator, word, startPos, startLine, startCol);
@@ -810,9 +814,12 @@ namespace Harlowe.Tokens
     /// token, so the check is explicit: look behind for <c>'s</c>/<c>its</c>, and
     /// ahead for <c>of</c>.
     ///
-    /// <para>Two names would otherwise be stolen: <c>$dm's red</c> would read the
-    /// key as a colour value, and <c>$colour's a</c> (a colour's alpha, or any
-    /// datamap key called <c>a</c>) would read the <c>a</c> word-operator.</para>
+    /// <para>Three names would otherwise be stolen: <c>$dm's red</c> would read
+    /// the key as a colour value, <c>$colour's a</c> (a colour's alpha, or any
+    /// datamap key called <c>a</c>) would read the <c>a</c> word-operator, and
+    /// <c>$dm's true</c> would read a boolean. Reference's
+    /// <c>validPropertyName</c> is a bare run of letters, so all three are
+    /// legal keys there.</para>
     /// </summary>
     private bool IsPropertyNamePosition()
     {
@@ -823,31 +830,36 @@ namespace Harlowe.Tokens
           return true;
       }
       // `red of $dm` — the name sits before `of` (reference's belongingProperty).
-      return PeekNextWordFrom(_pos, out _) == "of";
+      return NextWordIs(_pos, "of");
     }
 
     /// <summary>
-    /// Cursor is at <c>#</c> in expression mode. Consumes a hex colour literal
-    /// — exactly 3 or 6 hex digits, per reference's <c>colour</c> pattern
-    /// (<c>#[\dA-Fa-f]{3}(?:[\dA-Fa-f]{3})?</c>) — and emits
-    /// <see cref="TokenType.ColourLiteral"/> carrying the full lexeme.
-    /// Returns false (nothing consumed) on any other digit count, so a
-    /// malformed <c>#ff</c> falls through to the generic unknown-char skip.
+    /// Cursor is at <c>#</c> in expression mode, where the only thing a
+    /// <c>#</c> can start is a hex colour. Consumes six hex digits when six are
+    /// available, else three, and emits <see cref="TokenType.ColourLiteral"/>
+    /// carrying the full lexeme — the greedy reading of reference's
+    /// <c>colour</c> pattern (<c>#[\dA-Fa-f]{3}(?:[\dA-Fa-f]{3})?</c>), which
+    /// leaves any remainder to the next rule, so <c>#abcd</c> is <c>#abc</c>
+    /// then <c>d</c>.
+    ///
+    /// <para>Fewer than three digits is an authoring error, not a token: it
+    /// throws rather than skipping the <c>#</c>, so <c>(bg: #ff)</c> reports a
+    /// malformed colour instead of degrading into an unknown identifier
+    /// <c>ff</c>.</para>
     /// </summary>
-    private bool TryScanHexColour(int startPos, int startLine, int startCol)
+    private void ScanHexColour(int startPos, int startLine, int startCol)
     {
       int look = _pos + 1;
-      while (look < _src.Length && IsHexDigit(_src[look])) look++;
-      int digits = look - (_pos + 1);
-      if (digits != 3 && digits != 6) return false;
+      while (look < _src.Length && Runtime.ColourValue.IsHexDigit(_src[look])) look++;
+      int available = look - (_pos + 1);
+      int digits = available >= 6 ? 6 : available >= 3 ? 3 : 0;
+      if (digits == 0)
+        throw new HarloweParseException(
+          "a colour needs 3 or 6 hexadecimal digits after '#'", startLine, startCol);
       string lexeme = _src.Substring(_pos, digits + 1);
       AdvanceN(digits + 1);
       Emit(TokenType.ColourLiteral, lexeme, startPos, startLine, startCol);
-      return true;
     }
-
-    private static bool IsHexDigit(char c) =>
-      (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 
     /// <summary>
     /// Tries to fuse <paramref name="firstWord"/> (already consumed; cursor sits
@@ -902,6 +914,26 @@ namespace Harlowe.Tokens
       }
 
       return false;
+    }
+
+    /// <summary>
+    /// Allocation-free <see cref="PeekNextWordFrom"/>: true when the next word
+    /// from <paramref name="from"/> is exactly <paramref name="word"/>. Used by
+    /// the per-identifier checks on the lex hot path, which only ever compare
+    /// the peeked word against a constant and would otherwise allocate a
+    /// throwaway string for every identifier in every expression.
+    /// </summary>
+    private bool NextWordIs(int from, string word)
+    {
+      int p = from;
+      while (p < _src.Length && char.IsWhiteSpace(_src[p])) p++;
+      if (p >= _src.Length || !char.IsLetter(_src[p])) return false;
+      int wordStart = p;
+      while (p < _src.Length && IsIdContinue(_src[p])) p++;
+      if (p - wordStart != word.Length) return false;
+      for (int i = 0; i < word.Length; i++)
+        if (_src[wordStart + i] != word[i]) return false;
+      return true;
     }
 
     /// <summary>

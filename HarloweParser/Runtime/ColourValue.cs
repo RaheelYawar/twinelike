@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text;
 
 namespace Harlowe.Runtime
@@ -45,8 +46,8 @@ namespace Harlowe.Runtime
     /// <c>ts/datatypes/colour.ts</c>'s doc block — hues of <c>hsl(h, 0.8, 0.5)</c>).
     /// Matched case-insensitively, as in reference markup.
     /// </summary>
-    private static readonly System.Collections.Generic.Dictionary<string, (double r, double g, double b, double a)> Named =
-      new System.Collections.Generic.Dictionary<string, (double, double, double, double)>(StringComparer.OrdinalIgnoreCase)
+    private static readonly Dictionary<string, (double r, double g, double b, double a)> Named =
+      new Dictionary<string, (double, double, double, double)>(StringComparer.OrdinalIgnoreCase)
       {
         { "red",         (0xe6, 0x19, 0x19, 1) },
         { "orange",      (0xe6, 0x80, 0x19, 1) },
@@ -84,7 +85,11 @@ namespace Harlowe.Runtime
       return null;
     }
 
-    /// <summary>Parse <c>#fff</c> or <c>#ffffff</c> (with leading <c>#</c>). Null when malformed.</summary>
+    /// <summary>
+    /// Parse <c>#fff</c> or <c>#ffffff</c> (with leading <c>#</c>). Null when
+    /// malformed — which is also how <c>(background:)</c> asks "is this author
+    /// string hex-shaped?", so this validates rather than trusting its caller.
+    /// </summary>
     public static ColourValue FromHex(string hex)
     {
       if (hex == null || hex.Length == 0 || hex[0] != '#') return null;
@@ -102,13 +107,21 @@ namespace Harlowe.Runtime
       return new ColourValue((val >> 16) & 0xFF, (val >> 8) & 0xFF, val & 0xFF);
     }
 
-    private static int HexDigit(char c)
+    /// <summary>
+    /// The value of hex digit <paramref name="c"/>, or -1 if it isn't one. The
+    /// single hex primitive in the codebase — the tokenizer scans both hex
+    /// colour literals and <c>\xHH</c>/<c>\uHHHH</c> string escapes through it.
+    /// </summary>
+    public static int HexDigit(char c)
     {
       if (c >= '0' && c <= '9') return c - '0';
       if (c >= 'a' && c <= 'f') return c - 'a' + 10;
       if (c >= 'A' && c <= 'F') return c - 'A' + 10;
       return -1;
     }
+
+    /// <summary>True iff <paramref name="c"/> is a hexadecimal digit.</summary>
+    public static bool IsHexDigit(char c) => HexDigit(c) >= 0;
 
     /// <summary>
     /// Build from HSL (reference's <c>HSLToRGB</c>, the CSSWG hsl-to-rgb
@@ -197,15 +210,16 @@ namespace Harlowe.Runtime
         && other.A == A;
     }
 
-    /// <summary>Hash on rounded components — consistent with epsilon equality for all but boundary-straddling values; equality is the source of truth.</summary>
-    public override int GetHashCode()
-    {
-      int h = (int)Math.Round(R);
-      h = (h * 397) ^ (int)Math.Round(G);
-      h = (h * 397) ^ (int)Math.Round(B);
-      h = (h * 397) ^ A.GetHashCode();
-      return h;
-    }
+    /// <summary>
+    /// Hashes on alpha alone. <see cref="EqualsColour"/> compares RGB with a
+    /// 1e-3 tolerance, and tolerance-equality isn't transitive — 0 ≈ 0.0009 ≈
+    /// 0.0018 ≈ … chains all the way to 255 — so <em>no</em> function of the RGB
+    /// components can keep the "equal objects hash equally" contract. Alpha is
+    /// the one component compared exactly, so it is the only one safe to hash.
+    /// Colours are never hash keys today (datamap keys are Strings), so the
+    /// collisions this costs are free.
+    /// </summary>
+    public override int GetHashCode() => A.GetHashCode();
 
     public override bool Equals(object obj) => obj is ColourValue c && EqualsColour(c);
 
@@ -221,14 +235,19 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
-    /// Save/load source form: <c>transparent</c> at zero alpha (as in
-    /// reference's <c>toSource()</c>), else an exact <c>(rgb: …)</c> call —
-    /// RGB is our canonical storage, so this round-trips losslessly where
-    /// reference's named/HSL heuristics may not.
+    /// Save/load source form: the <c>transparent</c> keyword for the value it
+    /// names, else an exact <c>(rgb: …)</c> call. RGB is our canonical storage,
+    /// so every colour round-trips losslessly.
+    ///
+    /// <para>Deliberately narrower than reference's <c>toSource()</c>, which
+    /// returns <c>transparent</c> for <em>any</em> zero-alpha colour and so
+    /// resurrects a saved <c>(rgb: 255, 0, 0, 0)</c> as a transparent
+    /// <em>black</em>. A load can only be more faithful than the save that fed
+    /// it, never less, so there's nothing to match bug-for-bug here.</para>
     /// </summary>
     public string ToSource()
     {
-      if (A == 0) return "transparent";
+      if (A == 0 && R == 0 && G == 0 && B == 0) return "transparent";
       var sb = new StringBuilder("(rgb:");
       sb.Append(HarloweValue.FormatNumber(R)).Append(',');
       sb.Append(HarloweValue.FormatNumber(G)).Append(',');

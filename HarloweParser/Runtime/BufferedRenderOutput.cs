@@ -36,6 +36,14 @@ namespace Harlowe.Runtime
       /// records, so a stored render (<see cref="RenderResult.Entries"/>) can
       /// be replayed through any adapter — e.g. an
       /// <see cref="HtmlRenderOutput"/> wrapping the host's sink.
+      ///
+      /// <para>The <c>default</c> arm throws rather than dropping the entry.
+      /// <see cref="IRenderOutput"/> is designed to grow additively, and this
+      /// is the integration path hosts are pointed at — an unmapped channel
+      /// would silently vanish from every replayed render, so a new
+      /// <see cref="Kind"/> has to fail loudly at the point of change. Not a
+      /// story error and so not on the in-prose error contract: only a library
+      /// change can reach it.</para>
       /// </summary>
       public void ReplayTo(IRenderOutput output)
       {
@@ -51,6 +59,9 @@ namespace Harlowe.Runtime
           case Kind.PopStyle: output.PopStyle(); break;
           case Kind.BeginInteractive: output.BeginInteractive(Region); break;
           case Kind.EndInteractive: output.EndInteractive(); break;
+          default:
+            throw new System.NotSupportedException(
+              $"BufferedRenderOutput.Entry.ReplayTo has no case for Kind.{Kind} — add one when adding an IRenderOutput channel.");
         }
       }
     }

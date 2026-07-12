@@ -103,13 +103,22 @@ namespace Harlowe.Runtime.Macros
     /// whitespace allowance is moot. Note <c>linear-gradient(</c> does NOT match
     /// (the hyphen isn't a word char), which is why reference tests gradients
     /// separately and why <see cref="LooksLikeGradient"/> runs first here.
+    ///
+    /// <para>ASCII-only, because JavaScript's <c>\w</c> is: a filename like
+    /// <c>"café(1).png"</c> is an image path in reference, and a Unicode-aware
+    /// <see cref="char.IsLetterOrDigit(char)"/> here would misroute it to
+    /// <c>background-color</c>.</para>
     /// </summary>
     private static bool LooksLikeCssFunction(string s)
     {
       int i = 0;
-      while (i < s.Length && (char.IsLetterOrDigit(s[i]) || s[i] == '_')) i++;
+      while (i < s.Length && IsAsciiWordChar(s[i])) i++;
       return i > 0 && i < s.Length && s[i] == '(';
     }
+
+    /// <summary>JavaScript's <c>\w</c>: <c>[A-Za-z0-9_]</c>.</summary>
+    private static bool IsAsciiWordChar(char c) =>
+      (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
 
     /// <summary>
     /// Reference's gradient test:
