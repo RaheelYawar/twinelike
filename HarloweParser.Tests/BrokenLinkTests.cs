@@ -212,6 +212,81 @@ namespace Harlowe.Tests
       Assert.Empty(Story(("Start", "(display: \"Real\")"), ("Real", "x")).GetBrokenLinks());
     }
 
+    [Theory]
+    [InlineData("(altered: via (display: \"Gone\"), 1, 2)")]
+    [InlineData("(find: where (display: \"Gone\"), 1, 2)")]
+    public void GetBrokenLinks_FindsAMacroInsideALambdaClause(string body)
+    {
+      // Lambda clauses are expression trees like any other argument; a dead
+      // (display:) inside `via`/`where` must not make the report say "clean".
+      var b = Assert.Single(Story(("Start", body)).GetBrokenLinks());
+      Assert.Equal("Gone", b.Target);
+    }
+
+    [Fact]
+    public void GetBrokenLinks_ChangerChainMacro_ReportsItsOwnPosition()
+    {
+      // A navigation macro inside a changer-chain expression has no enclosing
+      // body MacroNode; MacroCallNode carries its own position so the report
+      // still points at the call instead of degrading to "position unknown".
+      var b = Assert.Single(Story(("Start", "(if: $x) + (display: \"Gone\")[ok]")).GetBrokenLinks());
+      Assert.Equal(1, b.Line);
+      Assert.Equal(12, b.Column);
+      Assert.Contains("(line 1, column 12)", b.Message);
+    }
+
+    [Fact]
+    public void GetBrokenLinks_NestedExpressionMacro_ReportsItsOwnColumn()
+    {
+      // Not the enclosing (set:)'s column — the (display:)'s.
+      var b = Assert.Single(Story(("Start", "(set: $x to (display: \"Gone\"))")).GetBrokenLinks());
+      Assert.Equal(13, b.Column);
+    }
+
+    // ----- variable targets: computed, so resolved at render, skipped here -----
+
+    [Fact]
+    public void VariableLinkTarget_IsSkippedByGetBrokenLinks_AndResolvesAtRender()
+    {
+      // Reference evaluates markup in the passage-name position
+      // ([[Go->$next]], ts/macrolib/links.ts), so the target is computed: the
+      // static report skips it, and the renderer resolves it per play-through.
+      var story = Story(("Start", "(set: $next to \"Cellar\")[[Go->$next]]"), ("Cellar", "x"));
+      Assert.Empty(story.GetBrokenLinks());
+
+      var r = new StorySession(story).Render();
+      var link = Assert.Single(r.Entries, e => e.Kind == BufferedRenderOutput.Kind.Link);
+      Assert.Equal("Cellar", link.Target);
+      Assert.Equal("Go", link.Content);
+      Assert.Equal(0, CountKind(r, BufferedRenderOutput.Kind.Error));
+    }
+
+    [Fact]
+    public void VariableLinkTarget_Bare_DisplaysTheResolvedName()
+    {
+      var story = Story(("Start", "(set: $next to \"Cellar\")[[$next]]"), ("Cellar", "x"));
+      var link = Assert.Single(new StorySession(story).Render().Entries,
+        e => e.Kind == BufferedRenderOutput.Kind.Link);
+      Assert.Equal("Cellar", link.Target);
+      Assert.Equal("Cellar", link.Content);
+    }
+
+    [Fact]
+    public void VariableLinkTarget_Unset_ErrorsInProse_NoLinkEvent()
+    {
+      var r = new StorySession(Story(("Start", "[[Go->$next]]"))).Render();
+      Assert.Equal(0, CountKind(r, BufferedRenderOutput.Kind.Link));
+      Assert.True(HasError(r, "$next"));
+    }
+
+    [Fact]
+    public void VariableLinkTarget_ResolvingToAMissingPassage_IsBroken()
+    {
+      var r = new StorySession(Story(("Start", "(set: $next to \"Typo\")[[Go->$next]]"))).Render();
+      Assert.Equal(0, CountKind(r, BufferedRenderOutput.Kind.Link));
+      Assert.True(HasError(r, "'Typo'"));
+    }
+
     // ----- shaped for a host engine to display -----
 
     [Fact]
@@ -223,10 +298,20 @@ namespace Harlowe.Tests
       Assert.Equal(2, b.Line);
       Assert.Equal(1, b.Column);
       Assert.True(b.IsLink);
+      // The label is quoted as a label — not rebuilt as "[[Go]]", a source form
+      // the author's file doesn't contain.
       Assert.Equal(
-        "In passage 'Start' (line 2, column 1): the link [[Go]] points to the passage 'Missing', which doesn't exist.",
+        "In passage 'Start' (line 2, column 1): the link 'Go' points to the passage 'Missing', which doesn't exist.",
         b.Message);
       Assert.Equal(b.Message, b.ToString());
+    }
+
+    [Fact]
+    public void BrokenLink_Message_EmptyLabel_SaysALink()
+    {
+      // [[->Missing]] has an empty display text; "the link ''" helps nobody.
+      var b = new BrokenLink { PassageName = "P", Target = "Missing" };
+      Assert.StartsWith("In passage 'P': a link points to the passage 'Missing'", b.Message);
     }
 
     [Fact]
@@ -236,6 +321,33 @@ namespace Harlowe.Tests
       // rather than printing "(line 0, column 0)".
       var b = new BrokenLink { PassageName = "P", Target = "T", MacroName = "goto" };
       Assert.Equal("In passage 'P': (goto:) points to the passage 'T', which doesn't exist.", b.Message);
+    }
+
+    // ----- drift guard -----
+
+    [Fact]
+    public void EveryRegisteredNavigationMacro_IsVisibleToGetBrokenLinks()
+    {
+      // ReferenceCollector keeps its own table of which macros navigate and
+      // where the target argument sits — a second copy of knowledge the macro
+      // classes own. This pins the two together: any registered macro whose
+      // name says it navigates must be reportable. The probe body puts the
+      // dead target in both candidate argument slots, so whichever slot the
+      // table reads, a covered macro reports — and one missing from the table
+      // comes back silent and fails here, pointing at the table to update.
+      var registry = new MacroRegistry();
+      StandardMacros.RegisterAll(registry);
+
+      foreach (var name in registry.RegisteredNames)
+      {
+        bool navigates = name == "goto" || name == "display"
+          || name.EndsWith("goto", System.StringComparison.Ordinal);
+        if (!navigates) continue;
+
+        var story = Story(("Start", $"({name}: \"Nowhere\", \"Nowhere\")"));
+        Assert.True(story.GetBrokenLinks().Count > 0,
+          $"({name}:) navigates but GetBrokenLinks can't see its target — add it to ReferenceCollector.NavigationMacros");
+      }
     }
   }
 }

@@ -282,8 +282,11 @@ namespace Harlowe.Tokens
 
     /// <summary>
     /// Scans inside a <c>[[…]]</c> link. The only meaningful tokens here are
-    /// <see cref="TokenType.LinkClose"/>, <see cref="TokenType.LinkArrowRight"/>,
-    /// and <see cref="TokenType.LinkArrowLeft"/>; everything else accumulates
+    /// <see cref="TokenType.LinkClose"/>, <see cref="TokenType.LinkArrowRight"/>
+    /// (<c>-&gt;</c> or <c>|</c> — reference's <c>rightSeparator</c> in
+    /// <c>ts/markup/patterns.ts</c> is <c>either("\\-&gt;", "\\|")</c>, so the
+    /// pipe form <c>[[Text|Passage]]</c> is a first-class link), and
+    /// <see cref="TokenType.LinkArrowLeft"/>; everything else accumulates
     /// into a single <see cref="TokenType.Text"/> run. Clears <c>_inLink</c>
     /// when the closing <c>]]</c> is consumed.
     /// </summary>
@@ -304,6 +307,12 @@ namespace Harlowe.Tokens
         Emit(TokenType.LinkArrowRight, "->", startPos, startLine, startCol);
         return;
       }
+      if (_src[_pos] == '|')
+      {
+        Advance();
+        Emit(TokenType.LinkArrowRight, "|", startPos, startLine, startCol);
+        return;
+      }
       if (MatchString("<-"))
       {
         AdvanceN(2);
@@ -314,7 +323,7 @@ namespace Harlowe.Tokens
       var sb = new StringBuilder();
       while (_pos < _src.Length)
       {
-        if (MatchString("]]") || MatchString("->") || MatchString("<-")) break;
+        if (MatchString("]]") || MatchString("->") || MatchString("<-") || _src[_pos] == '|') break;
         sb.Append(_src[_pos]);
         Advance();
       }

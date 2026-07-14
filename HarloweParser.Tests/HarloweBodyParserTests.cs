@@ -82,11 +82,30 @@ namespace Harlowe.Tests
     public void Link_FormatDelimiterInside_StaysProse()
     {
       // Inside [[...]] the tokenizer accumulates everything except ]] and the
-      // arrows into plain text, so format markup is literal link text.
+      // separators into plain text, so format markup is literal link text.
       var body = Parse("[[a''b->P]]");
       var link = Assert.IsType<LinkNode>(Assert.Single(body.Children));
       Assert.Equal("P", link.Target);
       Assert.Equal("a''b", link.Text);
+    }
+
+    // Reference's separator rule (ts/markup/patterns.ts): rightSeparator is
+    // either -> or |, and "the rightmost right arrow or leftmost left arrow is
+    // regarded as the canonical separator" — right separators tried first, so
+    // an unchosen separator stays literal text.
+    [Theory]
+    [InlineData("[[Go|Real]]", "Go", "Real")]                 // pipe is a first-class separator
+    [InlineData("[[A|B|Real]]", "A|B", "Real")]               // rightmost pipe wins
+    [InlineData("[[A->B->Real]]", "A->B", "Real")]            // rightmost arrow wins
+    [InlineData("[[Real<-B<-C]]", "B<-C", "Real")]            // leftmost left arrow wins
+    [InlineData("[[A<-B->Real]]", "A<-B", "Real")]            // right separators take precedence
+    [InlineData("[[A->B<-C]]", "A", "B<-C")]
+    [InlineData("[[A|B->Real]]", "A|B", "Real")]              // rightmost of either right kind
+    public void Link_SeparatorRule_MatchesReference(string src, string text, string target)
+    {
+      var link = Assert.IsType<LinkNode>(Assert.Single(Parse(src).Children));
+      Assert.Equal(text, link.Text);
+      Assert.Equal(target, link.Target);
     }
 
     [Fact]

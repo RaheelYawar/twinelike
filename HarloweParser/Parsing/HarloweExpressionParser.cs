@@ -500,7 +500,13 @@ namespace Harlowe.Parsing
           string name = t.Value;
           cursor.Advance();
           // Nested macro: arg-list assignment-allowed iff this call is (set:)/(put:).
-          return new MacroCallNode { Name = name, Arguments = ParseArgumentList(cursor, IsAssignmentMacro(name)) };
+          return new MacroCallNode
+          {
+            Name = name,
+            Arguments = ParseArgumentList(cursor, IsAssignmentMacro(name)),
+            Line = t.Line,
+            Column = t.Column
+          };
 
         case TokenType.ParenOpen:
           cursor.Advance();

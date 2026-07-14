@@ -100,7 +100,9 @@ namespace Harlowe.Runtime
     public void Visit(HtmlNode node) => _output.Html(node.RawHtml);
 
     /// <summary>
-    /// A <c>[[…]]</c> link. The target is existence-checked first
+    /// A <c>[[…]]</c> link. A pure variable target (<c>[[Go-&gt;$next]]</c>) is
+    /// resolved through the store first — reference evaluates markup in the
+    /// passage-name position — then the target is existence-checked
     /// (<see cref="MacroContext.PassageExists"/>, the same gate <c>(goto:)</c>
     /// uses — null when no story is wired, as in standalone renderer tests, and
     /// then skipped): a link to a passage that isn't there emits its label as
@@ -120,13 +122,42 @@ namespace Harlowe.Runtime
     /// </summary>
     public void Visit(LinkNode node)
     {
-      if (_context.PassageExists != null && !_context.PassageExists(node.Target))
+      string target = node.Target;
+      string text = node.Text;
+
+      // Reference evaluates markup in the passage-name position before its
+      // validity gate ([[Go->$next]] — ts/macrolib/links.ts renders the name
+      // and takes its text), so a pure variable target resolves through the
+      // store here; the existence check below then sees the real passage name.
+      if (LinkNode.TryParseVariableTarget(target, out bool isTemp, out string varName))
       {
-        if (!string.IsNullOrEmpty(node.Text)) _output.Text(node.Text);
-        _output.Error($"I can't link to the passage '{node.Target}' because it doesn't exist.");
+        var value = _context.Store.Get(varName, isTemp);
+        if (value == null)
+        {
+          if (!string.IsNullOrEmpty(text)) _output.Text(text);
+          _output.Error($"{(isTemp ? "_" : "$")}{varName} is not set");
+          return;
+        }
+        if (value.IsError)
+        {
+          if (!string.IsNullOrEmpty(text)) _output.Text(text);
+          _output.Error(value.ErrorMessage);
+          return;
+        }
+        // A bare [[$next]] displays the resolved name too, as in reference
+        // (link text is rendered markup as well).
+        if (text == target) text = value.ToHarloweString();
+        target = value.ToHarloweString();
+      }
+
+      var missing = _context.MissingPassageError("link to", target);
+      if (missing != null)
+      {
+        if (!string.IsNullOrEmpty(text)) _output.Text(text);
+        _output.Error(missing.ErrorMessage);
         return;
       }
-      _output.Link(node.Text, node.Target);
+      _output.Link(text, target);
     }
 
     public void Visit(ParseErrorNode node) => _output.Error(node.Message);

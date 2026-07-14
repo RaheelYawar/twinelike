@@ -1,5 +1,3 @@
-using System.Globalization;
-
 namespace Harlowe
 {
   /// <summary>
@@ -50,16 +48,9 @@ namespace Harlowe
         string tail = IsWholePassage
           ? " The whole passage failed to parse and won't render."
           : string.Empty;
-        return "In passage '" + PassageName + "'" + At() + ": " + Detail + "." + tail;
+        return "In passage '" + PassageName + "'" + SourcePosition.Suffix(Line, Column)
+             + ": " + Detail + "." + tail;
       }
-    }
-
-    /// <summary>The <c> (line N, column N)</c> suffix, omitted entirely when the position is unknown.</summary>
-    private string At()
-    {
-      if (Line <= 0) return string.Empty;
-      return " (line " + Line.ToString(CultureInfo.InvariantCulture)
-           + ", column " + Column.ToString(CultureInfo.InvariantCulture) + ")";
     }
 
     public override string ToString() => Message;

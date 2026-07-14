@@ -28,8 +28,10 @@ namespace Harlowe.Runtime.Macros
       if (v.Kind != HarloweValueKind.String)
         return HarloweValue.OfError($"(goto:) requires a String, got {v.Kind}");
       string target = v.AsString;
-      if (context.PassageExists != null && !context.PassageExists(target))
-        return HarloweValue.OfError($"I can't (goto:) to the passage '{target}' because it doesn't exist.");
+      // "(goto:)" as the verb, matching reference's phrasing for the
+      // (click-goto:) family ("I can't (click-goto:) the passage …").
+      var missing = context.MissingPassageError("(goto:)", target);
+      if (missing != null) return missing;
       context.RequestGoto(target);
       return null;
     }

@@ -129,6 +129,44 @@ namespace Harlowe.Tests.Runtime
       Assert.Equal(1, session.Turns.AsNumber);          // no turn was recorded
     }
 
+    [Fact]
+    public void SaveGame_RefusesATimelineWhosePassageWasRemoved()
+    {
+      // Goto validates its destination, but the departure passage is baked into
+      // the Moment by FinalizePresent — and the editing API can remove it out
+      // from under a live session. Writing that timeline would produce a blob
+      // LoadGame rejects forever ("saved passage ... no longer exists"), so the
+      // save must refuse instead of poisoning the slot.
+      var story = TwoPassages("p1", "p2");
+      var session = new StorySession(story);
+      session.Render();
+      Assert.True(story.RemovePassage("P1"));
+      session.Goto("P2");
+
+      Assert.False(session.SaveGame("slot"));
+      Assert.Contains("'P1'", session.LastSaveError);
+    }
+
+    [Fact]
+    public void DanglingStartNode_FirstGotoStartsTheTimeline_AndSavesLoad()
+    {
+      // A hand-built story that never sets StartNode keeps the "0" default while
+      // synthesized pids start at 1 — so the session opens with no current
+      // passage. The first Goto must not finalise that nameless present into the
+      // past (a Moment with passage "" makes every later save unloadable).
+      var story = new Harlowe();
+      story.AddPassage(new HarlowePassage { Name = "P1", Body = "hello" });
+      var session = new StorySession(story);
+      session.Render();
+
+      var r = session.Goto("P1");
+      Assert.Contains("hello", r.Text);
+      Assert.Equal(1, session.Turns.AsNumber);          // the first real turn, not the second
+
+      Assert.True(session.SaveGame("slot"), session.LastSaveError);
+      Assert.True(session.LoadGame("slot"), session.LastLoadError);
+    }
+
     // -----------------------------------------------------------------------
     // Non-ASCII digit loader robustness — a non-ASCII decimal digit (which
     // char.IsDigit accepts) used where a number is expected must not throw a

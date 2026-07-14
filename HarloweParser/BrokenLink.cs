@@ -1,5 +1,3 @@
-using System.Globalization;
-
 namespace Harlowe
 {
   /// <summary>
@@ -53,20 +51,15 @@ namespace Harlowe
     {
       get
       {
-        string what = IsLink
-          ? "the link [[" + LinkText + "]]"
-          : "(" + MacroName + ":)";
-        return "In passage '" + PassageName + "'" + At()
+        // The label is quoted as a label, not rebuilt as [[…]] syntax — a
+        // reconstructed "[[Go]]" for source that reads [[Go->Missing]] is a
+        // string the author can't find by searching their own file.
+        string what = !IsLink ? "(" + MacroName + ":)"
+          : string.IsNullOrEmpty(LinkText) ? "a link"
+          : "the link '" + LinkText + "'";
+        return "In passage '" + PassageName + "'" + SourcePosition.Suffix(Line, Column)
              + ": " + what + " points to the passage '" + Target + "', which doesn't exist.";
       }
-    }
-
-    /// <summary>The <c> (line N, column N)</c> suffix, omitted entirely when the position is unknown.</summary>
-    private string At()
-    {
-      if (Line <= 0) return string.Empty;
-      return " (line " + Line.ToString(CultureInfo.InvariantCulture)
-           + ", column " + Column.ToString(CultureInfo.InvariantCulture) + ")";
     }
 
     public override string ToString() => Message;

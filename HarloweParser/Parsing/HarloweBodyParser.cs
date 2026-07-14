@@ -94,12 +94,11 @@ namespace Harlowe.Parsing
         }
         catch (HarloweParseException ex)
         {
-          string where = ex.Line > 0 ? $" at line {ex.Line}, column {ex.Column}" : string.Empty;
           bool advanced = TryAdvanceToResumePoint(
             cursor, terminator, cursor.NetMacroDepthSince(startIndex));
           nodes.Add(new ParseErrorNode
           {
-            Message = $"parse error{where}: {ex.RawMessage ?? ex.Message}",
+            Message = $"parse error{SourcePosition.AtClause(ex.Line, ex.Column)}: {ex.RawMessage ?? ex.Message}",
             Detail = ex.RawMessage ?? ex.Message,
             Line = ex.Line,
             Column = ex.Column,
@@ -372,7 +371,7 @@ namespace Harlowe.Parsing
             $"({name}:) cannot appear as a changer-chain component — it's an assignment macro, not a value-position macro",
             nameToken.Line, nameToken.Column);
 
-        IExpressionNode expr = new MacroCallNode { Name = name, Arguments = args };
+        IExpressionNode expr = new MacroCallNode { Name = name, Arguments = args, Line = nameToken.Line, Column = nameToken.Column };
         while (TryAdvanceToChainContinuation(cursor))
         {
           // Cursor is now at the next MacroOpen. Parse one macro call.
@@ -391,7 +390,7 @@ namespace Harlowe.Parsing
           {
             Operator = "+",
             Left = expr,
-            Right = new MacroCallNode { Name = nextName, Arguments = nextArgs },
+            Right = new MacroCallNode { Name = nextName, Arguments = nextArgs, Line = nextNameToken.Line, Column = nextNameToken.Column },
           };
         }
 
@@ -603,9 +602,15 @@ namespace Harlowe.Parsing
     /// link forms:
     /// <list type="bullet">
     /// <item><c>[[target]]</c> — both <see cref="LinkNode.Text"/> and <see cref="LinkNode.Target"/> set to the inner text.</item>
-    /// <item><c>[[display-&gt;target]]</c> — left side is display, right side is target.</item>
+    /// <item><c>[[display-&gt;target]]</c> / <c>[[display|target]]</c> — left side is display, right side is target.</item>
     /// <item><c>[[target&lt;-display]]</c> — left side is target, right side is display.</item>
     /// </list>
+    /// With multiple separators, reference's rule applies ("the rightmost right
+    /// arrow or leftmost left arrow is regarded as the canonical separator",
+    /// <c>ts/markup/patterns.ts</c>, right separators tried first): the rightmost
+    /// <c>-&gt;</c>/<c>|</c> splits, else the leftmost <c>&lt;-</c>, and every
+    /// unchosen separator stays literal text — <c>[[A-&gt;B-&gt;C]]</c> is the
+    /// display <c>A-&gt;B</c> linking to <c>C</c>.
     /// </summary>
     private LinkNode ParseLink(TokenCursor cursor)
     {
@@ -613,10 +618,10 @@ namespace Harlowe.Parsing
       var open = cursor.Current;
       cursor.Advance();
 
-      var left = new System.Text.StringBuilder();
-      var right = new System.Text.StringBuilder();
-      bool sawArrow = false;
-      bool arrowIsRight = false;
+      // Collect the content verbatim: text runs and separators, in order.
+      var pieces = new List<string>();
+      int lastRightSep = -1;   // index in pieces of the rightmost -> or |
+      int firstLeftSep = -1;   // index in pieces of the leftmost <-
 
       while (!cursor.IsAtEnd && cursor.Current.Type != TokenType.LinkClose)
       {
@@ -624,37 +629,43 @@ namespace Harlowe.Parsing
         switch (t.Type)
         {
           case TokenType.Text:
-            (sawArrow ? right : left).Append(t.Value);
-            cursor.Advance();
+            pieces.Add(t.Value);
             break;
           case TokenType.LinkArrowRight:
-            sawArrow = true;
-            arrowIsRight = true;
-            cursor.Advance();
+            lastRightSep = pieces.Count;
+            pieces.Add(t.Value);
             break;
           case TokenType.LinkArrowLeft:
-            sawArrow = true;
-            arrowIsRight = false;
-            cursor.Advance();
-            break;
-          default:
-            cursor.Advance();
+            if (firstLeftSep < 0) firstLeftSep = pieces.Count;
+            pieces.Add(t.Value);
             break;
         }
+        cursor.Advance();
       }
       if (cursor.Current.Type == TokenType.LinkClose) cursor.Advance();
 
-      string leftStr = left.ToString();
-      string rightStr = right.ToString();
-
       LinkNode node;
-      if (!sawArrow) node = new LinkNode { Text = leftStr, Target = leftStr };
-      else if (arrowIsRight) node = new LinkNode { Text = leftStr, Target = rightStr };
-      else node = new LinkNode { Text = rightStr, Target = leftStr };
+      if (lastRightSep >= 0)
+        node = new LinkNode { Text = JoinPieces(pieces, 0, lastRightSep), Target = JoinPieces(pieces, lastRightSep + 1, pieces.Count) };
+      else if (firstLeftSep >= 0)
+        node = new LinkNode { Text = JoinPieces(pieces, firstLeftSep + 1, pieces.Count), Target = JoinPieces(pieces, 0, firstLeftSep) };
+      else
+      {
+        string whole = JoinPieces(pieces, 0, pieces.Count);
+        node = new LinkNode { Text = whole, Target = whole };
+      }
 
       node.Line = open.Line;
       node.Column = open.Column;
       return node;
+    }
+
+    /// <summary>Concatenates <paramref name="pieces"/>[<paramref name="from"/>..<paramref name="to"/>) verbatim.</summary>
+    private static string JoinPieces(List<string> pieces, int from, int to)
+    {
+      var sb = new System.Text.StringBuilder();
+      for (int i = from; i < to; i++) sb.Append(pieces[i]);
+      return sb.ToString();
     }
   }
 }

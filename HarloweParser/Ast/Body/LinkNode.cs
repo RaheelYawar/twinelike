@@ -25,5 +25,28 @@ namespace Harlowe.Ast.Body
     public int Column;
 
     public void Accept(IBodyVisitor visitor) => visitor.Visit(this);
+
+    /// <summary>
+    /// True when <paramref name="target"/> is exactly a variable reference —
+    /// <c>$name</c> or <c>_name</c> — with the sigil and name split out.
+    /// Reference evaluates markup in a link's passage-name position
+    /// (<c>[[Go-&gt;$next]]</c>; <c>ts/macrolib/links.ts</c> renders the name and
+    /// takes its text), so such a target is <em>computed</em>: the renderer
+    /// resolves it through the store, and static link checks skip it.
+    /// </summary>
+    public static bool TryParseVariableTarget(string target, out bool isTemporary, out string name)
+    {
+      isTemporary = false;
+      name = null;
+      if (target == null || target.Length < 2) return false;
+      char sigil = target[0];
+      if (sigil != '$' && sigil != '_') return false;
+      if (!char.IsLetter(target[1])) return false;
+      for (int i = 2; i < target.Length; i++)
+        if (!char.IsLetterOrDigit(target[i]) && target[i] != '_') return false;
+      isTemporary = sigil == '_';
+      name = target.Substring(1);
+      return true;
+    }
   }
 }

@@ -150,8 +150,8 @@ namespace Harlowe.Runtime.Macros
         passage = v.AsString;
         if (passage.Length == 0)
           return HarloweValue.OfError($"A string given to this {display} macro was empty.");
-        if (context.PassageExists != null && !context.PassageExists(passage))
-          return HarloweValue.OfError($"I can't {display} the passage '{passage}' because it doesn't exist.");
+        var missing = context.MissingPassageError(display, passage);
+        if (missing != null) return missing;
       }
 
       // No reveal anchor and no deferred renderer: the dispatch navigates

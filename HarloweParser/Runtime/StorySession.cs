@@ -297,7 +297,7 @@ namespace Harlowe.Runtime
         refused.Entries.Add(new BufferedRenderOutput.Entry
         {
           Kind = BufferedRenderOutput.Kind.Error,
-          Content = $"I can't go to the passage '{passageName}' because it doesn't exist."
+          Content = MacroContext.MissingPassageMessage("go to", passageName)
         });
         return refused;
       }
@@ -305,8 +305,15 @@ namespace Harlowe.Runtime
       // A host-driven navigation to a new turn ends the just-loaded state, re-permitting
       // (load-game:) (reference clears section.loadedGame on the next showPassage).
       _loadedGame = false;
-      FinalizePresent();
-      _past.Add(_present);
+      // A session whose start node never resolved has no current turn to
+      // finalise — the present Moment is nameless. Pushing it would bake a
+      // passage-less turn into the timeline (and from there into a save that
+      // can never be loaded); the first real navigation replaces it instead.
+      if (!string.IsNullOrEmpty(_currentPassage))
+      {
+        FinalizePresent();
+        _past.Add(_present);
+      }
       _future.Clear();
       _present = new Moment { PassageName = passageName };
       // A fresh forward turn never replays from a restored entry. Clear any pending
@@ -392,8 +399,9 @@ namespace Harlowe.Runtime
     /// (defaulting to the slot name). The slot is IFID-namespaced internally
     /// (<see cref="Saving.SaveKeys"/>). Returns false — setting
     /// <see cref="LastSaveError"/> — if saving is disabled (null backend), the state
-    /// holds an unsaveable value (a non-finite number, an unstamped changer), or the
-    /// backend refuses the write.
+    /// holds an unsaveable value (a non-finite number, an unstamped changer), a
+    /// timeline passage no longer exists in the story (the resulting blob could never
+    /// pass <c>LoadGame</c>'s validation), or the backend refuses the write.
     ///
     /// <para><b>Fidelity boundary.</b> The live present turn is saved by passage +
     /// timeline; its variable state is rebuilt by <em>re-rendering</em> that passage
@@ -411,6 +419,15 @@ namespace Harlowe.Runtime
     {
       LastSaveError = null;
       if (_storage == null) { LastSaveError = "saving is disabled (no storage backend)"; return false; }
+
+      // A timeline naming a passage that no longer resolves (removed through
+      // the editing API mid-session, or a session started on a dangling
+      // StartNode) would serialise fine and then fail DeserialiseTimeline's
+      // passage check on every load — a save that can never be opened. Refuse
+      // here, where the caller gets an actionable error and no blob is written.
+      string missing = FirstUnresolvedTimelinePassage();
+      if (missing != null)
+      { LastSaveError = $"this game visited the passage '{missing}', which no longer exists in the story"; return false; }
 
       string blob = Saving.SaveSerializer.SerialiseTimeline(_past, _present);
       if (blob == null) { LastSaveError = "the story state holds a value that can't be saved"; return false; }
@@ -936,6 +953,25 @@ namespace Harlowe.Runtime
       }
 
       return BuildResultFromLiveTree();
+    }
+
+    /// <summary>
+    /// The first passage name on the timeline (past + present, redirect trails
+    /// included) that no longer resolves, or null when every turn's passage
+    /// still exists — the save-side mirror of <c>DeserialiseTimeline</c>'s
+    /// per-moment passage check.
+    /// </summary>
+    private string FirstUnresolvedTimelinePassage()
+    {
+      for (int i = 0; i <= _past.Count; i++)
+      {
+        var moment = i < _past.Count ? _past[i] : _present;
+        if (_story.GetPassage(moment.PassageName) == null) return moment.PassageName ?? string.Empty;
+        if (moment.Visits != null)
+          for (int j = 0; j < moment.Visits.Count; j++)
+            if (_story.GetPassage(moment.Visits[j]) == null) return moment.Visits[j];
+      }
+      return null;
     }
 
     /// <summary>Re-flush the live tree into a fresh <see cref="RenderResult"/>. Returns an empty result when there is no live tree yet (no render has run).</summary>

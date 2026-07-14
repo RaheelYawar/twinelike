@@ -112,12 +112,11 @@ namespace Harlowe.Runtime.Macros
       if (context.Output == null)
         return HarloweValue.OfError("(link-goto:) can only be used in passage prose in this engine");
 
-      // Existence check skipped when no story is wired (standalone renderer
-      // tests leave PassageExists null), as in (goto:).
-      if (context.PassageExists != null && !context.PassageExists(passage))
+      var missing = context.MissingPassageError("link to", passage);
+      if (missing != null)
       {
         if (!string.IsNullOrEmpty(text)) context.Output.Text(text);
-        return HarloweValue.OfError($"I can't link to the passage '{passage}' because it doesn't exist.");
+        return missing;
       }
 
       context.Output.Link(text, passage);

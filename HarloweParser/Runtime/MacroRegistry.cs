@@ -26,6 +26,9 @@ namespace Harlowe.Runtime
     /// <summary>True if a macro with this name is registered (case/dash-insensitive). Used by the body renderer to disambiguate command macros from "macro-shaped" prose.</summary>
     public bool Contains(string name) => _macros.ContainsKey(MacroNames.Normalize(name));
 
+    /// <summary>Every registered macro name in <see cref="MacroNames.Normalize"/>d form — the lookup keys.</summary>
+    public IEnumerable<string> RegisteredNames => _macros.Keys;
+
     /// <summary>
     /// Dispatch a macro call using the context most recently assigned to
     /// <see cref="Context"/>. Returns an in-prose error if the macro is

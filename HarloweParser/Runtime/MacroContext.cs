@@ -47,10 +47,30 @@ namespace Harlowe.Runtime
     /// <see cref="StorySession"/> so <c>(goto:)</c> can validate its target
     /// before navigating (reference Harlowe's <c>Passages.hasValid</c> check).
     /// Null in standalone evaluator/renderer tests with no story behind them —
-    /// callers must null-check and skip validation when it's absent, preserving
-    /// the bare "record the goto" behaviour those tests rely on.
+    /// go through <see cref="MissingPassageError"/>, which centralizes the
+    /// null-check-skips-validation convention those tests rely on.
     /// </summary>
     public Func<string, bool> PassageExists;
+
+    /// <summary>
+    /// The in-prose error for a navigation target that doesn't exist, or null
+    /// when <paramref name="passageName"/> is fine — the shared gate every
+    /// navigation site (<c>(goto:)</c>, <c>(link-goto:)</c>, the
+    /// <c>(click-goto:)</c> family, <c>[[…]]</c> rendering) checks before
+    /// committing a target. Null (no error) when <see cref="PassageExists"/> is
+    /// unwired, so standalone renders skip validation. <paramref name="how"/>
+    /// is the verb phrase — <c>"link to"</c>, <c>"(goto:)"</c> — spliced into
+    /// the one shared sentence.
+    /// </summary>
+    public HarloweValue MissingPassageError(string how, string passageName)
+    {
+      if (PassageExists == null || PassageExists(passageName)) return null;
+      return HarloweValue.OfError(MissingPassageMessage(how, passageName));
+    }
+
+    /// <summary>The sentence <see cref="MissingPassageError"/> wraps, for callers outside a macro context (<see cref="StorySession.Goto"/>).</summary>
+    public static string MissingPassageMessage(string how, string passageName)
+      => $"I can't {how} the passage '{passageName}' because it doesn't exist.";
 
     /// <summary>
     /// True when a past turn exists to undo to. Set by <see cref="StorySession"/>

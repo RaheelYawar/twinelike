@@ -28,6 +28,16 @@ namespace Harlowe.Ast.Expression
     /// <summary>The arguments passed to the macro, each itself an expression.</summary>
     public List<IExpressionNode> Arguments;
 
+    /// <summary>
+    /// 1-based line of the macro's name token in the passage body, or <c>0</c>
+    /// when unknown (a hand-built AST). Carried so a diagnostic can point the
+    /// author at the call — see <see cref="Harlowe.GetBrokenLinks"/>.
+    /// </summary>
+    public int Line;
+
+    /// <summary>1-based column of the macro's name token; <c>0</c> when unknown.</summary>
+    public int Column;
+
     public void Accept(IExpressionVisitor visitor) => visitor.Visit(this);
   }
 }

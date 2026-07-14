@@ -30,6 +30,17 @@ namespace Harlowe
     public string Body { get => RawBody; set => RawBody = value; }
 
     public List<string> Tags;
+
+    /// <summary>
+    /// Every <c>[[…]]</c> link in the passage source, in order — an
+    /// <em>unfiltered</em> source-level model: a link whose target doesn't
+    /// exist is still listed, and a variable target (<c>[[Go-&gt;$next]]</c>)
+    /// appears unresolved. The render stream is what refuses dead links (no
+    /// <c>Link</c> event), and <see cref="Harlowe.GetBrokenLinks"/> is the
+    /// validity report — a host building navigation UI from this list instead
+    /// of from render events must expect entries <c>StorySession.Goto</c> will
+    /// refuse.
+    /// </summary>
     public List<Branch> Branches;
 
     /// <summary>

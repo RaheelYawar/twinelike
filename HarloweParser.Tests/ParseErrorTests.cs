@@ -1,3 +1,4 @@
+using Harlowe.Runtime;
 using Xunit;
 
 namespace Harlowe.Tests
@@ -60,6 +61,25 @@ namespace Harlowe.Tests
       var e = Assert.Single(Story(("Start", "ok (if: $x)[(for: each)] ok")).GetParseErrors());
       Assert.False(e.IsWholePassage);
       Assert.Contains("each", e.Detail);
+    }
+
+    [Fact]
+    public void ErrorInsideInlineFormatting_IsFoundAndRendersDecorated()
+    {
+      // FoldFormatting can nest a recovered error inside a FormatNode. Both the
+      // report and the loader's passage-name decoration must reach it — the
+      // decoration pass once walked hooks but not format spans, so this error
+      // rendered without its "in passage" prefix.
+      var story = Story(("Start", "//italic (a: 1 2) more//"));
+      Assert.Single(story.GetParseErrors());
+
+      var r = new StorySession(story).Render();
+      bool decorated = false;
+      for (int i = 0; i < r.Entries.Count; i++)
+        if (r.Entries[i].Kind == BufferedRenderOutput.Kind.Error
+            && r.Entries[i].Content.Contains("in passage 'Start'"))
+          decorated = true;
+      Assert.True(decorated);
     }
 
     [Fact]
