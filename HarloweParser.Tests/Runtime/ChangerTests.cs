@@ -189,11 +189,11 @@ namespace Harlowe.Tests.Runtime
     {
       RevisionPatch HookTargeted(RevisionMode mode, string hook) => new RevisionPatch
       {
-        Revision = new RevisionSpec { Mode = mode, HookTarget = Hook(hook) }
+        Revisions = new List<RevisionSpec> { new RevisionSpec { Mode = mode, HookTarget = Hook(hook) } }
       };
       RevisionPatch StringTargeted(string needle) => new RevisionPatch
       {
-        Revision = new RevisionSpec { Mode = RevisionMode.Replace, StringTarget = needle }
+        Revisions = new List<RevisionSpec> { new RevisionSpec { Mode = RevisionMode.Replace, StringTarget = needle } }
       };
 
       var a = HookTargeted(RevisionMode.Replace, "x");

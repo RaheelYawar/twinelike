@@ -69,12 +69,13 @@ namespace Harlowe.Runtime
 
     /// <summary>
     /// Construct a revision changer (<c>(replace:)</c> / <c>(append:)</c> /
-    /// <c>(prepend:)</c>). When applied, the changer renders its hook into a
-    /// detached subtree and splices that into the targeted nodes of the live
-    /// render tree instead of rendering inline — see <see cref="Apply"/>.
+    /// <c>(prepend:)</c>) over one spec per target — the macros are variadic.
+    /// When applied, the changer renders its hook into a detached subtree once
+    /// and splices clones into every node each target resolves to in the live
+    /// render tree, instead of rendering inline — see <see cref="Apply"/>.
     /// </summary>
-    public static Changer FromRevision(RevisionSpec revision)
-      => new Changer(new List<IChangerPatch> { new RevisionPatch { Revision = revision } });
+    public static Changer FromRevision(List<RevisionSpec> revisions)
+      => new Changer(new List<IChangerPatch> { new RevisionPatch { Revisions = revisions } });
 
     /// <summary>
     /// Construct an interaction changer (<c>(click:)</c>, <c>(mouseover-append:)</c>,
@@ -185,9 +186,10 @@ namespace Harlowe.Runtime
     /// builder, so the source can be spliced rather than shown inline.
     ///
     /// <list type="bullet">
-    /// <item><b>Revision</b> (<see cref="RevisionSpec"/>): render the hook into
-    /// a detached subtree, resolve the target against the live render tree, and
-    /// splice. Takes precedence over iteration/styles on the same descriptor.</item>
+    /// <item><b>Revision</b> (<see cref="RevisionSpec"/> list): render the hook
+    /// into a detached subtree once, resolve each target against the live
+    /// render tree, and splice a clone into every match. Takes precedence over
+    /// iteration/styles on the same descriptor.</item>
     /// <item><b>Iteration</b> (<see cref="IterationSpec"/>): loop, binding
     /// parameter + <c>it</c> per item and emitting the style wrappers around
     /// each iteration's hook render.</item>
@@ -224,7 +226,7 @@ namespace Harlowe.Runtime
       // combination rather than half of it. (Styles compose with any single
       // one of the three and are unaffected.)
       int exclusiveCount = (descriptor.Interaction != null ? 1 : 0)
-                         + (descriptor.Revision != null ? 1 : 0)
+                         + (descriptor.Revisions.Count > 0 ? 1 : 0)
                          + (descriptor.Iteration != null ? 1 : 0);
       if (exclusiveCount > 1)
       {
@@ -236,7 +238,7 @@ namespace Harlowe.Runtime
       {
         RunInteraction(descriptor, output, renderHook, ctx);
       }
-      else if (descriptor.Revision != null)
+      else if (descriptor.Revisions.Count > 0)
       {
         RunRevision(descriptor, output, renderHook, ctx);
       }
@@ -305,27 +307,33 @@ namespace Harlowe.Runtime
       var liveRoot = MacroContext.ResolveLiveRoot(ctx, output);
       if (liveRoot == null) return;
 
-      var rev = d.Revision;
-      IReadOnlyList<RenderNode> targets;
-      if (rev.HookTarget != null)
+      // One splice pass per spec, in argument/composition order — reference
+      // processes desc.newTargets the same way, each {target, append} pair
+      // resolved and revised independently.
+      for (int s = 0; s < d.Revisions.Count; s++)
       {
-        targets = HookResolver.Resolve(liveRoot, rev.HookTarget);
-      }
-      else if (rev.StringTarget != null)
-      {
-        var wraps = TextOccurrenceFinder.FindAndWrap(liveRoot, rev.StringTarget);
-        var list = new List<RenderNode>(wraps.Count);
-        for (int i = 0; i < wraps.Count; i++) list.Add(wraps[i]);
-        targets = list;
-      }
-      else
-      {
-        return;
-      }
+        var rev = d.Revisions[s];
+        IReadOnlyList<RenderNode> targets;
+        if (rev.HookTarget != null)
+        {
+          targets = HookResolver.Resolve(liveRoot, rev.HookTarget);
+        }
+        else if (rev.StringTarget != null)
+        {
+          var wraps = TextOccurrenceFinder.FindAndWrap(liveRoot, rev.StringTarget);
+          var list = new List<RenderNode>(wraps.Count);
+          for (int i = 0; i < wraps.Count; i++) list.Add(wraps[i]);
+          targets = list;
+        }
+        else
+        {
+          continue;
+        }
 
-      for (int i = 0; i < targets.Count; i++)
-        if (targets[i] is IRenderContainer container)
-          RenderNodes.Splice(container, source, rev.Mode);
+        for (int i = 0; i < targets.Count; i++)
+          if (targets[i] is IRenderContainer container)
+            RenderNodes.Splice(container, source, rev.Mode);
+      }
     }
 
     /// <summary>

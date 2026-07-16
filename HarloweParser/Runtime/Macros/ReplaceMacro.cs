@@ -3,9 +3,10 @@ using System.Collections.Generic;
 namespace Harlowe.Runtime.Macros
 {
   /// <summary>
-  /// <c>(replace: ?target)[new content]</c>. A revision changer: the attached
-  /// hook is not rendered inline — instead it replaces the content of every
-  /// node the target resolves to in the render tree built so far. The target
+  /// <c>(replace: ?target, …)[new content]</c>. A revision changer: the
+  /// attached hook is not rendered inline — instead it replaces the content of
+  /// every node each target resolves to in the render tree built so far.
+  /// Variadic (reference's <c>rest(either(HookSet, String))</c>): each target
   /// is a hook name (<c>?cake</c>) or a literal string to find among rendered
   /// prose. A target that hasn't been rendered yet (declared after this macro)
   /// matches nothing, so nothing happens — Harlowe behaves the same way.
@@ -14,9 +15,9 @@ namespace Harlowe.Runtime.Macros
   {
     public string Name => "replace";
     public int MinArgs => 1;
-    public int MaxArgs => 1;
+    public int MaxArgs => -1;
 
     public HarloweValue Invoke(List<HarloweValue> args, MacroContext context)
-      => RevisionChangers.Build(args[0], RevisionMode.Replace, "(replace:)");
+      => RevisionChangers.Build(args, RevisionMode.Replace, "(replace:)");
   }
 }

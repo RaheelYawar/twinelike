@@ -119,35 +119,52 @@ namespace Harlowe.Runtime
 
   /// <summary>
   /// Patch produced by the revision macros <c>(replace:)</c> / <c>(append:)</c>
-  /// / <c>(prepend:)</c>. Sets the descriptor's revision spec — the renderer
-  /// then splices the changer's rendered hook into the targeted tree nodes
-  /// instead of rendering it inline.
+  /// / <c>(prepend:)</c>. Carries one <see cref="RevisionSpec"/> per target
+  /// argument (the macros are variadic) and <em>appends</em> them to the
+  /// descriptor's list rather than overwriting — reference pushes onto
+  /// <c>desc.newTargets</c>, deduplicating identical (target, mode) pairs so
+  /// <c>(replace: ?1) + (replace: ?1, ?2)</c> splices <c>?1</c> once. The
+  /// renderer then splices the changer's rendered hook into every targeted
+  /// tree node instead of rendering it inline.
   /// </summary>
   public class RevisionPatch : IChangerPatch
   {
-    public RevisionSpec Revision;
+    public List<RevisionSpec> Revisions;
 
-    public void Apply(HookDescriptor descriptor) => descriptor.Revision = Revision;
+    public void Apply(HookDescriptor descriptor)
+    {
+      if (Revisions == null) return;
+      for (int i = 0; i < Revisions.Count; i++)
+      {
+        bool duplicate = false;
+        for (int j = 0; j < descriptor.Revisions.Count; j++)
+          if (descriptor.Revisions[j].SameAs(Revisions[i])) { duplicate = true; break; }
+        if (!duplicate) descriptor.Revisions.Add(Revisions[i]);
+      }
+    }
 
     public override bool Equals(object obj)
     {
       if (!(obj is RevisionPatch other)) return false;
-      if (Revision == null || other.Revision == null) return Revision == other.Revision;
-      if (Revision.Mode != other.Revision.Mode) return false;
-      if (Revision.StringTarget != other.Revision.StringTarget) return false;
-      if (Revision.HookTarget == null || other.Revision.HookTarget == null)
-        return Revision.HookTarget == other.Revision.HookTarget;
-      return Revision.HookTarget.Equals(other.Revision.HookTarget);
+      if (Revisions == null || other.Revisions == null) return Revisions == other.Revisions;
+      if (Revisions.Count != other.Revisions.Count) return false;
+      for (int i = 0; i < Revisions.Count; i++)
+        if (!Revisions[i].SameAs(other.Revisions[i])) return false;
+      return true;
     }
 
     public override int GetHashCode()
     {
       int h = 31;
-      if (Revision != null)
+      if (Revisions != null)
       {
-        h = (h * 397) ^ (int)Revision.Mode;
-        if (Revision.StringTarget != null) h = (h * 397) ^ Revision.StringTarget.GetHashCode();
-        if (Revision.HookTarget != null) h = (h * 397) ^ Revision.HookTarget.GetHashCode();
+        for (int i = 0; i < Revisions.Count; i++)
+        {
+          var r = Revisions[i];
+          h = (h * 397) ^ (int)r.Mode;
+          if (r.StringTarget != null) h = (h * 397) ^ r.StringTarget.GetHashCode();
+          if (r.HookTarget != null) h = (h * 397) ^ r.HookTarget.GetHashCode();
+        }
       }
       return h;
     }

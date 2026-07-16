@@ -12,7 +12,7 @@ for the save-model slice (which lands `(history:)` semantics).
 ## Counts
 
 - **High severity (0 active, 6 fixed)**: silent wrong result or breaks documented Harlowe idioms.
-- **Medium severity (3 active, 8 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
+- **Medium severity (2 active, 9 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
 - **Low severity (2 active, 1 fixed)**: documented as deliberate or marginal.
 
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
@@ -407,7 +407,22 @@ Original finding below.
   breaking guarded iteration over possibly-empty arrays. `(loop:)` is
   unknown-macro.
 
-### 11. `(replace:) / (append:) / (prepend:)` are unary
+### 11. `(replace:) / (append:) / (prepend:)` are unary — ✅ FIXED (2026-07-15)
+
+**Resolved.** The three macros are variadic (`MaxArgs = -1`), matching
+reference's `rest(either(HookSet, String))`: each argument becomes one
+`RevisionSpec` (a `{target, mode}` pair, reference's newTarget), and an empty
+string errors with reference's exact wording (`A string given to this
+(replace:) macro was empty.`) instead of silently matching nothing. The
+descriptor model was aligned in the same change: `HookDescriptor.Revision`
+became a `Revisions` *list* that `RevisionPatch` appends to with reference's
+duplicate-(target, mode) filter — `desc.newTargets.push(...)` in
+`ts/macrolib/enchantments.ts` — which also fixed composed revision changers:
+`(replace: ?a)+(replace: ?b)` used to last-win, now both splice, and
+`(append: ?a)+(prepend: ?b)` carries each target's own mode on one descriptor.
+`RunRevision` renders the source once and splices a clone per match, per spec,
+in argument/composition order. See the "Variadic targets" and "Composed
+revision changers" tests in `RevisionMacroTests`. Original finding below.
 
 - **Ours**: `MinArgs=MaxArgs=1` — single hook-name-or-string target. No
   empty-string check (no matches, no error). See
@@ -658,8 +673,10 @@ architecture.
 - `(text-size:)` accepting Measurement (#7) — depends on whether we want a
   proper `Measurement` value type (parallel to the broader missing-value-types
   TODO) or just expand the macro to parse measurement strings inline.
-- `(replace:)`/`(append:)`/`(prepend:)` variadic (#11) — small but touches
-  `RevisionChangers.Build` interface for multiple targets.
+- ~~`(replace:)`/`(append:)`/`(prepend:)` variadic (#11) — small but touches
+  `RevisionChangers.Build` interface for multiple targets.~~ ✅ done — and the
+  descriptor grew reference's `newTargets` list, fixing composed revision
+  changers (accumulate + dedup) in the same change.
 - `(folded:)` `where`-clause support (#15) — `ParseLambdaTail` must accept a
   trailing `where` after `making … via …`, and `EvalFold` must skip filtered
   items (keep the prior accumulator), excluding the seed value per 3.3.6.

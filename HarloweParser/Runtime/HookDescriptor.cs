@@ -38,13 +38,17 @@ namespace Harlowe.Runtime
     public IterationSpec Iteration;
 
     /// <summary>
-    /// When set, the changer is a revision changer (<c>(replace:)</c> /
+    /// When non-empty, the changer is a revision changer (<c>(replace:)</c> /
     /// <c>(append:)</c> / <c>(prepend:)</c>): instead of rendering its hook
     /// inline, the renderer renders it into a detached subtree and splices that
-    /// into the targeted nodes already present in the render tree. Null for
-    /// ordinary changers.
+    /// into the targeted nodes already present in the render tree. One entry
+    /// per target — the macros are variadic (<c>(replace: ?a, "text")</c>), and
+    /// composed revision changers accumulate here rather than overwrite,
+    /// mirroring reference's <c>desc.newTargets</c> list of
+    /// <c>{target, append}</c> pairs (<c>ts/macrolib/enchantments.ts</c>), so
+    /// <c>(append: ?a) + (prepend: ?b)</c> carries both with their own modes.
     /// </summary>
-    public RevisionSpec Revision;
+    public List<RevisionSpec> Revisions = new List<RevisionSpec>();
 
     /// <summary>
     /// When set, the changer is an interaction changer (<c>(click:)</c>,
@@ -80,12 +84,13 @@ namespace Harlowe.Runtime
   }
 
   /// <summary>
-  /// The revision instruction a <c>(replace:)</c> / <c>(append:)</c> /
-  /// <c>(prepend:)</c> changer leaves on a descriptor. Exactly one of
-  /// <see cref="HookTarget"/> / <see cref="StringTarget"/> is set: a hook-name
-  /// query, or a literal substring to find among rendered text. The target is
-  /// re-resolved against the live render tree when the changer applies — it is
-  /// a query, not a captured node.
+  /// One revision instruction a <c>(replace:)</c> / <c>(append:)</c> /
+  /// <c>(prepend:)</c> changer leaves on a descriptor — one target with its
+  /// splice mode, reference's <c>{target, append}</c> newTarget pair. Exactly
+  /// one of <see cref="HookTarget"/> / <see cref="StringTarget"/> is set: a
+  /// hook-name query, or a literal substring to find among rendered text. The
+  /// target is re-resolved against the live render tree when the changer
+  /// applies — it is a query, not a captured node.
   /// </summary>
   public class RevisionSpec
   {
@@ -97,6 +102,21 @@ namespace Harlowe.Runtime
 
     /// <summary>Whether the source replaces, follows, or precedes the target's content.</summary>
     public RevisionMode Mode;
+
+    /// <summary>
+    /// Structural equality on (target, mode) — the identity reference dedups
+    /// composed revision changers by (<c>is(target1, target2) &amp;&amp; e === append</c>),
+    /// so <c>(replace: ?1) + (replace: ?1, ?2)</c> splices <c>?1</c> once.
+    /// Shared by <see cref="RevisionPatch"/>'s value equality.
+    /// </summary>
+    public bool SameAs(RevisionSpec other)
+    {
+      if (other == null) return false;
+      if (Mode != other.Mode) return false;
+      if (StringTarget != other.StringTarget) return false;
+      if (HookTarget == null || other.HookTarget == null) return HookTarget == other.HookTarget;
+      return HookTarget.Equals(other.HookTarget);
+    }
   }
 
   /// <summary>

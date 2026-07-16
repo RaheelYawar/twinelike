@@ -193,6 +193,60 @@ namespace Harlowe.Tests.Runtime.Macros
       // is still found after a bestriding one.
       => Assert.Equal("X X", RenderText("''ab'' c ab c(replace: \"ab c\")[X]"));
 
+    // --- Variadic targets (divergence #11, reference's rest(either(HookSet, String))) ---
+
+    [Fact]
+    public void Replace_TwoHookTargets_BothSpliced()
+      => Assert.Equal("XX", RenderText("|a>[1]|b>[2](replace: ?a, ?b)[X]"));
+
+    [Fact]
+    public void Replace_MixedHookAndStringTargets_BothSpliced()
+      => Assert.Equal("X X", RenderText("cat |a>[dog](replace: \"cat\", ?a)[X]"));
+
+    [Fact]
+    public void Append_TwoTargets_EachGetsOwnCopy()
+      => Assert.Equal("1+2+", RenderText("|a>[1]|b>[2](append: ?a, ?b)[+]"));
+
+    [Fact]
+    public void Replace_EmptyStringTarget_EmitsError()
+    {
+      // Reference: "A string given to this (replace:) macro was empty." —
+      // silently matching nothing hid the bug before.
+      var buf = Render("(replace: \"\")[x]", out _);
+      Assert.Contains(buf.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error
+                                     && e.Content.Contains("was empty"));
+    }
+
+    [Fact]
+    public void Replace_EmptyStringAmongValidTargets_StillErrors()
+    {
+      // reference's !scopes.every(Boolean) rejects the whole call.
+      var buf = Render("|a>[1](replace: ?a, \"\")[x]", out _);
+      Assert.Contains(buf.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error
+                                     && e.Content.Contains("was empty"));
+      Assert.Contains("1", buf.Text);   // target untouched
+    }
+
+    // --- Composed revision changers accumulate (reference's desc.newTargets) ---
+
+    [Fact]
+    public void ComposedReplace_BothTargetsSpliced()
+      // Two composed revision changers used to overwrite each other
+      // (last-wins); reference pushes both onto desc.newTargets.
+      => Assert.Equal("XX", RenderText("|a>[1]|b>[2](replace: ?a)+(replace: ?b)[X]"));
+
+    [Fact]
+    public void ComposedMixedModes_EachTargetUsesOwnMode()
+      // Reference: "(append: ?a) + (prepend: ?b)" works on one descriptor,
+      // each newTarget pairing its own revision method.
+      => Assert.Equal("AxxB", RenderText("|a>[A]|b>[B](append: ?a)+(prepend: ?b)[x]"));
+
+    [Fact]
+    public void ComposedDuplicateTarget_SplicedOnce()
+      // Reference dedups identical (target, mode) pairs —
+      // "(replace:?1) + (replace:?1, ?2)" — so the append lands once.
+      => Assert.Equal("1!", RenderText("|a>[1](append: ?a)+(append: ?a)[!]"));
+
     // --- Composition with style changers ---
 
     [Fact]
@@ -239,10 +293,13 @@ namespace Harlowe.Tests.Runtime.Macros
     [Fact]
     public void FromRevision_ProducesRevisionChanger()
     {
-      var changer = Changer.FromRevision(new RevisionSpec
+      var changer = Changer.FromRevision(new List<RevisionSpec>
       {
-        HookTarget = new HookNameValue { Name = "cake" },
-        Mode = RevisionMode.Replace
+        new RevisionSpec
+        {
+          HookTarget = new HookNameValue { Name = "cake" },
+          Mode = RevisionMode.Replace
+        }
       });
       Assert.NotNull(changer);
     }
