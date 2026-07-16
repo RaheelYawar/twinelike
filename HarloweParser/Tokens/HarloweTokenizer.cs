@@ -123,8 +123,19 @@ namespace Harlowe.Tokens
           Emit(TokenType.HookClose, "]", startPos, startLine, startCol);
           return;
         case '<':
+          if (TryScanHtmlComment(startPos, startLine, startCol)) return;
           if (TryScanHookNameLeft(startPos, startLine, startCol)) return;
           if (TryScanHtmlTag(startPos, startLine, startCol)) return;
+          break;
+        case '-':
+          // `--` is the comment marker (reference's `comment` pattern,
+          // Harlowe 4.0); a single `-` stays prose via ScanText.
+          if (Peek(1) == '-')
+          {
+            AdvanceN(2);
+            Emit(TokenType.Comment, "--", startPos, startLine, startCol);
+            return;
+          }
           break;
         case '|':
           if (TryScanHookNameRight(startPos, startLine, startCol)) return;
@@ -1003,6 +1014,28 @@ namespace Harlowe.Tokens
     }
 
     /// <summary>
+    /// Tries to consume a whole <c>&lt;!-- … --&gt;</c> HTML comment as one
+    /// <see cref="TokenType.HtmlComment"/> token (Value = full source,
+    /// delimiters included). Mirrors reference's
+    /// <c>htmlCommentFront</c>/<c>htmlCommentBack</c> pair folding into a
+    /// single <c>htmlComment</c> token that renders as nothing. The scan stops
+    /// at the first <c>--&gt;</c> — HTML comments don't nest — and an
+    /// unterminated <c>&lt;!--</c> returns false so it degrades to prose, the
+    /// pre-comment-slice behaviour.
+    /// </summary>
+    private bool TryScanHtmlComment(int startPos, int startLine, int startCol)
+    {
+      if (!MatchString("<!--")) return false;
+      int close = _src.IndexOf("-->", _pos + 4, System.StringComparison.Ordinal);
+      if (close < 0) return false;
+      int len = close + 3 - _pos;
+      string text = _src.Substring(_pos, len);
+      AdvanceN(len);
+      Emit(TokenType.HtmlComment, text, startPos, startLine, startCol);
+      return true;
+    }
+
+    /// <summary>
     /// Tries to consume a hook reference of the form <c>?name</c> — a value used
     /// inside an expression to target a named hook (or a built-in like
     /// <c>?passage</c>/<c>?link</c>). The leading <c>?</c> is dropped from the
@@ -1091,6 +1124,16 @@ namespace Harlowe.Tokens
           Emit(TokenType.Operator, "to", startPos, startLine, startCol);
           return true;
         case '-':
+          // `--` is the comment marker; reference's rule order puts `comment`
+          // ahead of both `subtraction` and the `-type` typeSignature, so
+          // `5--3` is 5 with a commented-out 3, never 5 - (-3). A spaced
+          // `- -3` still reaches the operator arm below.
+          if (Peek(1) == '-')
+          {
+            AdvanceN(2);
+            Emit(TokenType.Comment, "--", startPos, startLine, startCol);
+            return true;
+          }
           if (TryScanTypeSuffix(startPos, startLine, startCol)) return true;
           Advance();
           Emit(TokenType.Operator, "-", startPos, startLine, startCol);
@@ -1177,6 +1220,9 @@ namespace Harlowe.Tokens
         // prose (apostrophes, slashes), so this can't fragment ordinary text —
         // only a real delimiter breaks the run.
         if (IsFormatDelimiterStart(_pos)) break;
+        // A doubled -- begins comment markup (single '-' stays prose), so the
+        // next dispatch emits a Comment token.
+        if (c == '-' && Peek(1) == '-') break;
         sb.Append(c);
         Advance();
       }

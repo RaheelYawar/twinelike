@@ -135,6 +135,7 @@ namespace Harlowe.Parsing
     /// </summary>
     private IExpressionNode ParseExpression(TokenCursor cursor, bool allowAssignmentAtTop)
     {
+      SkipComments(cursor);
       var t = cursor.Current;
       // `each _x` is the body-iteration form for (for:). Parameter follows
       // the keyword rather than preceding it, so it's its own entry path.
@@ -184,6 +185,9 @@ namespace Harlowe.Parsing
     {
       var args = new List<IExpressionNode>();
 
+      // Comments first, so `(a: --2)` is `(a:)` — reference slices the
+      // commented-out token from the arg stream before evaluating.
+      SkipComments(cursor);
       if (cursor.Current.Type == TokenType.MacroClose)
       {
         cursor.Advance();
@@ -284,6 +288,11 @@ namespace Harlowe.Parsing
 
       while (true)
       {
+        // A comment between operand and operator (or in place of the
+        // operator) deletes itself + the next token, so `3 --2 + 6` is
+        // `3 + 6` — matching reference's runner, where `comment` has the
+        // loosest precedence and slices out its following token.
+        SkipComments(cursor);
         var t = cursor.Current;
         if (t.Type != TokenType.Operator) break;
         if (LambdaClauseKeywords.Contains(t.Value))
@@ -382,6 +391,7 @@ namespace Harlowe.Parsing
         node.MakingName = accTok.Value;
         node.MakingIsTemporary = accTok.Type == TokenType.TempVariable;
         cursor.Advance();
+        SkipComments(cursor);
         t = cursor.Current;
         if (t.Type != TokenType.Operator || t.Value != "via")
           throw new HarloweParseException("'making' must be followed by 'via' giving the fold body", t.Line, t.Column);
@@ -420,6 +430,7 @@ namespace Harlowe.Parsing
     /// </summary>
     private IExpressionNode ParseUnary(TokenCursor cursor)
     {
+      SkipComments(cursor);
       var t = cursor.Current;
       if (t.Type == TokenType.Operator && UnaryPrefixOps.TryGetValue(t.Value, out int order))
       {
@@ -546,6 +557,64 @@ namespace Harlowe.Parsing
       if (after + 4 == name.Length && name.Substring(after, 4) == "last")
       { index = n; fromEnd = true; return true; }
       return false;
+    }
+
+    /// <summary>
+    /// Consumes every <see cref="TokenType.Comment"/> (<c>--</c>) at the
+    /// cursor along with the one construct each eliminates — reference's
+    /// <c>runner.ts</c> <c>comment</c> branch: "Treat the next token as if it
+    /// didn't exist (by slicing it out)". Called wherever the parser is about
+    /// to read an operand or operator, so <c>(set: $x to --2 6)</c> assigns 6
+    /// and <c>3 --2 + 6</c> is <c>3 + 6</c>. No-op when the cursor isn't at a
+    /// comment.
+    /// </summary>
+    private static void SkipComments(TokenCursor cursor)
+    {
+      while (cursor.Current.Type == TokenType.Comment)
+      {
+        cursor.Advance();
+        SkipOneAtomSpan(cursor);
+      }
+    }
+
+    /// <summary>
+    /// Advances past the one thing a <c>--</c> comment eliminates. Reference
+    /// removes one <em>folded</em> token — a whole nested macro call, grouping
+    /// paren, or code hook is a single unit there — so an opener here skips
+    /// its balanced span (which is also what makes <c>--[a note]</c> comment
+    /// hooks work inside macro args: the hook lexes as a bracket span in
+    /// expression mode). A closer is never consumed: reference's folded
+    /// stream ends before the construct's own closing token, so eating one
+    /// here would desync the parser from its enclosing macro/group.
+    /// </summary>
+    private static void SkipOneAtomSpan(TokenCursor cursor)
+    {
+      switch (cursor.Current.Type)
+      {
+        case TokenType.EndOfFile:
+        case TokenType.MacroClose:
+        case TokenType.ParenClose:
+        case TokenType.BracketClose:
+          return;
+
+        case TokenType.MacroOpen:
+        case TokenType.ParenOpen:
+        case TokenType.BracketOpen:
+          int depth = 0;
+          do
+          {
+            var t = cursor.Current.Type;
+            if (t == TokenType.EndOfFile) return;
+            if (t == TokenType.MacroOpen || t == TokenType.ParenOpen || t == TokenType.BracketOpen) depth++;
+            else if (t == TokenType.MacroClose || t == TokenType.ParenClose || t == TokenType.BracketClose) depth--;
+            cursor.Advance();
+          } while (depth > 0);
+          return;
+
+        default:
+          cursor.Advance();
+          return;
+      }
     }
   }
 }

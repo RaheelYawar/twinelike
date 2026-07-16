@@ -19,6 +19,8 @@ namespace Harlowe
     public virtual void Visit(Ast.Body.HtmlNode node) { }
     public virtual void Visit(LinkNode node) { }
     public virtual void Visit(ParseErrorNode node) { }
+    // Commented-out content is dead: no links to collect, no errors to report.
+    public virtual void Visit(CommentNode node) { }
 
     public virtual void Visit(MacroNode node)
     {

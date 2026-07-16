@@ -106,6 +106,29 @@ namespace Harlowe.Tokens
     /// </summary>
     FormatDelimiter,
 
+    /// <summary>
+    /// The <c>--</c> comment marker (reference's <c>comment</c> pattern in
+    /// <c>ts/markup/patterns.ts</c>, Harlowe 4.0). Emitted in both body and
+    /// expression modes; the parsers implement its "eliminate the next
+    /// fully-wrapped token" semantics (reference's renderer skip and
+    /// <c>runner.ts</c> slice-out). In expression mode it outranks the
+    /// <c>-</c> operator and the <c>-type</c> suffix, matching reference's
+    /// rule order. Suppressed inside <c>[[…]]</c> links, whose interior is a
+    /// plain text run.
+    /// </summary>
+    Comment,
+
+    /// <summary>
+    /// A whole <c>&lt;!-- … --&gt;</c> HTML comment, consumed as one token
+    /// (reference's <c>htmlCommentFront</c>/<c>htmlCommentBack</c> fold). The
+    /// Value holds the full source including delimiters. Body mode only —
+    /// reference documents that HTML comments cannot be used inside macro
+    /// calls. Renders as nothing (reference's <c>htmlComment</c> renderer
+    /// case is an empty <c>break</c>). An unterminated <c>&lt;!--</c> is not
+    /// a comment and stays prose.
+    /// </summary>
+    HtmlComment,
+
     /// <summary>Sentinel emitted once the input is exhausted.</summary>
     EndOfFile
   }

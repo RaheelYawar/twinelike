@@ -128,6 +128,19 @@ namespace Harlowe.Twee
     }
 
     /// <summary>
+    /// Emits the comment's captured source verbatim (<c>--</c> marker plus
+    /// the eliminated construct, or a whole <c>&lt;!-- … --&gt;</c>) so an
+    /// author's notes survive re-canonicalization. A hand-built node with no
+    /// source emits nothing — a comment is semantically invisible, so
+    /// there's nothing to reconstruct.
+    /// </summary>
+    public void Visit(Ast.Body.CommentNode node)
+    {
+      if (!string.IsNullOrEmpty(node.OriginalSource))
+        _sb.Append(node.OriginalSource);
+    }
+
+    /// <summary>
     /// Emits the canonical link form. <c>[[name]]</c> when <c>Text == Target</c>
     /// (or the parser populated <c>Text</c> from <c>Target</c>); otherwise
     /// <c>[[text-&gt;target]]</c>. The <c>&lt;-</c> form is never emitted —

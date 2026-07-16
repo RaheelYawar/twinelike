@@ -162,6 +162,10 @@ namespace Harlowe.Runtime
 
     public void Visit(ParseErrorNode node) => _output.Error(node.Message);
 
+    // A comment renders as nothing — reference's renderer eliminates the
+    // commented-out token and emits nothing for htmlComment.
+    public void Visit(CommentNode node) { }
+
     /// <summary>
     /// Render a hook's contents. When the output is a
     /// <see cref="Rendering.RenderTreeBuilder"/>, the contents are bracketed as

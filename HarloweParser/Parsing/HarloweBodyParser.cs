@@ -323,6 +323,15 @@ namespace Harlowe.Parsing
         case TokenType.LinkOpen:
           return ParseLink(cursor);
 
+        case TokenType.Comment:
+          return ParseComment(cursor);
+
+        case TokenType.HtmlComment:
+          // Already one self-contained token; renders as nothing (reference's
+          // `htmlComment` renderer case is an empty break).
+          cursor.Advance();
+          return new CommentNode { OriginalSource = t.Value };
+
         default:
           // Stray closers (HookClose without an opener, HookNameLeft outside a
           // hook, etc.) are silently skipped — the parser is tolerant of
@@ -330,6 +339,148 @@ namespace Harlowe.Parsing
           cursor.Advance();
           return null;
       }
+    }
+
+    /// <summary>
+    /// Cursor is at a <see cref="TokenType.Comment"/> (<c>--</c>) marker.
+    /// Consumes it plus the one construct it comments out, per reference's
+    /// renderer (<c>ts/renderer.ts</c>, case <c>comment</c>: "The comment
+    /// syntax eliminates the next fully-wrapped token"). A "fully-wrapped
+    /// token" in reference is one folded lex tree — mapped here onto our
+    /// flat token stream:
+    ///
+    /// <list type="bullet">
+    /// <item>a prose run — all consecutive <see cref="TokenType.Text"/>
+    /// tokens, since reference lexes an unbroken prose stretch as a single
+    /// text token where our tokenizer may split it;</item>
+    /// <item>a comment hook <c>--[…]</c> — the whole hook, nesting included
+    /// (hooks nest naturally, which is what makes reference's comment hooks
+    /// nestable);</item>
+    /// <item>one whole macro call — skipped <em>structurally</em> (balanced
+    /// <see cref="TokenType.MacroOpen"/>/<see cref="TokenType.MacroClose"/>
+    /// counting, no argument parse), so a syntax error inside a commented-out
+    /// macro stays silent exactly as in reference, where the macro's folded
+    /// token is eliminated before anything evaluates it. The attached hook,
+    /// if any, is <em>not</em> part of the macro's token in reference and
+    /// survives as an ordinary anonymous hook — same here, since we never
+    /// reach the attachment lookahead;</item>
+    /// <item>an inline-format span — <c>--''bold''</c> eats through the
+    /// matching delimiter (reference folds the whole styled span into one
+    /// token) via lookahead at the same hook depth; an unmatched delimiter is
+    /// eaten alone (reference: it degrades to a literal-text token, which is
+    /// then the eliminated token);</item>
+    /// <item>a link, a named hook, a variable, an HTML tag, a line break, or
+    /// any other single construct.</item>
+    /// </list>
+    ///
+    /// A comment with nothing after it (end of input, or the enclosing
+    /// hook's <c>]</c>) eliminates nothing. The consumed span, marker
+    /// included, lands in <see cref="CommentNode.OriginalSource"/> so a dirty
+    /// passage round-trips its comments through <see cref="Twee.MarkupPrinter"/>.
+    /// </summary>
+    private IBodyNode ParseComment(TokenCursor cursor)
+    {
+      int startPos = cursor.Current.Position;
+      cursor.Advance(); // the -- marker
+
+      var next = cursor.Current;
+      switch (next.Type)
+      {
+        case TokenType.EndOfFile:
+        case TokenType.HookClose:
+          break; // nothing to eliminate; leave the terminator for the caller
+
+        case TokenType.Text:
+          while (cursor.Current.Type == TokenType.Text) cursor.Advance();
+          break;
+
+        case TokenType.HookOpen:
+          cursor.Advance();
+          ParseHookContents(cursor, HookAnchor.None, name: null); // discarded
+          break;
+
+        case TokenType.MacroOpen:
+          SkipBalancedMacro(cursor);
+          break;
+
+        case TokenType.LinkOpen:
+          // Discarded. Always terminated — the tokenizer only emits LinkOpen
+          // when a ]] closer is ahead.
+          ParseLink(cursor);
+          break;
+
+        case TokenType.HookNameRight:
+          ParseRightAnchoredHook(cursor); // discarded — |name>[…] is one construct
+          break;
+
+        case TokenType.FormatDelimiter:
+          SkipFormatSpan(cursor);
+          break;
+
+        default:
+          // Newline, variable, HTML tag, a following comment marker, a stray
+          // closer — all single tokens. Reference eats a br here too, so
+          // `--` at line end joins the lines.
+          cursor.Advance();
+          break;
+      }
+
+      return new CommentNode { OriginalSource = cursor.SliceFrom(startPos) };
+    }
+
+    /// <summary>
+    /// Cursor is at <see cref="TokenType.MacroOpen"/>: advance past the whole
+    /// call by balanced open/close counting, with no argument parsing. Used
+    /// only by <see cref="ParseComment"/> — a commented-out macro is
+    /// eliminated before anything inspects it, so its contents can't raise
+    /// parse errors. Grouping parens and brackets inside the args are strictly
+    /// nested between the macro's own open/close pair and need no counting of
+    /// their own. Stops at end-of-input for an unterminated call.
+    /// </summary>
+    private static void SkipBalancedMacro(TokenCursor cursor)
+    {
+      int depth = 0;
+      do
+      {
+        var t = cursor.Current.Type;
+        if (t == TokenType.EndOfFile) return;
+        if (t == TokenType.MacroOpen) depth++;
+        else if (t == TokenType.MacroClose) depth--;
+        cursor.Advance();
+      } while (depth > 0);
+    }
+
+    /// <summary>
+    /// Cursor is at a <see cref="TokenType.FormatDelimiter"/> right after a
+    /// comment marker. Pure lookahead for the matching same-kind delimiter at
+    /// the same hook depth (a delimiter inside a nested hook belongs to that
+    /// hook's own fold, as in reference, where each token's children fold
+    /// independently); if found, the whole span through the closer is
+    /// consumed, else just the opener (an unmatched delimiter degrades to
+    /// literal text, which is the one token the comment then eliminates).
+    /// The scan crosses line breaks — format folding does too.
+    /// </summary>
+    private static void SkipFormatSpan(TokenCursor cursor)
+    {
+      string kind = cursor.Current.Value;
+      int hookDepth = 0;
+      for (int offset = 1; ; offset++)
+      {
+        var t = cursor.Peek(offset);
+        if (t.Type == TokenType.EndOfFile) break;
+        if (t.Type == TokenType.HookOpen) hookDepth++;
+        else if (t.Type == TokenType.HookClose)
+        {
+          if (hookDepth == 0) break; // enclosing hook closes — span never matched
+          hookDepth--;
+        }
+        else if (t.Type == TokenType.FormatDelimiter && t.Value == kind && hookDepth == 0)
+        {
+          for (int i = 0; i <= offset; i++) cursor.Advance();
+          return;
+        }
+      }
+      cursor.Advance(); // unmatched: eat the delimiter alone
     }
 
     /// <summary>
