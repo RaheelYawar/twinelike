@@ -354,9 +354,11 @@ namespace Harlowe.Parsing
     ///
     /// <para>
     /// Accepts <c>where</c> alone, <c>via</c> alone, the chained
-    /// <c>where ... via ...</c> filter-then-transform, and the fold shape
-    /// <c>_item making _acc via ...</c> (item parameter first, accumulator
-    /// after <c>making</c>, body required). <c>when</c> remains unsupported.
+    /// <c>where ... via ...</c> filter-then-transform, a trailing
+    /// <c>via ... where ...</c> (either shape, one <c>where</c> total), and
+    /// the fold shape <c>_item making _acc via ...</c> (item parameter first,
+    /// accumulator after <c>making</c>, body required, optional trailing
+    /// <c>where</c> filter). <c>when</c> remains unsupported.
     /// </para>
     /// </summary>
     private LambdaNode ParseLambdaTail(TokenCursor cursor, IExpressionNode leftAsParam)
@@ -416,6 +418,20 @@ namespace Harlowe.Parsing
       {
         cursor.Advance();
         node.ViaClause = ParseBinary(cursor, 14, allowAssignmentAtTop: false);
+      }
+
+      // A trailing `where` after the via body — the fold-filter shape from
+      // reference's (folded:) doc, `_item making _total via _total + _item
+      // where _item > 0`. The via clause parses at order 14 (one tighter than
+      // the lambda level), so the keyword survives to here. Only claimed when
+      // no `where` was given up front; a second one is a stray token and
+      // errors through the caller as before.
+      var trailing = cursor.Current;
+      if (node.WhereClause == null && node.ViaClause != null
+          && trailing.Type == TokenType.Operator && trailing.Value == "where")
+      {
+        cursor.Advance();
+        node.WhereClause = ParseBinary(cursor, 14, allowAssignmentAtTop: false);
       }
 
       return node;

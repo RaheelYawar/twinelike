@@ -185,6 +185,13 @@ namespace Harlowe.Tests.Twee
     [Fact] public void Expr_Lambda_ForCall() => AssertExprRoundTripStable("(for: each _x, 1, 2, 3)");
     [Fact] public void Expr_Lambda_MakingFold() => AssertExprRoundTripStable("_item making _acc via _acc + _item");
     [Fact] public void Expr_Lambda_FoldedCall() => AssertExprRoundTripStable("(folded: _item making _acc via _acc + _item, 1, 2, 3)");
+    // The fold-filter shape: `where` trails the via body, since `making` must
+    // be followed directly by `via` — the printer emits this same order.
+    [Fact] public void Expr_Lambda_MakingFoldWithWhere() => AssertExprRoundTripStable("_item making _acc via _acc + _item where _item > 0");
+    [Fact] public void Expr_Lambda_ViaThenWhere_CanonicalizesToWhereFirst()
+      // A trailing where on a non-fold lambda parses; the printer emits the
+      // filter-then-transform order, which reparses to the same AST.
+      => Assert.Equal("where it > 0 via it * 2", PrintExpr("via it * 2 where it > 0"));
     [Fact] public void Expr_Lambda_RotatedToCall() => AssertExprRoundTripStable("(rotated-to: _x where _x is 3, 1, 2, 3)");
     [Fact] public void Expr_SortedCall() => AssertExprRoundTripStable("(sorted: 3, 1, 2)");
 

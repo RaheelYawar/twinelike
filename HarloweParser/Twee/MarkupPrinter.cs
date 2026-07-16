@@ -340,16 +340,26 @@ namespace Harlowe.Twee
         _sb.Append(' ');
       }
 
-      if (node.WhereClause != null)
+      // Clause order must reparse. A fold lambda requires `via` directly
+      // after `making _acc`, so its `where` trails (the (folded:) filter
+      // idiom, `… making _t via _t + _i where _i > 0`); non-fold lambdas
+      // keep the `where … via …` filter-then-transform order.
+      bool viaFirst = node.MakingName != null;
+      if (!viaFirst && node.WhereClause != null)
       {
         _sb.Append("where ");
         node.WhereClause.Accept(this);
       }
       if (node.ViaClause != null)
       {
-        if (node.WhereClause != null) _sb.Append(' ');
+        if (!viaFirst && node.WhereClause != null) _sb.Append(' ');
         _sb.Append("via ");
         node.ViaClause.Accept(this);
+      }
+      if (viaFirst && node.WhereClause != null)
+      {
+        _sb.Append(" where ");
+        node.WhereClause.Accept(this);
       }
     }
 

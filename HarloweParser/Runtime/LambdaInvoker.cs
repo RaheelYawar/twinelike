@@ -78,6 +78,14 @@ namespace Harlowe.Runtime
     /// a <c>via</c> clause; anything else surfaces as an in-prose error.
     /// <c>it</c> is bound to the item alongside the named parameter,
     /// matching the predicate/transform discipline.
+    ///
+    /// <para>A <c>where</c> clause, when present, filters the fold: it is
+    /// evaluated under the same bindings, and a false result returns
+    /// <paramref name="accumulator"/> unchanged — reference's (folded:)
+    /// keeps the prior <c>making</c> value when the lambda yields
+    /// <c>null</c> (the null-filter branch of its <c>reduce</c> in
+    /// <c>ts/macrolib/datastructures.ts</c>). Callers never hand the seed
+    /// value through here, so it is exempt from the filter, per 3.3.6.</para>
     /// </summary>
     public static HarloweValue EvalFold(LambdaValue lambda, HarloweValue accumulator, HarloweValue item, int pos, MacroContext ctx)
     {
@@ -94,11 +102,19 @@ namespace Harlowe.Runtime
       using (ctx.Store.PushItBinding(item))
       using (ctx.Store.PushPosBinding(pos))
       using (ctx.Store.PushBinding(node.MakingName, node.MakingIsTemporary, accumulator))
+      using (node.ParameterName != null
+               ? ctx.Store.PushBinding(node.ParameterName, node.ParameterIsTemporary, item)
+               : null)
       {
-        if (node.ParameterName == null)
-          return evaluator.Evaluate(node.ViaClause);
-        using (ctx.Store.PushBinding(node.ParameterName, node.ParameterIsTemporary, item))
-          return evaluator.Evaluate(node.ViaClause);
+        if (node.WhereClause != null)
+        {
+          var keep = evaluator.Evaluate(node.WhereClause);
+          if (keep.IsError) return keep;
+          if (keep.Kind != HarloweValueKind.Bool)
+            return HarloweValue.OfError($"lambda 'where' clause must produce a Bool; got {keep.Kind}");
+          if (!keep.AsBool) return accumulator;
+        }
+        return evaluator.Evaluate(node.ViaClause);
       }
     }
 

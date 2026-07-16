@@ -543,6 +543,62 @@ namespace Harlowe.Tests.Runtime.Macros
       Assert.Equal(999, ctx.Store.Get("acc", true).AsNumber); // restored
     }
 
+    // --- (folded:) where-clause filter (divergence #15) ---
+
+    [Fact]
+    public void Folded_WhereClause_FiltersItems()
+    {
+      // The reference doc's own example: sums only the values greater than 0.
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(folded: _item making _total via _total + _item where _item > 0, 0, 5, -2, 3)");
+      Assert.Equal(8, v.AsNumber);
+    }
+
+    [Fact]
+    public void Folded_WhereClause_SeedExempt()
+    {
+      // Per 3.3.6 the where clause doesn't apply to the first value — it goes
+      // into the accumulator from the outset and never becomes a loop item.
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(folded: _item making _total via _total + _item where _item > 0, -10, 1, 2)");
+      Assert.Equal(-7, v.AsNumber);
+    }
+
+    [Fact]
+    public void Folded_WhereClause_AllFiltered_ReturnsSeed()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(folded: _item making _total via _total + _item where _item > 0, 7, -1, -2)");
+      Assert.Equal(7, v.AsNumber);
+    }
+
+    [Fact]
+    public void Folded_WhereClause_SeesAccumulator()
+    {
+      // The filter runs under the same bindings as the via body, so it can
+      // consult the running total: stop adding once _total reaches 3.
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(folded: _i making _total via _total + _i where _total < 3, 0, 2, 2, 2)");
+      Assert.Equal(4, v.AsNumber);
+    }
+
+    [Fact]
+    public void Folded_WhereClause_NonBool_Errors()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(folded: _item making _total via _total + _item where _item + 1, 0, 1)");
+      Assert.True(v.IsError);
+      Assert.Contains("Bool", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void Folded_WhereClause_ErrorPropagates()
+    {
+      var (reg, ctx) = Setup();
+      var v = Eval(reg, ctx, "(folded: _item making _total via _total + _item where _item > \"a\", 0, 1)");
+      Assert.True(v.IsError);
+    }
+
     // --- (rotated-to:) ---
 
     [Fact]

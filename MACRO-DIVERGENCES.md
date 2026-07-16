@@ -12,7 +12,7 @@ for the save-model slice (which lands `(history:)` semantics).
 ## Counts
 
 - **High severity (0 active, 6 fixed)**: silent wrong result or breaks documented Harlowe idioms.
-- **Medium severity (2 active, 9 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
+- **Medium severity (1 active, 10 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
 - **Low severity (2 active, 1 fixed)**: documented as deliberate or marginal.
 
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
@@ -517,7 +517,24 @@ here. See the `Sorted_*` tests in `LambdaMacroTests`. Original finding below.
 - **User-visible**: The reference's own documented mixed-value example errors in
   ours; any array mixing numbers and strings can't be sorted.
 
-### 15. `(folded:)` ignores a `where` filter clause
+### 15. `(folded:)` ignores a `where` filter clause — ✅ FIXED (2026-07-15)
+
+**Resolved.** Both halves landed. Parser: `ParseLambdaTail` accepts a trailing
+`where` after the `via` body (the clause parses at order 14, so the keyword
+survives to the tail) — covering the fold-filter shape `_item making _total
+via _total + _item where _item > 0` and, for free, `via … where …` on plain
+transform lambdas. Runtime: `EvalFold` evaluates the `where` clause under the
+same bindings as the via body (item + `making` accumulator + `it` + `pos` —
+so a filter can consult the running total), and a false result returns the
+accumulator unchanged, reference's null-filter branch in `(folded:)`'s
+`reduce` (`ts/macrolib/datastructures.ts`). The seed stays exempt per 3.3.6 —
+it never becomes a loop value, so it never reaches the filter. A non-Bool
+`where` result errors, as for predicate lambdas. `MarkupPrinter` prints a fold
+lambda's `where` after the via body (the only order that reparses, since
+`making` must be followed directly by `via`); non-fold lambdas keep the
+`where … via …` order. See the `Folded_WhereClause_*` tests in
+`LambdaMacroTests` and the fold round-trip pins in
+`MarkupPrinterRoundTripTests`. Original finding below.
 
 - **Ours**: `EvalFold` honours only `making` + `via` and never consults
   `WhereClause`. Worse, the parser can't even produce a fold lambda carrying a
@@ -677,9 +694,11 @@ architecture.
   `RevisionChangers.Build` interface for multiple targets.~~ ✅ done — and the
   descriptor grew reference's `newTargets` list, fixing composed revision
   changers (accumulate + dedup) in the same change.
-- `(folded:)` `where`-clause support (#15) — `ParseLambdaTail` must accept a
+- ~~`(folded:)` `where`-clause support (#15) — `ParseLambdaTail` must accept a
   trailing `where` after `making … via …`, and `EvalFold` must skip filtered
-  items (keep the prior accumulator), excluding the seed value per 3.3.6.
+  items (keep the prior accumulator), excluding the seed value per 3.3.6.~~
+  ✅ done — exactly that shape, plus the printer emits the reparseable
+  trailing-`where` order for fold lambdas.
 
 **Blocked on deferred slices**:
 

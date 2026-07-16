@@ -7,7 +7,11 @@ namespace Harlowe.Runtime.Macros
   /// running accumulator through the items, evaluating the lambda's
   /// <c>via</c> clause once per item. The lambda must carry both a
   /// <c>making</c> accumulator parameter and a <c>via</c> body; a
-  /// <c>where</c>-only or plain <c>via</c> lambda errors out in-prose.
+  /// <c>where</c>-only or plain <c>via</c> lambda errors out in-prose. An
+  /// optional <c>where</c> clause filters the fold — a false item keeps the
+  /// prior accumulator — and never applies to the first (seed) item, which
+  /// becomes the accumulator without ever being a loop value (reference's
+  /// 3.3.6 rule).
   ///
   /// <para>
   /// Per Harlowe's documented behaviour the initial accumulator is the first
