@@ -88,11 +88,9 @@ namespace Harlowe.Runtime.Macros
 
       // Reference's colour tests: a hex string, or any CSS function call
       // (`rgb(…)`, `hsl(…)`, `color-mix(…)`). Everything else is an image.
+      // (An empty value can't reach here — StyleValueValidator rejects it.)
       if (ColourValue.FromHex(value) != null || LooksLikeCssFunction(value))
         return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { BackgroundColor = value }));
-
-      if (value.Length == 0)
-        return HarloweValue.OfError($"({_name}:) value is empty");
 
       return HarloweValue.OfChanger(Changer.FromStyle(new StyleSpec { BackgroundImage = value }));
     }

@@ -84,6 +84,15 @@ namespace Harlowe.Runtime
     // between Undo() and the replay Render().
     private string _replayFrom;
 
+    // Entry state of the current top-level render, captured at depth 0 so a
+    // (goto:) chain that hits MaxGotoDepth can be rolled back. Each hop commits
+    // RecordRedirect + EnterPassage before recursing, so by the time the ceiling
+    // check fires every hop is already in the present turn's Visits trail and
+    // _currentPassage is stranded mid-loop — state that visits/(history:) derive
+    // from and SaveGame persists. The abort restores both to the turn's entry.
+    private string _renderEntryPassage;
+    private List<string> _renderEntryVisits;
+
     // True while rendering a just-loaded passage. Armed by InstallTimeline; cleared on
     // any navigation to a NEW turn — a host Goto, or the undo/redo/load restore path
     // (RestoreToPresent), which InstallTimeline re-arms right after. An in-passage
@@ -703,6 +712,10 @@ namespace Harlowe.Runtime
         // From here the render rebuilds the present turn's end-state, so the live
         // store/RNG are no longer at the turn start.
         _liveAtTurnStart = false;
+        // Snapshot the turn's entry so an aborted redirect chain can roll back.
+        // Visits is copied — RecordRedirect appends to the live list in place.
+        _renderEntryPassage = _currentPassage;
+        _renderEntryVisits = _present.Visits == null ? null : new List<string>(_present.Visits);
       }
 
       if (string.IsNullOrEmpty(_currentPassage))
@@ -752,6 +765,14 @@ namespace Harlowe.Runtime
       {
         if (depth >= MaxGotoDepth)
         {
+          // Roll the turn back to its entry: every hop already committed
+          // RecordRedirect + EnterPassage, so without this the aborted loop's
+          // hops pollute visits/(history:) and get persisted by SaveGame,
+          // with _currentPassage stranded wherever the loop was cut. The
+          // session rests at the entry passage as if the turn had just begun
+          // (a re-render re-runs the chain and errors again, reproducibly).
+          _present.Visits = _renderEntryVisits;
+          EnterPassage(_renderEntryPassage);
           var errEntries = new List<BufferedRenderOutput.Entry>();
           errEntries.Add(new BufferedRenderOutput.Entry
           {

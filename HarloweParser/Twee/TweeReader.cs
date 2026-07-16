@@ -250,7 +250,7 @@ namespace Harlowe.Twee
         }
         if (line[p] == '{')
         {
-          int close = line.IndexOf('}', p);
+          int close = FindMetadataBlockClose(line, p);
           if (close < 0) break;
           block.Position = line.Substring(p, close - p + 1);
           p = close + 1;
@@ -259,6 +259,41 @@ namespace Harlowe.Twee
         break;
       }
       return block;
+    }
+
+    /// <summary>
+    /// Scans forward from the opening <c>{</c> at <paramref name="open"/> for
+    /// its matching <c>}</c>, tracking nested braces and JSON strings (a brace
+    /// inside a quoted value is content, and an escaped <c>\"</c> inside a
+    /// string doesn't end it). Returns -1 when the block never closes. A plain
+    /// first-<c>}</c> scan truncated metadata carrying a nested object —
+    /// <c>{"position":"1,2","meta":{"a":1}}</c> lost its final brace, and since
+    /// the blob is stored opaque and re-emitted verbatim, the writer then
+    /// round-tripped <em>invalid</em> JSON. Twine's flat
+    /// <c>{"position":…,"size":…}</c> never nests; custom metadata can.
+    /// </summary>
+    private static int FindMetadataBlockClose(string line, int open)
+    {
+      int depth = 0;
+      bool inString = false;
+      for (int i = open; i < line.Length; i++)
+      {
+        char c = line[i];
+        if (inString)
+        {
+          if (c == '\\' && i + 1 < line.Length) { i++; continue; }
+          if (c == '"') inString = false;
+          continue;
+        }
+        if (c == '"') { inString = true; continue; }
+        if (c == '{') depth++;
+        else if (c == '}')
+        {
+          depth--;
+          if (depth == 0) return i;
+        }
+      }
+      return -1;
     }
 
     /// <summary>
@@ -350,13 +385,40 @@ namespace Harlowe.Twee
       story.Ifid = AsString(dict, "ifid", string.Empty);
       story.Format = AsString(dict, "format", string.Empty);
       story.FormatVersion = AsString(dict, "format-version", string.Empty);
-      return AsString(dict, "start", null);
+      return StartName(dict);
     }
 
     private static string AsString(Dictionary<string, object> dict, string key, string fallback)
     {
       if (!dict.TryGetValue(key, out object v) || v == null) return fallback;
       return v as string ?? fallback;
+    }
+
+    /// <summary>
+    /// Reads the <c>start</c> field, coercing a scalar to its JSON text. The
+    /// spec types <c>start</c> as a string, but a tool that knows the start
+    /// passage's name is numeric may emit <c>{"start": 123}</c> — a string-only
+    /// read drops that silently, and the story loads unable to start with no
+    /// diagnostic anywhere. Coerced names resolve through the same
+    /// passage-lookup gate as spec-shaped ones (an unresolvable name leaves
+    /// <see cref="Harlowe.StartNode"/> untouched either way); a structured
+    /// value (object/array) can't be a passage name and stays unresolved.
+    /// Number formatting mirrors <see cref="JsonWriter"/>'s: whole values
+    /// render without a trailing <c>.0</c>.
+    /// </summary>
+    private static string StartName(Dictionary<string, object> dict)
+    {
+      if (!dict.TryGetValue("start", out object v) || v == null) return null;
+      if (v is string s) return s;
+      if (v is bool b) return b ? "true" : "false";
+      if (v is double d)
+      {
+        if (double.IsNaN(d) || double.IsInfinity(d)) return null;
+        if (d == System.Math.Floor(d) && d >= long.MinValue && d <= long.MaxValue)
+          return ((long)d).ToString(CultureInfo.InvariantCulture);
+        return d.ToString("R", CultureInfo.InvariantCulture);
+      }
+      return null;
     }
 
     private class PassageBlock

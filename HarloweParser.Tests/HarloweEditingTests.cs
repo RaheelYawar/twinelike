@@ -88,6 +88,39 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void AddPassage_DuplicateExplicitPid_ThrowsNothingAdded()
+    {
+      // A shared pid makes GetPassageByPid/GetStartPassage resolution
+      // non-deterministic, so an explicit collision is refused loudly.
+      var story = new Harlowe();
+      var p = MakePassage("First");
+      p.Pid = "7";
+      story.AddPassage(p);
+
+      var q = MakePassage("Second");
+      q.Pid = "7";
+      var ex = Assert.Throws<System.ArgumentException>(() => story.AddPassage(q));
+      Assert.Contains("pid '7'", ex.Message);
+      Assert.Null(story.GetPassage("Second"));
+    }
+
+    [Fact]
+    public void AddPassage_SynthesizedPid_CannotCollideWithExplicit()
+    {
+      // The synthesizer already avoids existing numeric pids; pin that the
+      // uniqueness check doesn't reject its output.
+      var story = new Harlowe();
+      var p = MakePassage("First");
+      p.Pid = "1";
+      story.AddPassage(p);
+
+      var q = MakePassage("Second");
+      q.Pid = null;
+      story.AddPassage(q);
+      Assert.Equal("2", q.Pid);
+    }
+
+    [Fact]
     public void AddPassage_Null_Throws()
     {
       var story = new Harlowe();
@@ -404,6 +437,34 @@ namespace Harlowe.Tests
       var story = Read(":: Start\n(goto: \"Old\")\n\n:: Old\nhi");
       story.RenamePassage("Old", "New");
       Assert.Contains("(goto: \"Old\")", story.GetPassageBody("Start"));
+    }
+
+    [Theory]
+    [InlineData("A->B")]
+    [InlineData("A<-B")]
+    [InlineData("A|B")]
+    [InlineData("New]]evil")]
+    public void RenamePassage_NewNameWithLinkSeparator_RefusedNothingMutated(string newName)
+    {
+      // Substituting such a name into [[...]] changes how the link parses
+      // ([[A->B]] is text A -> target B), silently retargeting every inbound
+      // link. The rename is refused outright rather than corrupting them.
+      var story = Read(":: Start\n[[Old]] [[go->Old]] [[Old<-back]]\n\n:: Old\nhi");
+      Assert.False(story.RenamePassage("Old", newName));
+      Assert.NotNull(story.GetPassage("Old"));
+      Assert.Null(story.GetPassage(newName));
+      Assert.Equal("[[Old]] [[go->Old]] [[Old<-back]]", story.GetPassageBody("Start"));
+    }
+
+    [Fact]
+    public void RenamePassage_NewNameWithLinkSeparator_UpdateInboundLinksFalse_Succeeds()
+    {
+      // With the rewrite opted out the name is just a dictionary key, so the
+      // rename proceeds; retargeting inbound references is the caller's job.
+      var story = Read(":: Start\n[[Old]]\n\n:: Old\nhi");
+      Assert.True(story.RenamePassage("Old", "A->B", updateInboundLinks: false));
+      Assert.NotNull(story.GetPassage("A->B"));
+      Assert.Equal("[[Old]]", story.GetPassageBody("Start"));
     }
 
     [Fact]

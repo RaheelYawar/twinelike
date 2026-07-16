@@ -1051,6 +1051,59 @@ namespace Harlowe.Tests.Runtime
       Assert.Equal("P1", h2[0].AsString);
     }
 
+    [Fact]
+    public void GotoLoop_DepthCeiling_ErrorsAndRestsAtTurnEntry()
+    {
+      // P2 and P3 (goto:) each other forever. The abort must roll the turn back
+      // to its entry — each hop commits to the redirect trail before the next
+      // frame's ceiling check, so without the rollback the session strands
+      // wherever the loop was cut.
+      var session = new StorySession(ThreePassages("start", "(goto: \"P3\")", "(goto: \"P2\")"));
+      var r = session.Goto("P2");
+      Assert.Equal(1, CountKind(r, BufferedRenderOutput.Kind.Error));
+      Assert.Equal("P2", session.CurrentPassage);
+      Assert.Equal("P2", r.PassageName);
+    }
+
+    [Fact]
+    public void GotoLoop_DepthCeiling_VisitsAndHistoryUnpolluted()
+    {
+      // The aborted turn contributes only its entry to the derived counts:
+      // visits of P2 reads 1 and history is [P1] — no hop survives the abort.
+      var session = new StorySession(ThreePassages("start", "(goto: \"P3\")", "(goto: \"P2\")"));
+      session.Goto("P2");
+      Assert.Equal(1, ((IEvaluationContext)session).Visits.AsNumber);
+      var h = ((IEvaluationContext)session).History.AsArray;
+      Assert.Single(h);
+      Assert.Equal("P1", h[0].AsString);
+    }
+
+    [Fact]
+    public void GotoLoop_DepthCeiling_SaveRoundTrips()
+    {
+      // The blob records a clean single-passage turn at the entry (the polluted
+      // trail used to be persisted verbatim); loading it reproduces the abort.
+      var session = new StorySession(ThreePassages("start", "(goto: \"P3\")", "(goto: \"P2\")"));
+      session.Goto("P2");
+      Assert.True(session.SaveGame("slot"));
+      Assert.True(session.LoadGame("slot"));
+      var r = session.Render();
+      Assert.Equal(1, CountKind(r, BufferedRenderOutput.Kind.Error));
+      Assert.Equal("P2", session.CurrentPassage);
+    }
+
+    [Fact]
+    public void GotoLoop_DepthCeiling_SelfLoopOnFirstRender_RestsAtStart()
+    {
+      // A self-redirecting start passage aborts on the very first Render();
+      // the turn's entry snapshot (not a prior Goto) is what the rollback uses.
+      var session = new StorySession(OnePassage("(goto: \"P1\")"));
+      var r = session.Render();
+      Assert.Equal(1, CountKind(r, BufferedRenderOutput.Kind.Error));
+      Assert.Equal("P1", session.CurrentPassage);
+      Assert.Equal(1, ((IEvaluationContext)session).Visits.AsNumber);
+    }
+
     // -----------------------------------------------------------------------
     // Store restored to turn-start, symmetric with the RNG (review fixes)
     // -----------------------------------------------------------------------

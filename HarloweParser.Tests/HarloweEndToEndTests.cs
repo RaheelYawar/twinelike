@@ -183,6 +183,21 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void Constructor_DuplicatePid_ThrowsHarloweParseException()
+    {
+      // A shared pid resolves through GetPassageByPid/GetStartPassage to
+      // whichever passage enumerates first — non-deterministic across
+      // runtimes — so the loader refuses it like a duplicate name.
+      const string html = "<html><body><tw-storydata name=\"T\" startnode=\"1\">"
+        + "<tw-passagedata pid=\"1\" name=\"A\">a</tw-passagedata>"
+        + "<tw-passagedata pid=\"1\" name=\"B\">b</tw-passagedata>"
+        + "</tw-storydata></body></html>";
+      var ex = Assert.Throws<HarloweParseException>(() => new Harlowe(html));
+      Assert.Contains("duplicate passage pid '1'", ex.Message);
+      Assert.Contains("'A' and 'B'", ex.Message);
+    }
+
+    [Fact]
     public void PassageCount_MatchesFixture()
     {
       var story = TestFixture.LoadTestFile();

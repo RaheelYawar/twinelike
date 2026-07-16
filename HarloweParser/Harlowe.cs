@@ -107,9 +107,13 @@ namespace Harlowe
     /// <summary>
     /// Adds a <see cref="HarlowePassage"/> to the story, indexed by name.
     /// Throws on duplicate names because Harlowe passage names are unique by
-    /// spec. If <see cref="HarlowePassage.Pid"/> is null/empty a fresh numeric
-    /// pid is synthesized — the maximum existing numeric pid plus one, so
-    /// removals and explicit pid assignment can't collide with the
+    /// spec, and on an explicit <see cref="HarlowePassage.Pid"/> another
+    /// passage already carries — pid lookups (<see cref="GetPassageByPid"/>,
+    /// and through it <see cref="GetStartPassage"/>) resolve a shared pid to
+    /// whichever passage enumerates first, which isn't deterministic across
+    /// runtimes. If <see cref="HarlowePassage.Pid"/> is null/empty a fresh
+    /// numeric pid is synthesized — the maximum existing numeric pid plus one,
+    /// so removals and explicit pid assignment can't collide with the
     /// synthesizer.
     ///
     /// <para>When <see cref="HarlowePassage.Ast"/> is null and
@@ -129,6 +133,9 @@ namespace Harlowe
       if (passage == null) throw new ArgumentNullException(nameof(passage));
       if (string.IsNullOrEmpty(passage.Pid))
         passage.Pid = NextAvailablePid().ToString(CultureInfo.InvariantCulture);
+      else if (GetPassageByPid(passage.Pid) != null)
+        throw new ArgumentException(
+          $"a passage with pid '{passage.Pid}' already exists", nameof(passage));
       HydratePassageFromBody(passage);
       _passages.Add(passage.Name, passage); // throws on duplicate name; list stays clean
       _passageOrder.Add(passage.Name);
@@ -417,6 +424,15 @@ namespace Harlowe
     /// <em>not</em> rewritten). Pass false to rename as a pure index re-key and
     /// take responsibility for link updates yourself — mirrors the Twine editor's
     /// <c>dontUpdateOthers</c> option.</para>
+    ///
+    /// <para>A <paramref name="newName"/> containing the link markup's own
+    /// separators — <c>-&gt;</c>, <c>&lt;-</c>, <c>|</c>, or <c>]]</c> — cannot
+    /// be written into <c>[[…]]</c> syntax without changing how the link parses
+    /// (e.g. retargeting <c>[[Old]]</c> at <c>A-&gt;B</c> yields <c>[[A-&gt;B]]</c>,
+    /// text <c>A</c> linking to <c>B</c>). The rename is <em>refused</em> (returns
+    /// false, nothing mutated) rather than corrupting every inbound link; rename
+    /// with <paramref name="updateInboundLinks"/> false if such a name is really
+    /// wanted, and retarget inbound references yourself.</para>
     /// </summary>
     public bool RenamePassage(string oldName, string newName, bool updateInboundLinks = true)
     {
@@ -424,6 +440,7 @@ namespace Harlowe
       if (oldName == newName) return _passages.ContainsKey(oldName);
       if (!_passages.TryGetValue(oldName, out var passage)) return false;
       if (_passages.ContainsKey(newName)) return false;
+      if (updateInboundLinks && ContainsLinkSeparator(newName)) return false;
       _passages.Remove(oldName);
       passage.Name = newName;
       _passages.Add(newName, passage);
@@ -456,7 +473,10 @@ namespace Harlowe
     /// <em>not</em> updated: a string literal can't be reliably told apart from
     /// any other string, so rewriting it is the caller's responsibility.
     /// Passage names that themselves contain <c>[</c> or <c>]</c> are likewise
-    /// not handled (bracket-in-link is ambiguous in the markup, as in Twine).</para>
+    /// not handled (bracket-in-link is ambiguous in the markup, as in Twine).
+    /// The new name is guaranteed free of link separators — callers reach here
+    /// only through <see cref="RenamePassage"/>, which refuses names that
+    /// <see cref="ContainsLinkSeparator"/> flags.</para>
     /// </summary>
     private void RewriteInboundLinks(string oldName, string newName)
     {
@@ -484,6 +504,16 @@ namespace Harlowe
         passage.Branches = BranchCollector.Collect(passage.Ast);
       }
     }
+
+    /// <summary>
+    /// True when <paramref name="name"/> contains a sequence the <c>[[…]]</c>
+    /// link markup treats as structure — <c>-&gt;</c>, <c>&lt;-</c>, <c>|</c>,
+    /// or <c>]]</c> — so substituting it into a link's target slot would change
+    /// how the link parses (rightmost <c>-&gt;</c>/<c>|</c> wins, else leftmost
+    /// <c>&lt;-</c>, and <c>]]</c> ends the link outright).
+    /// </summary>
+    private static bool ContainsLinkSeparator(string name)
+      => name.Contains("->") || name.Contains("<-") || name.IndexOf('|') >= 0 || name.Contains("]]");
 
     /// <summary>
     /// Enumerates passages in load order — the order they were added to the
@@ -603,10 +633,13 @@ namespace Harlowe
     /// <see cref="HarlowePassage.RawBody"/> holds the raw author source.
     ///
     /// <para>Null/missing structural pieces — no passages at all, a passage
-    /// missing its <c>name</c> or <c>pid</c> attribute — surface as
-    /// <see cref="HarloweParseException"/> so HTML loading stays on the
-    /// project's documented error contract instead of NRE'ing on malformed
-    /// input.</para>
+    /// missing its <c>name</c> or <c>pid</c> attribute, a pid two passages
+    /// share — surface as <see cref="HarloweParseException"/> so HTML loading
+    /// stays on the project's documented error contract instead of NRE'ing on
+    /// malformed input. The duplicate-pid check exists because pid lookups
+    /// (<see cref="GetStartPassage"/>) resolve a shared pid to whichever
+    /// passage enumerates first — non-deterministic across runtimes on a
+    /// story that would otherwise load without error.</para>
     /// </summary>
     private void Parse(HtmlNodeCollection passageNodes)
     {
@@ -619,6 +652,7 @@ namespace Harlowe
 
       var tokenizer = new HarloweTokenizer();
       var bodyParser = new HarloweBodyParser();
+      var pidOwners = new Dictionary<string, string>();   // pid -> first passage carrying it
 
       foreach (var passageNode in passageNodes)
       {
@@ -634,6 +668,12 @@ namespace Harlowe
         if (pidAttr == null)
           throw new HarloweParseException(
             "<tw-passagedata> is missing required 'pid' attribute", -1, -1, passageName);
+        string pid = HtmlEntity.DeEntitize(pidAttr.Value);
+        if (pidOwners.TryGetValue(pid, out string firstOwner))
+          throw new HarloweParseException(
+            $"duplicate passage pid '{pid}' (passages '{firstOwner}' and '{passageName}')",
+            -1, -1, passageName);
+        pidOwners.Add(pid, passageName);
 
         string raw = HtmlEntity.DeEntitize(passageNode.InnerHtml ?? string.Empty);
 
@@ -660,7 +700,7 @@ namespace Harlowe
 
         var passage = new HarlowePassage
         {
-          Pid = HtmlEntity.DeEntitize(pidAttr.Value),
+          Pid = pid,
           Name = passageName,
           Tags = ParseTags(HtmlEntity.DeEntitize(passageNode.GetAttributeValue("tags", string.Empty))),
           Ast = ast,

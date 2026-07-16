@@ -361,6 +361,23 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Theory]
+    [InlineData("(text-color: \"\")[hi]")]
+    [InlineData("(text-color: \"   \")[hi]")]
+    [InlineData("(font: \"\")[hi]")]
+    [InlineData("(background: \"\")[hi]")]
+    public void EmptyStyleValue_EmitsErrorAndDoesNotPushStyle(string source)
+    {
+      // An empty (or all-whitespace) value used to pass the validator and
+      // land in the HTML adapter as `color: ;` / `font-family: ;` —
+      // malformed CSS. ((background:) already errored via its own check;
+      // now all three agree at the validator.)
+      var buf = RenderRaw(source);
+      AssertError(buf, "value is empty");
+      foreach (var e in buf.Entries)
+        Assert.NotEqual(BufferedRenderOutput.Kind.PushStyle, e.Kind);
+    }
+
+    [Theory]
     [InlineData("(text-color: \"expression(alert(1))\")[hi]")]
     [InlineData("(background: \"javascript:alert(1)\")[hi]")]
     [InlineData("(background: \"JaVaScRiPt:alert(1)\")[hi]")]   // case-insensitive

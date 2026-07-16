@@ -59,7 +59,14 @@ namespace Harlowe.Runtime.Macros
     /// </summary>
     public static HarloweValue Validate(string macroName, string value)
     {
-      if (value == null) return null;
+      // An empty (or all-whitespace, or null) value survives every later
+      // check but lands in the HTML adapter as `color: ;` / `font-family: ;`
+      // — malformed CSS — because the adapter gates on != null, not
+      // emptiness. Rejecting here keeps every string-taking style macro in
+      // agreement; (background:) already errored via its own trim + empty
+      // check, (text-colour:)/(font:) silently emitted the broken declaration.
+      if (string.IsNullOrWhiteSpace(value))
+        return HarloweValue.OfError($"({macroName}:) value is empty");
 
       // Normalize once and run BOTH checks against the normalized form. Without
       // this, the structural-char pass sees only raw ASCII boundary chars and

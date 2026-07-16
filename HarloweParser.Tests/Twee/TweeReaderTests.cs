@@ -162,6 +162,43 @@ namespace Harlowe.Tests.Twee
     }
 
     [Fact]
+    public void Position_NestedObject_CapturedWhole()
+    {
+      // The blob is stored opaque and re-emitted verbatim, so a first-'}'
+      // scan that dropped the outer brace made the writer round-trip
+      // invalid JSON. Twine's flat blob never nests; custom metadata can.
+      var story = Read(":: First {\"position\":\"1,2\",\"meta\":{\"a\":1}}\nbody");
+      Assert.Equal("{\"position\":\"1,2\",\"meta\":{\"a\":1}}", story.GetPassage("First").Position);
+    }
+
+    [Fact]
+    public void Position_BraceInsideStringValue_CapturedWhole()
+    {
+      var story = Read(":: First {\"note\":\"a}b\"}\nbody");
+      Assert.Equal("{\"note\":\"a}b\"}", story.GetPassage("First").Position);
+    }
+
+    [Fact]
+    public void Position_EscapedQuoteInsideStringValue_CapturedWhole()
+    {
+      // \" inside the string must not end it, or the } after it reads as
+      // in-string content and the block never closes.
+      var story = Read(":: First {\"note\":\"a\\\"}\\\"b\"}\nbody");
+      Assert.Equal("{\"note\":\"a\\\"}\\\"b\"}", story.GetPassage("First").Position);
+    }
+
+    [Fact]
+    public void Position_UnclosedBlock_IgnoredNotCaptured()
+    {
+      // An unterminated block keeps the old contract: no position, and the
+      // header still parses (name + tags intact).
+      var story = Read(":: First [foo] {\"position\":\"1,2\"\nbody");
+      var p = story.GetPassage("First");
+      Assert.Equal("foo", p.Tags[0]);
+      Assert.Null(p.Position);
+    }
+
+    [Fact]
     public void NameWithSpaces_ParsedCorrectly()
     {
       var story = Read(":: My Long Name\nbody");
@@ -212,6 +249,34 @@ namespace Harlowe.Tests.Twee
       string src = ":: First\nA\n\n:: StoryData\n{\"start\":\"Second\"}\n\n:: Second\nB";
       var story = Read(src);
       Assert.Equal(story.GetPassage("Second").Pid, story.StartNode);
+    }
+
+    [Fact]
+    public void StoryData_NumericStart_CoercesAndResolves()
+    {
+      // Out-of-spec but recoverable: {"start":123} names the passage "123".
+      // The old string-only read dropped it silently, so the story loaded
+      // with StartNode still "0" and could never start.
+      string src = ":: StoryData\n{\"start\":123}\n\n:: 123\nA\n\n:: Other\nB";
+      var story = Read(src);
+      Assert.Equal(story.GetPassage("123").Pid, story.StartNode);
+    }
+
+    [Fact]
+    public void StoryData_NumericStart_NoMatchingPassage_LeavesDefaultStartNode()
+    {
+      // Coercion feeds the same lookup gate as a string start: an
+      // unresolvable name leaves StartNode alone.
+      var story = Read(":: StoryData\n{\"start\":123}\n\n:: First\nA");
+      Assert.Equal("0", story.StartNode);
+    }
+
+    [Fact]
+    public void StoryData_StructuredStart_LeavesDefaultStartNode()
+    {
+      // An object/array can't be a passage name; stays unresolved, no crash.
+      var story = Read(":: StoryData\n{\"start\":{\"a\":1}}\n\n:: First\nA");
+      Assert.Equal("0", story.StartNode);
     }
 
     [Fact]
