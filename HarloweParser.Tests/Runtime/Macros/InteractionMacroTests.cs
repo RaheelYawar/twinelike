@@ -558,6 +558,34 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
+    public void ClickString_BestridingFormatSpan_ArmsAndReveals()
+    {
+      // The needle spans out of the ''bold'' span (divergence #20). The match
+      // arms as one region; the plain (click:) reveals its hook at the
+      // macro's own position on dispatch.
+      var session = Session("''hello'' friend(click: \"hello friend\")[ revealed]");
+      var initial = session.Render();
+      Assert.Equal("hello friend", initial.Text);
+      Assert.Single(Regions(initial));
+
+      var after = session.DispatchEvent(FirstRegionId(initial));
+      Assert.Equal("hello friend revealed", after.Text);
+    }
+
+    [Fact]
+    public void Dispatch_ClickReplaceString_BestridingMatch_Splices()
+    {
+      // The combo form splices into the occurrence wrap found by its region
+      // tag at dispatch time — same machinery, bestriding match.
+      var session = Session("''hello'' friend(click-replace: \"hello friend\")[bye]");
+      var initial = session.Render();
+      Assert.Equal("hello friend", initial.Text);
+
+      var after = session.DispatchEvent(FirstRegionId(initial));
+      Assert.Equal("bye", after.Text);
+    }
+
+    [Fact]
     public void ClickEmptyString_EmitsError()
     {
       // Reference: "A string given to this (click:) macro was empty."

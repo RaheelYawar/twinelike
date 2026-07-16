@@ -12,7 +12,7 @@ for the save-model slice (which lands `(history:)` semantics).
 ## Counts
 
 - **High severity (0 active, 6 fixed)**: silent wrong result or breaks documented Harlowe idioms.
-- **Medium severity (4 active, 7 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
+- **Medium severity (3 active, 8 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
 - **Low severity (2 active, 1 fixed)**: documented as deliberate or marginal.
 
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
@@ -256,7 +256,29 @@ string-target / second-arg / rerun / reveal / command tests in
 
 ## Medium-severity divergences
 
-### 20. String targets don't bestride text nodes (found 2026-07-12 audit)
+### 20. String targets don't bestride text nodes — ✅ FIXED (2026-07-15)
+
+**Resolution.** `TextOccurrenceFinder` was rebuilt as a direct port of
+reference's `findTextInNodes` + `wrapTextNodes` pair: matching runs over the
+tree's *flattened* text-node stream in document order (so a needle can span
+inline formatting, styled spans, links, and hooks), boundary nodes are split
+around each hit, and — the key discovery that kept the fix contained — every
+fragment of one match moves into a **single** `RenderHookNode` placed at the
+first fragment's position, exactly like reference's jQuery
+`wrapAll(<tw-pseudo-hook>)`, whose rehoming persists after the unwrap. One
+match = one wrap, so the consumer contract (revision splices, enchant tagging,
+interaction arming, strip/disenchant sweeps, dispatch-time region lookups)
+needed **zero changes**; the entire fix sits inside the finder. Consequences
+mirrored from reference and pinned in tests: the trigger case now replaces
+(`Say ''hello'' friend` + `(replace: "hello friend")[X]` → `Say X`, with X
+rendering *inside* the bold span — the match relocated to the first
+fragment's home), a wholly-spanned styled word leaves its emptied style span
+behind, scanning resumes after each match, and the enchant/interaction passes
+stay idempotent because the rehomed text is contiguous on re-find. See the
+"bestriding" tests in `RevisionMacroTests` / `EnchantMacroTests` /
+`InteractionMacroTests`. Original report below.
+
+---
 
 - **Ours**: `TextOccurrenceFinder` matches a needle **within a single
   `RenderTextNode`** and says so in its own docstring. Adjacent prose coalesces

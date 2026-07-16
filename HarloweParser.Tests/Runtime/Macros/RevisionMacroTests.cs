@@ -142,6 +142,57 @@ namespace Harlowe.Tests.Runtime.Macros
       // containing the line break is matchable.
       => Assert.Equal("two", RenderText("one\ntwo(replace: \"one\ntwo\")[two]"));
 
+    // --- String targets bestriding container boundaries (divergence #20) ---
+
+    [Fact]
+    public void Replace_StringBestridingFormatSpan_Found()
+    {
+      // The needle spans out of the ''bold'' span. Reference's findTextInNodes
+      // matches "regardless of the actual DOM hierarchy which those matches
+      // bestride"; before the flat-scan rework this silently no-op'd.
+      Assert.Equal("Say X", RenderText("Say ''hello'' friend(replace: \"hello friend\")[X]"));
+    }
+
+    [Fact]
+    public void Replace_BestridingMatch_RelocatesIntoFirstFragmentContainer()
+    {
+      // wrapAll semantics: the whole match moves to the first fragment's
+      // position, so the replacement renders inside the bold span — exactly
+      // what reference's pseudo-hook rehoming produces.
+      var buf = Render("Say ''hello'' friend(replace: \"hello friend\")[X]", out _);
+      int push = -1, text = -1, pop = -1;
+      for (int i = 0; i < buf.Entries.Count; i++)
+      {
+        if (buf.Entries[i].Kind == BufferedRenderOutput.Kind.PushStyle) push = i;
+        else if (buf.Entries[i].Kind == BufferedRenderOutput.Kind.Text && buf.Entries[i].Content == "X") text = i;
+        else if (buf.Entries[i].Kind == BufferedRenderOutput.Kind.PopStyle) pop = i;
+      }
+      Assert.True(push >= 0 && push < text && text < pop,
+        "the spliced X should render inside the bold span");
+    }
+
+    [Fact]
+    public void Replace_StringSpanningWholeStyledWord_Found()
+      // Three fragments: root text, the styled middle, root text. The wrap
+      // lands at the first fragment's position (the root), leaving the style
+      // span empty — reference's DOM shape after the same operation.
+      => Assert.Equal("X", RenderText("a''b''c(replace: \"abc\")[X]"));
+
+    [Fact]
+    public void Append_StringBestridingFormatSpan_AddsAfter()
+      => Assert.Equal("hello friend!", RenderText("''hello'' friend(append: \"hello friend\")[!]"));
+
+    [Fact]
+    public void Replace_StringSpanningIntoHook_Found()
+      // The match starts in root prose and ends inside an anonymous hook.
+      => Assert.Equal("X", RenderText("pre [fix](replace: \"pre fix\")[X]"));
+
+    [Fact]
+    public void Replace_MultipleOccurrences_FirstBestriding_AllFound()
+      // Scanning resumes after each match, so a later same-node occurrence
+      // is still found after a bestriding one.
+      => Assert.Equal("X X", RenderText("''ab'' c ab c(replace: \"ab c\")[X]"));
+
     // --- Composition with style changers ---
 
     [Fact]

@@ -174,6 +174,30 @@ namespace Harlowe.Tests.Runtime.Macros
       Assert.Equal("l<b>o</><b>o</>k", Styled(Flush(root)));
     }
 
+    // --- String targets bestriding container boundaries (divergence #20) ---
+
+    [Fact]
+    public void Enchant_StringBestridingFormatSpan_StylesWholeMatch()
+    {
+      // The needle spans out of the ''bold'' span; the whole match relocates
+      // into the bold container (reference's wrapAll rehoming), so the
+      // enchant layer sits inside it.
+      var buf = Render("Say ''hello'' friend(enchant: \"hello friend\", (text-style: \"italic\"))", out _);
+      Assert.Equal("Say <b><i>hello friend</></>", Styled(buf));
+    }
+
+    [Fact]
+    public void Enchant_BestridingString_PassIsIdempotent()
+    {
+      // The rehomed text is contiguous after the first pass; strip + re-find
+      // must settle there, not permute further or double-wrap.
+      var buf = Render("Say ''hello'' friend(enchant: \"hello friend\", (text-style: \"italic\"))",
+        out var root, out var ctx);
+      EnchantmentPass.Update(root, ctx.Enchantments, ctx);
+      EnchantmentPass.Update(root, ctx.Enchantments, ctx);
+      Assert.Equal(Styled(buf), Styled(Flush(root)));
+    }
+
     // --- via lambdas ---
 
     [Fact]
