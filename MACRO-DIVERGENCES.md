@@ -13,7 +13,7 @@ for the save-model slice (which lands `(history:)` semantics).
 
 - **High severity (0 active, 6 fixed)**: silent wrong result or breaks documented Harlowe idioms.
 - **Medium severity (1 active, 10 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
-- **Low severity (2 active, 1 fixed)**: documented as deliberate or marginal.
+- **Low severity (4 active, 1 fixed)**: documented as deliberate or marginal.
 
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
 items are kept and marked rather than renumbered.
@@ -633,6 +633,43 @@ finding below.
   region first will fire ours in reverse passage order. Reversing our wrap
   loop (or documenting "innermost = first macro" as the host contract) would
   align it.
+
+---
+
+### 21. Out-of-range array property-set errors instead of growing a sparse array (deliberate; filed with the property-assignment slice, 2026-07-18)
+
+- **Ours**: an array property-set allows indices 1..Count (replace) plus
+  Count+1 (append), and errors beyond — `(set: $arr's 5th to 1)` on a 3-item
+  array is `array index 5 is out of range (1..4)`. See the final-step bounds
+  rule in `ExpressionEvaluator.ResolveWritePath`.
+- **Reference**: `objectOrMapSet` in `ts/internaltypes/varref.ts` is a plain JS
+  `obj[prop] = value`, so setting past the end grows a **sparse array with
+  holes** — positions that error on read (*"an empty variable"*) and break
+  reference's own serialisation (`(save-game:)` on a holed array fails).
+- **Trigger**: `(set: $arr to (a: 1, 2, 3))(set: $arr's 5th to 9)` — reference
+  silently creates a hole at 4th; we error.
+- **User-visible**: only for out-of-range writes, which produce degenerate
+  state in reference. Deliberate: holes aren't representable in
+  `List<HarloweValue>` and reproduce a reference behaviour that's broken on
+  its own terms. The append case (Count+1, reference's no-hole growth) is
+  reproduced exactly.
+
+### 22. `(set: … into …)` / `(put: … to …)` accept the wrong operator (pre-existing; recorded 2026-07-18)
+
+- **Ours**: the parser gates `to`/`into` to `(set:)`/`(put:)` arg-tops as a
+  *pair* — `HarloweExpressionParser.IsAssignmentMacro` doesn't distinguish
+  which — so `(set: 5 into $x)` and `(put: $x to 5)` parse and assign
+  successfully.
+- **Reference**: `(set:)` checks each AssignmentRequest's operator and errors
+  `Please say 'to' when using the (set:) macro.`; `(put:)`/`(unpack:)` error
+  `Please say 'into' when using the (put:) or (unpack:) macro.` See the
+  `ar.operator` checks in `ts/macrolib/commands.ts`.
+- **Trigger**: `(set: 5 into $x)` — reference errors, ours assigns 5 to $x.
+- **User-visible**: marginal — the assignment itself lands correctly; only the
+  style-guiding error is missing. Fixing it means threading the calling
+  macro's name into `ParseArgumentList` (or tagging the node with its
+  operator source) so the mismatch can be reported — orthogonal to the
+  property-assignment slice that recorded this, so left open.
 
 ---
 

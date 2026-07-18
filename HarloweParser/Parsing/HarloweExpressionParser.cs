@@ -243,15 +243,6 @@ namespace Harlowe.Parsing
     }
 
     /// <summary>
-    /// True if <paramref name="node"/> is a `'s` chain (the AST shape for
-    /// property/ordinal access like <c>$x's name</c> or <c>$arr's 1st</c>).
-    /// Used to reject property assignment for either side of `to`/`into`
-    /// before the AST escapes the parser.
-    /// </summary>
-    private static bool IsPropertyAccess(IExpressionNode node)
-      => node is BinaryOpNode bin && bin.Operator == "'s";
-
-    /// <summary>
     /// Precedence-climbing core. Parses an operand via <see cref="ParseUnary"/>,
     /// then loops while the next token is a binary operator with order
     /// &lt;= <paramref name="maxOrder"/> (i.e. loose enough for this level).
@@ -312,17 +303,6 @@ namespace Harlowe.Parsing
             throw new HarloweParseException(
               $"'{t.Value}' assignment is only allowed at the top of a (set:) or (put:) argument",
               t.Line, t.Column);
-          // Property assignment (`$x's name to ...`, `$arr's 1st to ...`) is
-          // documented in Harlowe but not yet implemented here. Surface a
-          // pointed parse-time error so authors don't get the generic
-          // "assignment target must be a variable" from the evaluator —
-          // that message hides which shape they tried to write. Targets
-          // sit on the LHS of `to` and on the RHS of `into`, so the check
-          // runs for both sides below.
-          if (t.Value == "to" && IsPropertyAccess(left))
-            throw new HarloweParseException(
-              $"property assignment ('$x's ... to ...') is not supported; assign to a whole variable instead",
-              t.Line, t.Column);
         }
 
         cursor.Advance();
@@ -334,10 +314,6 @@ namespace Harlowe.Parsing
         // ts/twinescript/runner.ts.
         int rhsMaxOrder = RightAssociativeOps.Contains(t.Value) ? order : order - 1;
         var right = ParseBinary(cursor, rhsMaxOrder, allowAssignmentAtTop: false);
-        if (t.Value == "into" && IsPropertyAccess(right))
-          throw new HarloweParseException(
-            $"property assignment ('... into $x's ...') is not supported; assign to a whole variable instead",
-            t.Line, t.Column);
         left = new BinaryOpNode { Operator = t.Value, Left = left, Right = right };
       }
 
@@ -515,7 +491,7 @@ namespace Harlowe.Parsing
           // property access (which the evaluator then rejects for a hook name).
           while (cursor.Current.Type == TokenType.Operator && cursor.Current.Value == "'s"
                  && cursor.Peek().Type == TokenType.Identifier
-                 && TryParseHookOrdinal(cursor.Peek().Value, out int ordIndex, out bool ordFromEnd))
+                 && Ordinals.TryParse(cursor.Peek().Value, out int ordIndex, out bool ordFromEnd))
           {
             cursor.Advance(); // 's
             cursor.Advance(); // ordinal identifier
@@ -544,35 +520,6 @@ namespace Harlowe.Parsing
       }
 
       throw new HarloweParseException($"Unexpected token in expression: {t.Type}({t.Value})", t.Line, t.Column);
-    }
-
-    /// <summary>
-    /// Parses an ordinal accessor name (<c>last</c>, <c>1st</c>, <c>2nd</c>,
-    /// <c>2ndlast</c>, …) into a 1-based index and a from-the-end flag, for
-    /// folding a <c>?name's …</c> chain into <see cref="HookRefStep"/>s. Returns
-    /// false for any non-ordinal name so the caller leaves the <c>'s</c> for the
-    /// binary-operator path. Mirrors the permissive ordinal handling in
-    /// <c>ExpressionEvaluator</c> — the <c>st</c>/<c>nd</c>/<c>rd</c>/<c>th</c>
-    /// suffix is decorative.
-    /// </summary>
-    private static bool TryParseHookOrdinal(string name, out int index, out bool fromEnd)
-    {
-      index = 0;
-      fromEnd = false;
-      if (string.IsNullOrEmpty(name)) return false;
-      if (name == "last") { index = 1; fromEnd = true; return true; }
-      int p = 0;
-      while (p < name.Length && char.IsDigit(name[p])) p++;
-      if (p == 0) return false;
-      if (p + 2 > name.Length) return false;
-      string suffix = name.Substring(p, 2);
-      if (suffix != "st" && suffix != "nd" && suffix != "rd" && suffix != "th") return false;
-      int after = p + 2;
-      if (!int.TryParse(name.Substring(0, p), out int n)) return false;
-      if (after == name.Length) { index = n; fromEnd = false; return true; }
-      if (after + 4 == name.Length && name.Substring(after, 4) == "last")
-      { index = n; fromEnd = true; return true; }
-      return false;
     }
 
     /// <summary>

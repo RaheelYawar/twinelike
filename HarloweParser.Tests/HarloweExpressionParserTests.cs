@@ -296,52 +296,62 @@ namespace Harlowe.Tests
     }
 
     [Fact]
-    public void To_PropertyAssignment_EmitsPointedDiagnostic()
+    public void To_PropertyAssignment_Parses()
     {
-      // `$x's name to "Bob"` — property assignment is documented in Harlowe
-      // but not implemented here. The parser-level check should surface a
-      // clear diagnostic rather than letting the evaluator emit a generic
-      // "assignment target must be a variable".
+      // `$x's name to "Bob"` — property assignment reaches the evaluator as a
+      // plain `to` node whose LHS is the `'s` chain; the evaluator's write
+      // path decomposes it. The parser used to reject this shape.
       var tokens = new HarloweTokenizer().Tokenize("(set: $x's name to \"Bob\")");
       var cursor = new TokenCursor(tokens);
       cursor.Advance();
       var parser = new HarloweExpressionParser();
-      var ex = Assert.Throws<HarloweParseException>(
-        () => parser.ParseArgumentList(cursor, allowAssignment: true));
-      Assert.Contains("property assignment", ex.Message);
+      var args = parser.ParseArgumentList(cursor, allowAssignment: true);
+      Assert.Single(args);
+      var assign = Assert.IsType<BinaryOpNode>(args[0]);
+      Assert.Equal("to", assign.Operator);
+      var chain = Assert.IsType<BinaryOpNode>(assign.Left);
+      Assert.Equal("'s", chain.Operator);
+      Assert.IsType<VariableRefNode>(chain.Left);
+      var key = Assert.IsType<IdentifierNode>(chain.Right);
+      Assert.Equal("name", key.Name);
     }
 
     [Fact]
-    public void Into_PropertyAssignment_EmitsPointedDiagnostic()
+    public void Into_PropertyAssignment_Parses()
     {
       // `(put: "Bob" into $x's name)` — `into` puts the value on the LEFT and
-      // the target on the RIGHT. The `to` guard only inspects the LHS; the
-      // `into` guard must inspect the RHS to symmetric-ly catch the property
-      // assignment shape instead of leaking through to the evaluator's
-      // generic "assignment target must be a variable" message.
+      // the target on the RIGHT; the `'s` chain lands on the RHS.
       var tokens = new HarloweTokenizer().Tokenize("(put: \"Bob\" into $x's name)");
       var cursor = new TokenCursor(tokens);
       cursor.Advance();
       var parser = new HarloweExpressionParser();
-      var ex = Assert.Throws<HarloweParseException>(
-        () => parser.ParseArgumentList(cursor, allowAssignment: true));
-      Assert.Contains("property assignment", ex.Message);
-      Assert.Contains("into", ex.Message);
+      var args = parser.ParseArgumentList(cursor, allowAssignment: true);
+      Assert.Single(args);
+      var assign = Assert.IsType<BinaryOpNode>(args[0]);
+      Assert.Equal("into", assign.Operator);
+      var chain = Assert.IsType<BinaryOpNode>(assign.Right);
+      Assert.Equal("'s", chain.Operator);
+      Assert.IsType<VariableRefNode>(chain.Left);
     }
 
     [Fact]
-    public void Into_ChainedPropertyAssignment_EmitsPointedDiagnostic()
+    public void Into_ChainedPropertyAssignment_Parses()
     {
-      // `$x's name's first` on the RHS of `into` — the rejection check has to
-      // see through the outer `'s` BinaryOpNode, which it does because the
-      // RHS is itself a `'s` chain at the top level.
+      // `$x's name's first` on the RHS of `into` — the chain left-nests, so
+      // the top node's Left is itself a `'s` chain down to the variable.
       var tokens = new HarloweTokenizer().Tokenize("(put: \"Bob\" into $x's name's first)");
       var cursor = new TokenCursor(tokens);
       cursor.Advance();
       var parser = new HarloweExpressionParser();
-      var ex = Assert.Throws<HarloweParseException>(
-        () => parser.ParseArgumentList(cursor, allowAssignment: true));
-      Assert.Contains("property assignment", ex.Message);
+      var args = parser.ParseArgumentList(cursor, allowAssignment: true);
+      Assert.Single(args);
+      var assign = Assert.IsType<BinaryOpNode>(args[0]);
+      Assert.Equal("into", assign.Operator);
+      var outer = Assert.IsType<BinaryOpNode>(assign.Right);
+      Assert.Equal("'s", outer.Operator);
+      var inner = Assert.IsType<BinaryOpNode>(outer.Left);
+      Assert.Equal("'s", inner.Operator);
+      Assert.IsType<VariableRefNode>(inner.Left);
     }
 
     [Fact]

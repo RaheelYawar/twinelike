@@ -33,6 +33,27 @@ namespace Harlowe.Tests.Runtime.Saving
     }
 
     [Fact]
+    public void SaveThenLoad_RoundTripsPropertyMutatedCollection()
+    {
+      // The P2 turn mutates a datamap slot via property assignment. The write
+      // routes through Set, so the turn delta carries the rebuilt datamap;
+      // the save serialises it as (dm:)-source and the load re-renders P2
+      // from its start state, reproducing the decrement.
+      var session = new StorySession(Story(
+        "(set: $dm to (dm: \"hp\", 10))",
+        "(set: $dm's hp to it - 1)(print: $dm's hp)",
+        "(print: $dm's hp)"));
+      session.Render();                               // P1: $dm = {hp: 10}
+      Assert.Equal("9", session.Goto("P2").Text);
+      Assert.True(session.SaveGame("slot"));
+      Assert.Equal("9", session.Goto("P3").Text);     // wander off
+
+      Assert.True(session.LoadGame("slot"));
+      Assert.Equal("P2", session.CurrentPassage);
+      Assert.Equal("9", session.Render().Text);
+    }
+
+    [Fact]
     public void LoadMissingSlot_ReturnsFalse_SetsError()
     {
       var session = new StorySession(Story("p1"));

@@ -51,6 +51,15 @@ namespace Harlowe.Runtime
     HarloweValue It { get; }
 
     /// <summary>
+    /// Overwrite the implicit <c>it</c> slot without touching any variable.
+    /// Property assignment (<c>(set: $arr's 1st to 5)</c>) routes the rebuilt
+    /// root collection through <see cref="Set"/> — which would leave <c>it</c>
+    /// as the whole collection — then calls this so <c>it</c> ends as the
+    /// value the author assigned, consistent with bare-variable sets.
+    /// </summary>
+    void SetIt(HarloweValue value);
+
+    /// <summary>
     /// Captures a snapshot of every namespace plus the <c>it</c> slot. The
     /// returned token is opaque to the caller; pass it back to
     /// <see cref="Restore"/> to rewind. Used by the navigation layer to

@@ -825,6 +825,29 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
+    public void UndoRedo_PropertyMutation_RestoresCollectionState()
+    {
+      // P2 mutates one datamap slot (property assignment, a relative `it - 1`).
+      // The write routes through the store's Set, so the per-turn delta model
+      // sees it: each undo restores the turn's start state and the replay
+      // re-applies the decrement exactly once.
+      var session = new StorySession(ThreePassages(
+        "(set: $dm to (dm: \"hp\", 10))(print: $dm's hp)",
+        "(set: $dm's hp to it - 1)(print: $dm's hp)",
+        "(print: $dm's hp)"));
+      Assert.Equal("10", session.Render().Text);
+      Assert.Equal("9", session.Goto("P2").Text);
+      Assert.Equal("9", session.Goto("P3").Text);
+
+      session.Undo();
+      Assert.Equal("9", session.Render().Text);   // P2 replayed from hp=10
+      session.Undo();
+      Assert.Equal("10", session.Render().Text);  // P1 replayed from scratch
+      session.Redo();
+      Assert.Equal("9", session.Render().Text);
+    }
+
+    [Fact]
     public void Goto_AfterUndo_ClearsRedoFuture()
     {
       // Undo populates the future; a forward Goto abandons it, so redo is gone.

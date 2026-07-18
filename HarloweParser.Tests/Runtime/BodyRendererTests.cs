@@ -90,6 +90,26 @@ namespace Harlowe.Tests.Runtime
       Assert.Contains("HP: 10", h.Buf.Text);
     }
 
+    // Property assignment ----------------------------------------------------
+
+    [Fact]
+    public void PropertyAssignment_SetThenPrint()
+    {
+      var h = Render("(set: $dm to (dm: \"hp\", 10))(set: $dm's hp to it - 1)HP: (print: $dm's hp)");
+      Assert.Equal(0, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+      Assert.Contains("HP: 9", h.Buf.Text);
+    }
+
+    [Fact]
+    public void PropertyAssignment_CanSetFailure_RendersErrorAndContinues()
+    {
+      // The canSet error surfaces in-prose at the (set:) and the rest of the
+      // passage still renders.
+      var h = Render("(set: $arr to (a: 1))(set: $arr's length to 5)after");
+      Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+      Assert.Contains("after", h.Buf.Text);
+    }
+
     [Fact]
     public void Variable_Unset_RoutesError()
     {

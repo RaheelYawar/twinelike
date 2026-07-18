@@ -42,5 +42,28 @@ namespace Harlowe.Runtime
       }
       return list;
     }
+
+    /// <summary>
+    /// Returns <paramref name="s"/> with the code point at 1-based
+    /// <paramref name="index"/> replaced by <paramref name="replacement"/>
+    /// (which may be any length — the caller enforces Harlowe's
+    /// one-code-point rule for single-position assignment). Used by property
+    /// assignment's string-character writes. Callers bounds-check first; an
+    /// out-of-range index returns <paramref name="s"/> unchanged rather than
+    /// throwing, per the runtime's no-throw policy.
+    /// </summary>
+    public static string ReplaceAt(string s, int index, string replacement)
+    {
+      if (string.IsNullOrEmpty(s)) return s;
+      int seen = 0;
+      for (int p = 0; p < s.Length; p++)
+      {
+        bool pair = char.IsHighSurrogate(s[p]) && p + 1 < s.Length && char.IsLowSurrogate(s[p + 1]);
+        if (++seen == index)
+          return s.Substring(0, p) + replacement + s.Substring(p + (pair ? 2 : 1));
+        if (pair) p++;
+      }
+      return s;
+    }
   }
 }

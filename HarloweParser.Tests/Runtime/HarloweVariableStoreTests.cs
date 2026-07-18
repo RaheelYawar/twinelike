@@ -80,6 +80,39 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
+    public void SetIt_OverwritesItSlot_WithoutTouchingVariables()
+    {
+      var store = new HarloweVariableStore();
+      store.Set("a", isTemporary: false, value: HarloweValue.OfNumber(1));
+      store.TakeStoryDelta(); // clear the dirty state from the Set above
+
+      store.SetIt(HarloweValue.OfNumber(42));
+
+      Assert.Equal(42, store.It.AsNumber);
+      Assert.Equal(1, store.Get("a", isTemporary: false).AsNumber);
+      Assert.Empty(store.TakeStoryDelta()); // SetIt dirtied nothing
+    }
+
+    [Fact]
+    public void Set_StoresReferences_NotCopies()
+    {
+      // Matches reference Harlowe's varref.ts: a plain set does NOT clone the
+      // collection — `(set: $b to $a)` aliases the backing list. The aliasing
+      // is unobservable to authors because property assignment rebuilds every
+      // container level copy-on-write instead of mutating in place; this pin
+      // documents that the store half of that contract really is
+      // reference-storing (the write path's clones are the whole defence).
+      var store = new HarloweVariableStore();
+      var list = new List<HarloweValue> { HarloweValue.OfNumber(1) };
+      var value = HarloweValue.OfArray(list);
+      store.Set("a", isTemporary: false, value: value);
+      store.Set("b", isTemporary: false, value: store.Get("a", isTemporary: false));
+
+      Assert.Same(value, store.Get("a", isTemporary: false));
+      Assert.Same(store.Get("a", isTemporary: false), store.Get("b", isTemporary: false));
+    }
+
+    [Fact]
     public void BeginPassage_ClearsTempNamespace()
     {
       var store = new HarloweVariableStore();

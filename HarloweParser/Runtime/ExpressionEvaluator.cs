@@ -155,10 +155,11 @@ namespace Harlowe.Runtime
     public void Visit(BinaryOpNode node)
     {
       // 'to' and 'into' are assignment forms — the target side must be a
-      // variable reference, not an evaluated value. Handle them before either
-      // side is evaluated. Only 'to' rebinds `it` to the target before the
-      // value runs (reference runner.ts: the `to` arm calls
-      // `setIt(run(before))` on the destination, the `into` arm does not).
+      // variable reference or a property chain rooted in one, not an evaluated
+      // value. Handle them before either side is evaluated. Only 'to' rebinds
+      // `it` to the target before the value runs (reference runner.ts: the
+      // `to` arm calls `setIt(run(before))` on the destination, the `into`
+      // arm does not).
       if (node.Operator == "to") { AssignTo(node.Left, node.Right, bindItToTarget: true); return; }
       if (node.Operator == "into") { AssignTo(node.Right, node.Left, bindItToTarget: false); return; }
 
@@ -234,7 +235,7 @@ namespace Harlowe.Runtime
     {
       if (!(targetNode is VariableRefNode target))
       {
-        _result = HarloweValue.OfError("assignment target must be a variable");
+        AssignToProperty(targetNode, valueNode, bindItToTarget);
         return;
       }
       HarloweValue value;
@@ -257,6 +258,319 @@ namespace Harlowe.Runtime
       if (value.IsError) { _result = value; return; }
       _store.Set(target.Name, target.IsTemporary, value);
       _result = value;
+    }
+
+    /// <summary>
+    /// Assignment into a property-chain target — <c>(set: $person's name to "Bob")</c>,
+    /// <c>(put: 5 into $dm's key)</c>, <c>(set: 1st of $arr to 5)</c>. Mirrors
+    /// reference Harlowe's <c>set()</c> in <c>ts/internaltypes/varref.ts</c>:
+    /// the chain is resolved against current values first, then the write
+    /// rebuilds it copy-on-write — every container level is shallow-cloned
+    /// before mutation (the per-level clone-and-reassign walk in varref.ts's
+    /// <c>#mutateRight</c>), and the rebuilt root goes through the normal
+    /// <see cref="IVariableStore.Set"/> so delta capture for save/undo sees
+    /// it. Untouched siblings keep their references, as in reference. The
+    /// target path is resolved and validated BEFORE the value expression
+    /// runs, so an error — anywhere — means zero mutation.
+    /// </summary>
+    private void AssignToProperty(IExpressionNode targetNode, IExpressionNode valueNode, bool bindItToTarget)
+    {
+      // `to` is (set:)'s operator and `into` is (put:)'s; name the macro the
+      // author wrote in the not-a-variable error, as reference does.
+      string macroName = bindItToTarget ? "(set:)" : "(put:)";
+      if (!TryDecomposeAssignmentTarget(targetNode, out var root, out var accessors))
+      {
+        _result = HarloweValue.OfError($"I can't {macroName} that value, if it isn't stored in a variable.");
+        return;
+      }
+      var rootValue = _store.Get(root.Name, root.IsTemporary);
+      if (rootValue == null)
+      {
+        string sigil = root.IsTemporary ? "_" : "$";
+        _result = HarloweValue.OfError($"{sigil}{root.Name} is not set");
+        return;
+      }
+      var steps = new List<WriteStep>(accessors.Count);
+      var pathError = ResolveWritePath(rootValue, accessors, steps, out var oldValue);
+      if (pathError != null) { _result = pathError; return; }
+
+      HarloweValue value;
+      if (bindItToTarget)
+      {
+        // As with bare variables, `it` is the destination's CURRENT value
+        // while the right-hand side runs (reference's setIt on the `to` arm),
+        // so `(set: $arr's 1st to it + 1)` increments the element. A new
+        // datamap key / append slot binds null, surfacing as "'it' is not
+        // yet set" only if the RHS actually reads it.
+        using (_store.PushItBinding(oldValue))
+          value = Evaluate(valueNode);
+      }
+      else
+      {
+        value = Evaluate(valueNode);
+      }
+      if (value.IsError) { _result = value; return; }
+
+      // String-slot checks depend on the assigned value, so they run after
+      // the RHS: one string position takes exactly one code point (the string
+      // branch of reference varref.ts's set()).
+      if (steps[steps.Count - 1].Kind == WriteKind.StringIndex)
+      {
+        if (value.Kind != HarloweValueKind.String)
+        {
+          _result = HarloweValue.OfError($"I can't put this non-string value, {value.ToSource()}, in a string.");
+          return;
+        }
+        if (CodePointCount(value.AsString) != 1)
+        {
+          _result = HarloweValue.OfError($"{value.ToSource()} is not the right length to fit into this string location.");
+          return;
+        }
+      }
+
+      _store.Set(root.Name, root.IsTemporary, ApplyWrite(steps, value));
+      _store.SetIt(value);
+      _result = value;
+    }
+
+    /// <summary>
+    /// One level of a property-assignment write chain: the container value the
+    /// level was resolved against plus the slot to rebuild — a datamap key, a
+    /// 1-based array index (<see cref="IsAppend"/> for the Count+1 growth
+    /// slot), or a 1-based string code-point index, from-end forms already
+    /// converted. Captured by <see cref="ResolveWritePath"/>, consumed
+    /// deepest-first by <see cref="ApplyWrite"/>.
+    /// </summary>
+    private struct WriteStep
+    {
+      public HarloweValue Container;
+      public WriteKind Kind;
+      public string Key;
+      public int Index;
+      public bool IsAppend;
+    }
+
+    private enum WriteKind { DatamapKey, ArrayIndex, StringIndex }
+
+    /// <summary>
+    /// Walks a property-access chain down its container side to a variable
+    /// base: <c>'s</c> keeps its container on the left, <c>of</c> is the
+    /// mirrored form with the container on the right. Accessors come back in
+    /// application order (the root's accessor first); each stays a whole node
+    /// — the accessor side of a <c>'s</c>/<c>of</c> is one computed accessor
+    /// even when it is itself an expression, evaluated exactly once later.
+    /// False when the base isn't a variable or the node isn't a chain at all.
+    /// </summary>
+    private static bool TryDecomposeAssignmentTarget(IExpressionNode node, out VariableRefNode root, out List<IExpressionNode> accessors)
+    {
+      root = null;
+      accessors = null;
+      var list = new List<IExpressionNode>();
+      var cur = node;
+      while (cur is BinaryOpNode bin && (bin.Operator == "'s" || bin.Operator == "of"))
+      {
+        if (bin.Operator == "'s") { list.Add(bin.Right); cur = bin.Left; }
+        else { list.Add(bin.Left); cur = bin.Right; }
+      }
+      if (list.Count == 0 || !(cur is VariableRefNode v)) return false;
+      list.Reverse();
+      root = v;
+      accessors = list;
+      return true;
+    }
+
+    /// <summary>
+    /// Resolves each accessor of an assignment target against current values,
+    /// capturing one <see cref="WriteStep"/> per level and the final slot's
+    /// current value in <paramref name="oldValue"/> (null for a new datamap
+    /// key or an array append). Pure reads — nothing is mutated here, and a
+    /// computed accessor is evaluated exactly once. Intermediate levels use
+    /// the read path's rules and wordings (they are reads, as in reference);
+    /// the final level applies the <c>canSet</c> rules from reference
+    /// varref.ts. One deliberate divergence: an array write allows 1..Count
+    /// (replace) plus Count+1 (append — reference's no-hole growth case) and
+    /// errors beyond, where reference grows a sparse JS array whose holes
+    /// error on read and break its own serialisation.
+    /// Returns the error to surface, or null on success.
+    /// </summary>
+    private HarloweValue ResolveWritePath(HarloweValue rootValue, List<IExpressionNode> accessors, List<WriteStep> steps, out HarloweValue oldValue)
+    {
+      oldValue = null;
+      var container = rootValue;
+      for (int i = 0; i < accessors.Count; i++)
+      {
+        if (container.IsError) return container;
+        bool isLast = i == accessors.Count - 1;
+        var accessor = accessors[i];
+        var step = new WriteStep { Container = container };
+        HarloweValue child = null;
+
+        switch (container.Kind)
+        {
+          case HarloweValueKind.Datamap:
+          {
+            var map = container.AsDatamap;
+            string key;
+            if (accessor is IdentifierNode id) key = id.Name;
+            else
+            {
+              var keyValue = Evaluate(accessor);
+              if (keyValue.IsError) return keyValue;
+              if (keyValue.Kind != HarloweValueKind.String)
+                return isLast
+                  ? HarloweValue.OfError($"the datamap can only have string data names, not a {keyValue.Kind}.")
+                  : HarloweValue.OfError($"datamap key must be a String, not a {keyValue.Kind}");
+              key = keyValue.AsString;
+            }
+            bool exists = map.TryGetValue(key, out var existing);
+            // A missing key errors mid-chain but is created by the final
+            // write (reference: plain Map.set).
+            if (!exists && !isLast) return HarloweValue.OfError($"datamap has no key '{key}'");
+            step.Kind = WriteKind.DatamapKey;
+            step.Key = key;
+            if (exists) child = existing;
+            break;
+          }
+          case HarloweValueKind.Array:
+          {
+            var arr = container.AsArray;
+            var indexError = ResolveWriteIndex(accessor, isLast, "array", arr.Count, out int index);
+            if (indexError != null) return indexError;
+            step.Kind = WriteKind.ArrayIndex;
+            step.Index = index;
+            if (isLast && index == arr.Count + 1)
+            {
+              step.IsAppend = true;
+            }
+            else if (index >= 1 && index <= arr.Count)
+            {
+              child = arr[index - 1];
+            }
+            else
+            {
+              int upper = isLast ? arr.Count + 1 : arr.Count;
+              return HarloweValue.OfError($"array index {index} is out of range (1..{upper})");
+            }
+            break;
+          }
+          case HarloweValueKind.String:
+          {
+            string s = container.AsString;
+            int count = CodePointCount(s);
+            var indexError = ResolveWriteIndex(accessor, isLast, "string", count, out int index);
+            if (indexError != null) return indexError;
+            if (index < 1 || index > count)
+              return HarloweValue.OfError($"string index {index} is out of range (1..{count})");
+            step.Kind = WriteKind.StringIndex;
+            step.Index = index;
+            child = IndexString(s, index);
+            break;
+          }
+          case HarloweValueKind.Colour:
+            // Colours are immutable; reference's canSet catch-all.
+            return HarloweValue.OfError("I can't modify the colour");
+          default:
+          {
+            string desc;
+            if (accessor is IdentifierNode id) desc = $"'{id.Name}'";
+            else
+            {
+              var keyValue = Evaluate(accessor);
+              if (keyValue.IsError) return keyValue;
+              desc = DescribeKey(keyValue);
+            }
+            return HarloweValue.OfError($"a {container.Kind} doesn't have data names, let alone {desc}");
+          }
+        }
+
+        steps.Add(step);
+        if (isLast) { oldValue = child; return null; }
+        container = child;
+      }
+      return HarloweValue.OfError("missing assignment target accessor");
+    }
+
+    /// <summary>
+    /// Resolves one array/string write accessor to a 1-based index (from-end
+    /// forms converted against <paramref name="count"/>; bounds NOT checked —
+    /// the caller applies its own replace/append rule). Returns the error to
+    /// surface, or null. <c>length</c> and its kin are unassignable at any
+    /// level of a write chain, and a non-position name gets reference's
+    /// canSet wording when it is the slot being assigned, the read path's
+    /// unknown-property wording mid-chain.
+    /// </summary>
+    private HarloweValue ResolveWriteIndex(IExpressionNode accessor, bool isLast, string containerNoun, int count, out int index)
+    {
+      index = 0;
+      if (accessor is IdentifierNode id)
+      {
+        if (id.Name == "length")
+          return HarloweValue.OfError($"I can't forcibly alter the 'length' of the {containerNoun}.");
+        if (!Ordinals.TryParse(id.Name, out int ordIdx, out bool fromEnd))
+          return isLast
+            ? HarloweValue.OfError($"the {containerNoun} can only have position data names ('3rd', '1st', (5), etc.), not '{id.Name}'.")
+            : HarloweValue.OfError($"{containerNoun} has no property '{id.Name}'");
+        index = fromEnd ? count - ordIdx + 1 : ordIdx;
+        return null;
+      }
+      var keyValue = Evaluate(accessor);
+      if (keyValue.IsError) return keyValue;
+      if (keyValue.Kind != HarloweValueKind.Number)
+        return isLast
+          ? HarloweValue.OfError($"the {containerNoun} can only have position data names ('3rd', '1st', (5), etc.), not {DescribeKey(keyValue)}.")
+          : HarloweValue.OfError($"{containerNoun} index must be a Number, not a {keyValue.Kind}");
+      double n = keyValue.AsNumber;
+      if (n != System.Math.Floor(n))
+        return HarloweValue.OfError($"{containerNoun} index must be a whole number; got {HarloweValue.FormatNumber(n)}");
+      index = (int)n;
+      return null;
+    }
+
+    // Describes a computed accessor key for a write-path error: string keys
+    // read as names, everything else by kind.
+    private static string DescribeKey(HarloweValue key)
+      => key.Kind == HarloweValueKind.String ? $"'{key.AsString}'" : $"a {key.Kind}";
+
+    /// <summary>
+    /// Rebuilds the resolved chain around <paramref name="value"/>, deepest
+    /// level first: each container is shallow-cloned, the new child installed,
+    /// and the clone becomes the next level up's child — the copy-on-write
+    /// walk of reference varref.ts's <c>#mutateRight</c>. Returns the rebuilt
+    /// root value for the store write. Untouched siblings keep their
+    /// references, which is what keeps the clones cheap.
+    /// </summary>
+    private static HarloweValue ApplyWrite(List<WriteStep> steps, HarloweValue value)
+    {
+      var child = value;
+      for (int i = steps.Count - 1; i >= 0; i--)
+      {
+        var step = steps[i];
+        switch (step.Kind)
+        {
+          case WriteKind.DatamapKey:
+          {
+            var map = new Dictionary<string, HarloweValue>(step.Container.AsDatamap);
+            map[step.Key] = child;
+            child = HarloweValue.OfDatamap(map);
+            break;
+          }
+          case WriteKind.ArrayIndex:
+          {
+            var arr = new List<HarloweValue>(step.Container.AsArray);
+            if (step.IsAppend) arr.Add(child);
+            else arr[step.Index - 1] = child;
+            child = HarloweValue.OfArray(arr);
+            break;
+          }
+          default:
+            // StringIndex: child is always a String here — a string's element
+            // is a one-code-point string, and the deepest level's value was
+            // gated by the caller's string-slot checks.
+            child = HarloweValue.OfString(CodePoints.ReplaceAt(step.Container.AsString, step.Index, child.AsString));
+            break;
+        }
+      }
+      return child;
     }
 
     public void Visit(MacroCallNode node)
@@ -521,7 +835,7 @@ namespace Harlowe.Runtime
           return HarloweValue.OfError($"datamap has no key '{name}'");
         case HarloweValueKind.Array:
           if (name == "length") return HarloweValue.OfNumber(container.AsArray.Count);
-          if (TryParseOrdinal(name, out int aIdx, out bool aFromEnd))
+          if (Ordinals.TryParse(name, out int aIdx, out bool aFromEnd))
           {
             int target = aFromEnd ? container.AsArray.Count - aIdx + 1 : aIdx;
             return IndexArray(container.AsArray, target);
@@ -533,7 +847,7 @@ namespace Harlowe.Runtime
           // `[...str]`), so an astral character (surrogate pair) is one
           // character, not two.
           if (name == "length") return HarloweValue.OfNumber(CodePointCount(container.AsString));
-          if (TryParseOrdinal(name, out int sIdx, out bool sFromEnd))
+          if (Ordinals.TryParse(name, out int sIdx, out bool sFromEnd))
           {
             int target = sFromEnd ? CodePointCount(container.AsString) - sIdx + 1 : sIdx;
             return IndexString(container.AsString, target);
@@ -550,35 +864,6 @@ namespace Harlowe.Runtime
         default:
           return HarloweValue.OfError($"a {container.Kind} has no properties");
       }
-    }
-
-    /// <summary>
-    /// Parses an ordinal accessor name into a 1-based index and a direction
-    /// flag. Recognised forms: <c>last</c> (idx=1, fromEnd=true), <c>Nth</c>
-    /// where the suffix is <c>st</c>/<c>nd</c>/<c>rd</c>/<c>th</c> (forward
-    /// indexing), and <c>Nthlast</c> (back-anchored). Returns false for any
-    /// other identifier so the caller can report an unknown property. The
-    /// suffix is decorative — <c>2st</c> and <c>1nd</c> still parse — matching
-    /// Harlowe's permissive author-facing behaviour.
-    /// </summary>
-    private static bool TryParseOrdinal(string name, out int index, out bool fromEnd)
-    {
-      index = 0;
-      fromEnd = false;
-      if (string.IsNullOrEmpty(name)) return false;
-      if (name == "last") { index = 1; fromEnd = true; return true; }
-      int p = 0;
-      while (p < name.Length && char.IsDigit(name[p])) p++;
-      if (p == 0) return false;
-      if (p + 2 > name.Length) return false;
-      string suffix = name.Substring(p, 2);
-      if (suffix != "st" && suffix != "nd" && suffix != "rd" && suffix != "th") return false;
-      int after = p + 2;
-      if (!int.TryParse(name.Substring(0, p), out int n)) return false;
-      if (after == name.Length) { index = n; fromEnd = false; return true; }
-      if (after + 4 == name.Length && name.Substring(after, 4) == "last")
-      { index = n; fromEnd = true; return true; }
-      return false;
     }
 
     private static HarloweValue ResolveValueAccessor(HarloweValue container, HarloweValue key)

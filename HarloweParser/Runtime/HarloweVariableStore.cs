@@ -57,6 +57,8 @@ namespace Harlowe.Runtime
     public HarloweValue It => _it;
     public HarloweValue Pos => _pos;
 
+    public void SetIt(HarloweValue value) => _it = value;
+
     public HarloweValue Get(string name, bool isTemporary)
     {
       if (!isTemporary)

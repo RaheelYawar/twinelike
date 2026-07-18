@@ -154,7 +154,7 @@ public class ConsoleOutput : IRenderOutput
 
 | Macro family | Status |
 |---|---|
-| `(set:)`, `(put:)`, `(print:)`, `(display:)` | ✓ |
+| `(set:)`, `(put:)`, `(print:)`, `(display:)` — incl. property assignment (`(set: $arr's 1st to 5)`, `'s`/`of` chains, computed accessors) | ✓ |
 | `(if:)`, `(unless:)`, `(else-if:)`, `(else:)` | ✓ |
 | `(random:)`, `(either:)`, `(history:)` | ✓ |
 | `(save-game:)`, `(load-game:)`, `(saved-games:)` | ✓ |
@@ -180,7 +180,7 @@ public class ConsoleOutput : IRenderOutput
 | `(live:)`, `(event:)`, `(trigger:)` | ✗ |
 | `(t8n:)`, `(transition:)`, transition modifiers | ✗ |
 | Custom `(macro:)`, `(output:)` | ✗ |
-| Storylets, `(unpack:)`, `...` spread, property assignment | ✗ |
+| Storylets, `(unpack:)`, `...` spread, `(move:)` | ✗ |
 
 ### Storage
 

@@ -64,6 +64,8 @@ namespace Harlowe.Tests.Twee
     [Fact] public void Body_NamedHook_Right() => AssertBodyRoundTripStable("|greeting>[hello]");
     [Fact] public void Body_NamedHook_Left() => AssertBodyRoundTripStable("[hello]<greeting|");
     [Fact] public void Body_BareMacro() => AssertBodyRoundTripStable("(set: $hp to 10)");
+    [Fact] public void Body_PropertyAssignment() => AssertBodyRoundTripStable("(set: $person's name to \"Bob\")");
+    [Fact] public void Body_PutIntoProperty() => AssertBodyRoundTripStable("(put: 5 into $dm's key)");
     [Fact] public void Body_MacroWithHook() => AssertBodyRoundTripStable("(if: $x)[yes]");
     [Fact] public void Body_ReplaceHookRef() => AssertBodyRoundTripStable("(replace: ?cake)[new]");
     [Fact] public void Body_AppendStringTarget() => AssertBodyRoundTripStable("(append: \"old\")[ more]");
@@ -158,6 +160,15 @@ namespace Harlowe.Tests.Twee
     [Fact] public void Expr_DatamapMacro() => AssertExprRoundTripStable("(dm: \"name\", \"Bob\", \"hp\", 10)");
     [Fact] public void Expr_To() => AssertExprRoundTripStable("$x to 10");
     [Fact] public void Expr_Into() => AssertExprRoundTripStable("10 into $x");
+
+    // ----- Property-assignment targets -----
+
+    [Fact] public void Expr_To_PropertyTarget() => AssertExprRoundTripStable("$person's name to \"Bob\"");
+    [Fact] public void Expr_To_OrdinalTarget() => AssertExprRoundTripStable("$arr's 1st to 5");
+    [Fact] public void Expr_To_OfFormTarget() => AssertExprRoundTripStable("1st of $arr to 5");
+    [Fact] public void Expr_To_ChainedTarget() => AssertExprRoundTripStable("$chars's hero's hp to 5");
+    [Fact] public void Expr_To_ComputedAccessorTarget() => AssertExprRoundTripStable("$dm's (\"na\" + \"me\") to 5");
+    [Fact] public void Expr_Into_PropertyTarget() => AssertExprRoundTripStable("5 into $dm's key");
 
     [Fact]
     public void Expr_NestedPossessive_PreservesShape()

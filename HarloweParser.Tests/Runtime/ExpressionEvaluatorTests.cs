@@ -1154,5 +1154,399 @@ namespace Harlowe.Tests.Runtime
       var reg = Registry();
       Assert.False(Eval("(for: each _x, 1) is (for: each _x, 1)", null, null, reg).AsBool);
     }
+
+    // Property assignment — (set: $x's key to v), (put: v into $x's key) ------
+    //
+    // The write path resolves the target chain before the RHS runs and
+    // rebuilds it copy-on-write (reference varref.ts's #mutateRight), so an
+    // error anywhere means zero mutation and aliased collections never see
+    // each other's writes.
+
+    [Fact]
+    public void PropertyAssign_Datamap_IdentifierKey()
+    {
+      var store = new HarloweVariableStore();
+      EvalP("$person to (dm: \"name\", \"Ann\")", store);
+      var v = EvalP("$person's name to \"Bob\"", store);
+      Assert.False(v.IsError);
+      Assert.Equal("Bob", EvalP("$person's name", store).AsString);
+    }
+
+    [Fact]
+    public void PropertyAssign_Datamap_ComputedKey()
+    {
+      var store = StoreWith("dm", OneKeyMap("hp", 10));
+      var v = EvalP("$dm's (\"h\" + \"p\") to 3", store);
+      Assert.False(v.IsError);
+      Assert.Equal(3, EvalP("$dm's hp", store).AsNumber);
+    }
+
+    [Fact]
+    public void PropertyAssign_Datamap_NewKeyCreated()
+    {
+      // Reference: a final missing key is created by a plain Map.set.
+      var store = StoreWith("dm", OneKeyMap("hp", 10));
+      var v = EvalP("$dm's mp to 5", store);
+      Assert.False(v.IsError);
+      Assert.Equal(5, EvalP("$dm's mp", store).AsNumber);
+      Assert.Equal(10, EvalP("$dm's hp", store).AsNumber);
+    }
+
+    [Fact]
+    public void PropertyAssign_Datamap_NonStringComputedKey_Errors()
+    {
+      var store = StoreWith("dm", OneKeyMap("hp", 10));
+      var v = EvalP("$dm's (5) to 1", store);
+      Assert.True(v.IsError);
+      Assert.Equal("the datamap can only have string data names, not a Number.", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void PropertyAssign_Array_OrdinalForms()
+    {
+      var store = StoreWith("arr", Numbers(1, 2, 3));
+      Assert.False(EvalP("$arr's 1st to 10", store).IsError);
+      Assert.False(EvalP("$arr's last to 30", store).IsError);
+      Assert.False(EvalP("$arr's 2ndlast to 20", store).IsError);
+      Assert.False(EvalP("$arr's (2) to 22", store).IsError);
+      var arr = store.Get("arr", false).AsArray;
+      Assert.Equal(10, arr[0].AsNumber);
+      Assert.Equal(22, arr[1].AsNumber);
+      Assert.Equal(30, arr[2].AsNumber);
+    }
+
+    [Fact]
+    public void PropertyAssign_Array_AppendAtCountPlusOne()
+    {
+      // Deliberate divergence from reference's sparse-array growth: Count+1
+      // appends, anything beyond errors.
+      var store = StoreWith("arr", Numbers(1, 2, 3));
+      var v = EvalP("$arr's 4th to 99", store);
+      Assert.False(v.IsError);
+      var arr = store.Get("arr", false).AsArray;
+      Assert.Equal(4, arr.Count);
+      Assert.Equal(99, arr[3].AsNumber);
+    }
+
+    [Fact]
+    public void PropertyAssign_Array_BeyondAppend_Errors()
+    {
+      var store = StoreWith("arr", Numbers(1, 2, 3));
+      var v = EvalP("$arr's 6th to 1", store);
+      Assert.True(v.IsError);
+      Assert.Equal("array index 6 is out of range (1..4)", v.ErrorMessage);
+      Assert.Equal(3, store.Get("arr", false).AsArray.Count);
+    }
+
+    [Fact]
+    public void PropertyAssign_Array_LastOnEmpty_Errors()
+    {
+      var store = StoreWith("arr", Numbers());
+      var v = EvalP("$arr's last to 1", store);
+      Assert.True(v.IsError);
+      Assert.Contains("out of range (1..1)", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void PropertyAssign_Array_Length_Errors()
+    {
+      var store = StoreWith("arr", Numbers(1, 2));
+      var v = EvalP("$arr's length to 5", store);
+      Assert.True(v.IsError);
+      Assert.Equal("I can't forcibly alter the 'length' of the array.", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void PropertyAssign_Array_NonOrdinalName_Errors()
+    {
+      var store = StoreWith("arr", Numbers(1, 2));
+      var v = EvalP("$arr's foo to 5", store);
+      Assert.True(v.IsError);
+      Assert.Equal("the array can only have position data names ('3rd', '1st', (5), etc.), not 'foo'.", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void PropertyAssign_Array_FractionalComputedIndex_Errors()
+    {
+      var store = StoreWith("arr", Numbers(1, 2));
+      var v = EvalP("$arr's (1.5) to 9", store);
+      Assert.True(v.IsError);
+      Assert.Contains("whole number", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void PropertyAssign_String_ReplacesCodePoint()
+    {
+      var store = StoreWith("s", HarloweValue.OfString("cat"));
+      var v = EvalP("$s's 1st to \"b\"", store);
+      Assert.False(v.IsError);
+      Assert.Equal("bat", store.Get("s", false).AsString);
+      Assert.False(EvalP("$s's last to \"p\"", store).IsError);
+      Assert.Equal("bap", store.Get("s", false).AsString);
+    }
+
+    [Fact]
+    public void PropertyAssign_String_AstralPositionsAndValues()
+    {
+      // Positions count code points (an astral emoji is one), and a
+      // surrogate-pair replacement value is one code point too.
+      var store = StoreWith("s", HarloweValue.OfString("a\U0001F600c"));
+      Assert.False(EvalP("$s's 2nd to \"x\"", store).IsError);
+      Assert.Equal("axc", store.Get("s", false).AsString);
+      Assert.False(EvalP("$s's 1st to \"\U0001F600\"", store).IsError);
+      Assert.Equal("\U0001F600xc", store.Get("s", false).AsString);
+    }
+
+    [Fact]
+    public void PropertyAssign_String_NonStringValue_Errors()
+    {
+      var store = StoreWith("s", HarloweValue.OfString("cat"));
+      var v = EvalP("$s's 1st to 5", store);
+      Assert.True(v.IsError);
+      Assert.Equal("I can't put this non-string value, 5, in a string.", v.ErrorMessage);
+      Assert.Equal("cat", store.Get("s", false).AsString);
+    }
+
+    [Fact]
+    public void PropertyAssign_String_WrongLengthValue_Errors()
+    {
+      var store = StoreWith("s", HarloweValue.OfString("cat"));
+      var v = EvalP("$s's 1st to \"ab\"", store);
+      Assert.True(v.IsError);
+      Assert.Equal("\"ab\" is not the right length to fit into this string location.", v.ErrorMessage);
+      Assert.Equal("cat", store.Get("s", false).AsString);
+    }
+
+    [Fact]
+    public void PropertyAssign_String_NoAppend()
+    {
+      var store = StoreWith("s", HarloweValue.OfString("cat"));
+      var v = EvalP("$s's 4th to \"x\"", store);
+      Assert.True(v.IsError);
+      Assert.Contains("out of range (1..3)", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void PropertyAssign_OfForm()
+    {
+      var store = StoreWith("arr", Numbers(1, 2, 3));
+      var v = EvalP("1st of $arr to 5", store);
+      Assert.False(v.IsError);
+      Assert.Equal(5, EvalP("$arr's 1st", store).AsNumber);
+    }
+
+    [Fact]
+    public void PropertyAssign_MixedOfAndPossessiveChain()
+    {
+      // `hp of $chars's hero` — 's binds tighter, so this is
+      // `hp of ($chars's hero)`: descend hero, then write hp.
+      var store = new HarloweVariableStore();
+      EvalP("$chars to (dm: \"hero\", (dm: \"hp\", 10))", store);
+      var v = EvalP("hp of $chars's hero to 5", store);
+      Assert.False(v.IsError);
+      Assert.Equal(5, EvalP("$chars's hero's hp", store).AsNumber);
+    }
+
+    [Fact]
+    public void PropertyAssign_NestedArrayInDatamap()
+    {
+      var store = new HarloweVariableStore();
+      EvalP("$dm to (dm: \"list\", (a: 1, 2, 3))", store);
+      var v = EvalP("$dm's list's 2nd to 9", store);
+      Assert.False(v.IsError);
+      Assert.Equal(9, EvalP("$dm's list's 2nd", store).AsNumber);
+    }
+
+    [Fact]
+    public void PropertyAssign_CopyOnWrite_AliasedVariableUnaffected()
+    {
+      // Set stores references — the aliasing is real but unobservable, because
+      // the write clones every container level before mutating.
+      var store = new HarloweVariableStore();
+      var shared = Numbers(1, 2, 3);
+      store.Set("a", false, shared);
+      store.Set("b", false, shared);
+      Assert.False(EvalP("$a's 1st to 99", store).IsError);
+      Assert.Equal(99, EvalP("$a's 1st", store).AsNumber);
+      Assert.Equal(1, EvalP("$b's 1st", store).AsNumber);
+      Assert.Equal(1, shared.AsArray[0].AsNumber);
+    }
+
+    [Fact]
+    public void PropertyAssign_CopyOnWrite_UntouchedSiblingsShareReferences()
+    {
+      var store = new HarloweVariableStore();
+      var hero = new Dictionary<string, HarloweValue> { ["hp"] = HarloweValue.OfNumber(10) };
+      var villain = new Dictionary<string, HarloweValue> { ["hp"] = HarloweValue.OfNumber(20) };
+      store.Set("chars", false, HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      {
+        ["hero"] = HarloweValue.OfDatamap(hero),
+        ["villain"] = HarloweValue.OfDatamap(villain)
+      }));
+      Assert.False(EvalP("$chars's hero's hp to 5", store).IsError);
+      var newChars = store.Get("chars", false).AsDatamap;
+      Assert.NotSame(hero, newChars["hero"].AsDatamap);
+      Assert.Same(villain, newChars["villain"].AsDatamap);
+      Assert.Equal(5, newChars["hero"].AsDatamap["hp"].AsNumber);
+      Assert.Equal(10, hero["hp"].AsNumber);
+    }
+
+    [Fact]
+    public void PropertyAssign_ItBindsToSlotCurrentValue()
+    {
+      var store = StoreWith("arr", Numbers(10, 20));
+      var v = EvalP("$arr's 1st to it + 1", store);
+      Assert.False(v.IsError);
+      Assert.Equal(11, EvalP("$arr's 1st", store).AsNumber);
+    }
+
+    [Fact]
+    public void PropertyAssign_ItEndsAsAssignedValue()
+    {
+      var store = StoreWith("arr", Numbers(10, 20));
+      EvalP("$arr's 1st to 99", store);
+      Assert.Equal(99, store.It.AsNumber);
+    }
+
+    [Fact]
+    public void PropertyAssign_NewKey_ItUnset_RhsReadingItErrors()
+    {
+      // A new datamap key has no current value; `it` binds null and only
+      // errors if the RHS actually reads it — and nothing is mutated.
+      var store = StoreWith("dm", OneKeyMap("hp", 10));
+      var v = EvalP("$dm's mp to it + 1", store);
+      Assert.True(v.IsError);
+      Assert.Contains("'it' is not yet set", v.ErrorMessage);
+      Assert.False(store.Get("dm", false).AsDatamap.ContainsKey("mp"));
+    }
+
+    [Fact]
+    public void PropertyAssign_PutInto()
+    {
+      var store = StoreWith("dm", OneKeyMap("hp", 10));
+      var v = EvalP("5 into $dm's hp", store);
+      Assert.False(v.IsError);
+      Assert.Equal(5, EvalP("$dm's hp", store).AsNumber);
+    }
+
+    [Fact]
+    public void PropertyAssign_RhsError_NoMutation()
+    {
+      var store = StoreWith("arr", Numbers(1, 2));
+      var before = store.Get("arr", false);
+      var v = EvalP("$arr's 1st to $missing", store);
+      Assert.True(v.IsError);
+      Assert.Same(before, store.Get("arr", false));
+      Assert.Equal(1, before.AsArray[0].AsNumber);
+    }
+
+    [Fact]
+    public void PropertyAssign_ComputedAccessor_EvaluatedOnce()
+    {
+      int calls = 0;
+      var invoker = new StubInvoker
+      {
+        Handler = (name, args) => { calls++; return HarloweValue.OfNumber(1); }
+      };
+      var store = StoreWith("arr", Numbers(10, 20));
+      var v = Eval("$arr's (idx:) to 99", store, null, invoker);
+      Assert.False(v.IsError);
+      Assert.Equal(1, calls);
+      Assert.Equal(99, store.Get("arr", false).AsArray[0].AsNumber);
+    }
+
+    [Fact]
+    public void PropertyAssign_IntermediateMissingKey_Errors()
+    {
+      var store = StoreWith("dm", OneKeyMap("hp", 10));
+      var v = EvalP("$dm's stats's hp to 5", store);
+      Assert.True(v.IsError);
+      Assert.Contains("no key 'stats'", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void PropertyAssign_IntermediateArrayBounds_ReadWording()
+    {
+      // Mid-chain levels are reads: no append slot, read-path range shown.
+      var store = StoreWith("arr", Numbers(1, 2));
+      var v = EvalP("$arr's 5th's 1st to 5", store);
+      Assert.True(v.IsError);
+      Assert.Contains("out of range (1..2)", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void PropertyAssign_ScalarBase_Errors()
+    {
+      var store = StoreWith("num", HarloweValue.OfNumber(5));
+      var v = EvalP("$num's 1st to 1", store);
+      Assert.True(v.IsError);
+      Assert.Equal("a Number doesn't have data names, let alone '1st'", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void PropertyAssign_Colour_Errors()
+    {
+      var store = new HarloweVariableStore();
+      EvalP("$col to (rgb: 10, 20, 30)", store);
+      var v = EvalP("$col's r to 5", store);
+      Assert.True(v.IsError);
+      Assert.Equal("I can't modify the colour", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void PropertyAssign_NonVariableBase_Errors()
+    {
+      var v = EvalP("(a: 1)'s 1st to 2");
+      Assert.True(v.IsError);
+      Assert.Equal("I can't (set:) that value, if it isn't stored in a variable.", v.ErrorMessage);
+
+      var put = EvalP("5 into (a: 1)'s 1st");
+      Assert.True(put.IsError);
+      Assert.Equal("I can't (put:) that value, if it isn't stored in a variable.", put.ErrorMessage);
+    }
+
+    [Fact]
+    public void PropertyAssign_ItsBase_Errors()
+    {
+      var v = EvalP("its name to 5");
+      Assert.True(v.IsError);
+      Assert.Contains("isn't stored in a variable", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void PropertyAssign_UnsetRoot_Errors()
+    {
+      var v = EvalP("$nope's 1st to 5");
+      Assert.True(v.IsError);
+      Assert.Contains("$nope is not set", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void PropertyAssign_TempVariableTarget()
+    {
+      var store = new HarloweVariableStore();
+      store.Set("t", true, Numbers(1, 2));
+      var v = EvalP("_t's 1st to 9", store);
+      Assert.False(v.IsError);
+      Assert.Equal(9, store.Get("t", true).AsArray[0].AsNumber);
+    }
+
+    [Fact]
+    public void PropertyAssign_MultiArgSet_BothArgsApply()
+    {
+      // `(set: $a's 1st to 5, $b to 2)` — each arg is an independent
+      // assignment expression evaluated in order.
+      var store = new HarloweVariableStore();
+      store.Set("a", false, Numbers(1, 2));
+      var tokens = new HarloweTokenizer().Tokenize("(set: $a's 1st to 5, $b to 2)");
+      var cursor = new TokenCursor(tokens);
+      cursor.Advance();
+      var args = new HarloweExpressionParser().ParseArgumentList(cursor, allowAssignment: true);
+      Assert.Equal(2, args.Count);
+      var evaluator = new ExpressionEvaluator(store, null, null);
+      foreach (var arg in args) Assert.False(evaluator.Evaluate(arg).IsError);
+      Assert.Equal(5, store.Get("a", false).AsArray[0].AsNumber);
+      Assert.Equal(2, store.Get("b", false).AsNumber);
+    }
   }
 }
