@@ -13,7 +13,7 @@ for the save-model slice (which lands `(history:)` semantics).
 
 - **High severity (0 active, 6 fixed)**: silent wrong result or breaks documented Harlowe idioms.
 - **Medium severity (1 active, 10 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
-- **Low severity (4 active, 1 fixed)**: documented as deliberate or marginal.
+- **Low severity (3 active, 2 fixed)**: documented as deliberate or marginal.
 
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
 items are kept and marked rather than renumbered.
@@ -654,7 +654,25 @@ finding below.
   its own terms. The append case (Count+1, reference's no-hole growth) is
   reproduced exactly.
 
-### 22. `(set: … into …)` / `(put: … to …)` accept the wrong operator (pre-existing; recorded 2026-07-18)
+### 22. `(set: … into …)` / `(put: … to …)` accept the wrong operator — ✅ FIXED (2026-07-18)
+
+**Resolved by the (move:) slice**, via a third mechanism neither of the
+recorded fix ideas needed: `ExpressionEvaluator.ValidateAssignmentOperators`,
+an evaluation-time pre-pass run at both macro-invocation sites
+(`BodyRenderer.Visit(MacroNode)` and the evaluator's `Visit(MacroCallNode)`).
+It mirrors reference's typeChecker model — every argument's operator is
+checked BEFORE any argument evaluates, so `(set: $a to 1, 5 into $b)` assigns
+nothing at all. Wordings are reference's (`Please say 'to' when using the
+(set:) macro.`, `Please say 'into' when using the (move:) macro.`). (A trim
+recorded here originally — ours named (put:) alone while (unpack:) was
+unimplemented — was reverted when the (unpack:) slice shipped later the same
+day: the message is reference-verbatim again, and the pre-pass also carries
+reference's XOR dest-shape gate.) The same pre-pass
+also rejects a non-assignment argument to the three macros (`(set: 5)`,
+previously a silent no-op — reference rejects it in the AssignmentRequest
+type signature). See the `ValidateOperators_*` tests in
+`ExpressionEvaluatorTests` and the operator-discipline tests in
+`BodyRendererTests`. Original finding below.
 
 - **Ours**: the parser gates `to`/`into` to `(set:)`/`(put:)` arg-tops as a
   *pair* — `HarloweExpressionParser.IsAssignmentMacro` doesn't distinguish

@@ -239,7 +239,7 @@ namespace Harlowe.Parsing
     public static bool IsAssignmentMacro(string name)
     {
       string n = MacroNames.Normalize(name);
-      return n == "set" || n == "put";
+      return n == "set" || n == "put" || n == "move" || n == "unpack";
     }
 
     /// <summary>
@@ -252,7 +252,7 @@ namespace Harlowe.Parsing
     /// <para>
     /// <paramref name="allowAssignmentAtTop"/> gates the order-16
     /// <c>to</c>/<c>into</c> assignment operators. Only the immediate argument
-    /// expression of <c>(set:)</c>/<c>(put:)</c> arrives with the flag set; any
+    /// expression of <c>(set:)</c>/<c>(put:)</c>/<c>(move:)</c>/<c>(unpack:)</c> arrives with the flag set; any
     /// recursion into a sub-expression (RHS of a binary op, parenthesised
     /// group, macro argument, lambda clause) clears it, so a stray
     /// <c>to</c>/<c>into</c> below the top-of-arg position is a parse error
@@ -301,7 +301,7 @@ namespace Harlowe.Parsing
         {
           if (!allowAssignmentAtTop)
             throw new HarloweParseException(
-              $"'{t.Value}' assignment is only allowed at the top of a (set:) or (put:) argument",
+              $"'{t.Value}' assignment is only allowed at the top of a (set:), (put:), (move:), or (unpack:) argument",
               t.Line, t.Column);
         }
 

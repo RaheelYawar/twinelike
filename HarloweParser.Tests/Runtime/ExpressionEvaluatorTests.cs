@@ -1548,5 +1548,614 @@ namespace Harlowe.Tests.Runtime
       Assert.Equal(5, store.Get("a", false).AsArray[0].AsNumber);
       Assert.Equal(2, store.Get("b", false).AsNumber);
     }
+
+    // (move:) — copy then delete the data-structure source slot ---------------
+    //
+    // Move work happens in EvaluateMacroArgument's routing of an `into` arg,
+    // so these tests parse the arg under a (put:) wrapper (which permits
+    // `into` at arg top) and evaluate it as a (move:) argument.
+
+    private static HarloweValue EvalMoveArg(string arg, IVariableStore store = null, IMacroInvoker macros = null)
+      => EvalAssignmentArg("move", arg, store, macros);
+
+    private static HarloweValue EvalUnpackArg(string arg, IVariableStore store = null)
+      => EvalAssignmentArg("unpack", arg, store, null);
+
+    private static HarloweValue EvalAssignmentArg(string macroName, string arg, IVariableStore store, IMacroInvoker macros)
+    {
+      store = store ?? new HarloweVariableStore();
+      if (macros == null)
+      {
+        var registry = new MacroRegistry();
+        StandardMacros.RegisterAll(registry);
+        registry.Context = new MacroContext { Store = store, Invoker = registry };
+        macros = registry;
+      }
+      var tokens = new HarloweTokenizer().Tokenize("(put:" + arg + ")");
+      var cursor = new TokenCursor(tokens);
+      cursor.Advance();
+      var args = new HarloweExpressionParser().ParseArgumentList(cursor, allowAssignment: true);
+      var evaluator = new ExpressionEvaluator(store, null, macros);
+      return evaluator.EvaluateMacroArgument(macroName, args[0]);
+    }
+
+    [Fact]
+    public void Move_ArrayElement_SplicesOut()
+    {
+      var store = StoreWith("a", Numbers(1, 2, 3));
+      var v = EvalMoveArg("$a's 1st into $b", store);
+      Assert.False(v.IsError);
+      Assert.Equal(1, store.Get("b", false).AsNumber);
+      var arr = store.Get("a", false).AsArray;
+      Assert.Equal(2, arr.Count);
+      Assert.Equal(2, arr[0].AsNumber);   // spliced, not a hole
+      Assert.Equal(3, arr[1].AsNumber);
+    }
+
+    [Fact]
+    public void Move_ArrayLast()
+    {
+      var store = StoreWith("a", Numbers(1, 2, 3));
+      Assert.False(EvalMoveArg("$a's last into $b", store).IsError);
+      Assert.Equal(3, store.Get("b", false).AsNumber);
+      Assert.Equal(2, store.Get("a", false).AsArray.Count);
+    }
+
+    [Fact]
+    public void Move_DatamapKey_Removed()
+    {
+      var store = new HarloweVariableStore();
+      store.Set("dm", false, HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      {
+        ["hp"] = HarloweValue.OfNumber(10),
+        ["mp"] = HarloweValue.OfNumber(5)
+      }));
+      Assert.False(EvalMoveArg("$dm's hp into $b", store).IsError);
+      Assert.Equal(10, store.Get("b", false).AsNumber);
+      var map = store.Get("dm", false).AsDatamap;
+      Assert.False(map.ContainsKey("hp"));
+      Assert.Equal(5, map["mp"].AsNumber);
+    }
+
+    [Fact]
+    public void Move_StringChar_Excised()
+    {
+      var store = StoreWith("s", HarloweValue.OfString("cat"));
+      Assert.False(EvalMoveArg("$s's 2nd into $b", store).IsError);
+      Assert.Equal("a", store.Get("b", false).AsString);
+      Assert.Equal("ct", store.Get("s", false).AsString);
+    }
+
+    [Fact]
+    public void Move_StringAstralChar()
+    {
+      var store = StoreWith("s", HarloweValue.OfString("a\U0001F600c"));
+      Assert.False(EvalMoveArg("$s's 2nd into $b", store).IsError);
+      Assert.Equal("\U0001F600", store.Get("b", false).AsString);
+      Assert.Equal("ac", store.Get("s", false).AsString);
+    }
+
+    [Fact]
+    public void Move_WholeVariable_SourceKept()
+    {
+      // Reference's documented contract: "Moving from variable to variable,
+      // such as by (move:$p into $q), won't cause $p to be deleted."
+      var store = StoreWith("p", HarloweValue.OfNumber(7));
+      Assert.False(EvalMoveArg("$p into $q", store).IsError);
+      Assert.Equal(7, store.Get("q", false).AsNumber);
+      Assert.Equal(7, store.Get("p", false).AsNumber);
+    }
+
+    [Fact]
+    public void Move_TempVariables()
+    {
+      var store = new HarloweVariableStore();
+      store.Set("src", true, Numbers(1, 2));
+      Assert.False(EvalMoveArg("_src's 1st into _dst", store).IsError);
+      Assert.Equal(1, store.Get("dst", true).AsNumber);
+      Assert.Single(store.Get("src", true).AsArray);
+    }
+
+    [Fact]
+    public void Move_NonVariableSource_Errors()
+    {
+      var v = EvalMoveArg("5 into $x");
+      Assert.True(v.IsError);
+      Assert.Equal("I can't (move:) that value, if it isn't stored in a variable.", v.ErrorMessage);
+
+      var macroBase = EvalMoveArg("(a: 1)'s 1st into $x");
+      Assert.True(macroBase.IsError);
+      Assert.Contains("isn't stored in a variable", macroBase.ErrorMessage);
+    }
+
+    [Fact]
+    public void Move_SourceMissingKey_Errors_NothingAssigned()
+    {
+      // The source read fails first (reference: src.get() errors abort the
+      // whole AssignmentRequest) — the destination is never touched.
+      var store = StoreWith("dm", OneKeyMap("hp", 10));
+      var v = EvalMoveArg("$dm's mp into $x", store);
+      Assert.True(v.IsError);
+      Assert.Contains("no key 'mp'", v.ErrorMessage);
+      Assert.Null(store.Get("x", false));
+    }
+
+    [Fact]
+    public void Move_UnsetSourceRoot_Errors()
+    {
+      Assert.Contains("$nope is not set", EvalMoveArg("$nope's 1st into $x").ErrorMessage);
+      Assert.Contains("$gone is not set", EvalMoveArg("$gone into $x").ErrorMessage);
+    }
+
+    [Fact]
+    public void Move_Length_AssignsThenErrors()
+    {
+      // `length` reads fine but can't be deleted. Reference's order is
+      // set-then-delete, so the destination keeps the value and the canSet
+      // error surfaces after; the source array is untouched.
+      var store = StoreWith("a", Numbers(1, 2, 3));
+      var v = EvalMoveArg("$a's length into $x", store);
+      Assert.True(v.IsError);
+      Assert.Equal("I can't forcibly alter the 'length' of the array.", v.ErrorMessage);
+      Assert.Equal(3, store.Get("x", false).AsNumber);
+      Assert.Equal(3, store.Get("a", false).AsArray.Count);
+    }
+
+    [Fact]
+    public void Move_ColourProperty_AssignsThenErrors()
+    {
+      var store = new HarloweVariableStore();
+      EvalP("$col to (rgb: 10, 20, 30)", store);
+      var v = EvalMoveArg("$col's r into $x", store);
+      Assert.True(v.IsError);
+      Assert.Equal("I can't modify the colour", v.ErrorMessage);
+      Assert.Equal(10, store.Get("x", false).AsNumber);
+    }
+
+    [Fact]
+    public void Move_DestPropertyChain()
+    {
+      var store = StoreWith("a", Numbers(1, 2));
+      store.Set("dm", false, OneKeyMap("hp", 10));
+      Assert.False(EvalMoveArg("$a's 1st into $dm's slot", store).IsError);
+      Assert.Equal(1, store.Get("dm", false).AsDatamap["slot"].AsNumber);
+      Assert.Single(store.Get("a", false).AsArray);
+    }
+
+    [Fact]
+    public void Move_NestedSource_SiblingsShared()
+    {
+      var store = new HarloweVariableStore();
+      var hero = new Dictionary<string, HarloweValue>
+      {
+        ["hp"] = HarloweValue.OfNumber(10),
+        ["mp"] = HarloweValue.OfNumber(4)
+      };
+      var villain = new Dictionary<string, HarloweValue> { ["hp"] = HarloweValue.OfNumber(20) };
+      store.Set("chars", false, HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      {
+        ["hero"] = HarloweValue.OfDatamap(hero),
+        ["villain"] = HarloweValue.OfDatamap(villain)
+      }));
+      Assert.False(EvalMoveArg("$chars's hero's hp into $x", store).IsError);
+      Assert.Equal(10, store.Get("x", false).AsNumber);
+      var chars = store.Get("chars", false).AsDatamap;
+      Assert.False(chars["hero"].AsDatamap.ContainsKey("hp"));
+      Assert.Equal(4, chars["hero"].AsDatamap["mp"].AsNumber);
+      Assert.Same(villain, chars["villain"].AsDatamap);   // untouched sibling shared
+      Assert.Equal(10, hero["hp"].AsNumber);              // original map not mutated (COW)
+    }
+
+    [Fact]
+    public void Move_ComputedAccessor_EvaluatedOnce()
+    {
+      // The read and the delete share one resolve — reference compiles the
+      // property chain once, so `(move: $a's (idx:) into $b)` must not draw
+      // the index twice.
+      int calls = 0;
+      var invoker = new StubInvoker
+      {
+        Handler = (name, args) => { calls++; return HarloweValue.OfNumber(2); }
+      };
+      var store = StoreWith("a", Numbers(10, 20, 30));
+      var v = EvalMoveArg("$a's (idx:) into $b", store, invoker);
+      Assert.False(v.IsError);
+      Assert.Equal(1, calls);
+      Assert.Equal(20, store.Get("b", false).AsNumber);
+      var arr = store.Get("a", false).AsArray;
+      Assert.Equal(2, arr.Count);
+      Assert.Equal(10, arr[0].AsNumber);
+      Assert.Equal(30, arr[1].AsNumber);
+    }
+
+    [Fact]
+    public void Move_DestError_SourceNotDeleted()
+    {
+      // Reference's order: dest.set() errors abort before src.delete().
+      var store = StoreWith("a", Numbers(1, 2));
+      store.Set("num", false, HarloweValue.OfNumber(5));
+      var v = EvalMoveArg("$a's 1st into $num's 1st", store);
+      Assert.True(v.IsError);
+      Assert.Contains("doesn't have data names", v.ErrorMessage);
+      Assert.Equal(2, store.Get("a", false).AsArray.Count);
+    }
+
+    [Fact]
+    public void Move_OverlappingSourceAndDest()
+    {
+      // `(move: $a's 1st into $a's 2nd)` — the delete re-fetches containers
+      // after the assignment, so both operations land: [1,2,3] → read 1 →
+      // assign a[1]=1 → [1,1,3] → delete 1st → [1,3].
+      var store = StoreWith("a", Numbers(1, 2, 3));
+      Assert.False(EvalMoveArg("$a's 1st into $a's 2nd", store).IsError);
+      var arr = store.Get("a", false).AsArray;
+      Assert.Equal(2, arr.Count);
+      Assert.Equal(1, arr[0].AsNumber);
+      Assert.Equal(3, arr[1].AsNumber);
+    }
+
+    [Fact]
+    public void Move_ItEndsAsMovedValue()
+    {
+      var store = StoreWith("a", Numbers(9, 8));
+      EvalMoveArg("$a's 1st into $b", store);
+      Assert.Equal(9, store.It.AsNumber);
+    }
+
+    [Fact]
+    public void Move_CopyOnWrite_AliasedUnaffected()
+    {
+      var store = new HarloweVariableStore();
+      var shared = Numbers(1, 2, 3);
+      store.Set("a", false, shared);
+      store.Set("b", false, shared);
+      Assert.False(EvalMoveArg("$a's 1st into $c", store).IsError);
+      Assert.Equal(2, store.Get("a", false).AsArray.Count);
+      Assert.Equal(3, store.Get("b", false).AsArray.Count);   // alias untouched
+      Assert.Equal(3, shared.AsArray.Count);
+    }
+
+    // Operator discipline (reference's typeChecker pre-pass) ------------------
+
+    [Fact]
+    public void ValidateOperators_SetWithInto_Errors()
+    {
+      var store = new HarloweVariableStore();
+      var evaluator = new ExpressionEvaluator(store, null, null);
+      var tokens = new HarloweTokenizer().Tokenize("(set: 5 into $x, $y to 1)");
+      var cursor = new TokenCursor(tokens);
+      cursor.Advance();
+      var args = new HarloweExpressionParser().ParseArgumentList(cursor, allowAssignment: true);
+      var err = evaluator.ValidateAssignmentOperators("set", args);
+      Assert.NotNull(err);
+      Assert.Equal("Please say 'to' when using the (set:) macro.", err.ErrorMessage);
+      Assert.Null(store.Get("x", false));
+      Assert.Null(store.Get("y", false));
+    }
+
+    [Fact]
+    public void ValidateOperators_PutWithTo_Errors()
+    {
+      var evaluator = new ExpressionEvaluator(new HarloweVariableStore(), null, null);
+      var tokens = new HarloweTokenizer().Tokenize("(put: $x to 5)");
+      var cursor = new TokenCursor(tokens);
+      cursor.Advance();
+      var args = new HarloweExpressionParser().ParseArgumentList(cursor, allowAssignment: true);
+      var err = evaluator.ValidateAssignmentOperators("put", args);
+      Assert.NotNull(err);
+      Assert.Equal("Please say 'into' when using the (put:) or (unpack:) macro.", err.ErrorMessage);
+    }
+
+    [Fact]
+    public void ValidateOperators_MoveWithTo_Errors()
+    {
+      var evaluator = new ExpressionEvaluator(new HarloweVariableStore(), null, null);
+      var tokens = new HarloweTokenizer().Tokenize("(move: $x to 5)");
+      var cursor = new TokenCursor(tokens);
+      cursor.Advance();
+      var args = new HarloweExpressionParser().ParseArgumentList(cursor, allowAssignment: true);
+      var err = evaluator.ValidateAssignmentOperators("move", args);
+      Assert.NotNull(err);
+      Assert.Equal("Please say 'into' when using the (move:) macro.", err.ErrorMessage);
+    }
+
+    [Fact]
+    public void ValidateOperators_NonAssignmentArg_Errors()
+    {
+      var evaluator = new ExpressionEvaluator(new HarloweVariableStore(), null, null);
+      var tokens = new HarloweTokenizer().Tokenize("(set: 5)");
+      var cursor = new TokenCursor(tokens);
+      cursor.Advance();
+      var args = new HarloweExpressionParser().ParseArgumentList(cursor, allowAssignment: true);
+      var err = evaluator.ValidateAssignmentOperators("set", args);
+      Assert.NotNull(err);
+      Assert.Contains("requires a 'to' assignment", err.ErrorMessage);
+    }
+
+    [Fact]
+    public void ValidateOperators_OtherMacros_Unchecked()
+    {
+      var evaluator = new ExpressionEvaluator(new HarloweVariableStore(), null, null);
+      var tokens = new HarloweTokenizer().Tokenize("(print: 5)");
+      var cursor = new TokenCursor(tokens);
+      cursor.Advance();
+      var args = new HarloweExpressionParser().ParseArgumentList(cursor, allowAssignment: false);
+      Assert.Null(evaluator.ValidateAssignmentOperators("print", args));
+    }
+
+    private static HarloweValue ValidateArgs(string macroName, string source)
+    {
+      var evaluator = new ExpressionEvaluator(new HarloweVariableStore(), null, null);
+      var tokens = new HarloweTokenizer().Tokenize(source);
+      var cursor = new TokenCursor(tokens);
+      cursor.Advance();
+      var args = new HarloweExpressionParser().ParseArgumentList(cursor, allowAssignment: true);
+      return evaluator.ValidateAssignmentOperators(macroName, args);
+    }
+
+    [Fact]
+    public void ValidateOperators_UnpackWithTo_Errors()
+    {
+      var err = ValidateArgs("unpack", "(unpack: $x to 5)");
+      Assert.NotNull(err);
+      Assert.Equal("Please say 'into' when using the (put:) or (unpack:) macro.", err.ErrorMessage);
+    }
+
+    [Fact]
+    public void ValidateOperators_UnpackPlainVariableDest_Errors()
+    {
+      // Reference's XOR dest-shape gate: (unpack:) requires a pattern.
+      var err = ValidateArgs("unpack", "(unpack: $a into $x)");
+      Assert.NotNull(err);
+      Assert.Equal("Please use the (unpack:) macro with arrays or datamaps containing variables to the right of 'into'.", err.ErrorMessage);
+    }
+
+    [Fact]
+    public void ValidateOperators_PutPatternDest_Errors()
+    {
+      var err = ValidateArgs("put", "(put: 5 into (a: $x))");
+      Assert.NotNull(err);
+      Assert.Equal("Please use the (put:) macro with just single variables to the right of 'into'.", err.ErrorMessage);
+    }
+
+    [Fact]
+    public void ValidateOperators_SetPatternDest_Errors()
+    {
+      var err = ValidateArgs("set", "(set: (a: $x) to 5)");
+      Assert.NotNull(err);
+      Assert.Equal("Please use the (set:) macro with just single variables to the left of 'to'.", err.ErrorMessage);
+    }
+
+    // (unpack:) — destructuring -----------------------------------------------
+
+    [Fact]
+    public void Unpack_ArrayPattern_ReferenceDocExample()
+    {
+      // Reference doc: `(unpack: (a: 1, 2, 3) into (a: $x, 2, $y))` sets $x
+      // to 1 and $y to 3 — the literal 2 is a positional match.
+      var store = new HarloweVariableStore();
+      var v = EvalUnpackArg("(a: 1, 2, 3) into (a: $x, 2, $y)", store);
+      Assert.False(v.IsError);
+      Assert.Equal(1, store.Get("x", false).AsNumber);
+      Assert.Equal(3, store.Get("y", false).AsNumber);
+    }
+
+    [Fact]
+    public void Unpack_DatamapPattern_ReferenceDocExample()
+    {
+      // `(unpack: (dm: "B", 3, "A", 1) into (dm: "A", $x, "B", $y))` → $x=1, $y=3.
+      var store = new HarloweVariableStore();
+      var v = EvalUnpackArg("(dm: \"B\", 3, \"A\", 1) into (dm: \"A\", $x, \"B\", $y)", store);
+      Assert.False(v.IsError);
+      Assert.Equal(1, store.Get("x", false).AsNumber);
+      Assert.Equal(3, store.Get("y", false).AsNumber);
+    }
+
+    [Fact]
+    public void Unpack_NestedPatterns_ReferenceDocExample()
+    {
+      // `(unpack: (a: (a: 1), 2, (dm: "A", 3)) into (a: (a: $x), 2, (dm: "A", $y)))` → $x=1, $y=3.
+      var store = new HarloweVariableStore();
+      var v = EvalUnpackArg("(a: (a: 1), 2, (dm: \"A\", 3)) into (a: (a: $x), 2, (dm: \"A\", $y))", store);
+      Assert.False(v.IsError);
+      Assert.Equal(1, store.Get("x", false).AsNumber);
+      Assert.Equal(3, store.Get("y", false).AsNumber);
+    }
+
+    [Fact]
+    public void Unpack_ExtraSourceValues_Ignored()
+    {
+      var store = new HarloweVariableStore();
+      Assert.False(EvalUnpackArg("(a: 1, 2, 3) into (a: $x)", store).IsError);
+      Assert.Equal(1, store.Get("x", false).AsNumber);
+    }
+
+    [Fact]
+    public void Unpack_PatternLongerThanSource_Errors()
+    {
+      var v = EvalUnpackArg("(a: 1) into (a: $x, $y, $z)");
+      Assert.True(v.IsError);
+      Assert.Equal("I can't unpack this array because it needs 2 more values.", v.ErrorMessage);
+
+      // Correctly singular (reference's template always pluralises).
+      var one = EvalUnpackArg("(a: 1) into (a: $x, $y)");
+      Assert.Equal("I can't unpack this array because it needs 1 more value.", one.ErrorMessage);
+    }
+
+    [Fact]
+    public void Unpack_LiteralMismatch_Errors()
+    {
+      var store = new HarloweVariableStore();
+      var v = EvalUnpackArg("(a: 2, 3) into (a: 3, 2)", store);
+      Assert.True(v.IsError);
+      Assert.Equal("I tried to unpack, but 3 in the pattern didn't match 2.", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void Unpack_NoVariablesInPattern_Errors()
+    {
+      // With matching literals the walk binds nothing — reference's doc
+      // promises an error when the destination contains no variables.
+      var v = EvalUnpackArg("(a: 2, 3) into (a: 2, 3)");
+      Assert.True(v.IsError);
+      Assert.Equal("I can't store a new value inside the array that isn't in a variable.", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void Unpack_DatamapMissingKey_Errors()
+    {
+      var v = EvalUnpackArg("(dm: \"hp\", 10) into (dm: \"mp\", $x)");
+      Assert.True(v.IsError);
+      Assert.Equal("I can't unpack this datamap because it needs a 'mp' data name.", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void Unpack_OddDatamapPattern_Errors()
+    {
+      var v = EvalUnpackArg("(dm: \"hp\", 10) into (dm: \"hp\")");
+      Assert.True(v.IsError);
+      Assert.Contains("even number", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void Unpack_NonCollectionSource_MismatchErrors()
+    {
+      var v = EvalUnpackArg("5 into (a: $x)");
+      Assert.True(v.IsError);
+      Assert.Equal("I tried to unpack, but the (a:) pattern didn't match 5.", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void Unpack_SpreadInPattern_Errors()
+    {
+      var v = EvalUnpackArg("(a: 1, 2) into (a: ...$x)");
+      Assert.True(v.IsError);
+      Assert.Contains("datatypes", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void Unpack_TempVarAndPropertyChainTargets()
+    {
+      var store = new HarloweVariableStore();
+      store.Set("dm", false, OneKeyMap("slot", 0));
+      var v = EvalUnpackArg("(a: 7, 8) into (a: _t, $dm's slot)", store);
+      Assert.False(v.IsError);
+      Assert.Equal(7, store.Get("t", true).AsNumber);
+      Assert.Equal(8, EvalP("$dm's slot", store).AsNumber);
+    }
+
+    [Fact]
+    public void Unpack_DuplicateVariable_FirstPositionWins()
+    {
+      // Bindings execute reversed (reference), so the first occurrence lands last.
+      var store = new HarloweVariableStore();
+      Assert.False(EvalUnpackArg("(a: 1, 2) into (a: $x, $x)", store).IsError);
+      Assert.Equal(1, store.Get("x", false).AsNumber);
+    }
+
+    [Fact]
+    public void Unpack_ItEndsAsSourceValue()
+    {
+      var store = new HarloweVariableStore();
+      EvalUnpackArg("(a: 1, 2) into (a: $x, $y)", store);
+      Assert.Equal(HarloweValueKind.Array, store.It.Kind);
+      Assert.Equal(2, store.It.AsArray.Count);
+    }
+
+    [Fact]
+    public void Unpack_VariableSource_NeverDeletes()
+    {
+      var store = StoreWith("src", Numbers(4, 5));
+      Assert.False(EvalUnpackArg("$src into (a: $x, $y)", store).IsError);
+      Assert.Equal(4, store.Get("x", false).AsNumber);
+      Assert.Equal(5, store.Get("y", false).AsNumber);
+      Assert.Equal(2, store.Get("src", false).AsArray.Count);
+    }
+
+    [Fact]
+    public void Unpack_ComputedDatamapPatternKey()
+    {
+      var store = new HarloweVariableStore();
+      var v = EvalUnpackArg("(dm: \"hp\", 9) into (dm: \"h\" + \"p\", $x)", store);
+      Assert.False(v.IsError);
+      Assert.Equal(9, store.Get("x", false).AsNumber);
+    }
+
+    // (move:) with pattern destinations ---------------------------------------
+
+    [Fact]
+    public void MovePattern_ArrayPositions_MovedAndSpliced()
+    {
+      // Reference doc: `(move: $array into (a: $x, $y))` moves the first and
+      // second values out. Deletes run descending, so [1,2,3] keeps only 3.
+      var store = StoreWith("array", Numbers(1, 2, 3));
+      var v = EvalMoveArg("$array into (a: $x, $y)", store);
+      Assert.False(v.IsError);
+      Assert.Equal(1, store.Get("x", false).AsNumber);
+      Assert.Equal(2, store.Get("y", false).AsNumber);
+      var arr = store.Get("array", false).AsArray;
+      Assert.Single(arr);
+      Assert.Equal(3, arr[0].AsNumber);
+    }
+
+    [Fact]
+    public void MovePattern_DatamapKeys_Removed()
+    {
+      var store = new HarloweVariableStore();
+      store.Set("stats", false, HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      {
+        ["Maths"] = HarloweValue.OfNumber(12),
+        ["Science"] = HarloweValue.OfNumber(8),
+        ["Art"] = HarloweValue.OfNumber(6)
+      }));
+      var v = EvalMoveArg("$stats into (dm: \"Maths\", _m, \"Science\", _s)", store);
+      Assert.False(v.IsError);
+      Assert.Equal(12, store.Get("m", true).AsNumber);
+      Assert.Equal(8, store.Get("s", true).AsNumber);
+      var map = store.Get("stats", false).AsDatamap;
+      Assert.Single(map);
+      Assert.True(map.ContainsKey("Art"));
+    }
+
+    [Fact]
+    public void MovePattern_ChainSource_DeletesNestedSlot()
+    {
+      var store = new HarloweVariableStore();
+      var hero = new Dictionary<string, HarloweValue>
+      {
+        ["hp"] = HarloweValue.OfNumber(10),
+        ["mp"] = HarloweValue.OfNumber(4)
+      };
+      store.Set("chars", false, HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      {
+        ["hero"] = HarloweValue.OfDatamap(hero)
+      }));
+      var v = EvalMoveArg("$chars's hero into (dm: \"hp\", $x)", store);
+      Assert.False(v.IsError);
+      Assert.Equal(10, store.Get("x", false).AsNumber);
+      var heroNow = store.Get("chars", false).AsDatamap["hero"].AsDatamap;
+      Assert.False(heroNow.ContainsKey("hp"));
+      Assert.Equal(4, heroNow["mp"].AsNumber);
+      Assert.Equal(10, hero["hp"].AsNumber);   // COW: the original map untouched
+    }
+
+    [Fact]
+    public void MovePattern_LiteralSource_Errors()
+    {
+      var v = EvalMoveArg("(a: 1, 2) into (a: $x)");
+      Assert.True(v.IsError);
+      Assert.Contains("isn't stored in a variable", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void MovePattern_Mismatch_NothingAssignedOrDeleted()
+    {
+      var store = StoreWith("a", Numbers(1, 2));
+      var v = EvalMoveArg("$a into (a: 9, $x)", store);
+      Assert.True(v.IsError);
+      Assert.Contains("didn't match", v.ErrorMessage);
+      Assert.Equal(2, store.Get("a", false).AsArray.Count);
+      Assert.Null(store.Get("x", false));
+    }
   }
 }

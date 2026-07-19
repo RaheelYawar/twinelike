@@ -17,6 +17,8 @@ namespace Harlowe.Runtime.Macros
     {
       registry.Register(new SetMacro());
       registry.Register(new PutMacro());
+      registry.Register(new MoveMacro());
+      registry.Register(new UnpackMacro());
       registry.Register(new PrintMacro());
       registry.Register(new IfMacro());
       registry.Register(new ElseMacro());

@@ -110,6 +110,97 @@ namespace Harlowe.Tests.Runtime
       Assert.Contains("after", h.Buf.Text);
     }
 
+    // (move:) ----------------------------------------------------------------
+
+    [Fact]
+    public void Move_EndToEnd_DeckDraw()
+    {
+      var h = Render("(set: $deck to (a: 5, 6, 7))(move: $deck's 1st into $card)(print: $card)-(print: $deck's length)");
+      Assert.Equal(0, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+      Assert.Contains("5-2", h.Buf.Text);
+    }
+
+    [Fact]
+    public void Move_Error_PassageContinues()
+    {
+      var h = Render("(move: 5 into $x)after");
+      Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+      Assert.Contains("after", h.Buf.Text);
+    }
+
+    // (unpack:) --------------------------------------------------------------
+
+    [Fact]
+    public void Unpack_EndToEnd()
+    {
+      var h = Render("(set: $roll to (a: 3, 4))(unpack: $roll into (a: $first, $second))(print: $first + $second)");
+      Assert.Equal(0, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+      Assert.Contains("7", h.Buf.Text);
+    }
+
+    [Fact]
+    public void MovePattern_EndToEnd()
+    {
+      // The reference doc's move-unpacking idiom: both drawn cards land and
+      // the deck shrinks by two.
+      var h = Render("(set: $deck to (a: 5, 6, 7))(move: $deck into (a: $c1, $c2))(print: $c1)-(print: $c2)-(print: $deck's length)");
+      Assert.Equal(0, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+      Assert.Contains("5-6-1", h.Buf.Text);
+    }
+
+    [Fact]
+    public void Unpack_GateError_PassageContinues()
+    {
+      // The dest-shape gate fires before anything evaluates.
+      var h = Render("(unpack: (a: 1) into $x)after");
+      Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+      Assert.Contains("after", h.Buf.Text);
+      Assert.Null(h.Store.Get("x", false));
+    }
+
+    // Assignment operator discipline (reference's typeChecker pre-pass) ------
+
+    [Fact]
+    public void Set_IntoOperator_Errors_NothingAssigned()
+    {
+      // The pre-scan runs before any argument evaluates, so the valid first
+      // argument doesn't land either.
+      var h = Render("(set: $a to 1, 5 into $b)done");
+      Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+      Assert.Null(h.Store.Get("a", false));
+      Assert.Null(h.Store.Get("b", false));
+      Assert.Contains("done", h.Buf.Text);
+    }
+
+    [Fact]
+    public void Put_ToOperator_Errors()
+    {
+      var h = Render("(put: $x to 5)");
+      var err = h.Buf.Entries.Find(e => e.Kind == BufferedRenderOutput.Kind.Error);
+      Assert.NotNull(err);
+      Assert.Equal("Please say 'into' when using the (put:) or (unpack:) macro.", err.Content);
+    }
+
+    [Fact]
+    public void Move_ToOperator_Errors()
+    {
+      var h = Render("(move: $x to 5)");
+      var err = h.Buf.Entries.Find(e => e.Kind == BufferedRenderOutput.Kind.Error);
+      Assert.NotNull(err);
+      Assert.Equal("Please say 'into' when using the (move:) macro.", err.Content);
+    }
+
+    [Fact]
+    public void Set_NonAssignmentArg_Errors()
+    {
+      // Previously a silent no-op; reference rejects a non-assignment
+      // argument in the type check.
+      var h = Render("(set: 5)");
+      var err = h.Buf.Entries.Find(e => e.Kind == BufferedRenderOutput.Kind.Error);
+      Assert.NotNull(err);
+      Assert.Contains("requires a 'to' assignment", err.Content);
+    }
+
     [Fact]
     public void Variable_Unset_RoutesError()
     {

@@ -825,6 +825,48 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
+    public void UndoRedo_MovePatternTurn_RestoresDeckAndCards()
+    {
+      // P2 draws two cards with a pattern-destination (move:). Undo restores
+      // the full deck; the replay re-draws both exactly once.
+      var session = new StorySession(ThreePassages(
+        "(set: $deck to (a: 5, 6, 7))(print: $deck's length)",
+        "(move: $deck into (a: $c1, $c2))(print: $c1 + $c2)-(print: $deck's length)",
+        "(print: $deck's length)"));
+      Assert.Equal("3", session.Render().Text);
+      Assert.Equal("11-1", session.Goto("P2").Text);
+      Assert.Equal("1", session.Goto("P3").Text);
+
+      session.Undo();
+      Assert.Equal("11-1", session.Render().Text);
+      session.Undo();
+      Assert.Equal("3", session.Render().Text);
+      session.Redo();
+      Assert.Equal("11-1", session.Render().Text);
+    }
+
+    [Fact]
+    public void UndoRedo_MoveTurn_RestoresSourceAndDest()
+    {
+      // P2 draws a card off the deck with (move:). Undo restores the turn's
+      // start (full deck, no card); replaying it re-draws the same card once.
+      var session = new StorySession(ThreePassages(
+        "(set: $deck to (a: 5, 6, 7))(print: $deck's length)",
+        "(move: $deck's 1st into $card)(print: $card)-(print: $deck's length)",
+        "(print: $deck's length)"));
+      Assert.Equal("3", session.Render().Text);
+      Assert.Equal("5-2", session.Goto("P2").Text);
+      Assert.Equal("2", session.Goto("P3").Text);
+
+      session.Undo();
+      Assert.Equal("5-2", session.Render().Text);   // P2 replayed from the full deck
+      session.Undo();
+      Assert.Equal("3", session.Render().Text);
+      session.Redo();
+      Assert.Equal("5-2", session.Render().Text);
+    }
+
+    [Fact]
     public void UndoRedo_PropertyMutation_RestoresCollectionState()
     {
       // P2 mutates one datamap slot (property assignment, a relative `it - 1`).

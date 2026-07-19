@@ -54,6 +54,44 @@ namespace Harlowe.Tests.Runtime.Saving
     }
 
     [Fact]
+    public void SaveThenLoad_RoundTripsUnpackTurn()
+    {
+      // Unpack's writes route through Set like every assignment, so the turn
+      // delta carries both destructured variables and the replay reproduces
+      // them on load.
+      var session = new StorySession(Story(
+        "(set: $roll to (a: 3, 4))",
+        "(unpack: $roll into (a: $first, $second))(print: $first + $second)",
+        "p3"));
+      session.Render();
+      Assert.Equal("7", session.Goto("P2").Text);
+      Assert.True(session.SaveGame("slot"));
+      session.Goto("P3");
+
+      Assert.True(session.LoadGame("slot"));
+      Assert.Equal("7", session.Render().Text);
+    }
+
+    [Fact]
+    public void SaveThenLoad_RoundTripsMoveTurn()
+    {
+      // A (move:) routes both the destination write and the source deletion
+      // through the store's Set, so the turn delta carries both collections
+      // and the load's replay reproduces the draw.
+      var session = new StorySession(Story(
+        "(set: $deck to (a: 5, 6, 7))",
+        "(move: $deck's 1st into $card)(print: $card)-(print: $deck's length)",
+        "p3"));
+      session.Render();
+      Assert.Equal("5-2", session.Goto("P2").Text);
+      Assert.True(session.SaveGame("slot"));
+      session.Goto("P3");
+
+      Assert.True(session.LoadGame("slot"));
+      Assert.Equal("5-2", session.Render().Text);
+    }
+
+    [Fact]
     public void LoadMissingSlot_ReturnsFalse_SetsError()
     {
       var session = new StorySession(Story("p1"));

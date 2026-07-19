@@ -355,6 +355,39 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void Move_IntoAssignment_Parses()
+    {
+      // (move:) joined (set:)/(put:) as an assignment macro, so `into` is
+      // legal at the top of its argument expressions.
+      var tokens = new HarloweTokenizer().Tokenize("(move: $a's 1st into $b)");
+      var cursor = new TokenCursor(tokens);
+      cursor.Advance();
+      var parser = new HarloweExpressionParser();
+      var args = parser.ParseArgumentList(cursor, allowAssignment: HarloweExpressionParser.IsAssignmentMacro("move"));
+      Assert.Single(args);
+      var assign = Assert.IsType<BinaryOpNode>(args[0]);
+      Assert.Equal("into", assign.Operator);
+      var chain = Assert.IsType<BinaryOpNode>(assign.Left);
+      Assert.Equal("'s", chain.Operator);
+    }
+
+    [Fact]
+    public void Unpack_IntoAssignment_Parses()
+    {
+      // (unpack:) is the fourth assignment macro; its `into` destination is a
+      // pattern-shaped macro call kept as AST for the evaluator's walk.
+      var tokens = new HarloweTokenizer().Tokenize("(unpack: $a into (a: $x, $y))");
+      var cursor = new TokenCursor(tokens);
+      cursor.Advance();
+      var parser = new HarloweExpressionParser();
+      var args = parser.ParseArgumentList(cursor, allowAssignment: HarloweExpressionParser.IsAssignmentMacro("unpack"));
+      Assert.Single(args);
+      var assign = Assert.IsType<BinaryOpNode>(args[0]);
+      Assert.Equal("into", assign.Operator);
+      Assert.IsType<MacroCallNode>(assign.Right);
+    }
+
+    [Fact]
     public void Into_BareVariableTarget_StillParses()
     {
       // Regression check: the new RHS-side guard must not break the legal

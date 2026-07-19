@@ -309,9 +309,13 @@ namespace Harlowe.Runtime
       var args = new List<HarloweValue>(node.Arguments != null ? node.Arguments.Count : 0);
       if (node.Arguments != null)
       {
+        // Reference's typeChecker runs before any argument executes, so a
+        // wrong assignment operator anywhere means nothing assigns.
+        var operatorError = _evaluator.ValidateAssignmentOperators(node.Name, node.Arguments);
+        if (operatorError != null) { _output.Error(operatorError.ErrorMessage); return; }
         for (int i = 0; i < node.Arguments.Count; i++)
         {
-          var v = _evaluator.Evaluate(node.Arguments[i]);
+          var v = _evaluator.EvaluateMacroArgument(node.Name, node.Arguments[i]);
           if (v.IsError) { _output.Error(v.ErrorMessage); return; }
           args.Add(v);
         }

@@ -66,6 +66,12 @@ namespace Harlowe.Tests.Twee
     [Fact] public void Body_BareMacro() => AssertBodyRoundTripStable("(set: $hp to 10)");
     [Fact] public void Body_PropertyAssignment() => AssertBodyRoundTripStable("(set: $person's name to \"Bob\")");
     [Fact] public void Body_PutIntoProperty() => AssertBodyRoundTripStable("(put: 5 into $dm's key)");
+    [Fact] public void Body_MoveMacro() => AssertBodyRoundTripStable("(move: $deck's 1st into $card)");
+    [Fact] public void Body_MoveMultipleArgs() => AssertBodyRoundTripStable("(move: $a's 1st into $b, $a's hp into $c)");
+    [Fact] public void Body_UnpackMacro() => AssertBodyRoundTripStable("(unpack: $arr into (a: $x, $y))");
+    [Fact] public void Body_UnpackDatamapPattern() => AssertBodyRoundTripStable("(unpack: $dm into (dm: \"hp\", $x))");
+    [Fact] public void Body_UnpackNestedPattern() => AssertBodyRoundTripStable("(unpack: $a into (a: (a: $x), 2, (dm: \"A\", $y)))");
+    [Fact] public void Body_MovePatternDest() => AssertBodyRoundTripStable("(move: $a into (a: $x, $y))");
     [Fact] public void Body_MacroWithHook() => AssertBodyRoundTripStable("(if: $x)[yes]");
     [Fact] public void Body_ReplaceHookRef() => AssertBodyRoundTripStable("(replace: ?cake)[new]");
     [Fact] public void Body_AppendStringTarget() => AssertBodyRoundTripStable("(append: \"old\")[ more]");
