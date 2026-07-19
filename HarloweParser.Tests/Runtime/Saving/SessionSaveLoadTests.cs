@@ -54,6 +54,24 @@ namespace Harlowe.Tests.Runtime.Saving
     }
 
     [Fact]
+    public void SaveThenLoad_RandomDraw_Reproduces()
+    {
+      // The save records the RNG stream position at the turn's start, so the
+      // load's replay re-draws the same `random` card.
+      var session = new StorySession(Story(
+        "(set: $deck to (a: 10, 20, 30, 40, 50))",
+        "(move: $deck's random into $card)(print: $card)",
+        "p3"));
+      session.Render();
+      string drawn = session.Goto("P2").Text;
+      Assert.True(session.SaveGame("slot"));
+      session.Goto("P3");
+
+      Assert.True(session.LoadGame("slot"));
+      Assert.Equal(drawn, session.Render().Text);
+    }
+
+    [Fact]
     public void SaveThenLoad_RoundTripsUnpackTurn()
     {
       // Unpack's writes route through Set like every assignment, so the turn

@@ -825,6 +825,22 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
+    public void UndoRedo_RandomDraw_ReproducesOnReplay()
+    {
+      // The `random` data name draws from the session RNG stream, so the
+      // Moment's recorded RNG state makes an undone turn's replay re-draw the
+      // exact same card.
+      var session = new StorySession(TwoPassages(
+        "(set: $deck to (a: 10, 20, 30, 40, 50))",
+        "(move: $deck's random into $card)(print: $card)"));
+      session.Render();
+      string drawn = session.Goto("P2").Text;
+      session.Undo();
+      session.Redo();
+      Assert.Equal(drawn, session.Render().Text);
+    }
+
+    [Fact]
     public void UndoRedo_MovePatternTurn_RestoresDeckAndCards()
     {
       // P2 draws two cards with a pattern-destination (move:). Undo restores

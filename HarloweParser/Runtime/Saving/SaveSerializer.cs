@@ -67,7 +67,7 @@ namespace Harlowe.Runtime.Saving
       registry.Context = context;
       try
       {
-        var evaluator = new ExpressionEvaluator(context?.Store, context?.EvaluationContext, registry);
+        var evaluator = new ExpressionEvaluator(context?.Store, context?.EvaluationContext, registry, context?.Rng);
         return evaluator.Evaluate(node);
       }
       catch (System.Exception ex)

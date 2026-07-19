@@ -128,6 +128,14 @@ namespace Harlowe.Tests.Runtime
       Assert.Contains("after", h.Buf.Text);
     }
 
+    [Fact]
+    public void Random_MoveDeckDraw_EndToEnd()
+    {
+      var h = Render("(set: $deck to (a: 1, 2, 3))(move: $deck's random into $card)(print: $deck's length)");
+      Assert.Equal(0, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+      Assert.Contains("2", h.Buf.Text);
+    }
+
     // (unpack:) --------------------------------------------------------------
 
     [Fact]

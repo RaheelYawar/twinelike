@@ -1820,28 +1820,18 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void ValidateOperators_SetWithInto_Errors()
     {
-      var store = new HarloweVariableStore();
-      var evaluator = new ExpressionEvaluator(store, null, null);
-      var tokens = new HarloweTokenizer().Tokenize("(set: 5 into $x, $y to 1)");
-      var cursor = new TokenCursor(tokens);
-      cursor.Advance();
-      var args = new HarloweExpressionParser().ParseArgumentList(cursor, allowAssignment: true);
-      var err = evaluator.ValidateAssignmentOperators("set", args);
+      // Nothing-assigned coverage is end-to-end in BodyRendererTests
+      // (Set_IntoOperator_Errors_NothingAssigned); the pre-pass never touches
+      // the store.
+      var err = ValidateArgs("set", "(set: 5 into $x, $y to 1)");
       Assert.NotNull(err);
       Assert.Equal("Please say 'to' when using the (set:) macro.", err.ErrorMessage);
-      Assert.Null(store.Get("x", false));
-      Assert.Null(store.Get("y", false));
     }
 
     [Fact]
     public void ValidateOperators_PutWithTo_Errors()
     {
-      var evaluator = new ExpressionEvaluator(new HarloweVariableStore(), null, null);
-      var tokens = new HarloweTokenizer().Tokenize("(put: $x to 5)");
-      var cursor = new TokenCursor(tokens);
-      cursor.Advance();
-      var args = new HarloweExpressionParser().ParseArgumentList(cursor, allowAssignment: true);
-      var err = evaluator.ValidateAssignmentOperators("put", args);
+      var err = ValidateArgs("put", "(put: $x to 5)");
       Assert.NotNull(err);
       Assert.Equal("Please say 'into' when using the (put:) or (unpack:) macro.", err.ErrorMessage);
     }
@@ -1849,12 +1839,7 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void ValidateOperators_MoveWithTo_Errors()
     {
-      var evaluator = new ExpressionEvaluator(new HarloweVariableStore(), null, null);
-      var tokens = new HarloweTokenizer().Tokenize("(move: $x to 5)");
-      var cursor = new TokenCursor(tokens);
-      cursor.Advance();
-      var args = new HarloweExpressionParser().ParseArgumentList(cursor, allowAssignment: true);
-      var err = evaluator.ValidateAssignmentOperators("move", args);
+      var err = ValidateArgs("move", "(move: $x to 5)");
       Assert.NotNull(err);
       Assert.Equal("Please say 'into' when using the (move:) macro.", err.ErrorMessage);
     }
@@ -1862,26 +1847,14 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void ValidateOperators_NonAssignmentArg_Errors()
     {
-      var evaluator = new ExpressionEvaluator(new HarloweVariableStore(), null, null);
-      var tokens = new HarloweTokenizer().Tokenize("(set: 5)");
-      var cursor = new TokenCursor(tokens);
-      cursor.Advance();
-      var args = new HarloweExpressionParser().ParseArgumentList(cursor, allowAssignment: true);
-      var err = evaluator.ValidateAssignmentOperators("set", args);
+      var err = ValidateArgs("set", "(set: 5)");
       Assert.NotNull(err);
       Assert.Contains("requires a 'to' assignment", err.ErrorMessage);
     }
 
     [Fact]
     public void ValidateOperators_OtherMacros_Unchecked()
-    {
-      var evaluator = new ExpressionEvaluator(new HarloweVariableStore(), null, null);
-      var tokens = new HarloweTokenizer().Tokenize("(print: 5)");
-      var cursor = new TokenCursor(tokens);
-      cursor.Advance();
-      var args = new HarloweExpressionParser().ParseArgumentList(cursor, allowAssignment: false);
-      Assert.Null(evaluator.ValidateAssignmentOperators("print", args));
-    }
+      => Assert.Null(ValidateArgs("print", "(print: 5)"));
 
     private static HarloweValue ValidateArgs(string macroName, string source)
     {
@@ -2156,6 +2129,102 @@ namespace Harlowe.Tests.Runtime
       Assert.Contains("didn't match", v.ErrorMessage);
       Assert.Equal(2, store.Get("a", false).AsArray.Count);
       Assert.Null(store.Get("x", false));
+    }
+
+    // The `random` data name --------------------------------------------------
+
+    private static HarloweValue EvalWithRng(string source, IVariableStore store, IRng rng)
+    {
+      var tokens = new HarloweTokenizer().Tokenize("(set:" + source + ")");
+      var cursor = new TokenCursor(tokens);
+      cursor.Advance();
+      var args = new HarloweExpressionParser().ParseArgumentList(cursor, allowAssignment: true);
+      return new ExpressionEvaluator(store, null, null, rng).Evaluate(args[0]);
+    }
+
+    [Fact]
+    public void Random_Array_ReturnsMember()
+    {
+      var v = EvalP("(a: 10, 20, 30)'s random");
+      Assert.False(v.IsError);
+      Assert.Contains(v.AsNumber, new double[] { 10, 20, 30 });
+    }
+
+    [Fact]
+    public void Random_Array_DeterministicPerSeed()
+    {
+      var store = StoreWith("arr", Numbers(1, 2, 3, 4, 5, 6, 7, 8));
+      var first = EvalWithRng("$arr's random", store, new MulberryRng("seed"));
+      var second = EvalWithRng("$arr's random", store, new MulberryRng("seed"));
+      Assert.Equal(first.AsNumber, second.AsNumber);
+    }
+
+    [Fact]
+    public void Random_EmptyArray_Errors()
+    {
+      var v = EvalP("$e's random", StoreWith("e", Numbers()));
+      Assert.True(v.IsError);
+      Assert.Equal("I can't get a random value from the array, because it's empty.", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void Random_String_ReturnsCharacter()
+    {
+      var v = Eval("\"cat\"'s random");
+      Assert.False(v.IsError);
+      Assert.Contains(v.AsString, new[] { "c", "a", "t" });
+    }
+
+    [Fact]
+    public void Random_EmptyString_Errors()
+    {
+      var v = Eval("\"\"'s random");
+      Assert.True(v.IsError);
+      Assert.Equal("I can't get a random value from the string, because it's empty.", v.ErrorMessage);
+    }
+
+    [Fact]
+    public void Random_Datamap_IsAPlainKey()
+    {
+      // On a datamap, `random` is just a data name — a key lookup, not a draw.
+      var store = StoreWith("dm", OneKeyMap("random", 42));
+      Assert.Equal(42, EvalP("$dm's random", store).AsNumber);
+      var missing = EvalP("$m's random", StoreWith("m", OneKeyMap("hp", 1)));
+      Assert.Contains("no key 'random'", missing.ErrorMessage);
+    }
+
+    [Fact]
+    public void Random_PropertyAssign_WritesOnePosition()
+    {
+      // Reference compiles `random` to a concrete index before canSet sees
+      // it, so assignment through it is legal and hits exactly one slot.
+      var store = StoreWith("arr", Numbers(1, 1, 1));
+      Assert.False(EvalP("$arr's random to 99", store).IsError);
+      var arr = store.Get("arr", false).AsArray;
+      Assert.Equal(3, arr.Count);
+      int nines = 0;
+      foreach (var item in arr) if (item.AsNumber == 99) nines++;
+      Assert.Equal(1, nines);
+    }
+
+    [Fact]
+    public void Random_Move_DeckDraw()
+    {
+      // The reference (move:) doc's headline idiom: `(move: $deck's random
+      // into $card)` — the read and the delete share one drawn index, so the
+      // moved card is exactly the removed element.
+      var store = StoreWith("deck", Numbers(10, 20, 30, 40));
+      var v = EvalMoveArg("$deck's random into $card", store);
+      Assert.False(v.IsError);
+      var deck = store.Get("deck", false).AsArray;
+      var card = store.Get("card", false);
+      Assert.Equal(3, deck.Count);
+      // deck + card must be the original multiset — a mismatched read/delete
+      // index would duplicate one element and lose another.
+      var remaining = new List<double> { 10, 20, 30, 40 };
+      Assert.True(remaining.Remove(card.AsNumber));
+      foreach (var item in deck) Assert.True(remaining.Remove(item.AsNumber));
+      Assert.Empty(remaining);
     }
   }
 }

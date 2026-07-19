@@ -23,14 +23,26 @@ namespace Harlowe.Runtime
     private readonly IVariableStore _store;
     private readonly IEvaluationContext _context;
     private readonly IMacroInvoker _macros;
+    private readonly IRng _rng;
     private HarloweValue _result;
 
-    public ExpressionEvaluator(IVariableStore store, IEvaluationContext context, IMacroInvoker macros)
+    public ExpressionEvaluator(IVariableStore store, IEvaluationContext context, IMacroInvoker macros, IRng rng = null)
     {
       _store = store;
       _context = context;
       _macros = macros;
+      // The `random` data name draws from here. Callers with a session pass
+      // MacroContext.Rng so draws share the session stream (and so undo/redo/
+      // load replay reproduces them via the Moment's recorded RNG state);
+      // standalone evaluation gets a fresh time-seeded stream, like
+      // MacroContext's own default.
+      _rng = rng ?? new MulberryRng();
     }
+
+    // 1-based random position, reference's `State.random() * length | 0` draw
+    // (compilePropertyIndex in ts/internaltypes/varref.ts). Callers guarantee
+    // count >= 1.
+    private int RandomIndex(int count) => (int)(_rng.NextDouble() * count) + 1;
 
     /// <summary>
     /// Evaluate <paramref name="node"/> and return the produced value. Always
@@ -508,10 +520,12 @@ namespace Harlowe.Runtime
     /// Resolves one array/string write accessor to a 1-based index (from-end
     /// forms converted against <paramref name="count"/>; bounds NOT checked —
     /// the caller applies its own replace/append rule). Returns the error to
-    /// surface, or null. <c>length</c> and its kin are unassignable at any
-    /// level of a write chain, and a non-position name gets reference's
-    /// canSet wording when it is the slot being assigned, the read path's
-    /// unknown-property wording mid-chain.
+    /// surface, or null. <c>length</c> is unassignable at any level of a
+    /// write chain; <c>random</c> draws a fresh in-range position (reference
+    /// compiles it to a concrete index before canSet ever sees it, which is
+    /// why reference also allows assigning through it); a non-position name
+    /// gets reference's canSet wording when it is the slot being assigned,
+    /// the read path's unknown-property wording mid-chain.
     /// </summary>
     private HarloweValue ResolveWriteIndex(IExpressionNode accessor, bool isLast, string containerNoun, int count, out int index)
     {
@@ -520,6 +534,13 @@ namespace Harlowe.Runtime
       {
         if (id.Name == "length")
           return HarloweValue.OfError($"I can't forcibly alter the 'length' of the {containerNoun}.");
+        if (id.Name == "random")
+        {
+          if (count == 0)
+            return HarloweValue.OfError($"I can't get a random value from the {containerNoun}, because it's empty.");
+          index = RandomIndex(count);
+          return null;
+        }
         if (!Ordinals.TryParse(id.Name, out int ordIdx, out bool fromEnd))
           return isLast
             ? HarloweValue.OfError($"the {containerNoun} can only have position data names ('3rd', '1st', (5), etc.), not '{id.Name}'.")
@@ -666,14 +687,10 @@ namespace Harlowe.Runtime
       if (arg is BinaryOpNode assign && assign.Operator == "into")
       {
         string name = MacroNames.Normalize(macroName);
-        if (name == "move")
+        if (name == "move" || name == "unpack")
         {
-          MoveAssign(assign);
-          return _result ?? HarloweValue.OfError("expression produced no value");
-        }
-        if (name == "unpack")
-        {
-          UnpackAssign(assign);
+          if (name == "move") MoveAssign(assign);
+          else UnpackAssign(assign);
           return _result ?? HarloweValue.OfError("expression produced no value");
         }
       }
@@ -1021,9 +1038,19 @@ namespace Harlowe.Runtime
                 container = child;
                 continue;
               }
-              if (!Ordinals.TryParse(id.Name, out int ordIdx, out bool fromEnd))
+              if (id.Name == "random")
+              {
+                // Drawn once, here — the read and the later delete share the
+                // frozen index, reference's compile-once model behind
+                // `(move: $deck's random into $card)`.
+                if (count == 0)
+                  return HarloweValue.OfError($"I can't get a random value from the {noun}, because it's empty.");
+                index = RandomIndex(count);
+              }
+              else if (!Ordinals.TryParse(id.Name, out int ordIdx, out bool fromEnd))
                 return HarloweValue.OfError($"{noun} has no property '{id.Name}'");
-              index = fromEnd ? count - ordIdx + 1 : ordIdx;
+              else
+                index = fromEnd ? count - ordIdx + 1 : ordIdx;
             }
             else
             {
@@ -1421,7 +1448,7 @@ namespace Harlowe.Runtime
       return ResolveValueAccessor(container, key);
     }
 
-    private static HarloweValue ResolveIdentifierAccessor(HarloweValue container, string name)
+    private HarloweValue ResolveIdentifierAccessor(HarloweValue container, string name)
     {
       switch (container.Kind)
       {
@@ -1430,6 +1457,12 @@ namespace Harlowe.Runtime
           return HarloweValue.OfError($"datamap has no key '{name}'");
         case HarloweValueKind.Array:
           if (name == "length") return HarloweValue.OfNumber(container.AsArray.Count);
+          if (name == "random")
+          {
+            if (container.AsArray.Count == 0)
+              return HarloweValue.OfError("I can't get a random value from the array, because it's empty.");
+            return container.AsArray[RandomIndex(container.AsArray.Count) - 1];
+          }
           if (Ordinals.TryParse(name, out int aIdx, out bool aFromEnd))
           {
             int target = aFromEnd ? container.AsArray.Count - aIdx + 1 : aIdx;
@@ -1442,6 +1475,13 @@ namespace Harlowe.Runtime
           // `[...str]`), so an astral character (surrogate pair) is one
           // character, not two.
           if (name == "length") return HarloweValue.OfNumber(CodePointCount(container.AsString));
+          if (name == "random")
+          {
+            int chars = CodePointCount(container.AsString);
+            if (chars == 0)
+              return HarloweValue.OfError("I can't get a random value from the string, because it's empty.");
+            return IndexString(container.AsString, RandomIndex(chars));
+          }
           if (Ordinals.TryParse(name, out int sIdx, out bool sFromEnd))
           {
             int target = sFromEnd ? CodePointCount(container.AsString) - sIdx + 1 : sIdx;

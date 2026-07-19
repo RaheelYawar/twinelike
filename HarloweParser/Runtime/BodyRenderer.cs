@@ -55,7 +55,7 @@ namespace Harlowe.Runtime
       _output = output;
       _registry = registry;
       _context = context;
-      _evaluator = new ExpressionEvaluator(context.Store, context.EvaluationContext, registry);
+      _evaluator = new ExpressionEvaluator(context.Store, context.EvaluationContext, registry, context.Rng);
     }
 
     /// <summary>

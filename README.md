@@ -154,7 +154,7 @@ public class ConsoleOutput : IRenderOutput
 
 | Macro family | Status |
 |---|---|
-| `(set:)`, `(put:)`, `(move:)`, `(print:)`, `(display:)` — incl. property assignment (`(set: $arr's 1st to 5)`, `'s`/`of` chains, computed accessors) | ✓ |
+| `(set:)`, `(put:)`, `(move:)`, `(print:)`, `(display:)` — incl. property assignment (`(set: $arr's 1st to 5)`, `'s`/`of` chains, computed accessors, the `random` data name) | ✓ |
 | `(unpack:)` — array/datamap destructuring, nested patterns, `(move:)` pattern destinations (`(p:)`/datatype/rest patterns pending) | ⚠ |
 | `(if:)`, `(unless:)`, `(else-if:)`, `(else:)` | ✓ |
 | `(random:)`, `(either:)`, `(history:)` | ✓ |

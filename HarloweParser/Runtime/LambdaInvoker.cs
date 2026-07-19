@@ -97,7 +97,7 @@ namespace Harlowe.Runtime
       if (node.MakingName == null) return HarloweValue.OfError("(folded:) lambda must have a 'making' clause");
       if (node.ViaClause == null) return HarloweValue.OfError("(folded:) lambda must have a 'via' clause");
 
-      var evaluator = new ExpressionEvaluator(ctx.Store, ctx.EvaluationContext, ctx.Invoker);
+      var evaluator = new ExpressionEvaluator(ctx.Store, ctx.EvaluationContext, ctx.Invoker, ctx.Rng);
 
       using (ctx.Store.PushItBinding(item))
       using (ctx.Store.PushPosBinding(pos))
@@ -129,7 +129,7 @@ namespace Harlowe.Runtime
     private static HarloweValue EvaluateClause(LambdaValue lambda, HarloweValue item, int pos, MacroContext ctx, IExpressionNode clause)
     {
       var node = lambda.Node;
-      var evaluator = new ExpressionEvaluator(ctx.Store, ctx.EvaluationContext, ctx.Invoker);
+      var evaluator = new ExpressionEvaluator(ctx.Store, ctx.EvaluationContext, ctx.Invoker, ctx.Rng);
 
       using (ctx.Store.PushItBinding(item))
       using (ctx.Store.PushPosBinding(pos))
