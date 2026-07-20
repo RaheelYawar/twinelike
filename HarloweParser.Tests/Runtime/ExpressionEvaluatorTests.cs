@@ -2164,7 +2164,9 @@ namespace Harlowe.Tests.Runtime
     {
       var v = EvalP("$e's random", StoreWith("e", Numbers()));
       Assert.True(v.IsError);
-      Assert.Equal("I can't get a random value from the array, because it's empty.", v.ErrorMessage);
+      // "an empty array" is reference's objectName() rendering of a zero-length
+      // array, interpolated into a sentence that then says "empty" twice.
+      Assert.Equal("I can't get a random value from an empty array, because it's empty.", v.ErrorMessage);
     }
 
     [Fact]
@@ -2180,7 +2182,7 @@ namespace Harlowe.Tests.Runtime
     {
       var v = Eval("\"\"'s random");
       Assert.True(v.IsError);
-      Assert.Equal("I can't get a random value from the string, because it's empty.", v.ErrorMessage);
+      Assert.Equal("I can't get a random value from an empty string, because it's empty.", v.ErrorMessage);
     }
 
     [Fact]

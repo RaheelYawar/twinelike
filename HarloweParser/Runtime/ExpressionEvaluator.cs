@@ -44,6 +44,14 @@ namespace Harlowe.Runtime
     // count >= 1.
     private int RandomIndex(int count) => (int)(_rng.NextDouble() * count) + 1;
 
+    // The empty-container `random` error, shared by the read, write and
+    // (move:)-source paths. Reference interpolates `objectName(obj)` into this
+    // sentence, and objectName renders a zero-length container as "an empty
+    // array"/"an empty string" (see the `an empty array` early return in
+    // ts/utils/operationutils.ts), so the finished message says "empty" twice.
+    private static HarloweValue EmptyRandomError(string containerNoun)
+      => HarloweValue.OfError($"I can't get a random value from an empty {containerNoun}, because it's empty.");
+
     /// <summary>
     /// Evaluate <paramref name="node"/> and return the produced value. Always
     /// returns a non-null <see cref="HarloweValue"/>; failures come back as
@@ -537,7 +545,7 @@ namespace Harlowe.Runtime
         if (id.Name == "random")
         {
           if (count == 0)
-            return HarloweValue.OfError($"I can't get a random value from the {containerNoun}, because it's empty.");
+            return EmptyRandomError(containerNoun);
           index = RandomIndex(count);
           return null;
         }
@@ -1044,7 +1052,7 @@ namespace Harlowe.Runtime
                 // frozen index, reference's compile-once model behind
                 // `(move: $deck's random into $card)`.
                 if (count == 0)
-                  return HarloweValue.OfError($"I can't get a random value from the {noun}, because it's empty.");
+                  return EmptyRandomError(noun);
                 index = RandomIndex(count);
               }
               else if (!Ordinals.TryParse(id.Name, out int ordIdx, out bool fromEnd))
@@ -1460,8 +1468,8 @@ namespace Harlowe.Runtime
           if (name == "random")
           {
             if (container.AsArray.Count == 0)
-              return HarloweValue.OfError("I can't get a random value from the array, because it's empty.");
-            return container.AsArray[RandomIndex(container.AsArray.Count) - 1];
+              return EmptyRandomError("array");
+            return IndexArray(container.AsArray, RandomIndex(container.AsArray.Count));
           }
           if (Ordinals.TryParse(name, out int aIdx, out bool aFromEnd))
           {
@@ -1479,7 +1487,7 @@ namespace Harlowe.Runtime
           {
             int chars = CodePointCount(container.AsString);
             if (chars == 0)
-              return HarloweValue.OfError("I can't get a random value from the string, because it's empty.");
+              return EmptyRandomError("string");
             return IndexString(container.AsString, RandomIndex(chars));
           }
           if (Ordinals.TryParse(name, out int sIdx, out bool sFromEnd))

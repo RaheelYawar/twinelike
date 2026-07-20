@@ -13,11 +13,12 @@ for the save-model slice (which lands `(history:)` semantics).
 
 - **High severity (0 active, 6 fixed)**: silent wrong result or breaks documented Harlowe idioms.
 - **Medium severity (0 active, 10 fixed, 1 reclassified)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
-- **Low severity (3 active, 2 fixed)**: documented as deliberate or marginal.
+- **Low severity (4 active, 2 fixed)**: documented as deliberate or marginal.
 
-**3 active, all low-severity** — #17 (load-guard vs intra-turn `(goto:)`), #18
+**4 active, all low-severity** — #17 (load-guard vs intra-turn `(goto:)`), #18
 (stacked-interaction nesting order), #21 (deliberate: out-of-range array sets
-error rather than growing sparse holes).
+error rather than growing sparse holes), #23 (deliberate: a `via`-lambda's RNG
+draw is rewound per match so the passes stay idempotent).
 
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
 items are kept and marked rather than renumbered. "Reclassified" means the
@@ -711,6 +712,28 @@ type signature). See the `ValidateOperators_*` tests in
   macro's name into `ParseArgumentList` (or tagging the node with its
   operator source) so the mismatch can be reported — orthogonal to the
   property-assignment slice that recorded this, so left open.
+
+### 23. A `via`-lambda in an enchant/interaction pass draws the same random value for every match (deliberate; found in the `random` data-name review, 2026-07-20)
+
+- **Ours**: `EnchantmentPass.EvaluateViaLambda` wraps each per-match evaluation
+  in `MacroContext.PushSideEffectGuard`, whose dispose restores the RNG's
+  `(Seed, SeedIter)`. Every match therefore evaluates from the identical stream
+  position and gets the identical draw.
+- **Reference**: `enchantScope` calls the lambda per match against the global
+  `State.random()`, so each match advances the stream and varies.
+- **Trigger**: `(enchant: ?x, via (text-colour: (either: "red", "blue")))` —
+  reference colours matches independently; we colour them all alike. Same for
+  any `random`-bearing lambda, including `$palette's random`, which the
+  `random` data name newly routes through `ctx.Rng`.
+- **User-visible**: cosmetic and rare (a lambda whose *only* job is producing a
+  changer, reaching a random source). Deliberate: our enchant and interaction
+  passes are idempotent and re-run after every render **and** every dispatch,
+  so an escaping draw would make the stream position depend on how many passes
+  happened to run — which breaks the save model's promise that undo/redo/load
+  reproduce a turn's randomness exactly. Reference has the same exposure and
+  simply doesn't guarantee that. Fixing it properly means deriving each match's
+  draw deterministically from seed + `pos` rather than letting the guard rewind;
+  that is a design slice, not a patch, and isn't worth it until an author asks.
 
 ---
 
