@@ -12,11 +12,19 @@ for the save-model slice (which lands `(history:)` semantics).
 ## Counts
 
 - **High severity (0 active, 6 fixed)**: silent wrong result or breaks documented Harlowe idioms.
-- **Medium severity (1 active, 10 fixed)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
+- **Medium severity (0 active, 10 fixed, 1 reclassified)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
 - **Low severity (3 active, 2 fixed)**: documented as deliberate or marginal.
 
+**3 active, all low-severity** — #17 (load-guard vs intra-turn `(goto:)`), #18
+(stacked-interaction nesting order), #21 (deliberate: out-of-range array sets
+error rather than growing sparse holes).
+
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
-items are kept and marked rather than renumbered.
+items are kept and marked rather than renumbered. "Reclassified" means the
+finding was real but misattributed — #7 recorded a Harlowe 4.0 behaviour as a
+gap against our Harlowe 3 target; it lives on as a compatibility switch in
+`COMPATIBILITY.md`. When auditing against the 4.0-unstable snapshot, always ask
+which major a behaviour belongs to before filing it here.
 
 ---
 
@@ -326,19 +334,34 @@ Original finding below.
 - **User-visible**: Reference flags the structural mistake. Ours hides the
   hook with no error, harder for the author to spot.
 
-### 7. `(text-size:) / (size:)` requires Number-then-em
+### 7. `(text-size:) / (size:)` requires Number-then-em — ✅ NOT A DIVERGENCE (reclassified 2026-07-19)
 
-- **Ours**: Requires a Number; appends `em`. Rejects measurement strings and
-  the optional line-height second arg. See
-  `HarloweParser\Runtime\Macros\TextSizeMacro.cs`.
-- **Reference**: `(text-size: Measurement, [Measurement])` — accepts 1–2 CSS
-  Measurement values (`20px`, `1.5em`), enforces positive, rejects w/h units,
-  sets `font-size` and `line-height`. See `ts/macrolib/stylechangers.ts`
-  (search `([`text-size`, `size`],` and `size.value <= 0`).
-- **Trigger**: `(size: 20px)` — the very example in the macro doc
-- **User-visible**: Documented examples error in ours (Number-only). When a
-  Number is accepted, units other than `em` are unreachable; line-height arg
-  is silently dropped.
+**Misfiled: this is a 3→4 language change, not a gap.** The original entry read
+its "Reference" behaviour off `ts/macrolib/stylechangers.ts` in the pinned
+**4.0-unstable** snapshot without asking which major that behaviour belonged to.
+The measurement datatype is *new in 4.0* — its changelog introduces it under
+Additions → Coding and says the listed changers now accept it "in place of their
+former number-based values". In Harlowe 3, which is the version this library
+targets, `(text-size:)` takes a plain Number scale multiplier: the bundled
+`harlowe3Docs.html` gives the signature as `(text-size: Number)` and its own
+examples are `(change: ?passage, (text-size: 0.6))`. Ours takes a single Number
+and renders it as an `em` scale — which is that behaviour. So we match 3.3.9 on
+all three points the entry called out (Number-only, `em` scaling, no second
+argument).
+
+It is therefore a **compatibility switch, not work**: row 10 of
+`COMPATIBILITY.md`, to be implemented if and when V4 stories are supported —
+along with the rest of the measurement surface (`(border-size:)`,
+`(corner-radius:)`, `(text-indent:)`, `(box:)`, `(scroll:)`), most of which is
+unimplemented here anyway. The units are `px`/`em`/`rem`/`Lh` plus the
+dimension-declaring `w`/`h`, and measurements do arithmetic (`2em - 10px`,
+`50px * 2`), so it wants a real value type with operator support rather than
+string parsing.
+
+*Confidence caveat:* verified against the Harlowe 3 documentation (signature
+index + worked examples), not 3.x macro source — the pinned snapshot only
+carries 4.0 source. Confirm against a v3.3.9 snapshot when one is pinned (see
+`TODO.md`'s compatibility-profiles entry).
 
 ### 8. `(dm:)` silently overwrites duplicate keys — ✅ FIXED (2026-06-01)
 
@@ -742,9 +765,9 @@ architecture.
 
 - ~~`(if:)` / `(unless:)` returning Changer (#3) — touches `BodyRenderer`'s
   conditional path.~~ ✅ done.
-- `(text-size:)` accepting Measurement (#7) — depends on whether we want a
-  proper `Measurement` value type (parallel to the broader missing-value-types
-  TODO) or just expand the macro to parse measurement strings inline.
+- ~~`(text-size:)` accepting Measurement (#7).~~ ✅ Not work — reclassified
+  2026-07-19 as a 3→4 compatibility switch (`COMPATIBILITY.md` row 10); we
+  already match Harlowe 3's `(text-size: Number)`.
 - ~~`(replace:)`/`(append:)`/`(prepend:)` variadic (#11) — small but touches
   `RevisionChangers.Build` interface for multiple targets.~~ ✅ done — and the
   descriptor grew reference's `newTargets` list, fixing composed revision

@@ -8,7 +8,7 @@ A C# library for parsing and running [Twine/Harlowe](https://twinery.org/) inter
 
 It accepts Twine 2 HTML exports and Twee 3 source, parses the full Harlowe markup language, evaluates author-written macros at runtime, and surfaces rendered content through an engine-agnostic `IRenderOutput` interface — plain text, navigation links, semantic styles, and interactive regions. Implement that interface against your engine's text renderer (TextMeshPro, RichTextLabel, raw HTML, plain console) and you have a working interactive story.
 
-**Status:** Targets `netstandard2.0`, so it drops into Unity 2018.1+, Godot 3 & 4, .NET Framework 4.6.1+, .NET 5+, Mono, and Xamarin. Tracks Harlowe 3.3.8.
+**Status:** Targets `netstandard2.0`, so it drops into Unity 2018.1+, Godot 3 & 4, .NET Framework 4.6.1+, .NET 5+, Mono, and Xamarin. Tracks Harlowe 3.3.9 semantics, audited against the 4.0 development branch; when 4.0 ships, a story keeps the semantics of the major version it declares (see `COMPATIBILITY.md`).
 
 ---
 
@@ -137,7 +137,7 @@ public class ConsoleOutput : IRenderOutput
 |---|---|
 | Variables (`$story`, `_temp`) and full expression grammar | ✓ |
 | Colour values: `red`, `#a4e`, `(rgb:)`/`(hsl:)`, `+` mixing, `'s r`/`'s h` data names | ✓ |
-| Every operator from the Harlowe 3.3.8 precedence table | ✓ |
+| Every operator from the Harlowe 3.3.9 precedence table | ✓ |
 | Property access (`'s`, `of`, `its`) | ✓ |
 | Ordinal indexing (`1st`, `last`, `Nthlast`) | ✓ |
 | Hooks: anonymous `[…]`, `\|name>[…]`, `[…]<name\|` | ✓ |
