@@ -327,6 +327,58 @@ namespace Harlowe.Tests.Twee
     }
 
     [Fact]
+    public void StoryData_AfterPassages_MetadataStillApplies()
+    {
+      // The metadata block is legal anywhere in the file. Pinned separately
+      // from the `start`-resolution case above because format-version selects
+      // the compatibility profile every earlier passage is lexed under, so
+      // "applies at all" and "applies in time" are different guarantees.
+      var story = Read(":: First\nA\n\n:: Second\nB\n\n:: StoryData\n{\"format-version\":\"3.3.9\",\"ifid\":\"X\"}");
+      Assert.Equal("3.3.9", story.FormatVersion);
+      Assert.Equal("X", story.Ifid);
+      Assert.Equal(2, story.PassageCount);
+    }
+
+    [Fact]
+    public void StoryData_Multiple_LastWins_Wholesale()
+    {
+      // Out-of-spec input, but a merge is not what happens: each block
+      // reassigns every recognised field from its own dictionary, so a key
+      // the last block omits reverts to its empty default rather than
+      // surviving from an earlier block.
+      string src = ":: StoryData\n{\"ifid\":\"FIRST\",\"format\":\"Harlowe\"}\n\n"
+        + ":: A\nbody\n\n"
+        + ":: StoryData\n{\"ifid\":\"SECOND\"}";
+      var story = Read(src);
+      Assert.Equal("SECOND", story.Ifid);
+      Assert.Equal("", story.Format);
+      Assert.Equal(1, story.PassageCount);
+    }
+
+    [Fact]
+    public void StoryData_Multiple_SecondMalformed_FirstSurvives()
+    {
+      // Recovery is per block, not per file: a malformed second block is
+      // discarded on its own and leaves the first block's metadata standing.
+      string src = ":: StoryData\n{\"ifid\":\"FIRST\"}\n\n"
+        + ":: A\nbody\n\n"
+        + ":: StoryData\nnot json at all";
+      var story = Read(src);
+      Assert.Equal("FIRST", story.Ifid);
+      Assert.NotNull(story.GetPassage("A"));
+    }
+
+    [Fact]
+    public void StoryData_Multiple_LastWinsForStart()
+    {
+      string src = ":: StoryData\n{\"start\":\"A\"}\n\n"
+        + ":: A\nbody\n\n:: B\nbody\n\n"
+        + ":: StoryData\n{\"start\":\"B\"}";
+      var story = Read(src);
+      Assert.Equal(story.GetPassage("B").Pid, story.StartNode);
+    }
+
+    [Fact]
     public void PassageName_EscapedBrackets_Unescaped()
     {
       // Per the Twee 3 spec, [ ] { } in a passage name are backslash-escaped.

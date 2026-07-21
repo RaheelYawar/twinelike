@@ -39,6 +39,25 @@ namespace Harlowe.Twee
   /// </summary>
   public class TweeReader
   {
+    private readonly HarloweProfile _profileOverride;
+
+    /// <summary>Reads stories under the compatibility profile each one's <c>:: StoryData</c> declares.</summary>
+    public TweeReader() : this(null) { }
+
+    /// <summary>
+    /// Reads stories under an explicit compatibility profile, overriding the
+    /// major their <c>:: StoryData</c> declares. Null follows the declaration.
+    ///
+    /// <para>The override belongs on the reader rather than on
+    /// <see cref="Harlowe.Profile"/> because some switches are lexical: by the
+    /// time <see cref="Read"/> returns, every passage body has been tokenized.
+    /// This is the only entry point that can affect them.</para>
+    /// </summary>
+    public TweeReader(HarloweProfile profile)
+    {
+      _profileOverride = profile;
+    }
+
     /// <summary>
     /// Parse <paramref name="source"/> as Twee 3 text and return a populated
     /// <see cref="Harlowe"/>. A null or empty input yields an empty story
@@ -49,6 +68,12 @@ namespace Harlowe.Twee
     /// <c>File.ReadAllText</c>) leave it on the string, where it would
     /// otherwise hide the first <c>::</c> header and silently drop the first
     /// passage (or the whole single-passage story).
+    ///
+    /// <para><b>Metadata is applied in a pre-pass</b>, before any passage body
+    /// is lexed. <c>:: StoryData</c> is legal anywhere in the file, and its
+    /// <c>format-version</c> selects the compatibility profile every body is
+    /// tokenized under — read in source order, a trailing metadata block would
+    /// arrive after the passages it governs.</para>
     /// </summary>
     public Harlowe Read(string source)
     {
@@ -56,29 +81,48 @@ namespace Harlowe.Twee
       if (string.IsNullOrEmpty(source)) return story;
       if (source[0] == '\uFEFF') source = source.Substring(1);
 
-      var tokenizer = new HarloweTokenizer();
-      var bodyParser = new HarloweBodyParser();
+      // Null leaves the story following its own declared format-version.
+      story.Profile = _profileOverride;
+
+      // Materialised once: SplitPassages is a lazy iterator that re-walks every
+      // line and rebuilds every body string on each enumeration, so the
+      // metadata pre-pass below would otherwise double all Twee string work.
+      var blocks = new List<PassageBlock>(SplitPassages(source));
+
       string pendingStartName = null;
+      foreach (var block in blocks)
+      {
+        if (block.Name != "StoryData") continue;
+        // Every StoryData block is applied, in source order, preserving the
+        // last-wins result the old single-pass read produced. Applying only
+        // the first would leave the profile resolved from one block while the
+        // story's metadata came from another.
+        //
+        // A malformed StoryData must not abort the load. The Twee 3 spec's
+        // recommendation for a decoding error is to "emit a warning, discard
+        // the metadata, and continue processing the file" — we have no warning
+        // sink, so we discard and continue, matching the per-passage recovery
+        // below and the loader's never-throw policy. Recovery stays per block:
+        // ApplyStoryData throws before it writes anything, so a broken block
+        // leaves an earlier block's metadata standing.
+        try { pendingStartName = ApplyStoryData(story, block.Body); }
+        catch (HarloweParseException) { }
+      }
+
+      // Constructed after the pre-pass, not before it: story.Profile is only
+      // now final, and a tokenizer's profile is fixed at construction.
+      var tokenizer = new HarloweTokenizer(story.Profile);
+      var bodyParser = new HarloweBodyParser();
       int nextPid = 1;
 
-      foreach (var block in SplitPassages(source))
+      foreach (var block in blocks)
       {
         if (block.Name == "StoryTitle")
         {
           story.StoryName = block.Body.TrimEnd('\r', '\n');
           continue;
         }
-        if (block.Name == "StoryData")
-        {
-          // A malformed StoryData must not abort the load. The Twee 3 spec's
-          // recommendation for a decoding error is to "emit a warning, discard
-          // the metadata, and continue processing the file" — we have no warning
-          // sink, so we discard and continue, matching the per-passage recovery
-          // below and the loader's never-throw policy.
-          try { pendingStartName = ApplyStoryData(story, block.Body); }
-          catch (HarloweParseException) { }
-          continue;
-        }
+        if (block.Name == "StoryData") continue;   // applied in the pre-pass above
 
         PassageBody ast;
         try

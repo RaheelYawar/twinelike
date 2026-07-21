@@ -354,5 +354,306 @@ namespace Harlowe.Tests
       // round-trip verbatim through RawBody as always.)
       Assert.Equal("(set: $x to 6)", RoundTrip("(set: $x to --2 6)"));
     }
+
+    // ----- Harlowe 3: no comment markup -----
+    //
+    // Every fact above runs under the newest profile (the parameterless
+    // helpers). Harlowe 3 has no `comment` rule at all, so `--` is ordinary
+    // prose there and each behaviour above inverts. The `<!-- … -->` HTML
+    // form exists in both majors and is deliberately not mirrored here.
+
+    private static IReadOnlyList<Token> TokenizeV3(string src)
+      => new HarloweTokenizer(HarloweProfile.V3).Tokenize(src);
+
+    private static PassageBody ParseV3(string src)
+      => new HarloweBodyParser().Parse(TokenizeV3(src), src);
+
+    private static BufferedRenderOutput RenderRawV3(string src)
+    {
+      var registry = new MacroRegistry();
+      StandardMacros.RegisterAll(registry);
+      var ctx = new MacroContext
+      {
+        Store = new HarloweVariableStore(),
+        Invoker = registry,
+        Profile = HarloweProfile.V3,
+      };
+      registry.Context = ctx;
+      var buf = new BufferedRenderOutput();
+      new BodyRenderer(buf, registry, ctx).Render(ParseV3(src));
+      return buf;
+    }
+
+    private static string RenderTextV3(string src) => RenderRawV3(src).Text;
+
+    private static string RoundTripV3(string src) => new MarkupPrinter().Print(ParseV3(src));
+
+    [Fact]
+    public void V3_Tokenize_DoubleHyphen_StaysOneProseRun()
+    {
+      // The inversion of Tokenize_DoubleHyphen_EmitsComment: no Comment token,
+      // and — because guard 3 leaves the prose run unbroken — not a
+      // fragmented "a" / "--" / "b" trio either. One Text token.
+      var t = TokenizeV3("a--b");
+      Assert.Equal(TokenType.Text, t[0].Type);
+      Assert.Equal("a--b", t[0].Value);
+      Assert.Equal(TokenType.EndOfFile, t[1].Type);
+    }
+
+    [Fact]
+    public void V3_Tokenize_EmDashIdiom_StaysOneProseRun()
+    {
+      // The bug this switch exists to fix: under the newest profile the first
+      // `--` comments out the rest of the sentence.
+      const string src = "it was -- and remains -- fine";
+      var t = TokenizeV3(src);
+      Assert.Equal(TokenType.Text, t[0].Type);
+      Assert.Equal(src, t[0].Value);
+      Assert.Equal(TokenType.EndOfFile, t[1].Type);
+    }
+
+    [Fact]
+    public void V3_Tokenize_NoCommentTokenAnywhere()
+    {
+      foreach (var tok in TokenizeV3("a--b --[hook] --(set: $x to 5)"))
+        Assert.NotEqual(TokenType.Comment, tok.Type);
+    }
+
+    [Fact]
+    public void V3_Tokenize_ExpressionDoubleHyphen_IsSubtractionThenNegation()
+    {
+      // With the expression-mode emit suppressed, `3--2` falls through to the
+      // operator arm twice: 3 - (-2). No Comment token, and the `-type`
+      // suffix scan is reachable again.
+      var t = TokenizeV3("(print: 3--2)");
+      Assert.Equal(TokenType.MacroOpen, t[0].Type);
+      Assert.Equal(TokenType.NumberLiteral, t[1].Type);
+      Assert.Equal("3", t[1].Value);
+      Assert.Equal(TokenType.Operator, t[2].Type);
+      Assert.Equal("-", t[2].Value);
+      Assert.Equal(TokenType.Operator, t[3].Type);
+      Assert.Equal("-", t[3].Value);
+      Assert.Equal(TokenType.NumberLiteral, t[4].Type);
+      Assert.Equal("2", t[4].Value);
+    }
+
+    [Fact]
+    public void V3_Tokenize_HtmlComment_StillOneToken()
+    {
+      // Not gated: `<!-- … -->` predates the `--` markup and exists in both
+      // majors. It is scanned at the '<' dispatch, so it never reaches the
+      // guarded '-' arm.
+      var t = TokenizeV3("a <!-- note --> b");
+      Assert.Equal(TokenType.HtmlComment, t[1].Type);
+      Assert.Equal("<!-- note -->", t[1].Value);
+    }
+
+    // ----- Harlowe 3: prose -----
+
+    [Fact]
+    public void V3_EmDashIdiom_RendersWhole()
+    {
+      // The headline: the live rendering bug this switch exists to fix. Under
+      // the newest profile this truncates to "it was ".
+      Assert.Equal("it was -- and remains -- fine", RenderTextV3("it was -- and remains -- fine"));
+    }
+
+    [Fact]
+    public void V3_LineComment_ShowsProse()
+    {
+      Assert.Equal("A --hidden note\nB", RenderTextV3("A --hidden note\nB"));
+    }
+
+    [Fact]
+    public void V3_ProseBeforeMacro_BothShow()
+    {
+      Assert.Equal("--hidden shown", RenderTextV3("--hidden (print: \"shown\")"));
+    }
+
+    [Fact]
+    public void V3_DashesAtLineEnd_KeepTheLineBreak()
+    {
+      Assert.Equal("A--\nB", RenderTextV3("A--\nB"));
+    }
+
+    [Fact]
+    public void V3_DashesAtEndOfInput_StayProse()
+    {
+      Assert.Equal("tail--", RenderTextV3("tail--"));
+    }
+
+    [Fact]
+    public void V3_DashesBeforeVariable_VariableStillPrints()
+    {
+      Assert.Equal("--X after", RenderTextV3("(set: $x to \"X\")--$x after"));
+    }
+
+    [Fact]
+    public void V3_DashesBeforeFormatSpan_SpanStillStyled()
+    {
+      var buf = RenderRawV3("--''bold'' tail");
+      Assert.Equal("--bold tail", buf.Text);
+      int styles = 0;
+      foreach (var e in buf.Entries)
+        if (e.Kind == BufferedRenderOutput.Kind.PushStyle) styles++;
+      Assert.Equal(1, styles);
+    }
+
+    [Fact]
+    public void V3_DashesBeforeLink_LinkStillEmitted()
+    {
+      var buf = RenderRawV3("--[[Somewhere]]done");
+      int links = 0;
+      foreach (var e in buf.Entries)
+        if (e.Kind == BufferedRenderOutput.Kind.Link) links++;
+      Assert.Equal(1, links);
+      Assert.Equal("--done", buf.Text);
+    }
+
+    // ----- Harlowe 3: `--[` is prose plus an ordinary hook -----
+
+    [Fact]
+    public void V3_DashesBeforeHook_HookContentShows()
+    {
+      // Not a comment hook — just prose `--` followed by an anonymous hook,
+      // whose content renders normally.
+      Assert.Equal("A--a multi\nline noteB", RenderTextV3("A--[a multi\nline note]B"));
+    }
+
+    [Fact]
+    public void V3_DashesBeforeHook_MacroInsideRuns()
+    {
+      // The inversion of CommentHook_MacroInside_NeverRuns: the assignment
+      // inside the hook takes effect, so $x is 5.
+      Assert.Equal("--5", RenderTextV3("(set: $x to 1)--[(set: $x to 5)](print: $x)"));
+    }
+
+    [Fact]
+    public void V3_UnclosedHook_ContentStillShows()
+    {
+      var buf = RenderRawV3("A--[never closed\nB");
+      Assert.Equal("A--never closed\nB", buf.Text);
+      Assert.Equal(0, CountErrors(buf));
+    }
+
+    [Fact]
+    public void V3_DashesInsideHook_StayProse()
+    {
+      Assert.Equal("A --note", RenderTextV3("(if: true)[A --note]"));
+    }
+
+    // ----- Harlowe 3: macros after `--` are live code -----
+
+    [Fact]
+    public void V3_DashesBeforeMacro_MacroRuns()
+    {
+      Assert.Equal("--hiddenshown", RenderTextV3("--(print: \"hidden\")(print: \"shown\")"));
+    }
+
+    [Fact]
+    public void V3_DashesBeforeSetMacro_AssignmentHappens()
+    {
+      Assert.Equal("--5", RenderTextV3("(set: $x to 1)--(set: $x to 5)(print: $x)"));
+    }
+
+    [Fact]
+    public void V3_SyntaxErrorAfterDashes_Surfaces()
+    {
+      // The inversion of Comment_SyntaxErrorInsideCommentedMacro_StaysSilent.
+      // Under Harlowe 3 nothing is disabled, so the typo is a real error the
+      // author must see — the `--` is just prose in front of broken code.
+      var buf = RenderRawV3("--(set: $x ti 5) ok");
+      Assert.Equal(1, CountErrors(buf));
+      Assert.Equal("-- ok", buf.Text);
+    }
+
+    [Fact]
+    public void V3_DashesBeforeChangerMacro_ChangerStillApplies()
+    {
+      // `(if: false)` genuinely hides its hook, and the `--` prints as prose.
+      Assert.Equal("--", RenderTextV3("--(if: false)[shown]"));
+    }
+
+    // ----- Harlowe 3: expression mode is subtraction, not comments -----
+
+    [Fact]
+    public void V3_AdjacentNumbers_IsSubtractionOfANegative()
+    {
+      // The free win from suppressing the expression-mode emit: `5--3` falls
+      // through to two operator arms and means 5 - (-3).
+      Assert.Equal("8", RenderTextV3("(print: 5--3)"));
+    }
+
+    [Fact]
+    public void V3_SpacedDashes_SubtractThenNegate()
+    {
+      // 3 - (-2) + 6 = 11, where Harlowe 4 slices the 2 out and gets 9.
+      Assert.Equal("11", RenderTextV3("(print: 3 --2 + 6)"));
+    }
+
+    [Fact]
+    public void V3_DashesInCollectionArg_ValueSurvives()
+    {
+      // (a: --2) is (a: 2) — one element, where Harlowe 4 empties the list.
+      Assert.Equal("1", RenderTextV3("(print: (a: --2)'s length)"));
+    }
+
+    [Fact]
+    public void V3_SpacedUnaryMinus_UnchangedAcrossProfiles()
+    {
+      // Profile-invariant: a spaced `- -2` never reached the comment arm in
+      // either major. Pinned on both sides so a regression can't hide here.
+      Assert.Equal("5", RenderTextV3("(print: 3 - -2)"));
+      Assert.Equal("5", RenderText("(print: 3 - -2)"));
+    }
+
+    [Fact]
+    public void V3_ReferenceDocExample_IsNowAParseError()
+    {
+      // Harlowe 4's own doc example, (set: $x to --2 6), assigns 6. Under
+      // Harlowe 3 it reads as `$x to -(-2)` followed by a stray 6 — a genuine
+      // syntax error, which is what a 3.x author would have seen.
+      var buf = RenderRawV3("(set: $x to --2 6)(print: $x)");
+      Assert.True(CountErrors(buf) > 0);
+    }
+
+    [Fact]
+    public void V3_CommentHookInArgs_IsNowAParseError()
+    {
+      // `--[…]` in macro args is a code hook in Harlowe 4; in Harlowe 3 the
+      // bracket has no meaning in expression position.
+      var buf = RenderRawV3("(print: --[authorial note] 5)");
+      Assert.True(CountErrors(buf) > 0);
+    }
+
+    // ----- Harlowe 3: HTML comments are unchanged -----
+
+    [Fact]
+    public void V3_HtmlComment_StillRendersNothing()
+    {
+      Assert.Equal("a  b", RenderTextV3("a <!-- note --> b"));
+    }
+
+    [Fact]
+    public void V3_HtmlComment_StillNeverRunsItsContents()
+    {
+      var buf = RenderRawV3("(set: $x to 1)<!-- (set: $x to 5) -->(print: $x)");
+      Assert.Equal("1", buf.Text);
+      Assert.Equal(0, CountErrors(buf));
+    }
+
+    // ----- Harlowe 3: round-trip -----
+
+    [Fact]
+    public void V3_RoundTrip_ProseDashes_PreservedVerbatim()
+    {
+      Assert.Equal("A --hidden note\nB", RoundTripV3("A --hidden note\nB"));
+    }
+
+    [Fact]
+    public void V3_RoundTrip_HtmlComment_PreservedVerbatim()
+    {
+      Assert.Equal("a <!-- note --> b", RoundTripV3("a <!-- note --> b"));
+    }
   }
 }

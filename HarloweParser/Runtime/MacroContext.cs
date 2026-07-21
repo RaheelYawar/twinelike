@@ -33,6 +33,15 @@ namespace Harlowe.Runtime
     public IRng Rng = new MulberryRng();
 
     /// <summary>
+    /// The compatibility profile runtime behaviour follows — the major the
+    /// story declared. Defaults to <see cref="HarloweProfile.Latest"/>;
+    /// <see cref="StorySession"/> overwrites it with the story's own profile.
+    /// Parse-time switches are applied by the tokenizer instead and never
+    /// reach here.
+    /// </summary>
+    public HarloweProfile Profile = HarloweProfile.Latest;
+
+    /// <summary>
     /// Renders the named passage into <paramref name="output"/>. Returns
     /// <see cref="HarloweValue.OfString(string)"/> with an empty payload on
     /// success, or an <see cref="HarloweValueKind.Error"/> value if the

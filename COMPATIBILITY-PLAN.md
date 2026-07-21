@@ -2,6 +2,16 @@
 
 Design doc for the slice that turns `COMPATIBILITY.md`'s switch inventory into working machinery. Companion to `COMPATIBILITY.md` (the inventory itself) and `CLAUDE.md`'s Version policy section (the governing rules). Same role as `SAVE-LOAD-PLAN.md` played for the save/load slice: the procedure outlives the slice, because every future Harlowe major re-runs it.
 
+> **Executed 2026-07-20.** All ten steps shipped; suite 2315 → 2390. Five corrections to the plan, found while auditing it against the code and worth carrying into the next major's run:
+>
+> 1. **`HarloweTokenizer` had no declared constructor at all**, so step 2's "the parameterless ctor delegates to `Latest`" meant *writing* both, not amending one.
+> 2. **`TweeReader.Read` hoisted its tokenizer above the passage loop**, so step 5's pre-pass had to move that construction *after* it — otherwise the resolved profile arrives too late to matter, which is the exact failure the step exists to prevent.
+> 3. **The HTML loader duplicates `ParseBodyToAst` inline** rather than calling it, so step 3 had two threading sites, not one.
+> 4. **Step 5's stated precondition was unmet** — `TweeReaderTests` had no multiple-`StoryData` coverage. Added first, as step 0.
+> 5. **Step 8 was safer than assumed**: `FeatureCoverageTests` asserts only "nothing threw", with no ground-truth diff, so the V3 leg needed no expected-output fork. The two runs differ in exactly one of ~60 passages — the comment passage — which is also the tightest evidence available that the switch has no unintended reach.
+>
+> One measurement changed the guidance rather than the plan: **a render-level probe is necessary but not sufficient.** Undoing each of row 1's three guards in turn failed 9, 6, and *2* facts respectively — the ScanText guard alone fragments the token stream while rendering byte-identically, so only the token-level assertions catch it. A switch whose guards can disagree about token shape without changing output needs an assertion at the layer it acts on.
+
 ## Context
 
 The library promises per-major lock-in — *a story keeps the semantics of the Harlowe major it declares, indefinitely*. Today that promise is documentation only: `COMPATIBILITY.md` lists 11 known 3-vs-4 differences and nothing in the code acts on any of them.

@@ -18,17 +18,32 @@ namespace Harlowe.Tests.Runtime
   /// emits a per-passage works/broken report (text + error messages + style/link/
   /// interactive counts) to the test output and to <c>feature-coverage-report.txt</c>
   /// in the test output directory.
+  ///
+  /// <para>Runs under <b>every compatibility profile</b>. The crash policy is
+  /// not profile-specific — a story declaring any supported major must render
+  /// without throwing — and the idiom surface is where a profile switch is
+  /// most likely to have unintended reach. Each profile writes its own report
+  /// file so the two runs don't clobber each other.</para>
   /// </summary>
   public class FeatureCoverageTests
   {
     private readonly ITestOutputHelper _output;
     public FeatureCoverageTests(ITestOutputHelper output) => _output = output;
 
-    [Fact]
-    public void EveryFeaturePassage_RendersWithoutThrowing()
+    public static IEnumerable<object[]> Profiles()
+    {
+      yield return new object[] { "V3", HarloweProfile.V3 };
+      yield return new object[] { "V4", HarloweProfile.V4 };
+    }
+
+    [Theory]
+    [MemberData(nameof(Profiles))]
+    public void EveryFeaturePassage_RendersWithoutThrowing(string profileName, HarloweProfile profile)
     {
       var path = Path.Combine(AppContext.BaseDirectory, "TestFiles", "feature-coverage.twee");
-      var story = new TweeReader().Read(File.ReadAllText(path));
+      // The profile must be supplied to the reader, not set afterwards: by the
+      // time Read returns, every passage body has already been tokenized.
+      var story = new TweeReader(profile).Read(File.ReadAllText(path));
 
       var names = new List<string>();
       foreach (var p in story.Passages) names.Add(p.Name);
@@ -74,7 +89,8 @@ namespace Harlowe.Tests.Runtime
 
       string report = sb.ToString();
       _output.WriteLine(report);
-      File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "feature-coverage-report.txt"), report);
+      File.WriteAllText(
+        Path.Combine(AppContext.BaseDirectory, $"feature-coverage-report-{profileName}.txt"), report);
 
       Assert.Equal(0, threw); // in-prose errors are fine; an exception is a crash-policy violation
     }

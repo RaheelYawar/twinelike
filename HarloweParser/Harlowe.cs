@@ -40,6 +40,37 @@ namespace Harlowe
     /// <summary>The story format version from <c>&lt;tw-storydata format-version="…"&gt;</c> or StoryData JSON (<c>format-version</c>). Empty string if absent.</summary>
     public string FormatVersion { get; set; }
 
+    private HarloweProfile _profileOverride;   // null = follow FormatVersion
+
+    /// <summary>
+    /// The compatibility profile this story's semantics come from: the major
+    /// declared in <see cref="FormatVersion"/>, or an explicit override set by
+    /// the host. Delivers per-major lock-in — a story keeps the semantics of
+    /// the major it declares, indefinitely. See <see cref="HarloweProfile"/>
+    /// for the switch model and <see cref="GetCompatibilityNotices"/> for the
+    /// cases worth telling the author about.
+    ///
+    /// <para><b>Computed, never cached</b>, so it cannot fall out of step with
+    /// <see cref="FormatVersion"/> — the same per-call model
+    /// <see cref="GetParseErrors"/> and <see cref="GetBrokenLinks"/> use.</para>
+    ///
+    /// <para><b>Setting this does not re-parse passages already loaded</b>, and
+    /// neither does assigning <see cref="FormatVersion"/>. Some switches (the
+    /// comment markup among them) are lexical, so a story's bodies are already
+    /// tokenized by the time either can be assigned; a metadata assignment
+    /// silently re-tokenizing the whole story would be more surprising than
+    /// the stale rule. To load <em>under</em> a profile, pass it to the loader
+    /// — <see cref="Harlowe(string, HarloweProfile)"/> or
+    /// <see cref="Twee.TweeReader(HarloweProfile)"/> — which is the only way
+    /// to affect lexical switches. Passages added or re-parsed after the
+    /// assignment do follow it.</para>
+    /// </summary>
+    public HarloweProfile Profile
+    {
+      get { return _profileOverride ?? HarloweProfile.Resolve(FormatVersion); }
+      set { _profileOverride = value; }
+    }
+
     /// <summary>
     /// The full <c>:: StoryData</c> JSON object as parsed by
     /// <see cref="Twee.JsonReader"/>, kept verbatim for round-trip preservation.
@@ -64,8 +95,25 @@ namespace Harlowe
     /// <see cref="HarlowePassage.Ast"/> tree; <see cref="HarlowePassage.Body"/>
     /// and <see cref="HarlowePassage.Branches"/> are derived views over the AST.
     /// </summary>
-    public Harlowe(string htmlText)
+    public Harlowe(string htmlText) : this(htmlText, null) { }
+
+    /// <summary>
+    /// Parses a Twine HTML export under an explicit compatibility profile,
+    /// overriding the major the export's <c>format-version</c> declares. Null
+    /// follows the declaration, making this identical to
+    /// <see cref="Harlowe(string)"/>.
+    ///
+    /// <para>The override belongs on the loader rather than on
+    /// <see cref="Profile"/> because some switches are lexical: by the time a
+    /// caller could assign the property, every passage body has been
+    /// tokenized. This is the only entry point that can affect them.</para>
+    /// </summary>
+    public Harlowe(string htmlText, HarloweProfile profile)
     {
+      // Before any parsing: Parse() lexes passage bodies under Profile, and a
+      // lexical switch cannot be applied retroactively.
+      _profileOverride = profile;
+
       var htmlDoc = new HtmlDocument();
       htmlDoc.LoadHtml(htmlText);
 
@@ -158,7 +206,7 @@ namespace Harlowe
     /// recovery contract so the editing API and the file loaders behave the
     /// same way on identical input.</para>
     /// </summary>
-    private static void HydratePassageFromBody(HarlowePassage passage)
+    private void HydratePassageFromBody(HarlowePassage passage)
     {
       if (passage.Ast != null) return;
       if (passage.RawBody == null) return;
@@ -178,10 +226,14 @@ namespace Harlowe
     /// passage) and <see cref="RewriteInboundLinks"/> (reparse after a
     /// link-target rewrite), so both produce the identical AST shape the bulk
     /// loaders do.
+    ///
+    /// <para>Instance-level because it lexes under <see cref="Profile"/>: a
+    /// passage added to — or re-parsed within — a story declaring Harlowe 3
+    /// must follow that story's rules, not the newest.</para>
     /// </summary>
-    private static Ast.Body.PassageBody ParseBodyToAst(string passageName, string rawBody)
+    private Ast.Body.PassageBody ParseBodyToAst(string passageName, string rawBody)
     {
-      var tokenizer = new HarloweTokenizer();
+      var tokenizer = new HarloweTokenizer(Profile);
       var bodyParser = new HarloweBodyParser();
       Ast.Body.PassageBody ast;
       try
@@ -301,6 +353,104 @@ namespace Harlowe
       if (!_passages.Remove(name)) return false;
       _passageOrder.Remove(name);
       return true;
+    }
+
+    /// <summary>
+    /// Anything worth telling the author about how this story's declared
+    /// format version was interpreted. Empty in the nominal case — a story
+    /// declaring a major we implement — and never throws.
+    ///
+    /// <para><b>What this is for.</b> The third sibling to
+    /// <see cref="GetBrokenLinks"/> and <see cref="GetParseErrors"/>: a host
+    /// engine calls it once at load and shows the results to the developer.
+    /// Loading never fails over a format version, so without this the choice
+    /// of profile is invisible — and a story running under semantics it didn't
+    /// ask for shows symptoms far from the cause.</para>
+    ///
+    /// <para>Four cases, in the shape a caller has to handle them:</para>
+    /// <list type="bullet">
+    ///   <item><description>No version declared — <see cref="NoticeSeverity.Info"/>.
+    ///     Ordinary for hand-built and test stories; real Twine exports always
+    ///     declare one. Runs under the newest profile.</description></item>
+    ///   <item><description>A major we implement — no notice.</description></item>
+    ///   <item><description>A major below 3 — <see cref="NoticeSeverity.Warning"/>,
+    ///     clamped to <see cref="HarloweProfile.V3"/>: 1.x/2.x were never
+    ///     audited here, so their semantics aren't reconstructed, but the
+    ///     nearest audited major is closer than the newest.</description></item>
+    ///   <item><description>A major newer than we implement, or an unparseable
+    ///     version — <see cref="NoticeSeverity.Warning"/>, running under the
+    ///     newest. The two are distinguished in
+    ///     <see cref="CompatibilityNotice.Detail"/>, since one means "this
+    ///     library is behind" and the other means "this metadata is
+    ///     malformed".</description></item>
+    /// </list>
+    ///
+    /// <para>An explicit <see cref="Profile"/> override is reported too — the
+    /// host chose it, but nothing else records that the story's own
+    /// declaration was set aside.</para>
+    /// </summary>
+    public IReadOnlyList<CompatibilityNotice> GetCompatibilityNotices()
+    {
+      var notices = new List<CompatibilityNotice>();
+      string declared = FormatVersion ?? string.Empty;
+      var profile = Profile;
+
+      if (_profileOverride != null)
+      {
+        string notice = declared.Length == 0
+          ? "the host set the compatibility profile explicitly (the story declares no format-version)"
+          : "the host set the compatibility profile explicitly, overriding the story's declared format-version '"
+            + declared + "'";
+        notices.Add(new CompatibilityNotice
+        {
+          Severity = NoticeSeverity.Info,
+          DeclaredVersion = declared,
+          Profile = profile,
+          Detail = notice,
+        });
+        return notices;
+      }
+
+      if (declared.Length == 0)
+      {
+        notices.Add(new CompatibilityNotice
+        {
+          Severity = NoticeSeverity.Info,
+          DeclaredVersion = declared,
+          Profile = profile,
+          Detail = "no format-version was declared, so the newest supported semantics are used",
+        });
+        return notices;
+      }
+
+      // The same parse the profile was selected by, so a notice can never
+      // disagree with the profile it describes about what the version said.
+      // Classified separately from Resolve because "clamped down" and
+      // "defaulted up" are opposite situations wanting opposite advice, and
+      // Resolve returns only the destination.
+      int major = HarloweProfile.ParseMajor(declared);
+      string detail = null;
+
+      if (major < 0)
+        detail = "the declared format-version '" + declared
+          + "' could not be read as a version number, so the newest supported semantics are used";
+      else if (major < 3)
+        detail = "the declared format-version '" + declared
+          + "' predates Harlowe 3, the oldest major this library reproduces";
+      else if (major > HarloweProfile.LatestKnownMajor)
+        detail = "the declared format-version '" + declared
+          + "' is from a newer major than this library implements, so the newest supported semantics are used";
+
+      if (detail != null)
+        notices.Add(new CompatibilityNotice
+        {
+          Severity = NoticeSeverity.Warning,
+          DeclaredVersion = declared,
+          Profile = profile,
+          Detail = detail,
+        });
+
+      return notices;
     }
 
     /// <summary>
@@ -650,7 +800,10 @@ namespace Harlowe
       // story from `new Harlowe()`); treat it as such instead of throwing.
       if (passageNodes == null) return;
 
-      var tokenizer = new HarloweTokenizer();
+      // Lexes under the story's profile: ParseStoryData ran first, so
+      // FormatVersion (and any ctor-supplied override) is already in place and
+      // Profile resolves to the major this story declared.
+      var tokenizer = new HarloweTokenizer(Profile);
       var bodyParser = new HarloweBodyParser();
       var pidOwners = new Dictionary<string, string>();   // pid -> first passage carrying it
 

@@ -129,6 +129,8 @@ public class ConsoleOutput : IRenderOutput
 
 ## Supported Harlowe features
 
+A story keeps the semantics of the Harlowe major it declares. `format-version` selects a compatibility profile at load — so a 3.x story gets 3.x behaviour even where Harlowe 4 changed the language — and a host can override it: `new Harlowe(html, HarloweProfile.V3)` or `new TweeReader(HarloweProfile.V3)`. `story.GetCompatibilityNotices()` reports anything unusual about the declared version.
+
 ✓ shipped &middot; ⚠ partial &middot; ✗ not yet
 
 ### Language
@@ -282,7 +284,7 @@ The runtime never throws on the render hot path. A bad expression renders an inl
 
 ### Catching problems before the player does
 
-Inline errors only fire when the player *reaches* them. A typo'd passage name — or an outright syntax error — down an unplayed branch stays invisible right up until it ships. Two load-time reports find them all up front; call them once when you load the story and show the results to whoever is building it.
+Inline errors only fire when the player *reaches* them. A typo'd passage name — or an outright syntax error — down an unplayed branch stays invisible right up until it ships. Three load-time reports find them all up front; call them once when you load the story and show the results to whoever is building it.
 
 ```csharp
 var story = new Harlowe(File.ReadAllText("story.html"));
@@ -296,13 +298,21 @@ foreach (var problem in story.GetBrokenLinks())
     Debug.LogWarning(problem.Message);
     // In passage 'Start' (line 4, column 14): (goto:) points to
     // the passage 'Dragon Lair', which doesn't exist.
+
+foreach (var notice in story.GetCompatibilityNotices())
+    Debug.Log(notice.Message);
+    // Compatibility: the declared format-version '5.2.0' is from a newer major
+    // than this library implements, so the newest supported semantics are used;
+    // running under Harlowe 4 semantics.
 ```
 
-Both DTOs also break out their fields — `PassageName` / `Line` / `Column` / `Detail` / `Target` / … — if you'd rather build an inspector row than print the message.
+The DTOs also break out their fields — `PassageName` / `Line` / `Column` / `Detail` / `Target` / `Severity` / … — if you'd rather build an inspector row than print the message.
 
 **`GetParseErrors()`** exists precisely *because* the loaders are tolerant: a passage that won't parse doesn't abort the load, it gets a synthetic error stub and keeps quiet. `IsWholePassage` tells you whether the whole passage is dead or the parser recovered around one bad construct and the rest still works.
 
 **`GetBrokenLinks()`** covers both the `[[…]]` syntax and a literal passage name given to `(goto:)`, `(display:)`, `(link-goto:)`, or the `(click-goto:)` family — including calls nested in hooks and expressions, so a dead `(goto:)` inside an `(if:)` branch is found. A *computed* target (`(goto: $next)`) can't be checked statically and is skipped; those still surface as inline errors at render time.
+
+**`GetCompatibilityNotices()`** is empty for a story declaring a Harlowe major this library implements. It speaks up when there's nothing to lock onto — no `format-version` at all, one too new to recognise, one that isn't a version number, or a pre-3.x one (clamped to Harlowe 3, the oldest major reproduced here) — and when a host override has set the story's own declaration aside.
 
 Links themselves fail safe: a `[[…]]` whose target doesn't exist renders its label as plain prose and emits **no link event at all**, so it can't be clicked into a passage that isn't there.
 

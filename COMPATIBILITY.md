@@ -1,6 +1,6 @@
 # Harlowe Version Compatibility
 
-**Status: inventory only — no profile machinery exists yet.** The library currently implements one behaviour set (the future V4 profile); this file is the append-only record of every point where Harlowe majors deliberately differ, so that cutting a V3 profile at 4.0's release is a matter of flipping known switches rather than re-reading changelogs. The governing policy — per-major lock-in, append-only profiles, what does and doesn't earn a switch — is the "Version policy" section of `CLAUDE.md`. Slice scope lives in `TODO.md`.
+**Status: machinery shipped 2026-07-20; one switch implemented (row 1), ten still inventory.** `HarloweProfile` selects a profile from the story's declared `format-version` (host-overridable at the loader), and `CompatibilityProfileTests` reflects over the switch properties to demand a behavioural probe per switch — so a switch declared but wired to nothing fails the build. This file stays the append-only record of every point where Harlowe majors deliberately differ. The governing policy — per-major lock-in, append-only profiles, what does and doesn't earn a switch — is the "Version policy" section of `CLAUDE.md`; the implementation procedure, which outlives this slice because every future major re-runs it, is `COMPATIBILITY-PLAN.md`.
 
 **Add a row the moment a version difference is found**, even if nothing is implemented on either side. A missing switch is invisible; an empty row is not.
 
@@ -18,10 +18,10 @@
 
 | # | Switch | V3 (≤3.3.9) | V4 | Ours | Reference |
 |---|---|---|---|---|---|
-| 1 | `--` comment markup | none: prose `--` is literal, `5--3` is `5 - (-3)` | comments out the next element | **V4** | `comment` rule, `ts/markup/patterns.ts` |
+| 1 | `--` comment markup | none: prose `--` is literal, `5--3` is `5 - (-3)` | comments out the next element | **both** (`HarloweProfile.CommentMarkup`) | `comment` rule, `ts/markup/patterns.ts` |
 | 2 | Unset story variable read | defaults to `0` | error | **V4** | 4.0 Alterations → Coding |
 | 3 | Colour `is` tolerance | RGB within 1e-3, alpha exact | all data values within 0.01 | **V3** | `colour.ts` `is()`; 4.0 Alterations → Macros |
-| 4 | `'s` with surrounding spaces (`$a 's 1st`); `it's` as `its` synonym | rejected | accepted | — | 4.0 Alterations → Coding |
+| 4 | `'s` with surrounding spaces (`$a 's 1st`); `it's` as `its` synonym | rejected | accepted | see note | 4.0 Alterations → Coding |
 | 5 | `any` array/dataset data name | works (renamed `some` in 3.3.0, alias kept) | removed, conflicts with the `any` datatype | — | 4.0 Compatibility |
 | 6 | `(mix:)` colour model | LCH | OKLCH by default; optional leading model string | — | 4.0 Alterations → Macros |
 | 7 | `(complement:)` colour model | LCH | OKLCH | — | 4.0 Alterations → Macros |
@@ -29,6 +29,8 @@
 | 9 | Colour `oklch` data name | absent | present, alongside `lch` | — | 4.0 Alterations → Coding |
 | 10 | Measurement datatype in `(text-size:)`, `(border-size:)`, `(corner-radius:)`, `(text-indent:)`, `(box:)`, `(scroll:)`, … | number-based "scale" arguments | CSS-style measurements | **V3** for `(text-size:)`; rest unimplemented | 4.0 Additions → Coding; `MACRO-DIVERGENCES.md` #7 |
 | 11 | `[=` unclosed hook "punch-through" in headers/footers | broken, left unfixed for compatibility | fixed | — (column markup unimplemented) | 4.0 Bugfixes → Macros |
+
+Row 4 is two halves and **only one is a switch**, measured 2026-07-20. `it's` already lexes as `its` incidentally, in both profiles — `(print: it's 1st)` gives `Identifier(it)` + `Operator('s)`, because `TryScanPossessive` accepts a preceding `Identifier`. The spaced-`'s` half is not a boolean: the same whitespace check that rejects `$a 's 1st` doubles as the string-literal disambiguator, so today that input lexes `'s 1st)` as a **StringLiteral** which swallows the macro's closing paren (`(print: $a 's name')` likewise yields `StringLiteral(s name)`). Accepting spaced `'s` therefore needs a designed disambiguation rule — how to tell a possessive from a quote — not a flag. Recorded so nobody plans it as one.
 
 Row 10 detail, for whenever it is implemented: units are `px`, `em`, `rem`, `Lh` (direct CSS equivalents) plus `w` and `h` (CSS percentages that also declare which dimension they apply to). Measurements support arithmetic — added and subtracted with each other (`2em - 10px`), multiplied and divided by numbers (`50px * 2`) — so the value type needs operator support, not just parsing.
 

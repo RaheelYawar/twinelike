@@ -41,6 +41,12 @@ namespace Harlowe.Runtime.Saving
     /// expression mode — top-level values like <c>"x"</c> or <c>42</c> lex as prose
     /// otherwise. The wrapper's name is consumed before argument parsing and never
     /// invoked; its single argument is the value expression.</para>
+    ///
+    /// <para>Re-lexed under <see cref="HarloweProfile.SaveFormat"/>, never the
+    /// story's profile: the source came from <see cref="HarloweValue.ToSource"/>,
+    /// so it is engine-emitted and author compatibility policy has no bearing
+    /// on it. A blob must read back the same way it was written, whatever
+    /// major the story later declares.</para>
     /// </summary>
     public static HarloweValue Deserialise(string source, MacroRegistry registry, MacroContext context)
     {
@@ -50,7 +56,7 @@ namespace Harlowe.Runtime.Saving
       IExpressionNode node;
       try
       {
-        var tokens = new HarloweTokenizer().Tokenize("(v:" + source + ")");
+        var tokens = new HarloweTokenizer(HarloweProfile.SaveFormat).Tokenize("(v:" + source + ")");
         var cursor = new TokenCursor(tokens);
         cursor.Advance(); // consume the wrapper's MacroOpen so the parser is in expression mode
         var args = new HarloweExpressionParser().ParseArgumentList(cursor, false);

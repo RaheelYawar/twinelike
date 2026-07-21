@@ -23,6 +23,7 @@ Save/load, an undo/redo timeline with reproducible randomness, the `(link:)` fam
 - **`(sorted:)` upgrades.** Sorts mixed numbers+strings (numbers first, matching reference's documented example), takes an optional leading `via` key-lambda with stable ordering for equal keys, and returns an empty array for zero values.
 - **`Entry.ReplayTo(IRenderOutput)`.** Dispatch a stored render entry back through any adapter — the bridge from `RenderResult.Entries` to a streaming `IRenderOutput` such as `HtmlRenderOutput`.
 - **Macro-name normalisation.** Names are case-, dash-, and underscore-insensitive (`(textstyle:)` ≡ `(text-style:)`), as in reference.
+- **Compatibility profiles — a story keeps the semantics of the Harlowe major it declares.** `format-version` selects a profile at load; a host can override it with `new Harlowe(html, HarloweProfile.V3)` or `new TweeReader(HarloweProfile.V3)` (the override belongs on the loader — some differences are lexical, so they're decided before any post-load property could be set). Absent or unrecognised versions run under the newest semantics; a pre-3.x version clamps to Harlowe 3. `story.GetCompatibilityNotices()` joins `GetParseErrors()`/`GetBrokenLinks()` as a third load-time report, describing anything unusual about the declared version. Saves are pinned to their own profile and never follow the story, so bumping `format-version` can't re-interpret existing save blobs.
 - **Exponent number literals** (`1e3`, `2.5e-2`) parse and round-trip.
 
 ### Changed
@@ -34,6 +35,7 @@ Save/load, an undo/redo timeline with reproducible randomness, the `(link:)` fam
 - **`?link` is a real target.** Styling and arming wrap around the link; `(replace:/append:/prepend: ?link)` splice into its label; string targets match inside labels.
 - **Composing incompatible changers errors** in-prose instead of silently dropping one side, and a bare unattached changer in prose (e.g. `(if: $x)` with no hook) is an in-prose error, as in reference.
 - **Consecutive text nodes coalesce** into single `Text` events — string-target matching works across what used to be node boundaries, and output granularity is coarser.
+- **`--` is comment markup only for stories declaring Harlowe 4.** The `--` comment family shipped against Harlowe 4.0 semantics, which made the em-dash idiom (`it was -- and remains -- fine`) comment out the rest of the line for *every* story — and since 4.0 is unreleased, every real story is 3.x. Stories declaring a 3.x `format-version` now render such prose whole, and `5--3` is again `8`. Stories declaring 4.x, or declaring nothing, keep the comment behaviour.
 
 ### Fixed
 

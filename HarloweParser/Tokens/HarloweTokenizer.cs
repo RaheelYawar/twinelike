@@ -22,6 +22,25 @@ namespace Harlowe.Tokens
     private Stack<Frame> _modes;
     private bool _inLink;
 
+    private readonly HarloweProfile _profile;
+
+    /// <summary>
+    /// Lexes under <see cref="HarloweProfile.Latest"/> — the newest semantics
+    /// the library knows. Callers that must honour a story's declared major
+    /// (the HTML and Twee loaders) use the profile-taking overload instead.
+    /// </summary>
+    public HarloweTokenizer() : this(null) { }
+
+    /// <summary>
+    /// Lexes under an explicit compatibility profile. Null selects
+    /// <see cref="HarloweProfile.Latest"/>, so this is safe to call with a
+    /// story's unset profile field.
+    /// </summary>
+    public HarloweTokenizer(HarloweProfile profile)
+    {
+      _profile = profile ?? HarloweProfile.Latest;
+    }
+
     private static readonly HashSet<string> WordOperators = new HashSet<string>
     {
       "is", "to", "into", "and", "or", "not", "contains", "of",
@@ -129,8 +148,14 @@ namespace Harlowe.Tokens
           break;
         case '-':
           // `--` is the comment marker (reference's `comment` pattern,
-          // Harlowe 4.0); a single `-` stays prose via ScanText.
-          if (Peek(1) == '-')
+          // Harlowe 4.0); a single `-` stays prose via ScanText. Under
+          // Harlowe 3 there is no comment markup and `--` is ordinary prose,
+          // so the em-dash idiom ("it was -- and remains -- fine") survives.
+          // COMMENT-MARKUP GUARD 1 of 3 — the other two are the
+          // expression-mode dispatch arm and the ScanText prose-run break.
+          // All three move together or comment semantics become
+          // position-dependent.
+          if (_profile.CommentMarkup && Peek(1) == '-')
           {
             AdvanceN(2);
             Emit(TokenType.Comment, "--", startPos, startLine, startCol);
@@ -1128,7 +1153,10 @@ namespace Harlowe.Tokens
           // ahead of both `subtraction` and the `-type` typeSignature, so
           // `5--3` is 5 with a commented-out 3, never 5 - (-3). A spaced
           // `- -3` still reaches the operator arm below.
-          if (Peek(1) == '-')
+          // COMMENT-MARKUP GUARD 2 of 3 (see guard 1 in ScanBody). Suppressed
+          // under Harlowe 3, where the two hyphens fall through to the
+          // operator arm as subtraction-then-negation and `5--3` is 8.
+          if (_profile.CommentMarkup && Peek(1) == '-')
           {
             AdvanceN(2);
             Emit(TokenType.Comment, "--", startPos, startLine, startCol);
@@ -1222,7 +1250,12 @@ namespace Harlowe.Tokens
         if (IsFormatDelimiterStart(_pos)) break;
         // A doubled -- begins comment markup (single '-' stays prose), so the
         // next dispatch emits a Comment token.
-        if (c == '-' && Peek(1) == '-') break;
+        // COMMENT-MARKUP GUARD 3 of 3 (see guard 1 in ScanBody). Under
+        // Harlowe 3 the run must NOT break here — breaking without guard 1
+        // would re-dispatch onto a '-' that no longer emits a Comment,
+        // fragmenting one prose run into several and making the em-dash's
+        // meaning depend on its position in the line.
+        if (_profile.CommentMarkup && c == '-' && Peek(1) == '-') break;
         sb.Append(c);
         Advance();
       }

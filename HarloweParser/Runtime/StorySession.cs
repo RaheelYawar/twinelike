@@ -536,9 +536,23 @@ namespace Harlowe.Runtime
     /// state or advance the shared stream, keeping a failed load truly atomic.
     /// Legitimate saved source never needs the live store: <see cref="HarloweValue.ToSource"/>
     /// emits only self-contained literals and macro calls.
+    ///
+    /// <para><b>Pinned to <see cref="HarloweProfile.SaveFormat"/>, not the
+    /// story's profile</b> — deliberately differing from the render context.
+    /// Saved value source is engine-emitted by <see cref="HarloweValue.ToSource"/>,
+    /// so author compatibility policy has no bearing on it; following the
+    /// story would silently re-lex existing saves under different rules the
+    /// moment an author bumped <c>format-version</c> in Twine.</para>
     /// </summary>
     private MacroContext NewSaveContext()
-      => new MacroContext { Store = new HarloweVariableStore(), EvaluationContext = this, Invoker = _registry, Rng = new MulberryRng() };
+      => new MacroContext
+      {
+        Store = new HarloweVariableStore(),
+        EvaluationContext = this,
+        Invoker = _registry,
+        Rng = new MulberryRng(),
+        Profile = HarloweProfile.SaveFormat
+      };
 
     /// <summary>
     /// Shared body of <see cref="Undo"/>/<see cref="Redo"/>: finalise the live
@@ -730,7 +744,10 @@ namespace Harlowe.Runtime
         Store = _store,
         EvaluationContext = this,
         Invoker = _registry,
-        Rng = _rng
+        Rng = _rng,
+        // Author-facing semantics follow the story's declared major. Note the
+        // save context (NewSaveContext) deliberately does NOT — see there.
+        Profile = _story.Profile
       };
       ctx.RenderPassage = (name, output) => InlineDisplayPassage(name, output, ctx);
       ctx.PassageExists = name => _story.GetPassage(name) != null;
