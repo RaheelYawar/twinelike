@@ -99,6 +99,30 @@ namespace Harlowe.Tests.Runtime.Saving
       Assert.Equal(127, back.AsDatamap["sky"].AsColour.G);
     }
 
+    [Theory]
+    [InlineData("num")]
+    [InlineData("str")]
+    [InlineData("even")]
+    [InlineData("empty")]
+    [InlineData("any")]
+    public void Datatype_RoundTrips(string name)
+    {
+      var back = RoundTrip(Deser(name));
+      Assert.Equal(HarloweValueKind.Datatype, back.Kind);
+      Assert.Equal(name, back.AsDatatype.Name);
+    }
+
+    [Fact]
+    public void Datatype_InsideCollection_RoundTrips()
+    {
+      // A pattern is an ordinary collection with datatypes in it, so this is
+      // the shape a saved `(set: $shape to (a: num, str))` has to survive.
+      var back = RoundTrip(Deser("(a: num, str)"));
+      Assert.Equal(HarloweValueKind.Datatype, back.AsArray[0].Kind);
+      Assert.Equal("num", back.AsArray[0].AsDatatype.Name);
+      Assert.Equal("str", back.AsArray[1].AsDatatype.Name);
+    }
+
     // ----- collections -----
 
     [Fact]

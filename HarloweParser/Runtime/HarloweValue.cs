@@ -57,6 +57,7 @@ namespace Harlowe.Runtime
     public static HarloweValue OfLambda(LambdaValue lambda) => new HarloweValue(HarloweValueKind.Lambda, lambda ?? throw new ArgumentNullException(nameof(lambda)));
     public static HarloweValue OfHookName(HookNameValue hookName) => new HarloweValue(HarloweValueKind.HookName, hookName ?? throw new ArgumentNullException(nameof(hookName)));
     public static HarloweValue OfColour(ColourValue colour) => new HarloweValue(HarloweValueKind.Colour, colour ?? throw new ArgumentNullException(nameof(colour)));
+    public static HarloweValue OfDatatype(DatatypeValue datatype) => new HarloweValue(HarloweValueKind.Datatype, datatype ?? throw new ArgumentNullException(nameof(datatype)));
 
     public bool IsError => Kind == HarloweValueKind.Error;
 
@@ -70,6 +71,7 @@ namespace Harlowe.Runtime
     public LambdaValue AsLambda => (LambdaValue)Raw;
     public HookNameValue AsHookName => (HookNameValue)Raw;
     public ColourValue AsColour => (ColourValue)Raw;
+    public DatatypeValue AsDatatype => (DatatypeValue)Raw;
 
     /// <summary>
     /// Harlowe truthiness: only <c>true</c> for a <see cref="HarloweValueKind.Bool"/>
@@ -115,6 +117,8 @@ namespace Harlowe.Runtime
           return ((HookNameValue)Raw).Equals((HookNameValue)other.Raw);
         case HarloweValueKind.Colour:
           return ((ColourValue)Raw).EqualsColour((ColourValue)other.Raw);
+        case HarloweValueKind.Datatype:
+          return ((DatatypeValue)Raw).EqualsDatatype((DatatypeValue)other.Raw);
       }
       return false;
     }
@@ -146,6 +150,7 @@ namespace Harlowe.Runtime
         case HarloweValueKind.Lambda: h = (h * 397) ^ ((LambdaValue)Raw).GetHashCode(); break;
         case HarloweValueKind.HookName: h = (h * 397) ^ ((HookNameValue)Raw).GetHashCode(); break;
         case HarloweValueKind.Colour: h = (h * 397) ^ ((ColourValue)Raw).GetHashCode(); break;
+        case HarloweValueKind.Datatype: h = (h * 397) ^ ((DatatypeValue)Raw).GetHashCode(); break;
       }
       return h;
     }
@@ -244,6 +249,8 @@ namespace Harlowe.Runtime
           return HookNameToSource((HookNameValue)Raw);
         case HarloweValueKind.Colour:
           return ((ColourValue)Raw).ToSource();
+        case HarloweValueKind.Datatype:
+          return ((DatatypeValue)Raw).ToSource();
         case HarloweValueKind.Error:
           return null;
       }
@@ -332,6 +339,11 @@ namespace Harlowe.Runtime
           // <tw-colour> swatch element instead; that's HTML, and the core never
           // puts HTML into the engine-agnostic render channel.
           return ((ColourValue)Raw).ToCssString();
+        case HarloweValueKind.Datatype:
+          // Reference's print() is "[the num datatype]" wrapped in verbatim
+          // markup; the brackets are literal text on our render channel, which
+          // never re-parses what it is handed.
+          return ((DatatypeValue)Raw).ToString();
       }
       return string.Empty;
     }

@@ -744,7 +744,7 @@ namespace Harlowe.Tests
         (TokenType.MacroOpen, "if"),
         (TokenType.Variable, "a"),
         (TokenType.Operator, "is a"),
-        (TokenType.Identifier, "number"),
+        (TokenType.DatatypeLiteral, "number"),
         (TokenType.MacroClose, ")"),
         (TokenType.EndOfFile, ""));
     }
@@ -768,7 +768,7 @@ namespace Harlowe.Tests
         (TokenType.MacroOpen, "if"),
         (TokenType.Variable, "a"),
         (TokenType.Operator, "is not a"),
-        (TokenType.Identifier, "number"),
+        (TokenType.DatatypeLiteral, "number"),
         (TokenType.MacroClose, ")"),
         (TokenType.EndOfFile, ""));
     }
@@ -937,7 +937,7 @@ namespace Harlowe.Tests
     {
       AssertSequence(Tokenize("(set: num-type $x to 1)"),
         (TokenType.MacroOpen, "set"),
-        (TokenType.Identifier, "num"),
+        (TokenType.DatatypeLiteral, "num"),
         (TokenType.Operator, "-type"),
         (TokenType.Variable, "x"),
         (TokenType.Operator, "to"),

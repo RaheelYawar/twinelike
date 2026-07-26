@@ -13,12 +13,13 @@ for the save-model slice (which lands `(history:)` semantics).
 
 - **High severity (0 active, 6 fixed)**: silent wrong result or breaks documented Harlowe idioms.
 - **Medium severity (0 active, 10 fixed, 1 reclassified)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
-- **Low severity (4 active, 2 fixed)**: documented as deliberate or marginal.
+- **Low severity (5 active, 2 fixed)**: documented as deliberate or marginal.
 
-**4 active, all low-severity** — #17 (load-guard vs intra-turn `(goto:)`), #18
+**5 active, all low-severity** — #17 (load-guard vs intra-turn `(goto:)`), #18
 (stacked-interaction nesting order), #21 (deliberate: out-of-range array sets
 error rather than growing sparse holes), #23 (deliberate: a `via`-lambda's RNG
-draw is rewound per match so the passes stay idempotent).
+draw is rewound per match so the passes stay idempotent), #24 (deliberate: the
+`even`/`odd` datatypes require a Number rather than coercing one).
 
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
 items are kept and marked rather than renumbered. "Reclassified" means the
@@ -734,6 +735,26 @@ type signature). See the `ValidateOperators_*` tests in
   simply doesn't guarantee that. Fixing it properly means deriving each match's
   draw deterministically from seed + `pos` rather than letting the guard rewind;
   that is a design slice, not a patch, and isn't worth it until an author asks.
+
+### 24. The `even` / `odd` datatypes require a Number where reference coerces one (deliberate; found in the Datatype slice, 2026-07-25)
+
+- **Ours**: `DatatypeValue.IsTypeOf`'s `even`/`odd` arms return false for
+  anything that isn't a Number, so `"2" is a even` is false.
+- **Reference**: `even`/`odd` are the only entries in `datatype.ts`'s
+  `typeIndex` with no type check — `obj => !isNaN(<number>obj) && (floor(abs(<number>obj)) % 2 === 0)`.
+  The TypeScript cast is a lie at runtime, so JS coercion makes `"2" is a even`
+  and `"3" is a odd` both true there. Every other string-adjacent entry
+  (`digit`, `alnum`, `whitespace`, the case types) does check
+  `typeof obj === 'string'` first, which is what marks this as an oversight
+  rather than a design.
+- **Trigger**: `(if: "2" is a even)`. Also `(if: true is a even)` — JS
+  `abs(true)` is 1, so reference reports `true is a odd`.
+- **User-visible**: rare and one-directional (we reject where reference
+  accepts), and an author reaching it has almost certainly forgotten a
+  `(num:)`. Deliberate: reference's own Datatype article says these "Only
+  matches even numbers" / "odd numbers", so the documented contract wins over
+  the coercion artefact, per the version policy in `CLAUDE.md`. Pinned by
+  `EvenAndOdd_RejectNonNumbers`. Revisit only if a real story depends on it.
 
 ---
 

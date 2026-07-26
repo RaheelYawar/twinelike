@@ -64,6 +64,14 @@ namespace Harlowe.Runtime
     /// hex literals (<c>#a4e</c>), or the products of <c>(rgb:)</c>/<c>(hsl:)</c>.
     /// Stored as a <see cref="ColourValue"/> on <see cref="HarloweValue.Raw"/>.
     /// </summary>
-    Colour
+    Colour,
+
+    /// <summary>
+    /// A Harlowe datatype — the keyword value (<c>num</c>, <c>str</c>,
+    /// <c>even</c>) that <c>is a</c> and <c>matches</c> compare data against,
+    /// and that appears inside array/datamap literals to make a pattern. Stored
+    /// as a <see cref="DatatypeValue"/> on <see cref="HarloweValue.Raw"/>.
+    /// </summary>
+    Datatype
   }
 }

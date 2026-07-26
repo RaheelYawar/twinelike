@@ -81,6 +81,16 @@ namespace Harlowe.Runtime
             : HarloweValue.OfError($"malformed colour literal '{node.Value}'");
           break;
         }
+        case LiteralKind.Datatype:
+        {
+          // Value is the raw lexeme; FromLexeme canonicalises it, and the
+          // tokenizer only emits names it accepts, so null is a construction bug.
+          var datatype = DatatypeValue.FromLexeme((string)node.Value);
+          _result = datatype != null
+            ? HarloweValue.OfDatatype(datatype)
+            : HarloweValue.OfError($"unknown datatype '{node.Value}'");
+          break;
+        }
         default: _result = HarloweValue.OfError("unknown literal kind"); break;
       }
     }
@@ -245,8 +255,13 @@ namespace Harlowe.Runtime
 
         case "contains": _result = OpContains(left, right); return;
         case "is in": _result = OpContains(right, left); return;
-        case "does not contain": _result = OpNegateContains(OpContains(left, right)); return;
-        case "is not in": _result = OpNegateContains(OpContains(right, left)); return;
+        case "does not contain": _result = OpNegate(OpContains(left, right)); return;
+        case "is not in": _result = OpNegate(OpContains(right, left)); return;
+
+        case "is a": _result = OpIsA(left, right); return;
+        case "is not a": _result = OpNegate(OpIsA(left, right)); return;
+        case "matches": _result = HarloweValue.OfBool(OpMatches(left, right)); return;
+        case "does not match": _result = HarloweValue.OfBool(!OpMatches(left, right)); return;
 
         default:
           _result = HarloweValue.OfError($"unsupported binary operator '{node.Operator}'"); return;
@@ -862,9 +877,11 @@ namespace Harlowe.Runtime
     /// positionally / by key (datamap-pattern keys evaluate normally, so a
     /// <c>$var</c> key uses its value — saner than reference's degenerate
     /// VarRef-as-Map-key there), variables and property chains become
-    /// bindings, and any other position evaluates and must structurally equal
-    /// the source value (reference's <c>matches()</c>, which is equality
-    /// absent datatypes; datatype/rest/(p:) positions are unimplemented).
+    /// bindings, and any other position evaluates and must <c>matches</c> the
+    /// source value — so a bare datatype there is a check that binds nothing
+    /// (<c>(a: num, $x)</c>), as in reference. Still unimplemented: typed-var
+    /// positions (<c>num-type _x</c>, which need TypedVar), rest positions, and
+    /// <c>(p:)</c> string patterns.
     /// Extra source values beyond the pattern are ignored, as in reference.
     /// <paramref name="srcSteps"/> is the frozen accessor path from the
     /// source root to <paramref name="source"/> — null when the source isn't
@@ -886,7 +903,7 @@ namespace Harlowe.Runtime
       }
 
       if (pattern is UnaryOpNode spread && spread.Operator == "...")
-        return HarloweValue.OfError("spread values in (unpack:) patterns need datatypes, which aren't implemented");
+        return HarloweValue.OfError("spread values in (unpack:) patterns need spread datatypes (...num), which aren't implemented");
 
       if (pattern is MacroCallNode call)
       {
@@ -937,7 +954,7 @@ namespace Harlowe.Runtime
 
       var expected = Evaluate(pattern);
       if (expected.IsError) return expected;
-      if (!expected.Equals(source))
+      if (!OpMatches(expected, source))
         return HarloweValue.OfError($"I tried to unpack, but {expected.ToSource()} in the pattern didn't match {source.ToSource()}.");
       return null;
     }
@@ -1428,11 +1445,79 @@ namespace Harlowe.Runtime
       }
     }
 
-    // Negation wrapper for `does not contain` / `is not in`: preserves the
-    // error from OpContains (e.g. "a String cannot contain a Number") rather
-    // than flipping it to true.
-    private static HarloweValue OpNegateContains(HarloweValue v)
+    // Negation wrapper for the `not`-spelled operators (`does not contain`,
+    // `is not in`, `is not a`): preserves the positive form's error (e.g.
+    // "a String cannot contain a Number") rather than flipping it to true.
+    private static HarloweValue OpNegate(HarloweValue v)
       => v.IsError ? v : HarloweValue.OfBool(!v.AsBool);
+
+    /// <summary>
+    /// <c>is a</c> — reference's <c>isA</c> in
+    /// <c>ts/utils/operationutils.ts</c>: the right side must be a datatype
+    /// (anything carrying <c>isTypeOf</c>), and the answer is that type's
+    /// verdict on the left. Deliberately narrower than <c>matches</c>, which
+    /// takes a whole pattern on either side.
+    /// </summary>
+    private static HarloweValue OpIsA(HarloweValue left, HarloweValue right)
+    {
+      if (right.Kind != HarloweValueKind.Datatype)
+        return HarloweValue.OfError($"'is a' should only be used to compare type names, not a {right.Kind}");
+      return HarloweValue.OfBool(right.AsDatatype.IsTypeOf(left));
+    }
+
+    /// <summary>
+    /// <c>matches</c> — reference's <c>matches</c> in
+    /// <c>ts/utils/operationutils.ts</c>: structural equality, except that a
+    /// datatype on <em>either</em> side is satisfied by the other side being of
+    /// that type. That is what lets a data structure with datatypes in it serve
+    /// as a pattern: <c>(a: 2, 3) matches (a: num, num)</c>.
+    ///
+    /// <para>Two datatypes match if either types the other, so
+    /// <c>datatype matches num</c> is true (the <c>datatype</c> type accepts
+    /// <c>num</c>) — reference's <c>||=</c> over both directions.</para>
+    ///
+    /// <para>Unlike reference this returns a plain bool: its error case comes
+    /// only from the <c>(p-opt:)</c> string-pattern family, which isn't
+    /// implemented here. Array positions are compared one-for-one, since a
+    /// spread datatype (<c>...num</c>, the one thing that can span several
+    /// positions) needs the unimplemented <c>...</c> syntax to write.</para>
+    /// </summary>
+    private static bool OpMatches(HarloweValue left, HarloweValue right)
+    {
+      if (left.Kind == HarloweValueKind.Datatype && left.AsDatatype.IsTypeOf(right)) return true;
+      if (right.Kind == HarloweValueKind.Datatype && right.AsDatatype.IsTypeOf(left)) return true;
+
+      if (left.Kind == HarloweValueKind.Array && right.Kind == HarloweValueKind.Array)
+      {
+        var la = left.AsArray;
+        var ra = right.AsArray;
+        if (la.Count != ra.Count) return false;
+        for (int i = 0; i < la.Count; i++)
+        {
+          if (!OpMatches(la[i], ra[i])) return false;
+        }
+        return true;
+      }
+
+      if (left.Kind == HarloweValueKind.Datamap && right.Kind == HarloweValueKind.Datamap)
+      {
+        // Reference sorts both entry lists and matches them pairwise, which for
+        // string keys is exactly "same keys, values match" — a datatype can
+        // never stand in for a key here, because our datamap keys are strings
+        // rather than values.
+        var lm = left.AsDatamap;
+        var rm = right.AsDatamap;
+        if (lm.Count != rm.Count) return false;
+        foreach (var kv in lm)
+        {
+          if (!rm.TryGetValue(kv.Key, out var rv)) return false;
+          if (!OpMatches(kv.Value, rv)) return false;
+        }
+        return true;
+      }
+
+      return left.Equals(right);
+    }
 
     private static HarloweValue TypeError(string op, HarloweValue offender)
       => HarloweValue.OfError($"{op} does not apply to a {offender.Kind}");

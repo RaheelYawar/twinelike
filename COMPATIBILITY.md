@@ -22,13 +22,15 @@
 | 2 | Unset story variable read | defaults to `0` | error | **V4** | 4.0 Alterations → Coding |
 | 3 | Colour `is` tolerance | RGB within 1e-3, alpha exact | all data values within 0.01 | **V3** | `colour.ts` `is()`; 4.0 Alterations → Macros |
 | 4 | `'s` with surrounding spaces (`$a 's 1st`); `it's` as `its` synonym | rejected | accepted | see note | 4.0 Alterations → Coding |
-| 5 | `any` array/dataset data name | works (renamed `some` in 3.3.0, alias kept) | removed, conflicts with the `any` datatype | — | 4.0 Compatibility |
+| 5 | `any` array/dataset data name | works (renamed `some` in 3.3.0, alias kept) | removed, conflicts with the `any` datatype | — (see note) | 4.0 Compatibility |
 | 6 | `(mix:)` colour model | LCH | OKLCH by default; optional leading model string | — | 4.0 Alterations → Macros |
 | 7 | `(complement:)` colour model | LCH | OKLCH | — | 4.0 Alterations → Macros |
 | 8 | `(lch:)` maximum C | 132 | 150 | — | 4.0 Alterations → Macros |
 | 9 | Colour `oklch` data name | absent | present, alongside `lch` | — | 4.0 Alterations → Coding |
 | 10 | Measurement datatype in `(text-size:)`, `(border-size:)`, `(corner-radius:)`, `(text-indent:)`, `(box:)`, `(scroll:)`, … | number-based "scale" arguments | CSS-style measurements | **V3** for `(text-size:)`; rest unimplemented | 4.0 Additions → Coding; `MACRO-DIVERGENCES.md` #7 |
 | 11 | `[=` unclosed hook "punch-through" in headers/footers | broken, left unfixed for compatibility | fixed | — (column markup unimplemented) | 4.0 Bugfixes → Macros |
+
+Row 5's `any` *datatype* shipped with the Datatype slice (2026-07-25) under both profiles, per the new-in-N rule; the row is about the array/dataset *data name*, which is still unimplemented here along with the rest of the `some`/`all` determiner family. The two can coexist because a word in property position never reaches the datatype rule (`$arr's any` lexes `any` as a data key), so whoever implements determiners inherits the V3 side for free and only has to withhold it under V4.
 
 Row 4 is two halves and **only one is a switch**, measured 2026-07-20. `it's` already lexes as `its` incidentally, in both profiles — `(print: it's 1st)` gives `Identifier(it)` + `Operator('s)`, because `TryScanPossessive` accepts a preceding `Identifier`. The spaced-`'s` half is not a boolean: the same whitespace check that rejects `$a 's 1st` doubles as the string-literal disambiguator, so today that input lexes `'s 1st)` as a **StringLiteral** which swallows the macro's closing paren (`(print: $a 's name')` likewise yields `StringLiteral(s name)`). Accepting spaced `'s` therefore needs a designed disambiguation rule — how to tell a possessive from a quote — not a flag. Recorded so nobody plans it as one.
 

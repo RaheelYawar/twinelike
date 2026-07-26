@@ -221,7 +221,9 @@ namespace Harlowe.Tests
     {
       var b = Assert.IsType<BinaryOpNode>(ParseExpr("$a is a number"));
       Assert.Equal("is a", b.Operator);
-      Assert.IsType<IdentifierNode>(b.Right);
+      var right = Assert.IsType<LiteralNode>(b.Right);
+      Assert.Equal(LiteralKind.Datatype, right.Kind);
+      Assert.Equal("number", right.Value);
     }
 
     [Fact]

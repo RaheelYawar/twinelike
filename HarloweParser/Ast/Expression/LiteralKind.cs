@@ -15,6 +15,14 @@ namespace Harlowe.Ast.Expression
     /// <see cref="string"/> so printing round-trips verbatim; the evaluator
     /// converts to a <c>ColourValue</c> on evaluation.
     /// </summary>
-    Colour
+    Colour,
+    /// <summary>
+    /// A datatype name — <c>num</c>, <c>string</c>, <c>even</c>.
+    /// <see cref="LiteralNode.Value"/> holds the raw lexeme
+    /// <see cref="string"/> so printing round-trips the author's spelling
+    /// (<c>number</c> stays <c>number</c>); the evaluator canonicalises it into
+    /// a <c>DatatypeValue</c>.
+    /// </summary>
+    Datatype
   }
 }

@@ -469,6 +469,12 @@ namespace Harlowe.Parsing
           // round-trips the author's spelling; the evaluator converts.
           return new LiteralNode { Kind = LiteralKind.Colour, Value = t.Value };
 
+        case TokenType.DatatypeLiteral:
+          cursor.Advance();
+          // Same deal: the raw lexeme ("num", "number") round-trips, and the
+          // evaluator folds the long spellings onto the canonical name.
+          return new LiteralNode { Kind = LiteralKind.Datatype, Value = t.Value };
+
         case TokenType.Variable:
           cursor.Advance();
           return new VariableRefNode { Name = t.Value, IsTemporary = false };

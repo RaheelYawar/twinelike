@@ -1965,6 +1965,27 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
+    public void Unpack_DatatypeInPattern_ChecksWithoutBinding()
+    {
+      // Reference's destructure() compares a non-variable pattern position with
+      // matches(), so a bare datatype there is a type check on that slot and
+      // binds nothing.
+      var store = new HarloweVariableStore();
+      var v = EvalUnpackArg("(a: 2, \"x\") into (a: num, $s)", store);
+      Assert.False(v.IsError);
+      Assert.Equal("x", store.Get("s", false).AsString);
+      Assert.Null(store.Get("num", false));
+    }
+
+    [Fact]
+    public void Unpack_DatatypeInPattern_MismatchErrors()
+    {
+      var v = EvalUnpackArg("(a: 2, \"x\") into (a: str, $s)");
+      Assert.True(v.IsError);
+      Assert.Equal("I tried to unpack, but str in the pattern didn't match 2.", v.ErrorMessage);
+    }
+
+    [Fact]
     public void Unpack_NoVariablesInPattern_Errors()
     {
       // With matching literals the walk binds nothing — reference's doc

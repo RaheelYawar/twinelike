@@ -243,8 +243,9 @@ namespace Harlowe.Twee
           _sb.Append((bool)node.Value ? "true" : "false");
           break;
         case LiteralKind.Colour:
-          // The raw lexeme ("red", "#a4e"), preserved by the parser so the
-          // author's spelling round-trips verbatim.
+        case LiteralKind.Datatype:
+          // The raw lexeme ("red", "#a4e", "number"), preserved by the parser
+          // so the author's spelling round-trips verbatim.
           _sb.Append((string)node.Value);
           break;
       }

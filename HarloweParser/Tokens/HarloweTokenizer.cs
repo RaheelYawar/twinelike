@@ -793,8 +793,9 @@ namespace Harlowe.Tokens
     /// <c>does not contain</c> — see <see cref="TryFuseMultiWordOperator"/>);
     /// otherwise it becomes a <see cref="TokenType.BoolLiteral"/>
     /// (<c>true</c>/<c>false</c>), an <see cref="TokenType.Operator"/> (see
-    /// <see cref="WordOperators"/>), a <see cref="TokenType.ColourLiteral"/> (a
-    /// built-in colour name), or a bare <see cref="TokenType.Identifier"/>.
+    /// <see cref="WordOperators"/>), a <see cref="TokenType.DatatypeLiteral"/>
+    /// (a datatype name), a <see cref="TokenType.ColourLiteral"/> (a built-in
+    /// colour name), or a bare <see cref="TokenType.Identifier"/>.
     /// </summary>
     private void ScanIdentifierOrKeyword(int startPos, int startLine, int startCol)
     {
@@ -838,6 +839,13 @@ namespace Harlowe.Tokens
 
       if (WordOperators.Contains(word))
         Emit(TokenType.Operator, word, startPos, startLine, startCol);
+      else if (Runtime.DatatypeValue.IsNamed(word))
+        // Datatype names lex as their own literal, ahead of the colour rule as
+        // in reference's rule order (`datatype` precedes `colour` in
+        // ts/markup/markup.ts). The two name sets don't actually overlap —
+        // `colour` is a datatype name, never a hue — so the order is fidelity,
+        // not conflict resolution. Case-insensitive, whole-word.
+        Emit(TokenType.DatatypeLiteral, word, startPos, startLine, startCol);
       else if (Runtime.ColourValue.IsNamed(word))
         // Built-in colour names lex as colour literals in expression mode,
         // matching reference's `colour` rule in ts/markup/patterns.ts (which
@@ -925,20 +933,20 @@ namespace Harlowe.Tokens
         if (w2 == "not")
         {
           string w3 = PeekNextWordFrom(afterW2, out int afterW3);
-          if (w3 == "in" || w3 == "a")
+          if (w3 == "in" || IsArticle(w3))
           {
             AdvanceTo(afterW3);
-            Emit(TokenType.Operator, "is not " + w3, startPos, startLine, startCol);
+            Emit(TokenType.Operator, w3 == "in" ? "is not in" : "is not a", startPos, startLine, startCol);
             return true;
           }
           AdvanceTo(afterW2);
           Emit(TokenType.Operator, "is not", startPos, startLine, startCol);
           return true;
         }
-        if (w2 == "in" || w2 == "a")
+        if (w2 == "in" || IsArticle(w2))
         {
           AdvanceTo(afterW2);
-          Emit(TokenType.Operator, "is " + w2, startPos, startLine, startCol);
+          Emit(TokenType.Operator, w2 == "in" ? "is in" : "is a", startPos, startLine, startCol);
           return true;
         }
         return false;
@@ -960,6 +968,14 @@ namespace Harlowe.Tokens
 
       return false;
     }
+
+    /// <summary>
+    /// Either article accepted by reference's <c>isA</c>/<c>isNotA</c> patterns
+    /// (<c>is\s*an?\b</c>), so the documented <c>(a:2,3) is an array</c> reads
+    /// the same as <c>is a array</c>. Both fuse to the canonical <c>is a</c>
+    /// operator — the article is grammar, not meaning.
+    /// </summary>
+    private static bool IsArticle(string word) => word == "a" || word == "an";
 
     /// <summary>
     /// Allocation-free <see cref="PeekNextWordFrom"/>: true when the next word
@@ -1031,7 +1047,8 @@ namespace Harlowe.Tokens
       if (prev != TokenType.Variable && prev != TokenType.TempVariable && prev != TokenType.Identifier
           && prev != TokenType.ParenClose && prev != TokenType.BracketClose && prev != TokenType.MacroClose
           && prev != TokenType.StringLiteral && prev != TokenType.NumberLiteral && prev != TokenType.BoolLiteral
-          && prev != TokenType.HookRef && prev != TokenType.ColourLiteral)
+          && prev != TokenType.HookRef && prev != TokenType.ColourLiteral
+          && prev != TokenType.DatatypeLiteral)
         return false;
       AdvanceN(2);
       Emit(TokenType.Operator, "'s", startPos, startLine, startCol);

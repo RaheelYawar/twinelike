@@ -41,6 +41,8 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new TextMacro("string"));
       registry.Register(new NumMacro("num"));
       registry.Register(new NumMacro("number"));
+      registry.Register(new DatatypeMacro());
+      registry.Register(new DatapatternMacro());
       registry.Register(new RoundMacro());
       registry.Register(new MinMaxMacro("min", max: false));
       registry.Register(new MinMaxMacro("max", max: true));

@@ -72,6 +72,18 @@ namespace Harlowe.Tokens
     /// </summary>
     ColourLiteral,
 
+    /// <summary>
+    /// A datatype name inside an expression: <c>num</c>, <c>string</c>,
+    /// <c>even</c>, <c>empty</c>, … (reference's <c>datatype</c> rule in
+    /// <c>ts/markup/patterns.ts</c>, which "MUST line up with every type in
+    /// datatypes.ts"). Value is the raw lexeme, preserved for round-trip
+    /// printing; the runtime canonicalises the long spellings
+    /// (<c>number</c>→<c>num</c>). Matched case-insensitively and whole-word,
+    /// and — like every keyword — outranked by property-name position, so
+    /// <c>$dm's num</c> still reads <c>num</c> as a data key.
+    /// </summary>
+    DatatypeLiteral,
+
     /// <summary>An identifier inside an expression — typically a value-returning macro name or keyword.</summary>
     Identifier,
 
