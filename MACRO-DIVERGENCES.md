@@ -13,13 +13,15 @@ for the save-model slice (which lands `(history:)` semantics).
 
 - **High severity (0 active, 6 fixed)**: silent wrong result or breaks documented Harlowe idioms.
 - **Medium severity (0 active, 10 fixed, 1 reclassified)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
-- **Low severity (5 active, 2 fixed)**: documented as deliberate or marginal.
+- **Low severity (6 active, 2 fixed)**: documented as deliberate or marginal.
 
-**5 active, all low-severity** — #17 (load-guard vs intra-turn `(goto:)`), #18
+**6 active, all low-severity** — #17 (load-guard vs intra-turn `(goto:)`), #18
 (stacked-interaction nesting order), #21 (deliberate: out-of-range array sets
 error rather than growing sparse holes), #23 (deliberate: a `via`-lambda's RNG
 draw is rewound per match so the passes stay idempotent), #24 (deliberate: the
-`even`/`odd` datatypes require a Number rather than coercing one).
+`even`/`odd` datatypes require a Number rather than coercing one), #25
+(deliberate: the `lowercase`/`uppercase` datatypes don't expand under case
+mapping, so `ß` is neither).
 
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
 items are kept and marked rather than renumbered. "Reclassified" means the
@@ -755,6 +757,25 @@ type signature). See the `ValidateOperators_*` tests in
   matches even numbers" / "odd numbers", so the documented contract wins over
   the coercion artefact, per the version policy in `CLAUDE.md`. Pinned by
   `EvenAndOdd_RejectNonNumbers`. Revisit only if a real story depends on it.
+
+### 25. The `lowercase` / `uppercase` datatypes don't expand under case mapping (deliberate; found in the Datatype slice review, 2026-07-26)
+
+- **Ours**: `IsSingleCasedCodePoint` compares against .NET invariant casing,
+  which is *simple* (never expands), so `"ß" is a lowercase` is false. Same for
+  U+FB01 `ﬁ` and U+0149 `ŉ`.
+- **Reference**: `lowercase: obj => [...obj].length === 1 && [...obj].every(char => char !== char.toUpperCase())`.
+  JS applies full case mapping, so `"ß".toUpperCase()` is `"SS"` — different
+  from `"ß"`, making it a `lowercase` there.
+- **Trigger**: `(if: _c is a lowercase)` walked over German prose silently
+  skips every `ß`.
+- **User-visible**: rare, and confined to the handful of code points whose case
+  mapping changes length. Deliberate: netstandard2.0 has no full-case-mapping
+  API, and matching reference here would break the agreement with this
+  library's own `(uppercase:)`/`(lowercase:)` (equally non-expanding) that
+  reference's own comment names as the property it wants — "coincidentally
+  consistent with (uppercase:), (lowercase:)". Pinned by
+  `Lowercase_DoesNotExpandUnderCaseMapping`. Revisit if the string macros ever
+  gain full case mapping, and move both together.
 
 ---
 

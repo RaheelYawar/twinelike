@@ -9,7 +9,21 @@ namespace Harlowe.Ast.Expression
   /// </summary>
   public class BinaryOpNode : IExpressionNode
   {
+    /// <summary>
+    /// The canonical operator the evaluator dispatches on. Spellings that mean
+    /// the same operator are folded here — <c>is an</c> arrives as <c>is a</c>.
+    /// </summary>
     public string Operator;
+
+    /// <summary>
+    /// The spelling the author actually wrote, when it differs from
+    /// <see cref="Operator"/>; null otherwise. Only the markup printer reads
+    /// it, so a reserialized passage keeps <c>is an array</c> rather than
+    /// emitting the ungrammatical <c>is a array</c>. Null on a hand-built AST,
+    /// which simply prints the canonical form.
+    /// </summary>
+    public string SourceOperator;
+
     public IExpressionNode Left;
     public IExpressionNode Right;
 

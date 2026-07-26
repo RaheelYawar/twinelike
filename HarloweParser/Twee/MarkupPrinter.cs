@@ -265,6 +265,13 @@ namespace Harlowe.Twee
     /// close-bound on the left (no leading space); every other operator —
     /// including the word-operators <c>of</c>, <c>is</c>, etc. — gets a
     /// single space on each side.
+    ///
+    /// <para>The operator is printed from
+    /// <see cref="BinaryOpNode.SourceOperator"/> when the author's spelling
+    /// differed from the canonical one, so <c>is an array</c> doesn't come back
+    /// as <c>is a array</c>. Precedence still keys off the canonical
+    /// <see cref="BinaryOpNode.Operator"/>, since spelling can't change
+    /// binding.</para>
     /// </summary>
     public void Visit(BinaryOpNode node)
     {
@@ -276,7 +283,7 @@ namespace Harlowe.Twee
       }
       else
       {
-        _sb.Append(' ').Append(node.Operator).Append(' ');
+        _sb.Append(' ').Append(node.SourceOperator ?? node.Operator).Append(' ');
       }
       EmitBinaryChild(node.Right, node.Operator, ourOrder, isRight: true);
     }

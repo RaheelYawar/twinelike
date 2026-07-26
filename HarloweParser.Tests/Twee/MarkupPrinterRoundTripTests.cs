@@ -51,6 +51,38 @@ namespace Harlowe.Tests.Twee
       Assert.Equal(first, second);
     }
 
+    // ----- Article-preserving `is a` / `is an` -----
+    //
+    // Reference accepts either English article for one operator
+    // (`is\s*an?\b`). The article carries no meaning, but it is the author's
+    // prose: folding both spellings to `is a` at lex time would silently
+    // rewrite an edited passage's `is an array` as the ungrammatical
+    // `is a array`.
+
+    [Fact]
+    public void Expr_IsAn_KeepsTheAuthorsArticle()
+    {
+      Assert.Equal("$x is an array", PrintExpr("$x is an array"));
+      Assert.Equal("$x is a num", PrintExpr("$x is a num"));
+      Assert.Equal("$x is not an array", PrintExpr("$x is not an array"));
+      Assert.Equal("$x is not a num", PrintExpr("$x is not a num"));
+    }
+
+    [Fact]
+    public void Expr_IsAn_MeansTheSameOperatorAsIsA()
+    {
+      // Same operator, so precedence and evaluation are unaffected by the
+      // spelling: only the printed form differs.
+      var withAn = (BinaryOpNode)ParseExpression("$x is an array");
+      var withA = (BinaryOpNode)ParseExpression("$x is a array");
+      Assert.Equal("is a", withAn.Operator);
+      Assert.Equal(withA.Operator, withAn.Operator);
+      Assert.Equal("is an", withAn.SourceOperator);
+      Assert.Null(withA.SourceOperator);
+    }
+
+    [Fact] public void Body_IsAnRoundTrip() => AssertBodyRoundTripStable("(if: $x is an array)[y]");
+
     // ----- Body round-trips -----
 
     [Fact] public void Body_Plain() => AssertBodyRoundTripStable("Hello world.");

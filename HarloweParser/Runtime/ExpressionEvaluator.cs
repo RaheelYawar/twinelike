@@ -260,8 +260,8 @@ namespace Harlowe.Runtime
 
         case "is a": _result = OpIsA(left, right); return;
         case "is not a": _result = OpNegate(OpIsA(left, right)); return;
-        case "matches": _result = HarloweValue.OfBool(OpMatches(left, right)); return;
-        case "does not match": _result = HarloweValue.OfBool(!OpMatches(left, right)); return;
+        case "matches": _result = OpMatchesValue(left, right, negate: false); return;
+        case "does not match": _result = OpMatchesValue(left, right, negate: true); return;
 
         default:
           _result = HarloweValue.OfError($"unsupported binary operator '{node.Operator}'"); return;
@@ -954,7 +954,10 @@ namespace Harlowe.Runtime
 
       var expected = Evaluate(pattern);
       if (expected.IsError) return expected;
-      if (!OpMatches(expected, source))
+      bool tooDeep = false;
+      bool matched = MatchesRecur(expected, source, 0, ref tooDeep);
+      if (tooDeep) return HarloweValue.OfError(TooDeepMessage);
+      if (!matched)
         return HarloweValue.OfError($"I tried to unpack, but {expected.ToSource()} in the pattern didn't match {source.ToSource()}.");
       return null;
     }
@@ -1482,8 +1485,35 @@ namespace Harlowe.Runtime
     /// spread datatype (<c>...num</c>, the one thing that can span several
     /// positions) needs the unimplemented <c>...</c> syntax to write.</para>
     /// </summary>
-    private static bool OpMatches(HarloweValue left, HarloweValue right)
+    /// <summary>
+    /// Matches the recursion caps elsewhere (the parsers, <c>ToSource</c>,
+    /// <c>DeepCopyValue</c>, <c>(datapattern:)</c>). A value nested past this
+    /// depth can genuinely reach the store — <c>DeepCopyValue</c> stops copying
+    /// at its own cap rather than erroring, so a structure grown a level per
+    /// turn survives — and an uncapped walk over one would be an uncatchable
+    /// <see cref="System.StackOverflowException"/>, which this runtime's
+    /// in-prose-errors-never-exceptions contract does not allow.
+    /// </summary>
+    private const int MaxMatchDepth = 256;
+
+    private const string TooDeepMessage = "I was given a value nested too deeply to compare.";
+
+    /// <summary>
+    /// The <c>matches</c>/<c>does not match</c> operator sites: runs the walk
+    /// and turns a depth blow-out into an in-prose error rather than a bool.
+    /// </summary>
+    private static HarloweValue OpMatchesValue(HarloweValue left, HarloweValue right, bool negate)
     {
+      bool tooDeep = false;
+      bool matched = MatchesRecur(left, right, 0, ref tooDeep);
+      if (tooDeep) return HarloweValue.OfError(TooDeepMessage);
+      return HarloweValue.OfBool(negate ? !matched : matched);
+    }
+
+    private static bool MatchesRecur(HarloweValue left, HarloweValue right, int depth, ref bool tooDeep)
+    {
+      if (depth >= MaxMatchDepth) { tooDeep = true; return false; }
+
       if (left.Kind == HarloweValueKind.Datatype && left.AsDatatype.IsTypeOf(right)) return true;
       if (right.Kind == HarloweValueKind.Datatype && right.AsDatatype.IsTypeOf(left)) return true;
 
@@ -1494,7 +1524,7 @@ namespace Harlowe.Runtime
         if (la.Count != ra.Count) return false;
         for (int i = 0; i < la.Count; i++)
         {
-          if (!OpMatches(la[i], ra[i])) return false;
+          if (!MatchesRecur(la[i], ra[i], depth + 1, ref tooDeep)) return false;
         }
         return true;
       }
@@ -1511,7 +1541,7 @@ namespace Harlowe.Runtime
         foreach (var kv in lm)
         {
           if (!rm.TryGetValue(kv.Key, out var rv)) return false;
-          if (!OpMatches(kv.Value, rv)) return false;
+          if (!MatchesRecur(kv.Value, rv, depth + 1, ref tooDeep)) return false;
         }
         return true;
       }

@@ -936,7 +936,7 @@ namespace Harlowe.Tokens
           if (w3 == "in" || IsArticle(w3))
           {
             AdvanceTo(afterW3);
-            Emit(TokenType.Operator, w3 == "in" ? "is not in" : "is not a", startPos, startLine, startCol);
+            Emit(TokenType.Operator, w3 == "in" ? "is not in" : "is not " + w3, startPos, startLine, startCol);
             return true;
           }
           AdvanceTo(afterW2);
@@ -946,7 +946,7 @@ namespace Harlowe.Tokens
         if (w2 == "in" || IsArticle(w2))
         {
           AdvanceTo(afterW2);
-          Emit(TokenType.Operator, w2 == "in" ? "is in" : "is a", startPos, startLine, startCol);
+          Emit(TokenType.Operator, w2 == "in" ? "is in" : "is " + w2, startPos, startLine, startCol);
           return true;
         }
         return false;
@@ -971,9 +971,16 @@ namespace Harlowe.Tokens
 
     /// <summary>
     /// Either article accepted by reference's <c>isA</c>/<c>isNotA</c> patterns
-    /// (<c>is\s*an?\b</c>), so the documented <c>(a:2,3) is an array</c> reads
-    /// the same as <c>is a array</c>. Both fuse to the canonical <c>is a</c>
-    /// operator — the article is grammar, not meaning.
+    /// (<c>is\s*an?\b</c>), so the documented <c>(a:2,3) is an array</c> means
+    /// the same as <c>is a array</c> — the article is grammar, not meaning.
+    ///
+    /// <para>The article the author wrote is nonetheless kept in the token
+    /// value (<c>is an</c> stays distinct from <c>is a</c>), because the parser
+    /// hands it to <c>BinaryOpNode.SourceOperator</c> and the markup printer
+    /// reprints it. Folding both to <c>is a</c> here would silently rewrite an
+    /// edited passage's <c>is an array</c> as the ungrammatical
+    /// <c>is a array</c>. The evaluator never sees the difference: the parser
+    /// canonicalises <c>Operator</c> as it builds the node.</para>
     /// </summary>
     private static bool IsArticle(string word) => word == "a" || word == "an";
 

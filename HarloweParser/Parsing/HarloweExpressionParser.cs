@@ -51,8 +51,12 @@ namespace Harlowe.Parsing
       { "is", 12 }, { "is not", 12 },
       // Order 11 (containment)
       { "contains", 11 }, { "does not contain", 11 }, { "is in", 11 }, { "is not in", 11 },
-      // Order 10 (type / pattern)
-      { "is a", 10 }, { "is not a", 10 }, { "matches", 10 }, { "does not match", 10 },
+      // Order 10 (type / pattern). The `an` spellings are the same two
+      // operators; CanonicalOperators folds them as the node is built, so only
+      // the markup printer ever sees the article the author chose.
+      { "is a", 10 }, { "is an", 10 },
+      { "is not a", 10 }, { "is not an", 10 },
+      { "matches", 10 }, { "does not match", 10 },
       // Order 9 (inequality)
       { "<", 9 }, { "<=", 9 }, { ">=", 9 }, { ">", 9 },
       // Order 8 (additive)
@@ -100,6 +104,36 @@ namespace Harlowe.Parsing
     /// here too; whether they are unary or binary is decided contextually by
     /// <see cref="ParseUnary"/> (unary at the start of an operand position).
     /// </summary>
+    /// <summary>
+    /// Operator spellings that mean an operator under a different name, mapped
+    /// to the canonical one the evaluator dispatches on. Only the <c>is a</c>
+    /// family needs this: reference accepts either English article
+    /// (<c>is\s*an?\b</c>) for one operator. The author's article survives on
+    /// <see cref="BinaryOpNode.SourceOperator"/> for reserialization.
+    /// </summary>
+    private static readonly Dictionary<string, string> CanonicalOperators =
+      new Dictionary<string, string>
+      {
+        { "is an", "is a" },
+        { "is not an", "is not a" },
+      };
+
+    /// <summary>
+    /// Build a binary node, folding a non-canonical operator spelling onto its
+    /// canonical form and remembering what the author wrote.
+    /// </summary>
+    private static BinaryOpNode MakeBinary(string spelling, IExpressionNode left, IExpressionNode right)
+    {
+      bool folded = CanonicalOperators.TryGetValue(spelling, out var canonical);
+      return new BinaryOpNode
+      {
+        Operator = folded ? canonical : spelling,
+        SourceOperator = folded ? spelling : null,
+        Left = left,
+        Right = right,
+      };
+    }
+
     private static readonly Dictionary<string, int> UnaryPrefixOps = new Dictionary<string, int>
     {
       // Order 6 (spread / bind)
@@ -314,7 +348,7 @@ namespace Harlowe.Parsing
         // ts/twinescript/runner.ts.
         int rhsMaxOrder = RightAssociativeOps.Contains(t.Value) ? order : order - 1;
         var right = ParseBinary(cursor, rhsMaxOrder, allowAssignmentAtTop: false);
-        left = new BinaryOpNode { Operator = t.Value, Left = left, Right = right };
+        left = MakeBinary(t.Value, left, right);
       }
 
       return left;

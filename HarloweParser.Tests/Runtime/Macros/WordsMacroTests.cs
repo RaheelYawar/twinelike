@@ -87,6 +87,25 @@ namespace Harlowe.Tests.Runtime.Macros
       Assert.Contains("argument", v.ErrorMessage);
     }
 
+    // Reference splits on its own `realWhitespace` class, which deliberately
+    // excludes U+1680 OGHAM SPACE MARK (a class comment calls it out) and does
+    // not list U+0085 NEL — both of which .NET's char.IsWhiteSpace accepts.
+    // Sharing CodePoints.IsRealWhitespace with the `whitespace` datatype is
+    // what keeps these two agreeing.
+    [Fact]
+    public void Words_SplitsOnReferencesWhitespaceClassOnly()
+    {
+      var (reg, ctx) = Setup();
+
+      Assert.Equal(2, Words(reg, ctx, "a" + ((char)0x2028) + "b").Count); // LINE SEPARATOR: splits
+      Assert.Equal(2, Words(reg, ctx, "a" + ((char)0x00A0) + "b").Count); // NBSP: splits
+      Assert.Equal(2, Words(reg, ctx, "a" + ((char)0x3000) + "b").Count); // IDEOGRAPHIC SPACE
+
+      // Not in reference's class, so these stay inside one word.
+      Assert.Single(Words(reg, ctx, "a" + ((char)0x1680) + "b"));         // OGHAM SPACE MARK
+      Assert.Single(Words(reg, ctx, "a" + ((char)0x0085) + "b"));         // NEL
+    }
+
     [Fact]
     public void Words_EndToEnd_IndexableArray()
     {

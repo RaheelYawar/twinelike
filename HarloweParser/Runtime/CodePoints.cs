@@ -44,6 +44,29 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
+    /// Reference's <c>realWhitespace</c> class in <c>ts/utils.ts</c>: "all forms
+    /// of Unicode 6 whitespace ... except Ogham space mark" - space, the five
+    /// ASCII whitespace controls, U+00A0, U+2000 through U+200A, U+2028, U+2029,
+    /// U+202F, U+205F, U+3000. Spelled out rather than deferring to
+    /// <see cref="char.IsWhiteSpace"/>, which also accepts U+1680 OGHAM SPACE
+    /// MARK and U+0085 NEL.
+    ///
+    /// <para>The exotic code points are compared as numbers, not char literals:
+    /// U+2028 and U+2029 are line terminators to the C# lexer, so writing them
+    /// literally would truncate this file.</para>
+    ///
+    /// <para>Shared by the <c>whitespace</c> datatype and <c>(words:)</c>, the
+    /// two places reference consults this class, so the two can't drift.</para>
+    /// </summary>
+    public static bool IsRealWhitespace(char c)
+    {
+      if (c == ' ' || c == '\n' || c == '\r' || c == '\f' || c == '\t' || c == '\v') return true;
+      int u = c;
+      return u == 0x00a0 || (u >= 0x2000 && u <= 0x200a)
+        || u == 0x2028 || u == 0x2029 || u == 0x202f || u == 0x205f || u == 0x3000;
+    }
+
+    /// <summary>
     /// Returns <paramref name="s"/> with the code point at 1-based
     /// <paramref name="index"/> replaced by <paramref name="replacement"/>
     /// (which may be any length — the caller enforces Harlowe's

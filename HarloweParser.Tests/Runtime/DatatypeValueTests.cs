@@ -497,5 +497,121 @@ namespace Harlowe.Tests.Runtime
     {
       Assert.True(Eval("(datapattern: (a: ?hook))").IsError);
     }
+
+    // --- Character-class edge cases ---
+    //
+    // Reference splits these datatypes across two implementation styles, and
+    // the split is load-bearing. `uppercase`/`lowercase` are defined over
+    // `[...obj]` (code points); `alnum`/`anycase`/`whitespace`/`digit` go
+    // through `obj.match("^…$")`, a RegExp built from a *string* and so without
+    // the `u` flag, which can only ever match a single UTF-16 code unit.
+
+    // A code point above U+FFFF is two code units, so reference's anchored
+    // match can never accept one — even though `anyRealLetter` ends with the
+    // whole surrogate range U+D800-U+DFFF.
+    [Fact]
+    public void Alnum_RejectsAstralCharacters()
+    {
+      string astral = char.ConvertFromUtf32(0x1D400); // MATHEMATICAL BOLD CAPITAL A
+      Assert.False(EvalBool("\"" + astral + "\" is an alnum"));
+      Assert.False(EvalBool("\"" + astral + "\" is a anycase"));
+    }
+
+    // The other half of that same class: a *lone* surrogate is one code unit
+    // and is inside the range, so reference does accept it. Faithful in both
+    // directions, which is the only way the rule stays explicable.
+    [Fact]
+    public void Alnum_AcceptsLoneSurrogate()
+    {
+      Assert.True(EvalBool("\"" + ((char)0xD800) + "\" is an alnum"));
+    }
+
+    [Fact]
+    public void Digit_AndWhitespace_AreSingleCodeUnitsToo()
+    {
+      Assert.True(EvalBool("\"7\" is a digit"));
+      // U+1D7CE MATHEMATICAL BOLD DIGIT ZERO: a digit by name, not by `\d`.
+      Assert.False(EvalBool("\"" + char.ConvertFromUtf32(0x1D7CE) + "\" is a digit"));
+      // U+2028 LINE SEPARATOR is in reference's realWhitespace class.
+      Assert.True(EvalBool("\"" + ((char)0x2028) + "\" is a whitespace"));
+      // U+1680 OGHAM SPACE MARK is explicitly excluded from it.
+      Assert.False(EvalBool("\"" + ((char)0x1680) + "\" is a whitespace"));
+    }
+
+    // Deliberate divergence. Reference tests `char !== char.toUpperCase()`, and
+    // JS full case mapping expands "ß" to "SS", so `"ß" is a lowercase` is true
+    // there. .NET invariant casing is simple (non-expanding) and netstandard2.0
+    // has no full-case-mapping API. Kept non-expanding so these datatypes agree
+    // with this library's own (uppercase:)/(lowercase:), which is the property
+    // reference says it wants.
+    [Fact]
+    public void Lowercase_DoesNotExpandUnderCaseMapping()
+    {
+      Assert.False(EvalBool("\"" + ((char)0x00DF) + "\" is a lowercase")); // eszett
+      Assert.False(EvalBool("\"" + ((char)0xFB01) + "\" is a lowercase")); // fi ligature
+      // Ordinary cased characters are unaffected.
+      Assert.True(EvalBool("\"a\" is a lowercase"));
+      Assert.True(EvalBool("\"A\" is an uppercase"));
+      Assert.True(EvalBool("\"a\" is a anycase"));
+    }
+
+    // --- Interning ---
+
+    [Fact]
+    public void Datatype_IsInternedPerCanonicalName()
+    {
+      // Both spellings fold to one canonical name, and that name has exactly
+      // one instance — so evaluating a literal costs a lookup, not an
+      // allocation, and reference equality agrees with EqualsDatatype.
+      Assert.Same(DatatypeValue.FromLexeme("num"), DatatypeValue.FromLexeme("number"));
+      Assert.Same(DatatypeValue.FromLexeme("num"), DatatypeValue.From(HarloweValue.OfNumber(1)));
+      Assert.Same(DatatypeValue.FromLexeme("NUM"), DatatypeValue.FromLexeme("num"));
+      Assert.NotSame(DatatypeValue.FromLexeme("num"), DatatypeValue.FromLexeme("str"));
+    }
+
+    [Fact]
+    public void Datatype_SeparatesPrintedProseFromDiagnosticForm()
+    {
+      var num = DatatypeValue.FromLexeme("num");
+      Assert.Equal("[the num datatype]", num.ToPrintedString());
+      // ToString stays a diagnostic: player-facing prose must be asked for.
+      Assert.DoesNotContain("[the", num.ToString());
+    }
+
+    // --- Recursion depth ---
+
+    [Fact]
+    public void Matches_OnOverDeepValue_IsAnInProseErrorNotACrash()
+    {
+      // DeepCopyValue stops copying at its own cap rather than erroring, so a
+      // structure deeper than the cap can genuinely reach the store. `matches`
+      // must report that rather than blowing the stack, which no in-prose error
+      // policy can catch.
+      var (reg, ctx) = Setup();
+      var deep = HarloweValue.OfNumber(1);
+      for (int i = 0; i < 400; i++)
+        deep = HarloweValue.OfArray(new System.Collections.Generic.List<HarloweValue> { deep });
+      ctx.Store.Set("deep", false, deep);
+
+      var tokens = new HarloweTokenizer().Tokenize("(_:$deep matches $deep)");
+      var cursor = new TokenCursor(tokens);
+      cursor.Advance();
+      var node = new HarloweExpressionParser().ParseExpression(cursor);
+      var result = new ExpressionEvaluator(ctx.Store, ctx.EvaluationContext, ctx.Invoker).Evaluate(node);
+
+      Assert.True(result.IsError);
+      Assert.Contains("nested too deeply", result.ErrorMessage);
+    }
+
+    [Fact]
+    public void Equality_OnOverDeepValue_DoesNotCrash()
+    {
+      var deep = HarloweValue.OfNumber(1);
+      for (int i = 0; i < 400; i++)
+        deep = HarloweValue.OfArray(new System.Collections.Generic.List<HarloweValue> { deep });
+      // Equals is an object override with nowhere to put an error, so the cap
+      // reports "not equal" — wrong, but survivable, unlike a stack overflow.
+      Assert.False(deep.Equals(deep));
+    }
   }
 }

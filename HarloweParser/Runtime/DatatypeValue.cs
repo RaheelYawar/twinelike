@@ -15,9 +15,13 @@ namespace Harlowe.Runtime
   /// survives separately, on the <c>LiteralNode</c> the parser builds, which is
   /// what lets a dirty passage reserialize verbatim.</para>
   ///
-  /// <para>Immutable, so a datatype can be stored, copied between variables, and
-  /// captured in a save without any aliasing risk — the same reasoning as
-  /// <see cref="ColourValue"/>.</para>
+  /// <para>Immutable and <em>interned</em>: there is exactly one instance per
+  /// canonical name, handed out by <see cref="FromLexeme"/> and
+  /// <see cref="From"/>. Evaluating a datatype literal is therefore a dictionary
+  /// lookup rather than an allocation, which matters on the loop-heavy paths
+  /// (<c>(for:)</c> bodies testing <c>is a num</c>) this library's game-engine
+  /// consumers run under IL2CPP. Interning also makes reference equality agree
+  /// with <see cref="EqualsDatatype"/>.</para>
   ///
   /// <para><em>Not yet implemented:</em> spread datatypes (<c>...num</c>), which
   /// wait on the <c>...</c> spread syntax, and the <c>(p:)</c> string-pattern
@@ -80,17 +84,91 @@ namespace Harlowe.Runtime
         { "const", "const" },
       };
 
+    /// <summary>
+    /// The one instance per canonical name. Built from <see cref="Spellings"/>
+    /// so a name can never be interned here but unspellable by the lexer.
+    /// </summary>
+    private static readonly Dictionary<string, DatatypeValue> Interned = BuildInterned();
+
+    private static Dictionary<string, DatatypeValue> BuildInterned()
+    {
+      var map = new Dictionary<string, DatatypeValue>(StringComparer.Ordinal);
+      foreach (var pair in Spellings)
+      {
+        if (!map.ContainsKey(pair.Value)) map[pair.Value] = new DatatypeValue(pair.Value);
+      }
+      return map;
+    }
+
+    /// <summary>
+    /// Does <paramref name="value"/> belong to the named type? Reference's
+    /// <c>typeIndex</c> table in <c>ts/datatypes/datatype.ts</c>, kept as a table
+    /// here too so "which names are implemented" is a readable list rather than
+    /// something you derive by diffing a switch against
+    /// <see cref="Spellings"/>. A name absent from this table — which here means
+    /// a name for a value type this library doesn't implement (<c>ds</c>,
+    /// <c>gradient</c>, <c>image</c>, <c>macro</c>, <c>command</c>,
+    /// <c>codehook</c>, <c>measure</c>) — matches nothing, as in reference
+    /// (<c>typeIndex[name] ? … : false</c>).
+    /// </summary>
+    private static readonly Dictionary<string, Func<HarloweValue, bool>> TypeIndex =
+      new Dictionary<string, Func<HarloweValue, bool>>(StringComparer.Ordinal)
+      {
+        // Reference's `any` matches anything; `const` matches everything too
+        // (its real work is a special case in VarRef's set(), and this arm
+        // exists "only for destructuring").
+        { "any", v => true },
+        { "const", v => true },
+
+        { "array", v => v.Kind == HarloweValueKind.Array },
+        { "dm", v => v.Kind == HarloweValueKind.Datamap },
+        { "datatype", v => v.Kind == HarloweValueKind.Datatype },
+        { "changer", v => v.Kind == HarloweValueKind.Changer },
+        { "colour", v => v.Kind == HarloweValueKind.Colour },
+        { "lambda", v => v.Kind == HarloweValueKind.Lambda },
+        { "str", v => v.Kind == HarloweValueKind.String },
+        { "num", v => v.Kind == HarloweValueKind.Number },
+        { "bool", v => v.Kind == HarloweValueKind.Bool },
+
+        { "even", v => IsParity(v, 0) },
+        { "odd", v => IsParity(v, 1) },
+
+        // Reference tests `obj === (obj|0)`, a *32-bit* truncation, so a whole
+        // number beyond int32 range is not an `int` there either. Matched
+        // deliberately — an author's `$n is an int` guard should agree across
+        // implementations even at the edges. NaN and the infinities fail the
+        // same test.
+        { "int", v => v.Kind == HarloweValueKind.Number
+            && v.AsNumber >= int.MinValue && v.AsNumber <= int.MaxValue
+            && v.AsNumber == (int)v.AsNumber },
+
+        { "empty", IsEmpty },
+
+        { "uppercase", v => IsSingleCasedCodePoint(v, requireUpper: true) },
+        { "lowercase", v => IsSingleCasedCodePoint(v, requireUpper: false) },
+
+        { "anycase", v => IsSingleCodeUnitWhere(v, IsCasedUnit) },
+        { "whitespace", v => IsSingleCodeUnitWhere(v, CodePoints.IsRealWhitespace) },
+        { "digit", v => IsSingleCodeUnitWhere(v, c => c >= '0' && c <= '9') },
+        { "alnum", v => IsSingleCodeUnitWhere(v, IsRealLetter) },
+
+        // The one type that can match two characters: reference's `anyNewline`
+        // alternates \n, \r, and \r\n, so a CRLF pair is a single line break.
+        { "linebreak", v => v.Kind == HarloweValueKind.String
+            && (v.AsString == "\n" || v.AsString == "\r" || v.AsString == "\r\n") },
+      };
+
     /// <summary>True iff <paramref name="word"/> is a datatype name (case-insensitive).</summary>
     public static bool IsNamed(string word) => word != null && Spellings.ContainsKey(word);
 
     /// <summary>
-    /// Build a datatype from a lexed name, canonicalising the spelling. Returns
-    /// null for anything that isn't a datatype name — the tokenizer only emits
-    /// names that pass <see cref="IsNamed"/>, so null means a caller bug.
+    /// The datatype for a lexed name, canonicalising the spelling. Returns null
+    /// for anything that isn't a datatype name — the tokenizer only emits names
+    /// that pass <see cref="IsNamed"/>, so null means a caller bug.
     /// </summary>
     public static DatatypeValue FromLexeme(string lexeme)
       => lexeme != null && Spellings.TryGetValue(lexeme, out var canonical)
-        ? new DatatypeValue(canonical)
+        ? Interned[canonical]
         : null;
 
     /// <summary>
@@ -107,87 +185,37 @@ namespace Harlowe.Runtime
       if (value == null) return null;
       switch (value.Kind)
       {
-        case HarloweValueKind.Array: return new DatatypeValue("array");
-        case HarloweValueKind.Datamap: return new DatatypeValue("dm");
-        case HarloweValueKind.Datatype: return new DatatypeValue("datatype");
-        case HarloweValueKind.Changer: return new DatatypeValue("changer");
-        case HarloweValueKind.Colour: return new DatatypeValue("colour");
-        case HarloweValueKind.Lambda: return new DatatypeValue("lambda");
-        case HarloweValueKind.String: return new DatatypeValue("str");
-        case HarloweValueKind.Number: return new DatatypeValue("num");
-        case HarloweValueKind.Bool: return new DatatypeValue("bool");
+        case HarloweValueKind.Array: return Interned["array"];
+        case HarloweValueKind.Datamap: return Interned["dm"];
+        case HarloweValueKind.Datatype: return Interned["datatype"];
+        case HarloweValueKind.Changer: return Interned["changer"];
+        case HarloweValueKind.Colour: return Interned["colour"];
+        case HarloweValueKind.Lambda: return Interned["lambda"];
+        case HarloweValueKind.String: return Interned["str"];
+        case HarloweValueKind.Number: return Interned["num"];
+        case HarloweValueKind.Bool: return Interned["bool"];
       }
       return null;
     }
 
     /// <summary>
-    /// Does <paramref name="value"/> belong to this type? Reference's
-    /// <c>isTypeOf</c> over the <c>typeIndex</c> table in
-    /// <c>ts/datatypes/datatype.ts</c>. An unknown name — which here means a
-    /// name for a value type this library doesn't implement — is false, as in
-    /// reference (<c>typeIndex[name] ? … : false</c>).
+    /// Does <paramref name="value"/> belong to this type? Dispatches through
+    /// <see cref="TypeIndex"/>; an unlisted name matches nothing.
     /// </summary>
     public bool IsTypeOf(HarloweValue value)
     {
       if (value == null) return false;
-      switch (Name)
+      return TypeIndex.TryGetValue(Name, out var predicate) && predicate(value);
+    }
+
+    private static bool IsEmpty(HarloweValue value)
+    {
+      switch (value.Kind)
       {
-        // Reference's `any` matches anything; `const` matches everything too
-        // (its real work is a special case in VarRef's set(), and this arm
-        // exists "only for destructuring").
-        case "any":
-        case "const":
-          return true;
-
-        case "array": return value.Kind == HarloweValueKind.Array;
-        case "dm": return value.Kind == HarloweValueKind.Datamap;
-        case "datatype": return value.Kind == HarloweValueKind.Datatype;
-        case "changer": return value.Kind == HarloweValueKind.Changer;
-        case "colour": return value.Kind == HarloweValueKind.Colour;
-        case "lambda": return value.Kind == HarloweValueKind.Lambda;
-        case "str": return value.Kind == HarloweValueKind.String;
-        case "num": return value.Kind == HarloweValueKind.Number;
-        case "bool": return value.Kind == HarloweValueKind.Bool;
-
-        case "even": return IsParity(value, 0);
-        case "odd": return IsParity(value, 1);
-
-        // Reference tests `obj === (obj|0)`, a *32-bit* truncation, so a whole
-        // number beyond int32 range is not an `int` there either. Matched
-        // deliberately — an author's `$n is an int` guard should agree across
-        // implementations even at the edges. NaN and the infinities fail the
-        // same test.
-        case "int":
-          return value.Kind == HarloweValueKind.Number
-            && value.AsNumber >= int.MinValue && value.AsNumber <= int.MaxValue
-            && value.AsNumber == (int)value.AsNumber;
-
-        case "empty":
-          switch (value.Kind)
-          {
-            case HarloweValueKind.String: return value.AsString.Length == 0;
-            case HarloweValueKind.Array: return value.AsArray.Count == 0;
-            case HarloweValueKind.Datamap: return value.AsDatamap.Count == 0;
-          }
-          return false;
-
-        case "uppercase": return IsSingleCasedCodePoint(value, requireUpper: true);
-        case "lowercase": return IsSingleCasedCodePoint(value, requireUpper: false);
-        case "anycase": return IsSingleCasedCodePoint(value, requireUpper: null);
-
-        case "whitespace": return IsSingleCodePointWhere(value, IsRealWhitespace);
-        case "digit": return IsSingleCodePointWhere(value, s => s.Length == 1 && s[0] >= '0' && s[0] <= '9');
-        case "alnum": return IsSingleCodePointWhere(value, IsRealLetter);
-
-        // The one type that can match two characters: reference's `anyNewline`
-        // alternates \n, \r, and \r\n, so a CRLF pair is a single line break.
-        case "linebreak":
-          return value.Kind == HarloweValueKind.String
-            && (value.AsString == "\n" || value.AsString == "\r" || value.AsString == "\r\n");
+        case HarloweValueKind.String: return value.AsString.Length == 0;
+        case HarloweValueKind.Array: return value.AsArray.Count == 0;
+        case HarloweValueKind.Datamap: return value.AsDatamap.Count == 0;
       }
-
-      // A name whose value type isn't implemented here (ds, gradient, image,
-      // macro, command, codehook, measure): nothing can match it.
       return false;
     }
 
@@ -200,64 +228,72 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
-    /// True when the value is a string of exactly one code point that changes
-    /// under case conversion — reference's <c>uppercase</c>/<c>lowercase</c>
-    /// (a character differing from its own lower/upper form) and <c>anycase</c>
-    /// (one whose lower and upper forms differ from each other). Invariant
-    /// casing per code point, the same conversion <c>(uppercase:)</c> and
-    /// <c>(lowercase:)</c> use — which is the consistency reference notes for
-    /// these types.
+    /// True when the value is a string of exactly one <em>code point</em> that
+    /// changes under case conversion — reference's <c>uppercase</c>/
+    /// <c>lowercase</c>, which are the two arms it defines over
+    /// <c>[...obj]</c> rather than a regex, so an astral cased character
+    /// (Deseret, Adlam) counts here.
+    ///
+    /// <para><em>Divergence:</em> reference compares against JS
+    /// <c>toUpperCase()</c>, which applies full case mapping and so
+    /// <em>expands</em> — <c>"ß".toUpperCase()</c> is <c>"SS"</c>, making
+    /// <c>"ß" is a lowercase</c> true there. .NET's invariant casing is simple
+    /// (non-expanding) and netstandard2.0 offers no full-case-mapping API, so
+    /// <c>ß</c>, <c>ﬁ</c> (U+FB01) and <c>ŉ</c> (U+0149) are not
+    /// <c>lowercase</c> here. Deliberate: it keeps these datatypes agreeing
+    /// with this library's <c>(uppercase:)</c>/<c>(lowercase:)</c>, which are
+    /// non-expanding for the same reason — and reference documents that
+    /// agreement as the property it wants ("coincidentally consistent with
+    /// (uppercase:), (lowercase:)").</para>
     /// </summary>
-    private static bool IsSingleCasedCodePoint(HarloweValue value, bool? requireUpper)
+    private static bool IsSingleCasedCodePoint(HarloweValue value, bool requireUpper)
     {
       if (value.Kind != HarloweValueKind.String) return false;
       string s = value.AsString;
       if (CodePoints.Count(s) != 1) return false;
-      string lower = s.ToLowerInvariant();
-      string upper = s.ToUpperInvariant();
-      if (requireUpper == null) return lower != upper;
-      return requireUpper.Value ? s != lower : s != upper;
+      return requireUpper ? s != s.ToLowerInvariant() : s != s.ToUpperInvariant();
     }
-
-    private static bool IsSingleCodePointWhere(HarloweValue value, Func<string, bool> predicate)
-      => value.Kind == HarloweValueKind.String
-        && CodePoints.Count(value.AsString) == 1
-        && predicate(value.AsString);
 
     /// <summary>
-    /// Reference's <c>realWhitespace</c> class in <c>ts/utils.ts</c>: "all forms
-    /// of Unicode 6 whitespace … except Ogham space mark" — space, the five
-    /// ASCII whitespace controls, U+00A0, U+2000 through U+200A, U+2028, U+2029,
-    /// U+202F, U+205F, U+3000. Spelled out rather than deferring to
-    /// <see cref="char.IsWhiteSpace"/>, which also accepts U+1680 OGHAM SPACE
-    /// MARK and U+0085 NEL.
+    /// The single-code-<em>unit</em> test shared by the datatypes reference
+    /// implements as an anchored regex (<c>whitespace</c>, <c>digit</c>,
+    /// <c>alnum</c>, <c>anycase</c>). Those go through
+    /// <c>obj.match(`^…$`)</c> — a RegExp built from a string, so with no
+    /// <c>u</c> flag — and an unflagged <c>^[…]$</c> can only match one UTF-16
+    /// code unit. An astral character is two units and therefore never matches
+    /// in reference, however its code point is classified.
     /// </summary>
-    private static bool IsRealWhitespace(string s)
-    {
-      if (s.Length != 1) return false;
-      char c = s[0];
-      return c == ' ' || c == '\n' || c == '\r' || c == '\f' || c == '\t' || c == '\v'
-        || c == '\u00a0' || (c >= '\u2000' && c <= '\u200a')
-        || c == '\u2028' || c == '\u2029' || c == '\u202f' || c == '\u205f' || c == '\u3000';
-    }
+    private static bool IsSingleCodeUnitWhere(HarloweValue value, Func<char, bool> predicate)
+      => value.Kind == HarloweValueKind.String
+        && value.AsString.Length == 1
+        && predicate(value.AsString[0]);
+
+    /// <summary>
+    /// Reference's <c>anyCasedLetter</c> class in <c>ts/utils.ts</c>: the code
+    /// units whose lower and upper forms differ from each other. Reference
+    /// materialises the class by scanning the BMP ("any character in the Basic
+    /// Multilingual Plane which doesn't round-trip"), which is the same test
+    /// applied per unit.
+    /// </summary>
+    private static bool IsCasedUnit(char c) => char.ToLowerInvariant(c) != char.ToUpperInvariant(c);
 
     /// <summary>
     /// Reference's <c>anyRealLetter</c> class in <c>ts/utils.ts</c> — ASCII
-    /// alphanumerics plus the Latin-1/Latin-Extended-A ranges it names
-    /// (U+00C0 through U+00FF, and the four Hungarian double-acute letters
-    /// U+0150, U+0151, U+0170, U+0171), plus any astral character: the class
-    /// ends with the whole surrogate range, so a code point above U+FFFF is
-    /// alphanumeric there by construction.
+    /// alphanumerics, the Latin-1/Latin-Extended-A ranges it names (U+00C0
+    /// through U+00FF, and the four Hungarian double-acute letters U+0150,
+    /// U+0151, U+0170, U+0171), and the surrogate range U+D800 through U+DFFF.
+    ///
+    /// <para>That last range is why this takes a single code <em>unit</em>: it
+    /// lets a lone (unpaired) surrogate match, but it does <em>not</em> make an
+    /// astral character alphanumeric, because the anchors in reference's
+    /// unflagged <c>^[…]$</c> reject the two-unit sequence a paired surrogate
+    /// forms. Kept faithful in both directions.</para>
     /// </summary>
-    private static bool IsRealLetter(string s)
-    {
-      if (s.Length == 2) return char.IsSurrogatePair(s, 0);
-      if (s.Length != 1) return false;
-      char c = s[0];
-      return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
-        || (c >= '\u00c0' && c <= '\u00ff')
-        || c == '\u0150' || c == '\u0151' || c == '\u0170' || c == '\u0171';
-    }
+    private static bool IsRealLetter(char c)
+      => (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+        || (c >= 0x00c0 && c <= 0x00ff)
+        || c == 0x0150 || c == 0x0151 || c == 0x0170 || c == 0x0171
+        || (c >= 0xd800 && c <= 0xdfff);
 
     /// <summary>
     /// Equality by canonical name, so <c>num is num</c> holds and the long and
@@ -281,7 +317,15 @@ namespace Harlowe.Runtime
     /// <c>[the num datatype]</c>. Reference wraps this in verbatim markup so the
     /// brackets aren't read as a hook; we hand plain text to the render channel,
     /// which never re-parses it.
+    ///
+    /// <para>Deliberately <em>not</em> <see cref="ToString"/> — this is prose
+    /// shown to a player, so it must be requested explicitly rather than
+    /// leaking into a log line or debugger view. Same split
+    /// <see cref="ColourValue"/> keeps with its <c>ToCssString</c>.</para>
     /// </summary>
-    public override string ToString() => "[the " + Name + " datatype]";
+    public string ToPrintedString() => "[the " + Name + " datatype]";
+
+    /// <summary>Diagnostic form. For player-facing prose use <see cref="ToPrintedString"/>.</summary>
+    public override string ToString() => "Datatype(" + Name + ")";
   }
 }

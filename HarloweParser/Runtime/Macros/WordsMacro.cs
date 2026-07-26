@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 
 namespace Harlowe.Runtime.Macros
@@ -10,9 +9,10 @@ namespace Harlowe.Runtime.Macros
   /// <c>split(realWhitespace+).filter(Boolean)</c>); an empty or whitespace-only
   /// string yields an empty Array.
   ///
-  /// <para>Whitespace is .NET <c>char.IsWhiteSpace</c> — a <em>near</em>-match for
-  /// reference's <c>realWhitespace</c>, additionally splitting on U+0085 (NEL) and
-  /// U+1680 (Ogham space mark). A documented, deterministic divergence.</para>
+  /// <para>Splits on <see cref="CodePoints.IsRealWhitespace"/> — reference's
+  /// <c>realWhitespace</c> class exactly, shared with the <c>whitespace</c>
+  /// datatype. Notably <em>not</em> .NET <c>char.IsWhiteSpace</c>, which would
+  /// additionally split on U+0085 (NEL) and U+1680 (Ogham space mark).</para>
   /// </summary>
   public class WordsMacro : IMacro
   {
@@ -27,9 +27,18 @@ namespace Harlowe.Runtime.Macros
       if (v.Kind != HarloweValueKind.String)
         return HarloweValue.OfError($"(words:) requires a String, got {v.Kind}");
 
-      var parts = v.AsString.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
-      var items = new List<HarloweValue>(parts.Length);
-      for (int i = 0; i < parts.Length; i++) items.Add(HarloweValue.OfString(parts[i]));
+      string s = v.AsString;
+      var items = new List<HarloweValue>();
+      int start = -1;
+      for (int i = 0; i < s.Length; i++)
+      {
+        if (CodePoints.IsRealWhitespace(s[i]))
+        {
+          if (start >= 0) { items.Add(HarloweValue.OfString(s.Substring(start, i - start))); start = -1; }
+        }
+        else if (start < 0) start = i;
+      }
+      if (start >= 0) items.Add(HarloweValue.OfString(s.Substring(start)));
       return HarloweValue.OfArray(items);
     }
   }

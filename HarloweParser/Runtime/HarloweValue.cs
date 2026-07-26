@@ -91,34 +91,52 @@ namespace Harlowe.Runtime
     /// case that mostly just keeps the relation reflexive.
     /// </summary>
     public override bool Equals(object obj)
-    {
-      if (!(obj is HarloweValue other)) return false;
-      if (Kind != other.Kind) return false;
+      => obj is HarloweValue other && ValuesEqual(this, other, 0);
 
-      switch (Kind)
+    /// <summary>
+    /// Depth cap for the structural walk, matching the caps elsewhere (the
+    /// parsers, <c>ToSource</c>, <c>DeepCopyValue</c>, <c>(datapattern:)</c>,
+    /// <c>matches</c>). Past it the values are reported unequal rather than
+    /// recursed into: <see cref="Equals"/> is an <c>object</c> override with
+    /// nowhere to put an in-prose error, and a wrong <c>false</c> is a far
+    /// better failure than the uncatchable
+    /// <see cref="System.StackOverflowException"/> this runtime's
+    /// never-throw contract forbids. Reachable in practice because
+    /// <c>DeepCopyValue</c> stops copying at its own cap instead of erroring,
+    /// so an over-deep structure can sit in the store.
+    /// </summary>
+    private const int MaxEqualsDepth = 256;
+
+    private static bool ValuesEqual(HarloweValue self, HarloweValue other, int depth)
+    {
+      if (self.Kind != other.Kind) return false;
+      if (depth >= MaxEqualsDepth) return false;
+
+      object raw = self.Raw;
+      switch (self.Kind)
       {
         case HarloweValueKind.Number:
-          return (double)Raw == (double)other.Raw;
+          return (double)raw == (double)other.Raw;
         case HarloweValueKind.String:
-          return (string)Raw == (string)other.Raw;
+          return (string)raw == (string)other.Raw;
         case HarloweValueKind.Bool:
-          return (bool)Raw == (bool)other.Raw;
+          return (bool)raw == (bool)other.Raw;
         case HarloweValueKind.Array:
-          return ArraysEqual((List<HarloweValue>)Raw, (List<HarloweValue>)other.Raw);
+          return ArraysEqual((List<HarloweValue>)raw, (List<HarloweValue>)other.Raw, depth);
         case HarloweValueKind.Datamap:
-          return DatamapsEqual((Dictionary<string, HarloweValue>)Raw, (Dictionary<string, HarloweValue>)other.Raw);
+          return DatamapsEqual((Dictionary<string, HarloweValue>)raw, (Dictionary<string, HarloweValue>)other.Raw, depth);
         case HarloweValueKind.Error:
-          return (string)Raw == (string)other.Raw;
+          return (string)raw == (string)other.Raw;
         case HarloweValueKind.Changer:
-          return ((Changer)Raw).Equals((Changer)other.Raw);
+          return ((Changer)raw).Equals((Changer)other.Raw);
         case HarloweValueKind.Lambda:
-          return ((LambdaValue)Raw).Equals((LambdaValue)other.Raw);
+          return ((LambdaValue)raw).Equals((LambdaValue)other.Raw);
         case HarloweValueKind.HookName:
-          return ((HookNameValue)Raw).Equals((HookNameValue)other.Raw);
+          return ((HookNameValue)raw).Equals((HookNameValue)other.Raw);
         case HarloweValueKind.Colour:
-          return ((ColourValue)Raw).EqualsColour((ColourValue)other.Raw);
+          return ((ColourValue)raw).EqualsColour((ColourValue)other.Raw);
         case HarloweValueKind.Datatype:
-          return ((DatatypeValue)Raw).EqualsDatatype((DatatypeValue)other.Raw);
+          return ((DatatypeValue)raw).EqualsDatatype((DatatypeValue)other.Raw);
       }
       return false;
     }
@@ -155,23 +173,23 @@ namespace Harlowe.Runtime
       return h;
     }
 
-    private static bool ArraysEqual(List<HarloweValue> a, List<HarloweValue> b)
+    private static bool ArraysEqual(List<HarloweValue> a, List<HarloweValue> b, int depth)
     {
       if (a.Count != b.Count) return false;
       for (int i = 0; i < a.Count; i++)
       {
-        if (!a[i].Equals(b[i])) return false;
+        if (!ValuesEqual(a[i], b[i], depth + 1)) return false;
       }
       return true;
     }
 
-    private static bool DatamapsEqual(Dictionary<string, HarloweValue> a, Dictionary<string, HarloweValue> b)
+    private static bool DatamapsEqual(Dictionary<string, HarloweValue> a, Dictionary<string, HarloweValue> b, int depth)
     {
       if (a.Count != b.Count) return false;
       foreach (var kv in a)
       {
         if (!b.TryGetValue(kv.Key, out var bv)) return false;
-        if (!kv.Value.Equals(bv)) return false;
+        if (!ValuesEqual(kv.Value, bv, depth + 1)) return false;
       }
       return true;
     }
@@ -343,7 +361,7 @@ namespace Harlowe.Runtime
           // Reference's print() is "[the num datatype]" wrapped in verbatim
           // markup; the brackets are literal text on our render channel, which
           // never re-parses what it is handed.
-          return ((DatatypeValue)Raw).ToString();
+          return ((DatatypeValue)Raw).ToPrintedString();
       }
       return string.Empty;
     }
