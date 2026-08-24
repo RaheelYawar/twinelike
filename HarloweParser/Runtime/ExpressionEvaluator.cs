@@ -1469,6 +1469,33 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
+    /// Matches the recursion caps elsewhere (the parsers, <c>ToSource</c>,
+    /// <c>DeepCopyValue</c>, <c>(datapattern:)</c>). A value nested past this
+    /// depth can genuinely reach the store — <c>DeepCopyValue</c> stops copying
+    /// at its own cap rather than erroring, so a structure grown a level per
+    /// turn survives — and an uncapped walk over one would be an uncatchable
+    /// <see cref="System.StackOverflowException"/>, which this runtime's
+    /// in-prose-errors-never-exceptions contract does not allow.
+    /// </summary>
+    private const int MaxMatchDepth = 256;
+
+    private const string TooDeepMessage = "I was given a value nested too deeply to compare.";
+
+    /// <summary>
+    /// The <c>matches</c>/<c>does not match</c> operator sites: runs the walk
+    /// and turns a depth blow-out into an in-prose error rather than a bool.
+    /// The <c>(unpack:)</c> pattern check does the same two steps inline,
+    /// since its non-match is an error with its own wording.
+    /// </summary>
+    private static HarloweValue OpMatchesValue(HarloweValue left, HarloweValue right, bool negate)
+    {
+      bool tooDeep = false;
+      bool matched = MatchesRecur(left, right, 0, ref tooDeep);
+      if (tooDeep) return HarloweValue.OfError(TooDeepMessage);
+      return HarloweValue.OfBool(negate ? !matched : matched);
+    }
+
+    /// <summary>
     /// <c>matches</c> — reference's <c>matches</c> in
     /// <c>ts/utils/operationutils.ts</c>: structural equality, except that a
     /// datatype on <em>either</em> side is satisfied by the other side being of
@@ -1485,31 +1512,6 @@ namespace Harlowe.Runtime
     /// spread datatype (<c>...num</c>, the one thing that can span several
     /// positions) needs the unimplemented <c>...</c> syntax to write.</para>
     /// </summary>
-    /// <summary>
-    /// Matches the recursion caps elsewhere (the parsers, <c>ToSource</c>,
-    /// <c>DeepCopyValue</c>, <c>(datapattern:)</c>). A value nested past this
-    /// depth can genuinely reach the store — <c>DeepCopyValue</c> stops copying
-    /// at its own cap rather than erroring, so a structure grown a level per
-    /// turn survives — and an uncapped walk over one would be an uncatchable
-    /// <see cref="System.StackOverflowException"/>, which this runtime's
-    /// in-prose-errors-never-exceptions contract does not allow.
-    /// </summary>
-    private const int MaxMatchDepth = 256;
-
-    private const string TooDeepMessage = "I was given a value nested too deeply to compare.";
-
-    /// <summary>
-    /// The <c>matches</c>/<c>does not match</c> operator sites: runs the walk
-    /// and turns a depth blow-out into an in-prose error rather than a bool.
-    /// </summary>
-    private static HarloweValue OpMatchesValue(HarloweValue left, HarloweValue right, bool negate)
-    {
-      bool tooDeep = false;
-      bool matched = MatchesRecur(left, right, 0, ref tooDeep);
-      if (tooDeep) return HarloweValue.OfError(TooDeepMessage);
-      return HarloweValue.OfBool(negate ? !matched : matched);
-    }
-
     private static bool MatchesRecur(HarloweValue left, HarloweValue right, int depth, ref bool tooDeep)
     {
       if (depth >= MaxMatchDepth) { tooDeep = true; return false; }
