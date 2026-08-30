@@ -49,7 +49,7 @@
              below. PrivateAssets=all keeps it out of the produced NuGet
              package's dependency list so consumers see a single self-contained
              DLL with zero external deps. -->
-        <PackageReference Include="HtmlAgilityPack" Version="1.12.4">
+        <PackageReference Include="HtmlAgilityPack" Version="1.13.0">
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
 
