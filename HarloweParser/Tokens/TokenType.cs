@@ -141,6 +141,17 @@ namespace Harlowe.Tokens
     /// </summary>
     HtmlComment,
 
+    /// <summary>
+    /// A lex-time authoring mistake inside an expression — a common wrong
+    /// operator spelling (<c>gt</c>, <c>=&gt;</c>, <c>or a</c>, …, reference's
+    /// <c>incorrectOperator</c> rule in <c>ts/markup/patterns.ts</c>, which
+    /// likewise lexes to an <c>error</c> token) or a malformed hex colour. The
+    /// Value is the corrective message. The expression parser raises it when it
+    /// reaches the token, so the error stays in place of the one macro that
+    /// contains it and the rest of the passage still parses.
+    /// </summary>
+    Error,
+
     /// <summary>Sentinel emitted once the input is exhausted.</summary>
     EndOfFile
   }

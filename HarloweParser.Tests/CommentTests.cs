@@ -237,6 +237,16 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void Comment_LexTimeOperatorTypoInsideCommentedMacro_StaysSilent()
+    {
+      // A wrong operator spelling is an error token, not a tokenizer throw, so
+      // commenting out the macro eliminates it like any other content.
+      var buf = RenderRaw("--(if: $x gt 5)[] ok");
+      Assert.Equal(" ok", buf.Text);
+      Assert.Equal(0, CountErrors(buf));
+    }
+
+    [Fact]
     public void Comment_BeforeChangerMacro_AttachedHookSurvives()
     {
       // Reference skips only the macro's own token; the hook after it is not

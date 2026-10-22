@@ -751,16 +751,17 @@ namespace Harlowe.Tests
     }
 
     [Fact]
-    public void AddPassage_TokenizerFailure_RecoversWithStub()
+    public void AddPassage_LexTimeOperatorTypo_RecoversInPlace()
     {
-      // `=<` throws in the tokenizer itself; AddPassage's AST hydration must
-      // apply the same catch + stub recovery the loaders use rather than let
-      // the exception escape to the caller.
+      // `=<` is a lex-time authoring error; AddPassage's AST hydration must
+      // recover it the way the loaders do — confined to its macro, nothing
+      // escaping to the caller.
       var story = new Harlowe();
       story.AddPassage(new HarlowePassage { Name = "Bad", RawBody = "(if: $x =< 5)[low]" });
 
       var stored = story.GetPassage("Bad");
-      Assert.True(ParseErrorNode.IsWhollyParseError(stored.Ast));
+      Assert.IsType<ParseErrorNode>(stored.Ast.Children[0]);
+      Assert.False(ParseErrorNode.IsWhollyParseError(stored.Ast));
       Assert.Equal("(if: $x =< 5)[low]", stored.RawBody);
     }
   }

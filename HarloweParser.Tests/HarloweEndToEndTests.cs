@@ -439,12 +439,12 @@ namespace Harlowe.Tests
     }
 
     [Fact]
-    public void Constructor_TokenizerFailure_RecoversWithSyntheticAst()
+    public void Constructor_LexTimeOperatorTypo_ErrorsInPlaceOfItsMacro()
     {
-      // `=<` makes the *tokenizer* itself throw (the reversed-operator
-      // authoring hint) before the body parser ever runs — unlike the
-      // parser-level failure above, this exercises the loader's outer catch
-      // and the wholly-stubbed AST it substitutes.
+      // `=<` lexes to an error token (the reversed-operator authoring hint).
+      // It fails only its own macro: the error renders where the (if:) stood
+      // and the attached hook still renders, as in reference, where an erroring
+      // expression leaves the hook after it untouched.
       const string html = "<html><body><tw-storydata name=\"T\" startnode=\"2\">"
         + "<tw-passagedata pid=\"1\" name=\"Bad\">(if: $x =&lt; 5)[low]</tw-passagedata>"
         + "<tw-passagedata pid=\"2\" name=\"Good\">hello</tw-passagedata>"
@@ -452,16 +452,40 @@ namespace Harlowe.Tests
 
       var story = new Harlowe(html);
       Assert.Equal(2, story.PassageCount);
-      Assert.True(ParseErrorNode.IsWhollyParseError(story.GetPassage("Bad").Ast));
+      Assert.False(ParseErrorNode.IsWhollyParseError(story.GetPassage("Bad").Ast));
       Assert.Equal("(if: $x =< 5)[low]", story.GetPassage("Bad").RawBody);
 
       var session = new StorySession(story);
       Assert.Equal("hello", session.Render().Text);
       var result = session.Goto("Bad");
-      Assert.Contains(result.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error
-                                        && e.Content.Contains("parse error")
-                                        && e.Content.Contains("Bad")
-                                        && e.Content.Contains("'<='"));
+      Assert.Equal(BufferedRenderOutput.Kind.Error, result.Entries[0].Kind);
+      Assert.Contains("parse error", result.Entries[0].Content);
+      Assert.Contains("Bad", result.Entries[0].Content);
+      Assert.Contains("'<='", result.Entries[0].Content);
+      Assert.Contains("low", result.Text);
+    }
+
+    [Fact]
+    public void LexTimeOperatorTypo_LeavesTheRestOfThePassageRendering()
+    {
+      // Previously a typo like `gt` made the whole passage a single error.
+      const string html = "<html><body><tw-storydata name=\"T\" startnode=\"1\">"
+        + "<tw-passagedata pid=\"1\" name=\"P\">(set: $hp to 3)before (if: $hp gt 0)[alive] after\n(print: $hp)</tw-passagedata>"
+        + "</tw-storydata></body></html>";
+
+      var result = new StorySession(new Harlowe(html)).Render();
+      Assert.Equal(1, CountErrors(result));
+      Assert.Contains("before", result.Text);
+      Assert.Contains("after", result.Text);
+      Assert.EndsWith("3", result.Text);
+    }
+
+    private static int CountErrors(RenderResult r)
+    {
+      int n = 0;
+      for (int i = 0; i < r.Entries.Count; i++)
+        if (r.Entries[i].Kind == BufferedRenderOutput.Kind.Error) n++;
+      return n;
     }
 
     [Theory]

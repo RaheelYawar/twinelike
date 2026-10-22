@@ -123,6 +123,18 @@ namespace Harlowe.Tests
       Assert.Equal("In passage 'P': something went wrong.", e.Message);
     }
 
+    [Fact]
+    public void LexTimeOperatorTypo_IsReportedAsPartial_AtTheTypo()
+    {
+      // A wrong operator spelling fails only its macro, not the whole passage.
+      var e = Assert.Single(Story(("Start", "before\n(if: $hp gt 0)[alive]\nafter")).GetParseErrors());
+      Assert.False(e.IsWholePassage);
+      Assert.Contains("use '>' instead of 'gt'", e.Detail);
+      Assert.Equal(2, e.Line);
+      Assert.Equal(10, e.Column);
+      Assert.Equal("(if: $hp gt 0)", e.Source);
+    }
+
     // ----- interplay with GetBrokenLinks -----
 
     [Fact]
@@ -141,7 +153,8 @@ namespace Harlowe.Tests
     public void AWhollyDeadPassage_ReportsNoBrokenLinks()
     {
       // Nothing survived to point anywhere; GetParseErrors is what speaks for it.
-      var story = Story(("Start", "(set: $x to 5 eq 6)[[Go->Missing]]"));
+      // The unclosed macro swallows the link, so the passage is one error node.
+      var story = Story(("Start", "(set: $x to [[Go->Missing]]"));
 
       Assert.Single(story.GetParseErrors());
       Assert.Empty(story.GetBrokenLinks());

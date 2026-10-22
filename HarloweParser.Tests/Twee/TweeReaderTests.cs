@@ -532,16 +532,16 @@ namespace Harlowe.Tests.Twee
     }
 
     [Fact]
-    public void TokenizerFailure_RecoversPerPassage_AndRoundTrips()
+    public void LexTimeOperatorTypo_RecoversWithinPassage_AndRoundTrips()
     {
-      // `=<` throws in the tokenizer itself (the reversed-operator authoring
-      // hint), so this exercises the Twee loader's catch + stub substitution
-      // rather than the body parser's per-node recovery.
+      // `=<` lexes to an error token (the reversed-operator authoring hint),
+      // which fails only its own macro: the attached hook survives.
       var story = Read(":: Bad\n(if: $x =< 5)[low]\n\n:: Good\nhello");
       Assert.NotNull(story.GetPassage("Good"));
 
       var bad = story.GetPassage("Bad");
-      Assert.True(Ast.Body.ParseErrorNode.IsWhollyParseError(bad.Ast));
+      Assert.IsType<Ast.Body.ParseErrorNode>(bad.Ast.Children[0]);
+      Assert.False(Ast.Body.ParseErrorNode.IsWhollyParseError(bad.Ast));
       Assert.Contains("=< 5", bad.RawBody);
 
       // RawBody is preserved verbatim, so write-out reproduces the broken source.

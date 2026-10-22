@@ -110,7 +110,7 @@ foreach (var e in session.Render().Entries)
 
 ## Errors are in-prose, never thrown
 
-A bad expression (`(set: $x to "five" * 2)`, unknown macro, type mismatch) produces an `Error` event at the point it happened. The rest of the passage continues to render. No `try/catch` needed around `Render()` / `Goto()` for runtime errors. Parse-time failures are recovered too — the loaders catch `HarloweParseException` and substitute an in-prose error stub for the broken passage (or the broken node, with well-formed siblings still parsing), so it only escapes to you when you drive the tokenizer/parser classes directly.
+A bad expression (`(set: $x to "five" * 2)`, unknown macro, type mismatch) produces an `Error` event at the point it happened. The rest of the passage continues to render. No `try/catch` needed around `Render()` / `Goto()` for runtime errors. Parse-time failures are recovered too — the loaders catch `HarloweParseException` and substitute an in-prose error stub for the broken passage (or the broken node, with well-formed siblings still parsing), so it only escapes to you when you drive the parser classes directly.
 
 ```
 [story prose]      Text("You see ")

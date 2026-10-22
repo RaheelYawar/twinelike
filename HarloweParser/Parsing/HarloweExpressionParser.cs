@@ -256,6 +256,7 @@ namespace Harlowe.Parsing
         // detach any hook that followed the macro (rendering it
         // unconditionally).
         var stray = cursor.Current;
+        if (stray.Type == TokenType.Error) throw ErrorTokenException(stray);
         string got = string.IsNullOrEmpty(stray.Value) ? stray.Type.ToString() : stray.Value;
         throw new HarloweParseException(
           $"expected ',' or ')' in macro argument list; got '{got}'",
@@ -319,6 +320,7 @@ namespace Harlowe.Parsing
         // loosest precedence and slices out its following token.
         SkipComments(cursor);
         var t = cursor.Current;
+        if (t.Type == TokenType.Error) throw ErrorTokenException(t);
         if (t.Type != TokenType.Operator) break;
         if (LambdaClauseKeywords.Contains(t.Value))
         {
@@ -557,10 +559,24 @@ namespace Harlowe.Parsing
           var inner = ParseExpression(cursor, allowAssignmentAtTop: false);
           if (cursor.Current.Type == TokenType.ParenClose) cursor.Advance();
           return inner;
+
+        case TokenType.Error:
+          throw ErrorTokenException(t);
       }
 
       throw new HarloweParseException($"Unexpected token in expression: {t.Type}({t.Value})", t.Line, t.Column);
     }
+
+    /// <summary>
+    /// Raises a lex-time <see cref="TokenType.Error"/> token (a wrong operator
+    /// spelling, a malformed colour) as a parse error at its own position. It
+    /// surfaces when the parser reaches the token rather than when it was
+    /// lexed, so the body parser's per-node recovery confines it to the one
+    /// macro and the rest of the passage still renders — as reference renders
+    /// the error in place of that expression.
+    /// </summary>
+    private static HarloweParseException ErrorTokenException(Token t)
+      => new HarloweParseException(t.Value, t.Line, t.Column);
 
     /// <summary>
     /// Consumes every <see cref="TokenType.Comment"/> (<c>--</c>) at the

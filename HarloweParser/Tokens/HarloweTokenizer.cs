@@ -53,8 +53,8 @@ namespace Harlowe.Tokens
     /// lex time and converts into a targeted authoring hint. See the
     /// <c>incorrectOperator</c> pattern in <c>ts/markup/patterns.ts</c>.
     /// Matched in <see cref="ScanIdentifierOrKeyword"/> after the multi-word
-    /// fuser fails; throws <see cref="HarloweParseException"/> with the
-    /// "Please say X instead of Y" hint.
+    /// fuser fails; emits a <see cref="TokenType.Error"/> carrying the
+    /// corrective hint rather than throwing, so only the containing macro fails.
     /// </summary>
     private static readonly Dictionary<string, string> IncorrectIdentifiers = new Dictionary<string, string>
     {
@@ -823,19 +823,26 @@ namespace Harlowe.Tokens
       if (TryFuseMultiWordOperator(word, startPos, startLine, startCol))
         return;
 
-      // Single-word common-mistake spellings (gt, eq, isa, …). Throw an
-      // authoring hint with the correct form before falling through to the
-      // generic identifier emit. Reference equivalent: incorrectOperator in
-      // ts/markup/patterns.ts plus the runner conversion to an error token.
+      // Single-word common-mistake spellings (gt, eq, isa, …) become an error
+      // token carrying the correct form, as reference's incorrectOperator rule
+      // in ts/markup/patterns.ts lexes to an `error` token.
       if (IncorrectIdentifiers.TryGetValue(word, out var hint))
-        throw new HarloweParseException(hint, startLine, startCol);
+      {
+        Emit(TokenType.Error, hint, startPos, startLine, startCol);
+        return;
+      }
 
       // Two-word case: `or a` → "use 'or' instead of 'or a'". `or` is a valid
       // word-operator on its own; we only complain when followed (after
-      // whitespace) by a bare `a` that isn't part of a larger construct.
+      // whitespace) by a bare `a` that isn't part of a larger construct. The
+      // error token spans both words, like reference's `or${mws}a${wb}`.
       if (word == "or" && NextWordIs(_pos, "a"))
-        throw new HarloweParseException(
-          "use 'or' instead of 'or a'", startLine, startCol);
+      {
+        PeekNextWordFrom(_pos, out int afterA);
+        AdvanceTo(afterA);
+        Emit(TokenType.Error, "use 'or' instead of 'or a'", startPos, startLine, startCol);
+        return;
+      }
 
       if (WordOperators.Contains(word))
         Emit(TokenType.Operator, word, startPos, startLine, startCol);
@@ -895,10 +902,10 @@ namespace Harlowe.Tokens
     /// leaves any remainder to the next rule, so <c>#abcd</c> is <c>#abc</c>
     /// then <c>d</c>.
     ///
-    /// <para>Fewer than three digits is an authoring error, not a token: it
-    /// throws rather than skipping the <c>#</c>, so <c>(bg: #ff)</c> reports a
-    /// malformed colour instead of degrading into an unknown identifier
-    /// <c>ff</c>.</para>
+    /// <para>Fewer than three digits is an authoring error: the <c>#</c> and its
+    /// digits become one <see cref="TokenType.Error"/> token rather than being
+    /// skipped, so <c>(bg: #ff)</c> reports a malformed colour instead of
+    /// degrading into an unknown identifier <c>ff</c>.</para>
     /// </summary>
     private void ScanHexColour(int startPos, int startLine, int startCol)
     {
@@ -907,8 +914,11 @@ namespace Harlowe.Tokens
       int available = look - (_pos + 1);
       int digits = available >= 6 ? 6 : available >= 3 ? 3 : 0;
       if (digits == 0)
-        throw new HarloweParseException(
-          "a colour needs 3 or 6 hexadecimal digits after '#'", startLine, startCol);
+      {
+        AdvanceN(available + 1);
+        Emit(TokenType.Error, "a colour needs 3 or 6 hexadecimal digits after '#'", startPos, startLine, startCol);
+        return;
+      }
       string lexeme = _src.Substring(_pos, digits + 1);
       AdvanceN(digits + 1);
       Emit(TokenType.ColourLiteral, lexeme, startPos, startLine, startCol);
@@ -1138,14 +1148,15 @@ namespace Harlowe.Tokens
           Emit(TokenType.Operator, two, startPos, startLine, startCol);
           return true;
         }
-        // Reference Harlowe catches reversed forms with a precise hint.
-        // See the `incorrectOperator` pattern in ts/markup/patterns.ts.
-        if (two == "=<")
-          throw new HarloweParseException(
-            "use '<=' instead of '=<'", startLine, startCol);
-        if (two == "=>")
-          throw new HarloweParseException(
-            "use '>=' instead of '=>'", startLine, startCol);
+        // Reference Harlowe catches reversed forms with a precise hint, as an
+        // error token. See the `incorrectOperator` pattern in ts/markup/patterns.ts.
+        if (two == "=<" || two == "=>")
+        {
+          AdvanceN(2);
+          Emit(TokenType.Error, two == "=<" ? "use '<=' instead of '=<'" : "use '>=' instead of '=>'",
+            startPos, startLine, startCol);
+          return true;
+        }
       }
 
       if (_pos + 2 < _src.Length && _src[_pos] == '.' && _src[_pos + 1] == '.' && _src[_pos + 2] == '.')
