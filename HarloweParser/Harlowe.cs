@@ -606,8 +606,9 @@ namespace Harlowe
     /// <summary>
     /// Retargets inbound <c>[[…]]</c> links to a renamed passage across the
     /// whole story, mirroring the Twine editor (klembot/twinejs
-    /// <c>update-passage.ts</c>). The three Harlowe link forms —
-    /// <c>[[old]]</c>, <c>[[display-&gt;old]]</c>, <c>[[old&lt;-display]]</c> —
+    /// <c>update-passage.ts</c>, whose <c>compoundLinkRegexp</c> takes either
+    /// separator). The four Harlowe link forms — <c>[[old]]</c>,
+    /// <c>[[display-&gt;old]]</c>, <c>[[display|old]]</c>, <c>[[old&lt;-display]]</c> —
     /// have their <em>target</em> rewritten to <paramref name="newName"/> in
     /// each passage's raw source (the collapsed <c>[[old]]</c> form updates its
     /// visible text too, since text and target are one and the same there).
@@ -638,7 +639,7 @@ namespace Harlowe
       // The target sits immediately before ]] in every form, so anchoring on
       // that keeps these from matching display text or unrelated prose.
       var simple = new Regex(@"\[\[" + escaped + @"\]\]");
-      var rightArrow = new Regex(@"\[\[(.*?)->" + escaped + @"\]\]");
+      var rightward = new Regex(@"\[\[(.*?)(->|\|)" + escaped + @"\]\]");
       var leftArrow = new Regex(@"\[\[" + escaped + @"(<-.*?)\]\]");
 
       foreach (var passage in _passages.Values)
@@ -646,7 +647,8 @@ namespace Harlowe
         if (passage.RawBody == null) continue;
         string body = passage.RawBody;
         string updated = simple.Replace(body, "[[" + replacement + "]]");
-        updated = rightArrow.Replace(updated, "[[$1->" + replacement + "]]");
+        // Braced group refs: a new name starting with a digit must not extend $2.
+        updated = rightward.Replace(updated, "[[${1}${2}" + replacement + "]]");
         updated = leftArrow.Replace(updated, "[[" + replacement + "$1]]");
         if (updated == body) continue;
         passage.RawBody = updated;

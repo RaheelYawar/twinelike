@@ -368,13 +368,32 @@ namespace Harlowe.Tests
     }
 
     [Fact]
-    public void RenamePassage_RewritesInboundLinks_AllThreeForms()
+    public void RenamePassage_RewritesInboundLinks_AllFourForms()
     {
-      // Bare, right-arrow, and left-arrow links all retarget; the collapsed
-      // [[Old]] form updates its visible text too (text == target there).
-      var story = Read(":: Start\n[[Old]] [[go->Old]] [[Old<-back]]\n\n:: Old\nhi");
+      // Bare, right-arrow, pipe, and left-arrow links all retarget; the
+      // collapsed [[Old]] form updates its visible text too (text == target).
+      var story = Read(":: Start\n[[Old]] [[go->Old]] [[run|Old]] [[Old<-back]]\n\n:: Old\nhi");
       Assert.True(story.RenamePassage("Old", "New"));
-      Assert.Equal("[[New]] [[go->New]] [[New<-back]]", story.GetPassageBody("Start"));
+      Assert.Equal("[[New]] [[go->New]] [[run|New]] [[New<-back]]", story.GetPassageBody("Start"));
+      Assert.Empty(story.GetBrokenLinks());
+    }
+
+    [Fact]
+    public void RenamePassage_NewNameStartingWithADigit_InsertsItLiterally()
+    {
+      // The digit must not be read as part of a regex group reference.
+      var story = Read(":: Start\n[[go->Old]] [[run|Old]]\n\n:: Old\nhi");
+      Assert.True(story.RenamePassage("Old", "2nd Floor"));
+      Assert.Equal("[[go->2nd Floor]] [[run|2nd Floor]]", story.GetPassageBody("Start"));
+    }
+
+    [Fact]
+    public void RenamePassage_PipeLinkShowingTheOldNameAsText_IsUntouched()
+    {
+      // In [[Old|Elsewhere]] the target is Elsewhere; "Old" is only its text.
+      var story = Read(":: Start\n[[Old|Elsewhere]]\n\n:: Old\nhi\n\n:: Elsewhere\nthere");
+      Assert.True(story.RenamePassage("Old", "New"));
+      Assert.Equal("[[Old|Elsewhere]]", story.GetPassageBody("Start"));
     }
 
     [Fact]
