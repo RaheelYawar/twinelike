@@ -59,7 +59,7 @@ namespace Harlowe
   /// <see cref="ChangerChainNode"/>s — so links inside conditional or
   /// changer-styled blocks are still collected.
   ///
-  /// <para>Used by both the HTML loader (<see cref="Harlowe"/>) and the Twee
+  /// <para>Used by both the HTML loader (<see cref="HarloweStory"/>) and the Twee
   /// loader (<see cref="Twee.TweeReader"/>) to derive
   /// <see cref="HarlowePassage.Branches"/> from the AST. Lives in the root
   /// namespace as an <c>internal</c> helper because it is an implementation
@@ -85,7 +85,7 @@ namespace Harlowe
   /// Collects every passage <em>reference</em> in a body AST, in source order —
   /// both the <c>[[…]]</c> syntax and a literal passage name handed to a
   /// navigation macro (<see cref="NavigationMacros"/>). Backs
-  /// <see cref="Harlowe.GetBrokenLinks"/>, which keeps the ones that point at
+  /// <see cref="HarloweStory.GetBrokenLinks"/>, which keeps the ones that point at
   /// nothing.
   ///
   /// <para>Covering the macros matters: an engine that reports "your story's
@@ -240,7 +240,7 @@ namespace Harlowe
 
   /// <summary>
   /// Collects every <see cref="ParseErrorNode"/> in a body AST, in source order.
-  /// Backs <see cref="Harlowe.GetParseErrors"/> and the loader's passage-name
+  /// Backs <see cref="HarloweStory.GetParseErrors"/> and the loader's passage-name
   /// decoration pass.
   ///
   /// <para>Recurses into hooks (including hooks attached to macros and changer

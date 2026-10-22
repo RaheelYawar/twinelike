@@ -96,7 +96,7 @@ The six original prerequisites plus the forks settled by the findings:
 3. **Visit counts** — derived by walking the timeline (drop per-Moment
    `VisitCounts`). Matches reference, shrinks the blob.
 4. **IFID namespacing** — library prefixes the slot key internally with
-   `Harlowe.Ifid` (matches reference). Empty IFID → unprefixed key; the
+   `HarloweStory.Ifid` (matches reference). Empty IFID → unprefixed key; the
    cross-story-collision contract is documented on `ISaveStorage`.
 5. **`(load-game:)`** — side-effecting navigation (no `Command` type): stages the
    deserialised timeline + a pending-load flag; the body renderer halts further
@@ -264,7 +264,7 @@ Each step is a landable, test-green commit.
 
 5. **`ISaveStorage` + `InMemorySaveStorage`.** Interface (blob + filename stored
    separately, cheap `Enumerate`), default impl, optional constructor param on
-   `StorySession`. Library prefixes slot keys with `Harlowe.Ifid`. ~120 LoC.
+   `StorySession`. Library prefixes slot keys with `HarloweStory.Ifid`. ~120 LoC.
 
 6. **Macros + loop guard.** `(save-game:)` → Bool; `(load-game:)` → on success
    stage-timeline + pending-load, session installs + navigates to the loaded

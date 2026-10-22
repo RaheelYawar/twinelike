@@ -11,9 +11,9 @@ namespace Harlowe
     /// The author-facing passage name. <strong>Do not mutate after the passage
     /// has been added to a story</strong> — the story's internal lookup is
     /// indexed by this value, and writing it directly leaves the dictionary
-    /// holding a stale key. Use <see cref="Harlowe.RenamePassage"/> to change
+    /// holding a stale key. Use <see cref="HarloweStory.RenamePassage"/> to change
     /// the name; that re-keys the lookup atomically.
-    /// <see cref="Harlowe.GetPassage"/> still returns the entry by its
+    /// <see cref="HarloweStory.GetPassage"/> still returns the entry by its
     /// original dictionary key (the runtime hot path must not throw to honour
     /// the project's in-prose error contract), so a stale-key mismatch fails
     /// silently rather than surfacing — the consumer is responsible for
@@ -27,7 +27,7 @@ namespace Harlowe
     /// other, by Twee write-out, and — once the passage has been added to a
     /// story — by <see cref="Ast"/> and <see cref="Branches"/>, which are
     /// re-parsed on assignment. Kept as the consumer-facing name and the input
-    /// for the from-scratch <see cref="Harlowe.AddPassage"/> shorthand.
+    /// for the from-scratch <see cref="HarloweStory.AddPassage"/> shorthand.
     /// </summary>
     public string Body { get => RawBody; set => RawBody = value; }
 
@@ -38,7 +38,7 @@ namespace Harlowe
     /// <em>unfiltered</em> source-level model: a link whose target doesn't
     /// exist is still listed, and a variable target (<c>[[Go-&gt;$next]]</c>)
     /// appears unresolved. The render stream is what refuses dead links (no
-    /// <c>Link</c> event), and <see cref="Harlowe.GetBrokenLinks"/> is the
+    /// <c>Link</c> event), and <see cref="HarloweStory.GetBrokenLinks"/> is the
     /// validity report — a host building navigation UI from this list instead
     /// of from render events must expect entries <c>StorySession.Goto</c> will
     /// refuse.
@@ -65,7 +65,7 @@ namespace Harlowe
     /// re-parses <see cref="Ast"/> and <see cref="Branches"/> under that
     /// story's profile, so the runtime and the load-time reports never play or
     /// describe text other than what the writer saves. That holds after
-    /// <see cref="Harlowe.RemovePassage"/> too, so a passage edited while out
+    /// <see cref="HarloweStory.RemovePassage"/> too, so a passage edited while out
     /// of the story is in step when added back.</para>
     /// </summary>
     public string RawBody
@@ -81,7 +81,7 @@ namespace Harlowe
     private string _rawBody;
 
     /// <summary>The story that last took this passage in; null until it is added. Its profile governs re-parses.</summary>
-    internal Harlowe Story;
+    internal HarloweStory Story;
 
     /// <summary>
     /// The raw editor metadata blob from a Twee passage header — the

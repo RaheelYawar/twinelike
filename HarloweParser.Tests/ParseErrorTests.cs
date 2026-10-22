@@ -4,7 +4,7 @@ using Xunit;
 namespace Harlowe.Tests
 {
   /// <summary>
-  /// <see cref="Harlowe.GetParseErrors"/> — the load-time report of passages that
+  /// <see cref="HarloweStory.GetParseErrors"/> — the load-time report of passages that
   /// didn't parse. Sibling of <see cref="BrokenLinkTests"/>, and needed for the
   /// same reason: the loaders are deliberately tolerant, so a passage that won't
   /// parse doesn't abort the load — it gets a synthetic error stub and stays quiet
@@ -13,9 +13,9 @@ namespace Harlowe.Tests
   /// </summary>
   public class ParseErrorTests
   {
-    private static Harlowe Story(params (string name, string body)[] passages)
+    private static HarloweStory Story(params (string name, string body)[] passages)
     {
-      var s = new Harlowe();
+      var s = new HarloweStory();
       foreach (var (name, body) in passages)
         s.AddPassage(new HarlowePassage { Name = name, Body = body });
       s.StartNode = s.GetPassage(passages[0].name).Pid;

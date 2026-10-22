@@ -410,7 +410,7 @@ namespace Harlowe.Tests.Runtime
       // …and the error stays confined to its macro: the attached hook survives
       // as an ordinary hook, as reference renders a hook whose expression
       // errored, so one bad colour can't take the passage down with it.
-      var story = new global::Harlowe.Harlowe();
+      var story = new HarloweStory();
       var p = new HarlowePassage { Name = "Broken", Body = "(bg: #ff)[hi]" };
       story.AddPassage(p);
 

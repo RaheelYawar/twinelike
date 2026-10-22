@@ -10,16 +10,16 @@ namespace Harlowe.Tests.Runtime
     // HTML builder helpers
     // -----------------------------------------------------------------------
 
-    private static Harlowe OnePassage(string body)
+    private static HarloweStory OnePassage(string body)
       => Story("1", ("1", "P1", body));
 
-    private static Harlowe TwoPassages(string p1, string p2)
+    private static HarloweStory TwoPassages(string p1, string p2)
       => Story("1", ("1", "P1", p1), ("2", "P2", p2));
 
-    private static Harlowe ThreePassages(string p1, string p2, string p3)
+    private static HarloweStory ThreePassages(string p1, string p2, string p3)
       => Story("1", ("1", "P1", p1), ("2", "P2", p2), ("3", "P3", p3));
 
-    private static Harlowe Story(string startPid, params (string pid, string name, string body)[] passages)
+    private static HarloweStory Story(string startPid, params (string pid, string name, string body)[] passages)
     {
       var sb = new System.Text.StringBuilder();
       sb.Append("<html><body><tw-storydata name=\"T\" startnode=\"");
@@ -36,7 +36,7 @@ namespace Harlowe.Tests.Runtime
         sb.Append("</tw-passagedata>");
       }
       sb.Append("</tw-storydata></body></html>");
-      return new Harlowe(sb.ToString());
+      return new HarloweStory(sb.ToString());
     }
 
     private static int CountKind(RenderResult r, BufferedRenderOutput.Kind k)
@@ -162,7 +162,7 @@ namespace Harlowe.Tests.Runtime
       // synthesized pids start at 1 — so the session opens with no current
       // passage. The first Goto must not finalise that nameless present into the
       // past (a Moment with passage "" makes every later save unloadable).
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(new HarlowePassage { Name = "P1", Body = "hello" });
       var session = new StorySession(story);
       session.Render();
@@ -348,7 +348,7 @@ namespace Harlowe.Tests.Runtime
       // construction and turns reports 0. (When a start passage exists,
       // EnterPassage runs in the constructor — see the "starts at one"
       // test above.)
-      var session = new StorySession(new Harlowe());
+      var session = new StorySession(new HarloweStory());
       var v = ((IEvaluationContext)session).Turns;
       Assert.Equal(0, v.AsNumber);
     }
@@ -386,7 +386,7 @@ namespace Harlowe.Tests.Runtime
       var html = "<html><body><tw-storydata name=\"T\" startnode=\"1\">"
         + "<tw-passagedata pid=\"1\" name=\"P1\" tags=\"intro  hidden\">text</tw-passagedata>"
         + "</tw-storydata></body></html>";
-      var session = new StorySession(new Harlowe(html));
+      var session = new StorySession(new HarloweStory(html));
       session.Render();
       var pv = ((IEvaluationContext)session).Passage;
       Assert.True(pv.AsDatamap.TryGetValue("tags", out var tags));
@@ -716,7 +716,7 @@ namespace Harlowe.Tests.Runtime
         + "<tw-passagedata pid=\"2\" name=\"P2\" tags=\"\">(set: $x to 1)$x</tw-passagedata>"
         + "<tw-passagedata pid=\"3\" name=\"P3\" tags=\"\">(set: $x to 2)$x</tw-passagedata>"
         + "</tw-storydata></body></html>";
-      var session = new StorySession(new Harlowe(html));
+      var session = new StorySession(new HarloweStory(html));
       session.Render();             // P1 — error (unset), but we don't care
       session.Goto("P2");           // $x = 1
       session.Goto("P3");           // $x = 2
@@ -1562,7 +1562,7 @@ namespace Harlowe.Tests.Runtime
     {
       // A freshly-constructed story has no start passage, so the session has
       // no current passage — Render must return an empty result, not throw.
-      var session = new StorySession(new Harlowe());
+      var session = new StorySession(new HarloweStory());
       var result = session.Render();
       Assert.Equal(string.Empty, result.Text);
       Assert.Empty(result.Entries);

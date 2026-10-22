@@ -17,7 +17,7 @@ namespace Harlowe.Tests
     [Fact]
     public void Constructor_ThrowsOnHtmlMissingTwStorydata()
     {
-      var ex = Assert.Throws<HarloweParseException>(() => new Harlowe("<html><body>no story here</body></html>"));
+      var ex = Assert.Throws<HarloweParseException>(() => new HarloweStory("<html><body>no story here</body></html>"));
       Assert.Contains("tw-storydata", ex.Message);
     }
 
@@ -26,7 +26,7 @@ namespace Harlowe.Tests
     {
       // Errors that fire before any passage is entered leave Line/Column at -1
       // and PassageName null.
-      var ex = Assert.Throws<HarloweParseException>(() => new Harlowe("<html><body>nope</body></html>"));
+      var ex = Assert.Throws<HarloweParseException>(() => new HarloweStory("<html><body>nope</body></html>"));
       Assert.Equal(-1, ex.Line);
       Assert.Equal(-1, ex.Column);
       Assert.Null(ex.PassageName);
@@ -45,7 +45,7 @@ namespace Harlowe.Tests
         + "<tw-passagedata pid=\"2\" name=\"Good\">hello</tw-passagedata>"
         + "</tw-storydata></body></html>";
 
-      var story = new Harlowe(html);
+      var story = new HarloweStory(html);
       Assert.Equal(2, story.PassageCount);
       // Good passage is unaffected.
       var good = story.GetPassage("Good");
@@ -70,7 +70,7 @@ namespace Harlowe.Tests
       const string html = "<html><body><tw-storydata name=\"T\" startnode=\"1\">"
         + "<tw-passagedata pid=\"1\" name=\"NestedBad\">prefix [hook (set: $x to )] tail</tw-passagedata>"
         + "</tw-storydata></body></html>";
-      var story = new Harlowe(html);
+      var story = new HarloweStory(html);
       var session = new StorySession(story);
       var r = session.Goto("NestedBad");
       Assert.Contains(r.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error
@@ -89,7 +89,7 @@ namespace Harlowe.Tests
         + "<tw-passagedata pid=\"1\" name=\"Hub\">(badmacro: $x to ) trailing [[Town]]</tw-passagedata>"
         + "<tw-passagedata pid=\"2\" name=\"Town\">t</tw-passagedata>"
         + "</tw-storydata></body></html>";
-      var story = new Harlowe(html);
+      var story = new HarloweStory(html);
       var hub = story.GetPassage("Hub");
       Assert.Contains(hub.Branches, b => b.Name == "Town");
     }
@@ -109,7 +109,7 @@ namespace Harlowe.Tests
         + "<tw-passagedata pid=\"3\" name=\"Forest\">forest</tw-passagedata>"
         + "</tw-storydata></body></html>";
 
-      var story = new Harlowe(html);
+      var story = new HarloweStory(html);
       var hub = story.GetPassage("Hub");
       Assert.NotNull(hub);
       // Both branches survive the partial recovery.
@@ -127,10 +127,10 @@ namespace Harlowe.Tests
     public void Constructor_EmptyStorydata_LoadsAsZeroPassageStory()
     {
       // A <tw-storydata> with no <tw-passagedata> children is structurally
-      // valid — same shape as `new Harlowe()`. SelectNodes returns null in
+      // valid — same shape as `new HarloweStory()`. SelectNodes returns null in
       // that case; the loader must treat it as zero passages, not NRE.
       const string html = "<html><body><tw-storydata name=\"T\" startnode=\"0\"></tw-storydata></body></html>";
-      var story = new Harlowe(html);
+      var story = new HarloweStory(html);
       Assert.Equal(0, story.PassageCount);
     }
 
@@ -151,7 +151,7 @@ namespace Harlowe.Tests
         + "<tw-passagedata pid=\"2\" name=\"OnlyInB\">b</tw-passagedata>"
         + "</tw-storydata>"
         + "</body></html>";
-      var story = new Harlowe(html);
+      var story = new HarloweStory(html);
       Assert.Equal("A", story.StoryName);
       Assert.Equal(2, story.PassageCount);
       Assert.NotNull(story.GetPassage("OnlyInA"));
@@ -167,7 +167,7 @@ namespace Harlowe.Tests
       const string html = "<html><body><tw-storydata name=\"T\" startnode=\"1\">"
         + "<tw-passagedata pid=\"1\">body</tw-passagedata>"
         + "</tw-storydata></body></html>";
-      var ex = Assert.Throws<HarloweParseException>(() => new Harlowe(html));
+      var ex = Assert.Throws<HarloweParseException>(() => new HarloweStory(html));
       Assert.Contains("name", ex.Message);
     }
 
@@ -177,7 +177,7 @@ namespace Harlowe.Tests
       const string html = "<html><body><tw-storydata name=\"T\" startnode=\"1\">"
         + "<tw-passagedata name=\"P1\">body</tw-passagedata>"
         + "</tw-storydata></body></html>";
-      var ex = Assert.Throws<HarloweParseException>(() => new Harlowe(html));
+      var ex = Assert.Throws<HarloweParseException>(() => new HarloweStory(html));
       Assert.Equal("P1", ex.PassageName);
       Assert.Contains("pid", ex.Message);
     }
@@ -192,7 +192,7 @@ namespace Harlowe.Tests
         + "<tw-passagedata pid=\"1\" name=\"A\">a</tw-passagedata>"
         + "<tw-passagedata pid=\"1\" name=\"B\">b</tw-passagedata>"
         + "</tw-storydata></body></html>";
-      var ex = Assert.Throws<HarloweParseException>(() => new Harlowe(html));
+      var ex = Assert.Throws<HarloweParseException>(() => new HarloweStory(html));
       Assert.Contains("duplicate passage pid '1'", ex.Message);
       Assert.Contains("'A' and 'B'", ex.Message);
     }
@@ -396,7 +396,7 @@ namespace Harlowe.Tests
       const string html = "<html><body><tw-storydata name=\"T\" startnode=\"1\">"
         + "<tw-passagedata pid=\"1\" name=\"P\" tags=\"alpha  beta\tgamma\">body</tw-passagedata>"
         + "</tw-storydata></body></html>";
-      var story = new Harlowe(html);
+      var story = new HarloweStory(html);
       var passage = story.GetPassage("P");
 
       Assert.NotNull(passage.Tags);
@@ -414,7 +414,7 @@ namespace Harlowe.Tests
         + "<tw-passagedata pid=\"1\" name=\"Start\" tags=\"spooky&amp;dark\">Visit [[Cake &amp; Tea]]</tw-passagedata>"
         + "<tw-passagedata pid=\"2\" name=\"Cake &amp; Tea\">yum</tw-passagedata>"
         + "</tw-storydata></body></html>";
-      var story = new Harlowe(html);
+      var story = new HarloweStory(html);
 
       Assert.Equal("Tea & Cakes", story.StoryName);
       var start = story.GetPassage("Start");
@@ -431,7 +431,7 @@ namespace Harlowe.Tests
       const string html = "<html><body><tw-storydata name=\"T\" startnode=\"1\">"
         + "<tw-passagedata pid=\"1\" name=\"P\">body</tw-passagedata>"
         + "</tw-storydata></body></html>";
-      var story = new Harlowe(html);
+      var story = new HarloweStory(html);
       var passage = story.GetPassage("P");
 
       Assert.NotNull(passage.Tags);
@@ -450,7 +450,7 @@ namespace Harlowe.Tests
         + "<tw-passagedata pid=\"2\" name=\"Good\">hello</tw-passagedata>"
         + "</tw-storydata></body></html>";
 
-      var story = new Harlowe(html);
+      var story = new HarloweStory(html);
       Assert.Equal(2, story.PassageCount);
       Assert.False(ParseErrorNode.IsWhollyParseError(story.GetPassage("Bad").Ast));
       Assert.Equal("(if: $x =< 5)[low]", story.GetPassage("Bad").RawBody);
@@ -473,7 +473,7 @@ namespace Harlowe.Tests
         + "<tw-passagedata pid=\"1\" name=\"P\">(set: $hp to 3)before (if: $hp gt 0)[alive] after\n(print: $hp)</tw-passagedata>"
         + "</tw-storydata></body></html>";
 
-      var result = new StorySession(new Harlowe(html)).Render();
+      var result = new StorySession(new HarloweStory(html)).Render();
       Assert.Equal(1, CountErrors(result));
       Assert.Contains("before", result.Text);
       Assert.Contains("after", result.Text);
@@ -498,7 +498,7 @@ namespace Harlowe.Tests
       const string htmlTemplate = "<html><body><tw-storydata name=\"T\" startnode=\"1\">"
         + "<tw-passagedata pid=\"1\" name=\"P\">{0}</tw-passagedata>"
         + "</tw-storydata></body></html>";
-      var story = new Harlowe(string.Format(htmlTemplate, body));
+      var story = new HarloweStory(string.Format(htmlTemplate, body));
       var result = new StorySession(story).Render();
       Assert.Contains(result.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error);
     }
@@ -510,7 +510,7 @@ namespace Harlowe.Tests
         + "<tw-passagedata pid=\"1\" name=\"Twin\">a</tw-passagedata>"
         + "<tw-passagedata pid=\"2\" name=\"Twin\">b</tw-passagedata>"
         + "</tw-storydata></body></html>";
-      var ex = Assert.Throws<HarloweParseException>(() => new Harlowe(html));
+      var ex = Assert.Throws<HarloweParseException>(() => new HarloweStory(html));
       Assert.Contains("duplicate passage name 'Twin'", ex.Message);
     }
   }

@@ -20,7 +20,7 @@ using Harlowe.Runtime;
 using Harlowe.Twee; // only needed if you're loading Twee 3 source
 
 // Load a Twine 2 HTML export, or use new TweeReader().Read(tweeText) instead.
-var story = new Harlowe(File.ReadAllText("story.html"));
+var story = new HarloweStory(File.ReadAllText("story.html"));
 
 // Wrap it in a session — this is the stateful object you drive.
 var session = new StorySession(story);
@@ -129,7 +129,7 @@ public class ConsoleOutput : IRenderOutput
 
 ## Supported Harlowe features
 
-A story keeps the semantics of the Harlowe major it declares. `format-version` selects a compatibility profile at load — so a 3.x story gets 3.x behaviour even where Harlowe 4 changed the language — and a host can override it: `new Harlowe(html, HarloweProfile.V3)` or `new TweeReader(HarloweProfile.V3)`. `story.GetCompatibilityNotices()` reports anything unusual about the declared version.
+A story keeps the semantics of the Harlowe major it declares. `format-version` selects a compatibility profile at load — so a 3.x story gets 3.x behaviour even where Harlowe 4 changed the language — and a host can override it: `new HarloweStory(html, HarloweProfile.V3)` or `new TweeReader(HarloweProfile.V3)`. `story.GetCompatibilityNotices()` reports anything unusual about the declared version.
 
 ✓ shipped &middot; ⚠ partial &middot; ✗ not yet
 
@@ -268,7 +268,7 @@ Drop the produced `twinelike.dll` into Unity's `Assets/Plugins/` or reference it
 
 Two parsing layers, then a runtime. Briefly:
 
-- **Layer 1 — host.** Either `Harlowe(htmlText)` (HtmlAgilityPack pulls `<tw-storydata>` / `<tw-passagedata>` and HTML-entity-decodes the inner text) or `TweeReader().Read(tweeText)` (header splits on `:: Name [tags] {position}` at column 0). Both produce the same `Harlowe` story object.
+- **Layer 1 — host.** Either `HarloweStory(htmlText)` (HtmlAgilityPack pulls `<tw-storydata>` / `<tw-passagedata>` and HTML-entity-decodes the inner text) or `TweeReader().Read(tweeText)` (header splits on `:: Name [tags] {position}` at column 0). Both produce the same `HarloweStory` story object.
 - **Layer 2 — Harlowe markup.** Shared between both front-ends: `HarloweTokenizer` → `HarloweBodyParser` (which hands off to `HarloweExpressionParser` at every macro) → `PassageBody` AST.
 - **Runtime.** `StorySession` owns the variable store, macro registry, and render-tree state. `BodyRenderer` walks an AST into a `RenderTreeBuilder` (an `IRenderOutput`-shaped tree-of-nodes); `RenderTreeFlusher` replays the finished tree as the flat event stream your `IRenderOutput` receives. Revision macros (`(replace:)`, `(append:)`, `(prepend:)`) mutate the tree in place; enchantment macros (`(change:)`, `(enchant:)`) re-wrap matched nodes; interaction macros (`(click:)` family) wrap targets in `InteractiveRegion` brackets and register handlers that fire on `DispatchEvent`.
 
@@ -287,7 +287,7 @@ The runtime never throws on the render hot path. A bad expression renders an inl
 Inline errors only fire when the player *reaches* them. A typo'd passage name — or an outright syntax error — down an unplayed branch stays invisible right up until it ships. Three load-time reports find them all up front; call them once when you load the story and show the results to whoever is building it.
 
 ```csharp
-var story = new Harlowe(File.ReadAllText("story.html"));
+var story = new HarloweStory(File.ReadAllText("story.html"));
 
 foreach (var problem in story.GetParseErrors())
     Debug.LogError(problem.Message);

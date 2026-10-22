@@ -17,7 +17,7 @@ namespace Harlowe.Ast.Body
     /// <summary>
     /// 1-based line of the opening <c>[[</c> in the passage body, or <c>0</c>
     /// when unknown (a hand-built AST). Carried so a diagnostic can point the
-    /// author at the link — see <see cref="Harlowe.GetBrokenLinks"/>.
+    /// author at the link — see <see cref="HarloweStory.GetBrokenLinks"/>.
     /// </summary>
     public int Line;
 

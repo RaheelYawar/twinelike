@@ -8,8 +8,8 @@ namespace Harlowe.Tests.Twee
 {
   public class TweeWriterTests
   {
-    private static string Write(Harlowe story) => new TweeWriter().Write(story);
-    private static Harlowe Read(string source) => new TweeReader().Read(source);
+    private static string Write(HarloweStory story) => new TweeWriter().Write(story);
+    private static HarloweStory Read(string source) => new TweeReader().Read(source);
 
     private static int CountOccurrences(string haystack, string needle)
     {
@@ -46,7 +46,7 @@ namespace Harlowe.Tests.Twee
     {
       // Writer-side in isolation: a name containing tag/position metacharacters
       // is backslash-escaped so it doesn't re-read as a tag block.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(new HarlowePassage { Name = "Choose [A]", Body = "x" });
       Assert.Contains(":: Choose \\[A\\]\n", Write(story));
     }
@@ -84,7 +84,7 @@ namespace Harlowe.Tests.Twee
     {
       // Brackets and backslashes inside a tag name must be backslash-escaped so
       // the reader doesn't terminate the tag block early or mis-split.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(new HarlowePassage
       {
         Name = "First",
@@ -100,7 +100,7 @@ namespace Harlowe.Tests.Twee
     {
       // End-to-end: the reader sees back the original tag values after the
       // writer's escapes are applied and parsed.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(new HarlowePassage
       {
         Name = "First",
@@ -122,7 +122,7 @@ namespace Harlowe.Tests.Twee
     {
       // Twee 3 tags can't contain whitespace; refuse rather than silently
       // splitting the tag in two on round-trip.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(new HarlowePassage
       {
         Name = "First",
@@ -229,7 +229,7 @@ namespace Harlowe.Tests.Twee
       // A content passage sharing the reserved StoryData name must not be
       // serialized under :: StoryData — the synthetic metadata block already
       // represents it, and a duplicate block fails to re-parse as JSON on reload.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.Ifid = "ABC-123";
       story.Format = "Harlowe";
       story.AddPassage(new HarlowePassage { Name = "First", Body = "hello" });
@@ -250,7 +250,7 @@ namespace Harlowe.Tests.Twee
     {
       // A content passage named StoryTitle must not be emitted under a second
       // :: StoryTitle header, which on reload would clobber the real title.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.StoryName = "Real Title";
       story.AddPassage(new HarlowePassage { Name = "First", Body = "hello" });
       story.AddPassage(new HarlowePassage { Name = "StoryTitle", Body = "passage prose" });
@@ -269,7 +269,7 @@ namespace Harlowe.Tests.Twee
       // A StoryName whose continuation line starts with :: must not be read back
       // as a new passage header. The writer escapes it (\::) like a passage body
       // and the reader strips the escape, so the title survives intact.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.StoryName = "Chapter 1\n:: The End";
       story.AddPassage(new HarlowePassage { Name = "First", Body = "hello" });
 
@@ -355,7 +355,7 @@ namespace Harlowe.Tests.Twee
       // AddPassage recovers from parse errors via the same MakeParseErrorAst
       // path the loaders use, so its broken passages also need the RawBody
       // round-trip preservation.
-      var story = new Harlowe { StoryName = "T" };
+      var story = new HarloweStory { StoryName = "T" };
       story.AddPassage(new HarlowePassage { Name = "Bad", Body = "(set: $x to )" });
       story.GetPassage("Bad").IsDirty = true;
 
@@ -411,7 +411,7 @@ namespace Harlowe.Tests.Twee
       // A programmatically built passage that hands AddPassage a Body that
       // fails to parse: HydratePassageFromBody routes through MakeParseErrorAst,
       // which stashes the source on ParseErrorNode.OriginalSource.
-      var donor = new Harlowe();
+      var donor = new HarloweStory();
       donor.AddPassage(new HarlowePassage { Name = "Bad", Body = "(set: $x to )" });
       var ast = donor.GetPassage("Bad").Ast;
       Assert.True(Ast.Body.ParseErrorNode.IsWhollyParseError(ast));
@@ -419,7 +419,7 @@ namespace Harlowe.Tests.Twee
 
       // A passage carrying that AST but no RawBody (built by hand) still
       // round-trips when dirty: MarkupPrinter falls back to OriginalSource.
-      var story = new Harlowe { StoryName = "T" };
+      var story = new HarloweStory { StoryName = "T" };
       story.AddPassage(new HarlowePassage { Name = "Bad", Ast = ast, IsDirty = true });
       string output = Write(story);
       Assert.Contains("(set: $x to )", output);
@@ -490,7 +490,7 @@ namespace Harlowe.Tests.Twee
       // Cross-format check: load the testFile.html fixture, write it as Twee,
       // re-read it, verify the passage names round-trip.
       string html = File.ReadAllText(Path.Combine("TestFiles", "testFile.html"));
-      var story = new Harlowe(html);
+      var story = new HarloweStory(html);
       string twee = Write(story);
       var roundTripped = Read(twee);
       Assert.Equal(story.PassageCount, roundTripped.PassageCount);
@@ -502,7 +502,7 @@ namespace Harlowe.Tests.Twee
     public void HtmlLoaded_WriteAsTwee_PreservesStoryName()
     {
       string html = File.ReadAllText(Path.Combine("TestFiles", "testFile.html"));
-      var story = new Harlowe(html);
+      var story = new HarloweStory(html);
       string twee = Write(story);
       var roundTripped = Read(twee);
       Assert.Equal(story.StoryName, roundTripped.StoryName);
@@ -512,7 +512,7 @@ namespace Harlowe.Tests.Twee
     public void HtmlLoaded_WriteAsTwee_PreservesFormatMetadata()
     {
       string html = File.ReadAllText(Path.Combine("TestFiles", "testFile.html"));
-      var story = new Harlowe(html);
+      var story = new HarloweStory(html);
       string twee = Write(story);
       var roundTripped = Read(twee);
       Assert.Equal(story.Ifid, roundTripped.Ifid);
@@ -527,7 +527,7 @@ namespace Harlowe.Tests.Twee
       // (HTML uses Twine-assigned pids; Twee re-synthesizes them) but the
       // start passage *name* should stay stable.
       string html = File.ReadAllText(Path.Combine("TestFiles", "testFile.html"));
-      var story = new Harlowe(html);
+      var story = new HarloweStory(html);
       string twee = Write(story);
       var roundTripped = Read(twee);
       Assert.Equal(story.GetStartPassage().Name, roundTripped.GetStartPassage().Name);

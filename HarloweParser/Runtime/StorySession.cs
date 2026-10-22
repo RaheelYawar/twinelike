@@ -6,7 +6,7 @@ using Harlowe.Runtime.Macros;
 namespace Harlowe.Runtime
 {
   /// <summary>
-  /// Top-level engine surface. Wraps a parsed <see cref="Harlowe"/> story and
+  /// Top-level engine surface. Wraps a parsed <see cref="HarloweStory"/> story and
   /// drives it through the runtime layer: variable store, macro registry, body
   /// renderer, and visit tracking. Implements <see cref="IEvaluationContext"/>
   /// so the evaluator can resolve <c>time</c>, <c>visits</c>, and
@@ -47,7 +47,7 @@ namespace Harlowe.Runtime
   /// </summary>
   public class StorySession : IEvaluationContext
   {
-    private readonly Harlowe _story;
+    private readonly HarloweStory _story;
     private readonly MacroRegistry _registry;
     private readonly Saving.ISaveStorage _storage;
     private readonly HarloweVariableStore _store;
@@ -159,29 +159,29 @@ namespace Harlowe.Runtime
 
     /// <summary>
     /// Builds a session from a parsed story. The session starts at the passage
-    /// whose pid matches <see cref="Harlowe.StartNode"/>; call
+    /// whose pid matches <see cref="HarloweStory.StartNode"/>; call
     /// <see cref="Render"/> to obtain its content.
     /// </summary>
-    public StorySession(Harlowe story) : this(story, new MulberryRng(), new Saving.InMemorySaveStorage()) { }
+    public StorySession(HarloweStory story) : this(story, new MulberryRng(), new Saving.InMemorySaveStorage()) { }
 
     /// <summary>
     /// Builds a session with a fixed RNG seed, so <c>(random:)</c>/<c>(either:)</c>
     /// produce a reproducible sequence across the whole session — useful for
     /// tests and replays.
     /// </summary>
-    public StorySession(Harlowe story, int seed) : this(story, new MulberryRng(seed), new Saving.InMemorySaveStorage()) { }
+    public StorySession(HarloweStory story, int seed) : this(story, new MulberryRng(seed), new Saving.InMemorySaveStorage()) { }
 
     /// <summary>
     /// Builds a session with a host-supplied save backend. Pass <c>null</c> to
     /// disable saving (<c>(save-game:)</c> then returns false); the storage-free
     /// constructors use a session-lifetime <see cref="Saving.InMemorySaveStorage"/>.
     /// </summary>
-    public StorySession(Harlowe story, Saving.ISaveStorage storage) : this(story, new MulberryRng(), storage) { }
+    public StorySession(HarloweStory story, Saving.ISaveStorage storage) : this(story, new MulberryRng(), storage) { }
 
     /// <summary>Seeded session with a host-supplied save backend (pass null to disable saving).</summary>
-    public StorySession(Harlowe story, int seed, Saving.ISaveStorage storage) : this(story, new MulberryRng(seed), storage) { }
+    public StorySession(HarloweStory story, int seed, Saving.ISaveStorage storage) : this(story, new MulberryRng(seed), storage) { }
 
-    private StorySession(Harlowe story, IRng rng, Saving.ISaveStorage storage)
+    private StorySession(HarloweStory story, IRng rng, Saving.ISaveStorage storage)
     {
       _story = story;
       _storage = storage;

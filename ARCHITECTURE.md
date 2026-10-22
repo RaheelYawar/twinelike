@@ -47,7 +47,7 @@ A story enters from one of two formats, gets parsed once into a passage AST, the
 
 ```csharp
 // Load a story
-var story = new Harlowe(htmlText);                 // Twine 2 HTML export
+var story = new HarloweStory(htmlText);                 // Twine 2 HTML export
 var story = new TweeReader().Read(tweeText);       // Twee 3 source
 
 // Inspect / edit
@@ -70,7 +70,7 @@ session.LoadGame("slot A");
 string twee = new TweeWriter().Write(story);
 ```
 
-`StorySession` is the surface most consumers want. `Harlowe` itself is the static story model (passages + metadata); the session adds runtime state (current passage, variable store, the undo/redo timeline, visit trails).
+`StorySession` is the surface most consumers want. `HarloweStory` itself is the static story model (passages + metadata); the session adds runtime state (current passage, variable store, the undo/redo timeline, visit trails).
 
 ## The IRenderOutput contract
 
@@ -130,7 +130,7 @@ The session runs on a `Moment[]` timeline — completed turns behind, the live t
 
 ## Editing the story object model
 
-`Harlowe` exposes mutation: `AddPassage`, `RemovePassage`, `RenamePassage` (re-keys the lookup; direct `passage.Name = "..."` mutation is a silent footgun), public setters for metadata. Edits flip `HarlowePassage.IsDirty`; `TweeWriter` uses that flag to decide whether to emit `RawBody` verbatim (clean) or re-canonicalize via `MarkupPrinter` (dirty). Cross-tool diffs through Twee stay scoped to actually-edited passages.
+`HarloweStory` exposes mutation: `AddPassage`, `RemovePassage`, `RenamePassage` (re-keys the lookup; direct `passage.Name = "..."` mutation is a silent footgun), public setters for metadata. Edits flip `HarlowePassage.IsDirty`; `TweeWriter` uses that flag to decide whether to emit `RawBody` verbatim (clean) or re-canonicalize via `MarkupPrinter` (dirty). Cross-tool diffs through Twee stay scoped to actually-edited passages.
 
 ### Load-time diagnostics
 

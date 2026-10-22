@@ -124,7 +124,7 @@ namespace Harlowe
 
     /// <summary>
     /// The newest major this type reproduces. Read by
-    /// <see cref="Harlowe.GetCompatibilityNotices"/> to tell "from a newer
+    /// <see cref="HarloweStory.GetCompatibilityNotices"/> to tell "from a newer
     /// major than we implement" apart from "a major we implement".
     /// </summary>
     internal const int LatestKnownMajor = 4;

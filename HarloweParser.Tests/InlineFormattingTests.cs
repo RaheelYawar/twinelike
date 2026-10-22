@@ -333,7 +333,7 @@ namespace Harlowe.Tests
     {
       // Exercises BranchCollector.Visit(FormatNode) through the public loader:
       // a link wrapped in '' must still surface in the passage's Branches.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(new HarlowePassage { Name = "P", Body = "''[[Go->Prose]]''" });
       var p = story.GetPassage("P");
       Assert.Single(p.Branches);

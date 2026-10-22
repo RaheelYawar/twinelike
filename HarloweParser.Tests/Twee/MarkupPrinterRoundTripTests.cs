@@ -253,7 +253,7 @@ namespace Harlowe.Tests.Twee
       // to a string that re-parses to itself. This is the most realistic
       // coverage we have — a real Twine 2 export with the full shape mix.
       string html = File.ReadAllText(Path.Combine("TestFiles", "testFile.html"));
-      var story = new Harlowe(html);
+      var story = new HarloweStory(html);
       var printer = new MarkupPrinter();
       foreach (var passageName in new[] {
         "Disclaimer", "FirstPassage", "Travelling Companion - Vivek",

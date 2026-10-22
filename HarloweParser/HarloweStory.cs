@@ -9,7 +9,7 @@ using HapHtmlNode = HtmlAgilityPack.HtmlNode;
 
 namespace Harlowe
 {
-  public class Harlowe
+  public class HarloweStory
   {
     private Dictionary<string, HarlowePassage> _passages;
 
@@ -60,7 +60,7 @@ namespace Harlowe
     /// tokenized by the time either can be assigned; a metadata assignment
     /// silently re-tokenizing the whole story would be more surprising than
     /// the stale rule. To load <em>under</em> a profile, pass it to the loader
-    /// — <see cref="Harlowe(string, HarloweProfile)"/> or
+    /// — <see cref="HarloweStory(string,Harlowe.HarloweProfile)"/> or
     /// <see cref="Twee.TweeReader(HarloweProfile)"/> — which is the only way
     /// to affect lexical switches. Passages added or re-parsed after the
     /// assignment do follow it.</para>
@@ -95,20 +95,20 @@ namespace Harlowe
     /// <see cref="HarlowePassage.Ast"/> tree; <see cref="HarlowePassage.Body"/>
     /// and <see cref="HarlowePassage.Branches"/> are derived views over the AST.
     /// </summary>
-    public Harlowe(string htmlText) : this(htmlText, null) { }
+    public HarloweStory(string htmlText) : this(htmlText, null) { }
 
     /// <summary>
     /// Parses a Twine HTML export under an explicit compatibility profile,
     /// overriding the major the export's <c>format-version</c> declares. Null
     /// follows the declaration, making this identical to
-    /// <see cref="Harlowe(string)"/>.
+    /// <see cref="HarloweStory(string)"/>.
     ///
     /// <para>The override belongs on the loader rather than on
     /// <see cref="Profile"/> because some switches are lexical: by the time a
     /// caller could assign the property, every passage body has been
     /// tokenized. This is the only entry point that can affect them.</para>
     /// </summary>
-    public Harlowe(string htmlText, HarloweProfile profile)
+    public HarloweStory(string htmlText, HarloweProfile profile)
     {
       // Before any parsing: Parse() lexes passage bodies under Profile, and a
       // lexical switch cannot be applied retroactively.
@@ -139,7 +139,7 @@ namespace Harlowe
     /// defaults; populate the story by setting fields and calling
     /// <see cref="AddPassage"/>.
     /// </summary>
-    public Harlowe()
+    public HarloweStory()
     {
       _passages = new Dictionary<string, HarlowePassage>();
       _passageOrder = new List<string>();
@@ -809,7 +809,7 @@ namespace Harlowe
       _passageOrder = new List<string>();
       // HtmlAgilityPack returns null from SelectNodes when no nodes match. A
       // story with zero passages is structurally valid (matches the empty
-      // story from `new Harlowe()`); treat it as such instead of throwing.
+      // story from `new HarloweStory()`); treat it as such instead of throwing.
       if (passageNodes == null) return;
 
       // Lexes under the story's profile: ParseStoryData ran first, so

@@ -6,7 +6,7 @@ namespace Harlowe.Tests.Twee
 {
   public class TweeReaderTests
   {
-    private static Harlowe Read(string source) => new TweeReader().Read(source);
+    private static HarloweStory Read(string source) => new TweeReader().Read(source);
 
     // U+FEFF BOM, written via code point so it stays visible in source.
     private const char Bom = (char)0xFEFF;

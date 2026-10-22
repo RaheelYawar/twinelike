@@ -8,7 +8,7 @@ using Harlowe.Tokens;
 namespace Harlowe.Twee
 {
   /// <summary>
-  /// Parses Twee 3 source into a <see cref="Harlowe"/> story. Twee is the
+  /// Parses Twee 3 source into a <see cref="HarloweStory"/> story. Twee is the
   /// plain-text counterpart to the HTML export Twine 2 emits — passages are
   /// separated by <c>::</c> headers at column 0, and a special
   /// <c>:: StoryData</c> passage carries the metadata that <c>tw-storydata</c>
@@ -32,7 +32,7 @@ namespace Harlowe.Twee
   /// for Twee-loaded stories because the Twee 3 spec doesn't carry it.</para>
   ///
   /// <para>Twee passages don't have pids — Twine assigns them only at HTML
-  /// export time. To keep <see cref="Harlowe.GetStartPassage"/> and
+  /// export time. To keep <see cref="HarloweStory.GetStartPassage"/> and
   /// <see cref="HarlowePassage.Pid"/> usable, the reader synthesizes
   /// sequential pids ("1", "2", …) in source order and resolves
   /// StoryData's <c>start</c> name to the matching synthesized pid.</para>
@@ -49,7 +49,7 @@ namespace Harlowe.Twee
     /// major their <c>:: StoryData</c> declares. Null follows the declaration.
     ///
     /// <para>The override belongs on the reader rather than on
-    /// <see cref="Harlowe.Profile"/> because some switches are lexical: by the
+    /// <see cref="HarloweStory.Profile"/> because some switches are lexical: by the
     /// time <see cref="Read"/> returns, every passage body has been tokenized.
     /// This is the only entry point that can affect them.</para>
     /// </summary>
@@ -60,9 +60,9 @@ namespace Harlowe.Twee
 
     /// <summary>
     /// Parse <paramref name="source"/> as Twee 3 text and return a populated
-    /// <see cref="Harlowe"/>. A null or empty input yields an empty story
+    /// <see cref="HarloweStory"/>. A null or empty input yields an empty story
     /// (no passages, default metadata) rather than throwing — same forgiving
-    /// shape as <see cref="Harlowe.GetPassage"/>. A leading UTF-8 BOM
+    /// shape as <see cref="HarloweStory.GetPassage"/>. A leading UTF-8 BOM
     /// (U+FEFF) is stripped: callers that decode bytes with
     /// <c>Encoding.UTF8.GetString</c> (rather than BOM-aware
     /// <c>File.ReadAllText</c>) leave it on the string, where it would
@@ -75,9 +75,9 @@ namespace Harlowe.Twee
     /// tokenized under — read in source order, a trailing metadata block would
     /// arrive after the passages it governs.</para>
     /// </summary>
-    public Harlowe Read(string source)
+    public HarloweStory Read(string source)
     {
-      var story = new Harlowe();
+      var story = new HarloweStory();
       if (string.IsNullOrEmpty(source)) return story;
       if (source[0] == '\uFEFF') source = source.Substring(1);
 
@@ -136,13 +136,13 @@ namespace Harlowe.Twee
           // load. The synthetic AST renders the parse error in place of the
           // passage's prose at render time. RawBody is preserved verbatim so
           // a subsequent TweeWriter round-trip emits the original source.
-          ast = Harlowe.MakeParseErrorAst(block.Name, ex, block.Body);
+          ast = HarloweStory.MakeParseErrorAst(block.Name, ex, block.Body);
         }
         // The body parser also recovers per-node and may leave ParseErrorNodes
         // alongside successfully-parsed children — decorate those with the
         // passage name so the rendered error names the broken passage.
-        Harlowe.DecorateParseErrors(ast, block.Name);
-        Harlowe.EnsureWholeStubOriginalSource(ast, block.Body);
+        HarloweStory.DecorateParseErrors(ast, block.Name);
+        HarloweStory.EnsureWholeStubOriginalSource(ast, block.Body);
 
         var passage = new HarlowePassage
         {
@@ -411,14 +411,14 @@ namespace Harlowe.Twee
     /// <summary>
     /// Reads the JSON body of a <c>:: StoryData</c> passage and copies the
     /// recognised fields onto <paramref name="story"/>. The full parsed
-    /// dictionary is also stashed on <see cref="Harlowe.StoryDataExtras"/> so
+    /// dictionary is also stashed on <see cref="HarloweStory.StoryDataExtras"/> so
     /// keys we don't surface as typed properties (<c>tag-colors</c>,
     /// <c>zoom</c>, anything Twine adds later) round-trip through the writer
     /// without code changes. Returns the value of the <c>start</c> field so
     /// the caller can resolve it to a synthesized pid once all passages are
     /// loaded.
     /// </summary>
-    private static string ApplyStoryData(Harlowe story, string json)
+    private static string ApplyStoryData(HarloweStory story, string json)
     {
       if (string.IsNullOrWhiteSpace(json)) return null;
       var parsed = new JsonReader().Read(json);
@@ -445,7 +445,7 @@ namespace Harlowe.Twee
     /// read drops that silently, and the story loads unable to start with no
     /// diagnostic anywhere. Coerced names resolve through the same
     /// passage-lookup gate as spec-shaped ones (an unresolvable name leaves
-    /// <see cref="Harlowe.StartNode"/> untouched either way); a structured
+    /// <see cref="HarloweStory.StartNode"/> untouched either way); a structured
     /// value (object/array) can't be a passage name and stays unresolved.
     /// Number formatting mirrors <see cref="JsonWriter"/>'s: whole values
     /// render without a trailing <c>.0</c>.

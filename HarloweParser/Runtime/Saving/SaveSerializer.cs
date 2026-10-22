@@ -172,7 +172,7 @@ namespace Harlowe.Runtime.Saving
     /// the blob's last moment is the <see cref="DeserialiseResult.Present"/> and the
     /// rest are <see cref="DeserialiseResult.Past"/>.
     /// </summary>
-    public static DeserialiseResult DeserialiseTimeline(string blob, Harlowe story, MacroRegistry registry, MacroContext context)
+    public static DeserialiseResult DeserialiseTimeline(string blob, HarloweStory story, MacroRegistry registry, MacroContext context)
     {
       if (blob == null) return Fail("empty save data");
       if (story == null) return Fail("no story to load into");
@@ -209,7 +209,7 @@ namespace Harlowe.Runtime.Saving
     }
 
     /// <summary>One blob moment → a <see cref="Moment"/>, or null with <paramref name="error"/> set on any validation/value failure.</summary>
-    private static Moment DeserialiseMoment(object raw, Harlowe story, MacroRegistry registry, MacroContext context, out string error)
+    private static Moment DeserialiseMoment(object raw, HarloweStory story, MacroRegistry registry, MacroContext context, out string error)
     {
       error = null;
 

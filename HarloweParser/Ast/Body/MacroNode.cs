@@ -40,7 +40,7 @@ namespace Harlowe.Ast.Body
     /// <summary>
     /// 1-based line of the macro's name token in the passage body, or <c>0</c>
     /// when unknown (a hand-built AST). Carried so a diagnostic can point the
-    /// author at the call — see <see cref="Harlowe.GetBrokenLinks"/>.
+    /// author at the call — see <see cref="HarloweStory.GetBrokenLinks"/>.
     /// </summary>
     public int Line;
 

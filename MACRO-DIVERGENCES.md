@@ -46,7 +46,7 @@ bug is closed structurally: there is nothing for a host to make clickable.
 view with an error appended, before touching a single field — so a host passing an
 arbitrary string, or clicking a link whose target was removed through the editing
 API between render and click, still can't get a nonexistent name into the timeline
-and from there into an unloadable save. `Harlowe.GetBrokenLinks()` was added
+and from there into an unloadable save. `HarloweStory.GetBrokenLinks()` was added
 alongside as the authoring/CI check (it reads the `Branches` inventory
 `BranchCollector` already derives, so it costs an index lookup).
 
