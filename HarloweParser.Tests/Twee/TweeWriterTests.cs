@@ -410,21 +410,17 @@ namespace Harlowe.Tests.Twee
     {
       // A programmatically built passage that hands AddPassage a Body that
       // fails to parse: HydratePassageFromBody routes through MakeParseErrorAst,
-      // which stashes the source on ParseErrorNode.OriginalSource. RawBody is
-      // populated from passage.Body. With IsDirty=true, MarkupPrinter falls
-      // back to OriginalSource on the node so the body still round-trips
-      // even if RawBody were stripped.
-      var story = new Harlowe { StoryName = "T" };
-      story.AddPassage(new HarlowePassage { Name = "Bad", Body = "(set: $x to )" });
-      var bad = story.GetPassage("Bad");
-      Assert.True(Ast.Body.ParseErrorNode.IsWhollyParseError(bad.Ast));
-      var err = (Ast.Body.ParseErrorNode)bad.Ast.Children[0];
-      Assert.Equal("(set: $x to )", err.OriginalSource);
+      // which stashes the source on ParseErrorNode.OriginalSource.
+      var donor = new Harlowe();
+      donor.AddPassage(new HarlowePassage { Name = "Bad", Body = "(set: $x to )" });
+      var ast = donor.GetPassage("Bad").Ast;
+      Assert.True(Ast.Body.ParseErrorNode.IsWhollyParseError(ast));
+      Assert.Equal("(set: $x to )", ((Ast.Body.ParseErrorNode)ast.Children[0]).OriginalSource);
 
-      // Even if a consumer cleared RawBody, MarkupPrinter still emits the
-      // captured source — round-trip survives.
-      bad.RawBody = null;
-      bad.IsDirty = true;
+      // A passage carrying that AST but no RawBody (built by hand) still
+      // round-trips when dirty: MarkupPrinter falls back to OriginalSource.
+      var story = new Harlowe { StoryName = "T" };
+      story.AddPassage(new HarlowePassage { Name = "Bad", Ast = ast, IsDirty = true });
       string output = Write(story);
       Assert.Contains("(set: $x to )", output);
     }

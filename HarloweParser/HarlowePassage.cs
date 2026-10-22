@@ -24,8 +24,10 @@ namespace Harlowe
     /// <summary>
     /// The passage's source body text. An alias of <see cref="RawBody"/>: the
     /// two are one underlying string, so editing either is reflected by the
-    /// other and by Twee write-out. Kept as the consumer-facing name and the
-    /// input for the from-scratch <see cref="Harlowe.AddPassage"/> shorthand.
+    /// other, by Twee write-out, and — once the passage has been added to a
+    /// story — by <see cref="Ast"/> and <see cref="Branches"/>, which are
+    /// re-parsed on assignment. Kept as the consumer-facing name and the input
+    /// for the from-scratch <see cref="Harlowe.AddPassage"/> shorthand.
     /// </summary>
     public string Body { get => RawBody; set => RawBody = value; }
 
@@ -58,8 +60,28 @@ namespace Harlowe
     /// <see cref="IsDirty"/> to re-emit from the <see cref="Ast"/> instead).
     /// Populated by the HTML constructor (post HTML-entity decoding) and
     /// <see cref="Twee.TweeReader"/>. <see cref="Body"/> is an alias.
+    ///
+    /// <para>Assigning it on a passage that has been added to a story
+    /// re-parses <see cref="Ast"/> and <see cref="Branches"/> under that
+    /// story's profile, so the runtime and the load-time reports never play or
+    /// describe text other than what the writer saves. That holds after
+    /// <see cref="Harlowe.RemovePassage"/> too, so a passage edited while out
+    /// of the story is in step when added back.</para>
     /// </summary>
-    public string RawBody;
+    public string RawBody
+    {
+      get => _rawBody;
+      set
+      {
+        _rawBody = value;
+        Story?.ReparseBody(this);
+      }
+    }
+
+    private string _rawBody;
+
+    /// <summary>The story that last took this passage in; null until it is added. Its profile governs re-parses.</summary>
+    internal Harlowe Story;
 
     /// <summary>
     /// The raw editor metadata blob from a Twee passage header — the

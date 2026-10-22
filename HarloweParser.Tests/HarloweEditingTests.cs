@@ -184,6 +184,52 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void Body_EditAfterAdd_ReparsesSoRuntimeAndReportsSeeTheEdit()
+    {
+      // Before, only the writer saw an edit: the runtime kept playing the old
+      // AST, and Branches and both load-time reports described the old text.
+      var story = Read(":: Start\nold [[A]]\n\n:: A\na\n\n:: B\nb");
+      story.StartNode = story.GetPassage("Start").Pid;
+      var start = story.GetPassage("Start");
+
+      start.Body = "new [[B]] [[Gone]] (set: $x to 1 eq 1)";
+
+      Assert.Equal(2, start.Branches.Count);
+      Assert.Equal("B", start.Branches[0].Name);
+      Assert.Equal("Gone", Assert.Single(story.GetBrokenLinks()).Target);
+      Assert.Equal("Start", Assert.Single(story.GetParseErrors()).PassageName);
+      Assert.StartsWith("new", new StorySession(story).Render().Text);
+    }
+
+    [Fact]
+    public void RawBody_EditAfterAdd_ReparsesUnderTheStorysProfile()
+    {
+      // Under Harlowe 3 `--` is prose, not a comment: the re-parse must follow
+      // the story's declared major exactly as the loader did.
+      var story = Read(":: StoryData\n{\"format-version\":\"3.3.9\"}\n\n:: Start\nx");
+      story.StartNode = story.GetPassage("Start").Pid;
+
+      story.GetPassage("Start").RawBody = "wait -- what";
+
+      Assert.Equal("wait -- what", new StorySession(story).Render().Text);
+    }
+
+    [Fact]
+    public void Body_EditWhileRemoved_IsInStepWhenAddedBack()
+    {
+      // Cut, edit, paste: the passage keeps re-parsing while out of the story,
+      // so re-adding it can't resurrect the AST of the text it had before.
+      var story = Read(":: Start\nold\n\n:: Other\nhi");
+      var start = story.GetPassage("Start");
+      Assert.True(story.RemovePassage("Start"));
+      start.Body = "new";
+      story.AddPassage(start);
+      story.StartNode = start.Pid;
+
+      Assert.Equal("new", new StorySession(story).Render().Text);
+    }
+
+    [Fact]
     public void AddPassage_HydrationDoesNotOverwritePrebuiltAst()
     {
       // Test fixtures (and the HTML/Twee loaders) construct the AST by hand and

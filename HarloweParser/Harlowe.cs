@@ -187,6 +187,18 @@ namespace Harlowe
       HydratePassageFromBody(passage);
       _passages.Add(passage.Name, passage); // throws on duplicate name; list stays clean
       _passageOrder.Add(passage.Name);
+      passage.Story = this;
+    }
+
+    /// <summary>
+    /// Re-parses a passage of this story after its source was assigned, keeping
+    /// <see cref="HarlowePassage.Ast"/> and <see cref="HarlowePassage.Branches"/>
+    /// in step with <see cref="HarlowePassage.RawBody"/>.
+    /// </summary>
+    internal void ReparseBody(HarlowePassage passage)
+    {
+      passage.Ast = ParseBodyToAst(passage.Name, passage.RawBody);
+      passage.Branches = BranchCollector.Collect(passage.Ast);
     }
 
     /// <summary>
@@ -651,9 +663,7 @@ namespace Harlowe
         updated = rightward.Replace(updated, "[[${1}${2}" + replacement + "]]");
         updated = leftArrow.Replace(updated, "[[" + replacement + "$1]]");
         if (updated == body) continue;
-        passage.RawBody = updated;
-        passage.Ast = ParseBodyToAst(passage.Name, updated);
-        passage.Branches = BranchCollector.Collect(passage.Ast);
+        passage.RawBody = updated;   // re-parses Ast + Branches
       }
     }
 
@@ -876,6 +886,7 @@ namespace Harlowe
             $"duplicate passage name '{passage.Name}'", -1, -1, passage.Name, ex);
         }
         _passageOrder.Add(passage.Name);
+        passage.Story = this;
       }
     }
 
