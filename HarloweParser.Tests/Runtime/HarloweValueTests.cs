@@ -2,6 +2,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
 using Harlowe.Runtime;
+using Harlowe.Runtime.Macros;
+using Harlowe.Runtime.Saving;
 using Xunit;
 
 namespace Harlowe.Tests.Runtime
@@ -188,6 +190,60 @@ namespace Harlowe.Tests.Runtime
       {
         Thread.CurrentThread.CurrentCulture = prior;
       }
+    }
+
+    // Numbers display as JavaScript's Number.prototype.toString prints them,
+    // since that is what reference Harlowe shows. .NET's own formatting differs
+    // in where it switches to exponent form and how it writes the exponent.
+    [Theory]
+    [InlineData(100.0, "100")]
+    [InlineData(123.456, "123.456")]
+    [InlineData(-5.0, "-5")]
+    [InlineData(1e15, "1000000000000000")]
+    [InlineData(1e16, "10000000000000000")]
+    [InlineData(123456789012345680000.0, "123456789012345680000")]
+    [InlineData(1e21, "1e+21")]
+    [InlineData(-1e21, "-1e+21")]
+    [InlineData(1.5e21, "1.5e+21")]
+    [InlineData(1.7976931348623157e308, "1.7976931348623157e+308")]
+    [InlineData(0.00001, "0.00001")]
+    [InlineData(0.000001, "0.000001")]
+    [InlineData(1e-7, "1e-7")]
+    [InlineData(1.5e-7, "1.5e-7")]
+    [InlineData(0.30000000000000004, "0.30000000000000004")]
+    [InlineData(0.7999999999999999, "0.7999999999999999")]   // .NET Framework's "R" gives 17 digits
+    public void FormatNumber_MatchesJavaScriptNumberToString(double value, string expected)
+      => Assert.Equal(expected, HarloweValue.FormatNumber(value));
+
+    [Fact]
+    public void FormatNumber_NegativeZero_PrintsAsZero()
+    {
+      // .NET Core 3.0+ prints "-0"; JavaScript and .NET Framework print "0".
+      double negativeZero = -1.0 * 0.0;
+      Assert.Equal(double.NegativeInfinity, 1 / negativeZero);
+      Assert.Equal("0", HarloweValue.FormatNumber(negativeZero));
+    }
+
+    [Fact]
+    public void FormatNumber_NonFinite_UsesJavaScriptNames()
+    {
+      Assert.Equal("NaN", HarloweValue.FormatNumber(double.NaN));
+      Assert.Equal("Infinity", HarloweValue.FormatNumber(double.PositiveInfinity));
+      Assert.Equal("-Infinity", HarloweValue.FormatNumber(double.NegativeInfinity));
+    }
+
+    [Theory]
+    [InlineData(1e21)]
+    [InlineData(1e-7)]
+    [InlineData(1.5e-7)]
+    [InlineData(1e16)]
+    public void ToSource_ExponentForms_ReloadToTheSameNumber(double value)
+    {
+      var registry = new MacroRegistry();
+      StandardMacros.RegisterAll(registry);
+      var ctx = new MacroContext { Store = new HarloweVariableStore(), Invoker = registry };
+      var back = SaveSerializer.Deserialise(HarloweValue.OfNumber(value).ToSource(), registry, ctx);
+      Assert.Equal(value, back.AsNumber);
     }
 
     [Fact]

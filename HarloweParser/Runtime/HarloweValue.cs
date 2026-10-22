@@ -195,20 +195,88 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
-    /// Canonical number → string for both value display and Twee
-    /// reserialization: the shortest representation in invariant culture that
-    /// re-parses to the same <see cref="double"/>, so a parsed literal survives
-    /// a print/re-parse cycle. The "R" specifier is shortest but can
-    /// occasionally under-round on .NET Framework, so we verify the round trip
-    /// and fall back to "G17" (which always round-trips). Exponent forms like
-    /// <c>1E-07</c> are fine — the tokenizer's number rule accepts exponents.
+    /// Canonical number → string for value display, save source, and Twee
+    /// reserialization, matching JavaScript's <c>Number.prototype.toString</c>
+    /// — what reference Harlowe prints. The digits are the shortest that
+    /// re-parse to the same <see cref="double"/>; the layout follows
+    /// ECMAScript's <c>Number::toString</c>: plain digits from 1e-6 up to 1e21,
+    /// otherwise an exponent form like <c>1e+21</c> or <c>1.5e-7</c>, and
+    /// <c>0</c> for negative zero. .NET only supplies the digits: its own
+    /// layout switches to exponents at 1e15 (.NET Framework) or 1e17 (.NET 8)
+    /// and below 1e-4, writes them <c>1E-05</c>, and prints <c>-0</c> on .NET
+    /// Core 3.0+, so the same story would display differently per host. Every
+    /// form re-lexes: the tokenizer's number rule accepts exponents.
     /// </summary>
     public static string FormatNumber(double d)
     {
-      string s = d.ToString("R", CultureInfo.InvariantCulture);
-      if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var back) && back.Equals(d))
-        return s;
-      return d.ToString("G17", CultureInfo.InvariantCulture);
+      if (double.IsNaN(d)) return "NaN";
+      if (double.IsInfinity(d)) return d > 0 ? "Infinity" : "-Infinity";
+      if (d == 0) return "0";
+      var ic = CultureInfo.InvariantCulture;
+      // Whole numbers below 1e15 (exact in a long) are the common case.
+      if (Math.Abs(d) < 1e15 && d == Math.Floor(d)) return ((long)d).ToString(ic);
+
+      // "R" is shortest on .NET Core 3.0+, but on .NET Framework it is G15
+      // falling back to G17 and can under-round, so a 17-digit or
+      // non-round-tripping answer gets a 16-digit retry.
+      string s = d.ToString("R", ic);
+      SplitDigits(s, out bool negative, out string digits, out int point);
+      if (digits.Length == 17 || !RoundTrips(s, d))
+      {
+        string g16 = d.ToString("G16", ic);
+        s = RoundTrips(g16, d) ? g16 : d.ToString("G17", ic);
+        SplitDigits(s, out negative, out digits, out point);
+      }
+
+      // ECMAScript Number::toString, with the value as 0.digits × 10^point.
+      int k = digits.Length, n = point;
+      var sb = new StringBuilder(k + 8);
+      if (negative) sb.Append('-');
+      if (k <= n && n <= 21)
+        sb.Append(digits).Append('0', n - k);
+      else if (0 < n && n <= 21)
+        sb.Append(digits, 0, n).Append('.').Append(digits, n, k - n);
+      else if (-6 < n && n <= 0)
+        sb.Append("0.").Append('0', -n).Append(digits);
+      else
+      {
+        sb.Append(digits[0]);
+        if (k > 1) sb.Append('.').Append(digits, 1, k - 1);
+        int e = n - 1;
+        sb.Append('e').Append(e < 0 ? '-' : '+').Append((e < 0 ? -e : e).ToString(ic));
+      }
+      return sb.ToString();
+    }
+
+    private static bool RoundTrips(string s, double d)
+      => double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var back) && back.Equals(d);
+
+    /// <summary>
+    /// Splits a non-zero invariant-culture "R"/"G" string into its sign, its
+    /// significant digits (no leading or trailing zeros), and the decimal
+    /// point's position, so the value is 0.digits × 10^point.
+    /// </summary>
+    private static void SplitDigits(string s, out bool negative, out string digits, out int point)
+    {
+      negative = s[0] == '-';
+      int e = s.IndexOf('E');
+      int end = e < 0 ? s.Length : e;
+      int exponent = e < 0 ? 0 : int.Parse(s.Substring(e + 1), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);
+      var all = new StringBuilder(end);
+      int intDigits = 0;
+      bool pastDot = false;
+      for (int i = negative ? 1 : 0; i < end; i++)
+      {
+        if (s[i] == '.') { pastDot = true; continue; }
+        all.Append(s[i]);
+        if (!pastDot) intDigits++;
+      }
+      int lead = 0;
+      while (lead < all.Length - 1 && all[lead] == '0') lead++;
+      int trail = all.Length;
+      while (trail > lead + 1 && all[trail - 1] == '0') trail--;
+      digits = all.ToString(lead, trail - lead);
+      point = intDigits + exponent - lead;
     }
 
     /// <summary>

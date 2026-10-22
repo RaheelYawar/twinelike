@@ -90,6 +90,15 @@ namespace Harlowe.Tests.Runtime
       Assert.Contains("HP: 10", h.Buf.Text);
     }
 
+    [Fact]
+    public void PrintedNumbers_ReadAsJavaScriptPrintsThem_OnEveryRuntime()
+    {
+      // Negative zero and the exponent thresholds used to vary per host
+      // runtime ("-0" on .NET 8, "1E+15" on .NET Framework).
+      var h = Render("(print: 0 * -1) (print: (ceil: -0.5)) (print: 1000000000000000) (print: 1 / 10000000)");
+      Assert.Equal("0 0 1000000000000000 1e-7", h.Buf.Text);
+    }
+
     // Property assignment ----------------------------------------------------
 
     [Fact]
