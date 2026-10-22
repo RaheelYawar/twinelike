@@ -108,6 +108,14 @@ namespace Harlowe.Runtime
     private Rendering.RenderRoot _liveRoot;
     private MacroContext _liveContext;
 
+    // Session-wide region-id counter. Each render's MacroContext starts from it
+    // and hands its advanced value back, so a region id is never reused within
+    // the session: a late event the host delivers for an earlier render's
+    // region (a mouseout fired as the old passage is torn down, a queued click
+    // after an undo) finds no handler instead of firing whatever now holds
+    // the same id.
+    private int _nextRegionIndex;
+
     private const int MaxGotoDepth = 20;
 
     // Default ceiling on (display:) recursion. A passage displaying itself
@@ -758,7 +766,8 @@ namespace Harlowe.Runtime
         Rng = _rng,
         // Author-facing semantics follow the story's declared major. Note the
         // save context (NewSaveContext) deliberately does NOT — see there.
-        Profile = _story.Profile
+        Profile = _story.Profile,
+        NextRegionIndex = _nextRegionIndex
       };
       ctx.RenderPassage = (name, output) => InlineDisplayPassage(name, output, ctx);
       ctx.PassageExists = name => _story.GetPassage(name) != null;
@@ -776,6 +785,8 @@ namespace Harlowe.Runtime
       var builder = new Rendering.RenderTreeBuilder();
       ctx.LiveRoot = builder.Root;
       new BodyRenderer(builder, _registry, ctx).Render(passage.Ast);
+      // Before any early return below: an abandoned render's ids stay spent.
+      _nextRegionIndex = ctx.NextRegionIndex;
 
       // A staged (load-game:) replaces the whole timeline and shows the loaded
       // passage. Install after the body render (not mid-macro), then render the
@@ -824,6 +835,7 @@ namespace Harlowe.Runtime
       // restylings layer outside the interactive wraps, matching prior nesting.
       InteractionPass.Update(builder.Root, ctx.Interactions, ctx.ClickHandlers, ctx);
       EnchantmentPass.Update(builder.Root, ctx.Enchantments, ctx);
+      _nextRegionIndex = ctx.NextRegionIndex;
 
       // Remember the live tree + context for DispatchEvent.
       _liveRoot = builder.Root;
@@ -979,6 +991,9 @@ namespace Harlowe.Runtime
       // guards that.
       InteractionPass.Update(_liveRoot, _liveContext.Interactions, _liveContext.ClickHandlers, _liveContext);
       EnchantmentPass.Update(_liveRoot, _liveContext.Enchantments, _liveContext);
+      // The deferred hook may have armed nested interactions; keep their ids
+      // spent before any navigation below starts a new render.
+      _nextRegionIndex = _liveContext.NextRegionIndex;
 
       // A (load-game:) inside the deferred hook installs its timeline now and
       // renders the loaded passage — the dispatch-time analogue of the staged-

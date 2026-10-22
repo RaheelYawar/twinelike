@@ -1474,6 +1474,39 @@ namespace Harlowe.Tests.Runtime
     // -----------------------------------------------------------------------
 
     [Fact]
+    public void DispatchEvent_StaleRegionFromAnEarlierPassage_IsANoOp()
+    {
+      // Region ids are unique across the session, not just per render: a late
+      // event for the previous passage's region (a mouseout fired as its
+      // elements are torn down) must not fire what the new passage armed.
+      var session = new StorySession(TwoPassages(
+        "|a>[first](click: ?a)[revealed in P1]",
+        "|b>[second](click: ?b)[revealed in P2]"));
+      string stale = FirstRegionId(session.Render());
+      var p2 = session.Goto("P2");
+      Assert.NotEqual(stale, FirstRegionId(p2));
+
+      Assert.DoesNotContain("revealed", session.DispatchEvent(stale).Text);
+      Assert.Contains("revealed in P2", session.DispatchEvent(FirstRegionId(p2)).Text);
+    }
+
+    [Fact]
+    public void DispatchEvent_StaleRegionFromBeforeAnUndo_IsANoOp()
+    {
+      var session = new StorySession(TwoPassages(
+        "|a>[first](click: ?a)[revealed]",
+        "second"));
+      string stale = FirstRegionId(session.Render());
+      session.Goto("P2");
+      session.Undo();
+      var fresh = session.Render();
+      Assert.NotEqual(stale, FirstRegionId(fresh));
+
+      Assert.DoesNotContain("revealed", session.DispatchEvent(stale).Text);
+      Assert.Contains("revealed", session.DispatchEvent(FirstRegionId(fresh)).Text);
+    }
+
+    [Fact]
     public void GotoMissingPassage_IsRefused_SoThePassageStaysLiveAndClickable()
     {
       // The inverse of the old contract, and the point of refusing the Goto: the

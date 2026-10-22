@@ -26,10 +26,12 @@ namespace Harlowe.Runtime
   /// which fires the deferred prose into the target.
   ///
   /// <para>
-  /// Ids are opaque tokens chosen by the runtime. They are unique within a
-  /// single render pass — fresh per <see cref="StorySession.Render"/> or
-  /// <see cref="StorySession.Goto"/> — so an engine that caches them across
-  /// renders should discard the cache after each render.
+  /// Ids are opaque tokens chosen by the runtime, unique across the whole
+  /// session: every <see cref="StorySession.Render"/> or
+  /// <see cref="StorySession.Goto"/> arms fresh ones, and an id from an earlier
+  /// render is a no-op in <see cref="StorySession.DispatchEvent"/> rather than
+  /// firing whatever the new passage armed. An interaction keeps its id across
+  /// dispatches within one render.
   /// </para>
   /// </summary>
   public class InteractiveRegion

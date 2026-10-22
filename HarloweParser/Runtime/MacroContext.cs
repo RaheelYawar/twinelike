@@ -209,8 +209,9 @@ namespace Harlowe.Runtime
 
     /// <summary>
     /// Counter for generating fresh <see cref="InteractiveRegion"/> ids
-    /// (rendered as <c>"r-N"</c>). Stays unique across the main render and any
-    /// dispatch re-renders within the same session render cycle.
+    /// (rendered as <c>"r-N"</c>). <see cref="StorySession"/> seeds it from a
+    /// session-wide counter and takes the advanced value back after each render
+    /// and dispatch, so ids never repeat within a session.
     /// </summary>
     public int NextRegionIndex;
 
