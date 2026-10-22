@@ -320,6 +320,16 @@ namespace Harlowe.Runtime
       // can never be loaded); the first real navigation replaces it instead.
       if (!string.IsNullOrEmpty(_currentPassage))
       {
+        // A restored turn that has been re-rendered since is live again: the
+        // player may have chosen differently this time (a click, a (link:)), so
+        // its recorded delta and RNG position no longer describe what happened.
+        // Recapture both from the dirty set and RNG, which the restore reset to
+        // the turn's start. Without a re-render the record still stands.
+        if (!_liveAtTurnStart)
+        {
+          _present.StoreDelta = null;
+          _present.SeedIter = null;
+        }
         FinalizePresent();
         _past.Add(_present);
       }
@@ -582,9 +592,10 @@ namespace Harlowe.Runtime
     /// <see cref="RestoreToPresent"/> just cleared and overwrite the delta with an
     /// empty one, losing that turn's variables on a later undo/redo. A non-null
     /// <see cref="Moment.StoreDelta"/> marks an already-finalised Moment (a fresh
-    /// turn starts null), so it doubles as the "is this turn live?" signal. (The
-    /// redirect trail is built during the render, not here; visit counts are
-    /// derived from it rather than snapshotted.)
+    /// turn starts null), so it doubles as the "is this turn live?" signal — which
+    /// is why <see cref="Goto"/> nulls it on a restored turn that has been
+    /// re-rendered, making it live again. (The redirect trail is built during the
+    /// render, not here; visit counts are derived from it rather than snapshotted.)
     /// </summary>
     private void FinalizePresent()
     {

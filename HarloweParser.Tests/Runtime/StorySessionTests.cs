@@ -47,6 +47,14 @@ namespace Harlowe.Tests.Runtime
       return n;
     }
 
+    private static string FirstRegionId(RenderResult r)
+    {
+      for (int i = 0; i < r.Entries.Count; i++)
+        if (r.Entries[i].Kind == BufferedRenderOutput.Kind.BeginInteractive)
+          return r.Entries[i].Region?.Id;
+      return null;
+    }
+
     // -----------------------------------------------------------------------
     // Construction and initial state
     // -----------------------------------------------------------------------
@@ -1229,6 +1237,78 @@ namespace Harlowe.Tests.Runtime
       session.Goto("P3");
       session.Undo();                // -> P2, no render
       Assert.Equal("11", session.Goto("P3").Text);   // forward w/o rendering P2; $x = 11 carried
+    }
+
+    // A (link:) whose reveal sets a variable: the in-passage choice a player can
+    // make differently after undoing back to the passage.
+    private const string SwordChoice = "(set: $weapon to \"none\")(link: \"Take sword\")[(set: $weapon to \"sword\")]";
+
+    [Fact]
+    public void UndoThenDeclineChoice_ThenContinue_TimelineForgetsTheOriginalChoice()
+    {
+      var session = new StorySession(ThreePassages(SwordChoice, "$weapon", "end"));
+      session.DispatchEvent(FirstRegionId(session.Render()));   // take the sword
+      Assert.Equal("sword", session.Goto("P2").Text);
+      session.Undo();
+      session.Render();                                         // back on P1; decline this time
+      Assert.Equal("none", session.Goto("P2").Text);
+
+      // Undo from the next turn reconstructs P2 from the timeline, which must agree
+      // with what was actually played — not with the choice made before the undo.
+      session.Goto("P3");
+      session.Undo();
+      Assert.Equal("none", session.Render().Text);
+    }
+
+    [Fact]
+    public void UndoThenMakeChoice_ThenContinue_TimelineRecordsTheNewChoice()
+    {
+      var session = new StorySession(ThreePassages(SwordChoice, "$weapon", "end"));
+      session.Render();                                         // decline the sword
+      Assert.Equal("none", session.Goto("P2").Text);
+      session.Undo();
+      session.DispatchEvent(FirstRegionId(session.Render()));   // take it this time
+      Assert.Equal("sword", session.Goto("P2").Text);
+
+      session.Goto("P3");
+      session.Undo();
+      Assert.Equal("sword", session.Render().Text);
+    }
+
+    [Fact]
+    public void UndoThenDeclineChoice_ThenContinue_SaveLoadReproducesWhatWasPlayed()
+    {
+      var session = new StorySession(ThreePassages(SwordChoice, "$weapon", "end"));
+      session.DispatchEvent(FirstRegionId(session.Render()));
+      session.Goto("P2");
+      session.Undo();
+      session.Render();
+      Assert.Equal("none", session.Goto("P2").Text);
+
+      Assert.True(session.SaveGame("slot"));
+      Assert.True(session.LoadGame("slot"));
+      Assert.Equal("none", session.Render().Text);
+    }
+
+    [Fact]
+    public void UndoThenSkipRandomChoice_ThenContinue_LaterTurnReplaysItsDraws()
+    {
+      // The reopened turn's RNG position must be recaptured as well as its
+      // variables: the original visit drew, the replayed one didn't, so the next
+      // turn starts where the replayed visit left the stream.
+      var session = new StorySession(ThreePassages(
+        "(link: \"Roll\")[(set: $r to (random: 1, 1000000))]",
+        "(print: (random: 1, 1000000))",
+        "end"), 42);
+      session.DispatchEvent(FirstRegionId(session.Render()));   // draws once
+      session.Goto("P2");
+      session.Undo();
+      session.Render();                                         // don't roll this time
+      string played = session.Goto("P2").Text;
+
+      session.Goto("P3");
+      session.Undo();
+      Assert.Equal(played, session.Render().Text);
     }
 
     [Fact]
