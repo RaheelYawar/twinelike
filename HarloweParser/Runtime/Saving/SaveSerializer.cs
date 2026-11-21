@@ -98,31 +98,41 @@ namespace Harlowe.Runtime.Saving
     /// <paramref name="present"/>) to a JSON blob: a <see cref="SaveBlobVersion"/>
     /// wrapper around a moments array. The redo future is deliberately excluded — it
     /// lies ahead of the present and isn't part of saved history. Each moment with no
-    /// variable changes, redirect trail, or recorded RNG state compresses to a bare
+    /// variable changes, redirect trail, recorded RNG state, or turn data compresses to a bare
     /// passage-name string (reference's <c>#isEmpty()</c>); otherwise it's an object.
     /// Returns <c>null</c> if any stored value has no source form (a non-finite
     /// number, an unstamped changer, …) so the caller can fail the save loudly.
+    ///
+    /// <para>The blob is stamped <see cref="SaveBlobVersion.TurnData"/> only when a
+    /// saved turn carries host <see cref="Moment.TurnData"/>, and
+    /// <see cref="SaveBlobVersion.Original"/> otherwise — so a timeline without turn
+    /// data serialises byte-identically to builds that predate it (see
+    /// <see cref="SaveBlobVersion"/>).</para>
     /// </summary>
     public static string SerialiseTimeline(IReadOnlyList<Moment> past, Moment present)
     {
       var moments = new List<object>();
+      bool hasTurnData = false;
       if (past != null)
         for (int i = 0; i < past.Count; i++)
         {
           var m = SerialiseMoment(past[i]);
           if (m == null) return null;
           moments.Add(m);
+          if (past[i].TurnData != null) hasTurnData = true;
         }
       if (present != null)
       {
         var m = SerialiseMoment(present);
         if (m == null) return null;
         moments.Add(m);
+        if (present.TurnData != null) hasTurnData = true;
       }
 
+      int version = hasTurnData ? SaveBlobVersion.TurnData : SaveBlobVersion.Original;
       var root = new Dictionary<string, object>
       {
-        { "version", (long)SaveBlobVersion.Current },
+        { "version", (long)version },
         { "moments", moments },
       };
       return new JsonWriter().Write(root);
@@ -135,8 +145,9 @@ namespace Harlowe.Runtime.Saving
       bool hasVisits = m.Visits != null && m.Visits.Count > 0;
       bool hasSeed = m.Seed != null;
       bool hasSeedIter = m.SeedIter.HasValue;
+      bool hasTurnData = m.TurnData != null;
 
-      if (!hasVars && !hasVisits && !hasSeed && !hasSeedIter)
+      if (!hasVars && !hasVisits && !hasSeed && !hasSeedIter && !hasTurnData)
         return m.PassageName ?? string.Empty;
 
       var obj = new Dictionary<string, object> { { "passage", m.PassageName ?? string.Empty } };
@@ -159,6 +170,7 @@ namespace Harlowe.Runtime.Saving
       }
       if (hasSeed) obj["seed"] = m.Seed;
       if (hasSeedIter) obj["seedIter"] = (long)m.SeedIter.Value;
+      if (hasTurnData) obj["turnData"] = m.TurnData;
       return obj;
     }
 
@@ -267,6 +279,12 @@ namespace Harlowe.Runtime.Saving
         // garbage into the RNG restore.
         if (iterNum < 0 || iterNum > int.MaxValue) { error = "moment RNG position is out of range"; return null; }
         moment.SeedIter = (int)iterNum;
+      }
+
+      if (obj.TryGetValue("turnData", out var turnDataObj))
+      {
+        if (!(turnDataObj is string turnData)) { error = "moment turn data is malformed"; return null; }
+        moment.TurnData = turnData;
       }
 
       return moment;

@@ -122,6 +122,29 @@ public class ConsoleOutput : IRenderOutput
 }
 ```
 
+### Reading state and keeping per-turn data
+
+A host can read story variables, and keep its own data for each turn in step with the timeline. Neither is visible to story code, so a story behaves the same whether or not the host uses them.
+
+```csharp
+// Read story ($) variables — with or without the $. Values are copies; reads change nothing.
+if (session.TryGetVariable("health", out var health))
+  hud.SetHealth(health.AsNumber);
+foreach (var name in session.GetVariableNames()) { /* … */ }
+
+// Attach your own data to the present turn: any string (plain text, JSON, …).
+session.TurnData = textShownThisTurn;
+
+// It travels with its turn: undo shows the earlier turn's data again, a new branch
+// after undo discards the abandoned turns' data, and save/load round-trips it.
+session.Undo();
+var earlier = session.TurnData;
+foreach (var turn in session.GetTimeline())  // oldest first, ending with the present
+  Console.WriteLine($"{turn.PassageName}: {turn.TurnData}");
+```
+
+A save that carries turn data is written as save-blob version 2. A session that never sets it writes exactly the same blobs as before, so builds without the feature can still load them.
+
 ## Supported Harlowe features
 
 A story keeps the semantics of the Harlowe major it declares. `format-version` selects a compatibility profile at load — so a 3.x story gets 3.x behaviour even where Harlowe 4 changed the language — and a host can override it: `new HarloweStory(html, HarloweProfile.V3)` or `new TweeReader(HarloweProfile.V3)`. `story.GetCompatibilityNotices()` reports anything unusual about the declared version.
@@ -192,6 +215,7 @@ A story keeps the semantics of the Harlowe major it declares. `format-version` s
 | Lazy reserialization — clean passages round-trip byte-for-byte | ✓ |
 | Save / load via pluggable `ISaveStorage` backend (IFID-namespaced slots) | ✓ |
 | Reproducible `(random:)`/`(either:)` across undo, redo, and save/load (seedable RNG) | ✓ |
+| Host per-turn data (`TurnData`) carried through undo, redo, and save/load; host variable reads (`TryGetVariable`) | ✓ |
 
 Story writers: a story that uses only ✓ features will play unchanged. ⚠ rows mean the macro is recognised but only a subset of arguments work. ✗ macros produce an in-prose error rather than crashing — surrounding content keeps rendering.
 

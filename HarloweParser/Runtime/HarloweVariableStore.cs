@@ -165,6 +165,18 @@ namespace Harlowe.Runtime
       _tempStack.Add(new Dictionary<string, HarloweValue>());
     }
 
+    /// <summary>
+    /// Names of the story (<c>$</c>) variables currently set, without the <c>$</c>,
+    /// in ordinal order. A fresh list, so the caller can't reach the live namespace.
+    /// Backs <see cref="StorySession.GetVariableNames"/>.
+    /// </summary>
+    internal List<string> StoryVariableNames()
+    {
+      var names = new List<string>(_story.Keys);
+      names.Sort(StringComparer.Ordinal);
+      return names;
+    }
+
     private static Dictionary<string, HarloweValue> DeepCopyBucket(Dictionary<string, HarloweValue> src)
     {
       var dst = new Dictionary<string, HarloweValue>(src.Count);
@@ -181,7 +193,9 @@ namespace Harlowe.Runtime
     // nesting and is far better than an uncatchable StackOverflowException.
     private const int MaxCopyDepth = 256;
 
-    private static HarloweValue DeepCopyValue(HarloweValue v) => DeepCopyValue(v, 0);
+    // Internal (not private) so StorySession.TryGetVariable can hand the host a
+    // copy that can't alias live store state.
+    internal static HarloweValue DeepCopyValue(HarloweValue v) => DeepCopyValue(v, 0);
 
     private static HarloweValue DeepCopyValue(HarloweValue v, int depth)
     {

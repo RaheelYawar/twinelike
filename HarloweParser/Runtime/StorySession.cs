@@ -419,6 +419,87 @@ namespace Harlowe.Runtime
     /// <summary>Alias for <see cref="Redo"/> (reference Harlowe's <c>fastForward</c>).</summary>
     public bool FastForward() => Redo();
 
+    // ----- Host-facing state: turn data and variable reads -----
+    //
+    // Additive host extensions, deliberately invisible to story code: no macro or
+    // expression reads turn data, and nothing here writes story state, so Harlowe
+    // semantics are untouched whether or not a host uses them.
+
+    /// <summary>
+    /// Opaque host data attached to the present turn, or null if none. The runtime
+    /// never reads it and story code can't see it; it exists so a host can keep its
+    /// own per-turn record (whatever it showed or derived that turn) in step with the
+    /// timeline. Set it any time after the turn starts; setting null clears it.
+    ///
+    /// <para>It travels with its turn. After <see cref="Undo"/>/<see cref="Redo"/> this
+    /// reports the restored turn's data. <see cref="Goto"/> starts the new turn with
+    /// none, and when it discards the redo future the abandoned turns' data goes with
+    /// them. <see cref="SaveGame"/>/<see cref="LoadGame"/> round-trip it, the present
+    /// turn's included. A save carrying any turn data is stamped
+    /// <see cref="Saving.SaveBlobVersion.TurnData"/>; a session that never sets it
+    /// writes the same blobs as builds without the feature.</para>
+    /// </summary>
+    public string TurnData
+    {
+      get => _present.TurnData;
+      set => _present.TurnData = value;
+    }
+
+    /// <summary>
+    /// The timeline as a list of turns, oldest first, ending with the present turn —
+    /// the completed turns plus the live one, excluding the redo future (the same span
+    /// <see cref="SaveGame"/> writes). Each <see cref="TurnRecord"/> carries the turn's
+    /// resting passage and its <see cref="TurnData"/>. A fresh snapshot per call;
+    /// modifying it doesn't touch the session.
+    /// </summary>
+    public List<TurnRecord> GetTimeline()
+    {
+      var turns = new List<TurnRecord>(_past.Count + 1);
+      for (int i = 0; i < _past.Count; i++)
+        turns.Add(new TurnRecord { PassageName = _past[i].PassageName, TurnData = _past[i].TurnData });
+      // The live turn's Moment.PassageName is only finalised when the turn ends, so
+      // report the resting passage the session is actually on.
+      turns.Add(new TurnRecord { PassageName = _currentPassage ?? string.Empty, TurnData = _present.TurnData });
+      return turns;
+    }
+
+    /// <summary>
+    /// Reads a story (<c>$</c>) variable without changing anything.
+    /// <paramref name="name"/> may be given with or without its leading <c>$</c>.
+    /// Returns <c>false</c> (and a null <paramref name="value"/>) when no story
+    /// variable by that name is set. Temp (<c>_</c>) variables are hook-scoped render
+    /// state and aren't readable here.
+    ///
+    /// <para>The value is a deep copy: mutating its arrays or datamaps can't alter the
+    /// story's state. Reads have no side effects — they don't touch <c>it</c>, the
+    /// turn's variable delta, or the RNG — so state changes stay with the story's own
+    /// macros, where undo and saving can see them.</para>
+    ///
+    /// <para>Reads the live store. After <see cref="Render"/>, <see cref="Goto"/>, or
+    /// <see cref="DispatchEvent"/> that's the state the player is looking at. Between an
+    /// <see cref="Undo"/>/<see cref="Redo"/>/<see cref="LoadGame"/> and the next
+    /// <see cref="Render"/> it's the restored turn's <em>start</em>, before that
+    /// turn's own <c>(set:)</c>s replay.</para>
+    /// </summary>
+    public bool TryGetVariable(string name, out HarloweValue value)
+    {
+      value = null;
+      if (string.IsNullOrEmpty(name)) return false;
+      if (name[0] == '$') name = name.Substring(1);
+      var stored = _store.Get(name, false);
+      if (stored == null) return false;
+      value = HarloweVariableStore.DeepCopyValue(stored);
+      return true;
+    }
+
+    /// <summary>
+    /// The names of every story (<c>$</c>) variable currently set, without the
+    /// <c>$</c>, in ordinal order — pair with <see cref="TryGetVariable"/> to read them
+    /// all. A fresh list per call. Reflects the live store at the same point in the
+    /// turn as <see cref="TryGetVariable"/>.
+    /// </summary>
+    public List<string> GetVariableNames() => _store.StoryVariableNames();
+
     // ----- Save / load -----
 
     /// <summary>

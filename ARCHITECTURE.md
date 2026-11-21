@@ -128,6 +128,13 @@ The session runs on a `Moment[]` timeline — completed turns behind, the live t
 
 `SaveGame(slot, filename)` / `LoadGame(slot)` / `SavedGames()` persist that timeline through an `ISaveStorage` backend you supply at session construction (in-memory default; `null` disables saving; slot keys are IFID-namespaced so one backend can serve multiple stories). Values serialise as re-evaluable Harlowe source; loading is atomic — a corrupt or version-newer blob returns `false` without touching live state. The author-facing `(save-game:)`/`(load-game:)`/`(saved-games:)` macros ride the same path.
 
+### Host-facing state
+
+Two additive extensions let a host read state and keep its own per-turn data. Both are invisible to story code and change nothing about Harlowe semantics.
+
+- **Variable reads.** `TryGetVariable(name, out value)` (with or without the `$`) and `GetVariableNames()` read the story (`$`) namespace. Values are deep copies and reads have no side effects (no `it` update, no delta, no RNG draw). There is deliberately no host write: a write from outside the story wouldn't be recorded as part of a turn, so undo and saves couldn't reproduce it. The reads see the live store — the state on screen after `Render`/`Goto`/`DispatchEvent`, and a restored turn's *start* between `Undo`/`Redo`/`LoadGame` and the next `Render`.
+- **Turn data.** `TurnData` is an opaque string on the present turn's `Moment`, for whatever the host wants to remember about that turn; the runtime never reads it. Because it lives on the moment, the timeline carries it for free — undo/redo move it, a `Goto` after an undo discards the abandoned branch's data with the branch, and save/load round-trip it. `GetTimeline()` returns a detached list of every turn (resting passage + data), oldest first, excluding the redo future. Blobs are stamped with the lowest version that can represent them: version 2 only when some saved turn carries turn data, so a session that never sets it writes byte-identical version-1 blobs that older builds still load.
+
 ## Editing the story object model
 
 `HarloweStory` exposes mutation: `AddPassage`, `RemovePassage`, `RenamePassage` (re-keys the lookup; direct `passage.Name = "..."` mutation is a silent footgun), public setters for metadata. Edits flip `HarlowePassage.IsDirty`; `TweeWriter` uses that flag to decide whether to emit `RawBody` verbatim (clean) or re-canonicalize via `MarkupPrinter` (dirty). Cross-tool diffs through Twee stay scoped to actually-edited passages.
