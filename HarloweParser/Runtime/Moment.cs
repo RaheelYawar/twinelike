@@ -45,5 +45,15 @@ namespace Harlowe.Runtime
 
     /// <summary>PRNG draw position recorded for this turn — set only when the turn drew a random number, so a no-draw turn stays compressible (null). Restored as the next turn's <em>start</em> position on undo/redo.</summary>
     public int? SeedIter;
+
+    /// <summary>
+    /// Opaque host data attached to this turn through <see cref="StorySession.TurnData"/>,
+    /// or null when the host attached none. Not part of reference Harlowe's Moment:
+    /// the runtime never reads it and story code can't see it. It rides the timeline
+    /// with its turn — through undo/redo, discarded with an abandoned redo branch, and
+    /// round-tripped by save/load (a blob carrying any is stamped
+    /// <see cref="Saving.SaveBlobVersion.TurnData"/>).
+    /// </summary>
+    public string TurnData;
   }
 }

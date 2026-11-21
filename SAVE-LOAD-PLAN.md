@@ -187,7 +187,10 @@ the session-level `Redo`/`FastForward`.
 - **Blob** — JSON array of moments via the existing `JsonWriter`/`JsonReader`;
   each var value a source string; a moment with no var changes, redirects, or
   recorded `Seed`/`SeedIter` compresses to a bare passage-name string (mirroring
-  `#isEmpty()`). `SaveBlobVersion.Current = 1`.
+  `#isEmpty()`). `SaveBlobVersion.Current = 1`. *(Since extended: host turn data
+  added version 2 and a `turnData` moment field, which also blocks compression.
+  Blobs are stamped with the lowest version that can represent them, so one
+  without turn data is still written as version 1 — see `SaveBlobVersion`.)*
 - **`ISaveStorage`** — host interface modeled on `IRenderOutput`,
   constructor-injected: `TryRead`/`TryWrite`/`TryDelete`/`Enumerate`, no
   `HarloweValue` exposure. `InMemorySaveStorage` default.
