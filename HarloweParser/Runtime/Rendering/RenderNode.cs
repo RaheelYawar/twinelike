@@ -65,8 +65,8 @@ namespace Harlowe.Runtime.Rendering
   /// revision macros can splice into a link's label and string targets can
   /// match inside it — the analogue of reference's <c>&lt;tw-link&gt;</c>
   /// element. Flushes as a flat <see cref="IRenderOutput.Link"/> event while
-  /// the content is plain text, else as a <see cref="IRenderOutput.BeginLink"/>
-  /// / <see cref="IRenderOutput.EndLink"/> bracket around the content's events.
+  /// the content is plain text, else as an <see cref="ILinkLabelOutput.BeginLink"/>
+  /// / <see cref="ILinkLabelOutput.EndLink"/> bracket around the content's events.
   /// </summary>
   public class RenderLinkNode : RenderNode, IRenderContainer
   {

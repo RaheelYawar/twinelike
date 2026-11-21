@@ -23,7 +23,7 @@ namespace Harlowe.Runtime.Rendering
   /// is the pre-refactor behaviour.
   /// </para>
   /// </summary>
-  public class RenderTreeBuilder : IRenderOutput
+  public class RenderTreeBuilder : ILinkLabelOutput
   {
     private readonly RenderRoot _root = new RenderRoot();
     private readonly Stack<IRenderContainer> _stack = new Stack<IRenderContainer>();

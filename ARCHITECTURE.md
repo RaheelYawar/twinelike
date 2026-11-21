@@ -74,7 +74,7 @@ string twee = new TweeWriter().Write(story);
 
 ## The IRenderOutput contract
 
-`IRenderOutput` is the pipeline's event vocabulary. Ten channels — four flat, three bracket pairs. `StorySession.Render()`/`Goto()`/`DispatchEvent()` return the events materialised as `RenderResult.Entries` (each `BufferedRenderOutput.Entry.Kind` mirrors one interface method); walk that list after each call to drive your engine's renderer. Implement the interface itself when driving `BodyRenderer` directly or writing a translating adapter like the built-in `HtmlRenderOutput`.
+`IRenderOutput` is the pipeline's event vocabulary. Eight core channels — four flat, two bracket pairs — frozen, because adding a member breaks every host that implements it. `StorySession.Render()`/`Goto()`/`DispatchEvent()` return the events materialised as `RenderResult.Entries` (each `BufferedRenderOutput.Entry.Kind` mirrors one output method); walk that list after each call to drive your engine's renderer, or stream it with `RenderResult.ReplayTo(output)`. Implement the interface itself when driving `BodyRenderer` directly or writing a translating adapter like the built-in `HtmlRenderOutput`.
 
 ```mermaid
 flowchart LR
@@ -84,7 +84,6 @@ flowchart LR
   R -->|"Error(string)"| O
   R -->|"PushStyle(StyleSpec) / PopStyle()"| O
   R -->|"BeginInteractive(region) / EndInteractive()"| O
-  R -->|"BeginLink(target) / EndLink()"| O
   O --> Y[Your adapter]
 ```
 
@@ -96,7 +95,9 @@ flowchart LR
 | `Error` | Inline error message | Failed expression / unknown macro / arity mismatch |
 | `PushStyle` / `PopStyle` | `StyleSpec` (semantic styling layer) | Changer macros entering / leaving scope |
 | `BeginInteractive` / `EndInteractive` | `InteractiveRegion` (id + kind) | Click/hover macros arming a region — report the user's event back via `StorySession.DispatchEvent(regionId)` |
-| `BeginLink` / `EndLink` | Target passage name | Instead of `Link` when a link's label carries structure (styles or armed regions, e.g. after `(replace: ?link)[''bold'']`) — the label arrives as ordinary events in between; render both shapes as the same navigable link |
+| `BeginLink` / `EndLink` (optional, `ILinkLabelOutput`) | Target passage name | Instead of `Link` when a link's label carries structure (styles, armed regions, HTML or errors, e.g. after `(replace: ?link)[''bold'']`) — the label arrives as ordinary events in between; render both shapes as the same navigable link |
+
+**Later channels are optional features.** Each is a capability interface plus a *lowering* to core channels, so a host only receives event kinds it opted into. An adapter opts in by implementing the interface; a host walking `Entries` has no adapter to inspect, so it sets `StorySession.OutputFeatures`. Without `ILinkLabelOutput`, a structured label flattens to one `Link`: its styling, armed regions and HTML are dropped and its errors move to just after the link. One internal `OutputFeatureAdapter` makes every forward-or-lower decision, because a wrapper per feature would hide a host's support for the others. For the same reason, a host's own wrapping adapter must implement and forward a capability interface, or the output behind it gets the lowered form.
 
 **Style is semantic, not HTML.** A `StyleSpec` describes one styling layer with named flags (`Bold`/`Italic`/`Underline`/`Strikethrough`) and value fields (`Color`/`BackgroundColor`/`FontFamily`/`FontSize`). You map it to whatever your renderer accepts — TextMeshPro tags for Unity, BBCode for Godot, ANSI for a terminal, HTML for a browser. The library never bakes in HTML.
 
@@ -104,8 +105,7 @@ For browser hosts, `HtmlRenderOutput` is a built-in adapter that wraps an inner 
 
 ```csharp
 var html = new HtmlRenderOutput(new MyStringSink());
-foreach (var e in session.Render().Entries)
-  e.ReplayTo(html);   // dispatch each entry to its IRenderOutput method
+session.Render().ReplayTo(html);   // dispatch each entry to its output method
 ```
 
 ## Errors are in-prose, never thrown
@@ -402,7 +402,7 @@ Equality is structural and recurses into arrays + datamaps. Errors propagate thr
 | **A new body AST node** | Add the class under `Ast/Body/`, add `Visit` to `IBodyVisitor`, implement on every visitor (`BodyRenderer`, `MarkupPrinter`, `BranchCollector`). Body parser needs a recognizer. |
 | **A new expression AST node** | Same, against `IExpressionVisitor` (only `ExpressionEvaluator` and `MarkupPrinter`). |
 | **A new operator** | Add to `WordOperators` (or scanner) in `HarloweTokenizer`, add precedence entry to `HarloweExpressionParser.BinaryOps` / `UnaryPrefixOps`, handle in `ExpressionEvaluator.Visit(BinaryOpNode/UnaryOpNode)`, mirror precedence in `MarkupPrinter`. |
-| **A new render channel** | Add to `IRenderOutput`, implement on `BufferedRenderOutput` + `HtmlRenderOutput`, emit from wherever produces it. |
+| **A new render channel** | Never add to `IRenderOutput`. Add a capability interface and an `OutputFeatures` flag, give `OutputFeatureAdapter` its forward-or-lower logic, add the `Kind` and `Entry.ReplayTo` case, implement on `BufferedRenderOutput`, `RenderTreeBuilder` and `HtmlRenderOutput`, and emit from wherever produces it. |
 
 The visitor pattern's compile-time exhaustiveness is the safety net — adding a node type without updating every visitor is a build error, not a runtime surprise.
 

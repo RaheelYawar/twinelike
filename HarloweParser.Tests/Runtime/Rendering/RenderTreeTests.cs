@@ -307,7 +307,7 @@ namespace Harlowe.Tests.Runtime.Rendering
     public void Builder_BeginEndLink_RoundTripsStructuredLabel()
     {
       var builder = new RenderTreeBuilder();
-      IRenderOutput sink = builder;
+      ILinkLabelOutput sink = builder;
       sink.BeginLink("P2");
       sink.Text("a");
       sink.PushStyle(new StyleSpec { Bold = true });
@@ -332,7 +332,7 @@ namespace Harlowe.Tests.Runtime.Rendering
     {
       // Flat Link() and an all-text BeginLink bracket flush identically.
       var builder = new RenderTreeBuilder();
-      IRenderOutput sink = builder;
+      ILinkLabelOutput sink = builder;
       sink.BeginLink("P2");
       sink.Text("Go");
       sink.EndLink();

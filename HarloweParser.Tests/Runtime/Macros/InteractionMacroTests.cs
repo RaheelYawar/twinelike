@@ -833,6 +833,7 @@ namespace Harlowe.Tests.Runtime.Macros
       // A styled label can't flatten to one string: the link flushes as a
       // BeginLink/EndLink bracket with the label events inside.
       var session = Session("[[Go->P2]](replace: ?link)[''R'']");
+      session.OutputFeatures = OutputFeatures.LinkLabels;
       var r = session.Render();
       Assert.Equal(0, CountKind(r, BufferedRenderOutput.Kind.Link));
       int begin = IndexOfKind(r, BufferedRenderOutput.Kind.BeginLink);
@@ -917,7 +918,9 @@ namespace Harlowe.Tests.Runtime.Macros
     [Fact]
     public void Click_StringMatchingLinkLabel_ArmsInsideLink()
     {
+      // The region sits inside the label, so only an opted-in host sees it.
       var session = Session("[[Go->P2]](click: \"Go\")[hi]");
+      session.OutputFeatures = OutputFeatures.LinkLabels;
       var initial = session.Render();
       Assert.Single(Regions(initial));
       var after = session.DispatchEvent(FirstRegionId(initial));

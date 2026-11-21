@@ -44,11 +44,11 @@ if (session.Undo()) {
 }
 ```
 
-`RenderResult` carries the rendered content as both a flat `.Text` string and a list of typed `.Entries` (Text, Link, PushStyle, BeginInteractive, …). Walk the entries in your engine's renderer, or call `entry.ReplayTo(output)` to stream them through an adapter implementing the `IRenderOutput` interface below.
+`RenderResult` carries the rendered content as both a flat `.Text` string and a list of typed `.Entries` (Text, Link, PushStyle, BeginInteractive, …). Walk the entries in your engine's renderer, or call `result.ReplayTo(output)` to stream them through an adapter implementing the `IRenderOutput` interface below.
 
 ## Engine integration
 
-Implement `IRenderOutput` against whatever your engine uses to display text. The interface is small and stable:
+Implement `IRenderOutput` against whatever your engine uses to display text. The interface is small and frozen, so a new release won't add a member your adapter lacks:
 
 ```csharp
 public interface IRenderOutput
@@ -60,16 +60,9 @@ public interface IRenderOutput
   // or pass through depending on whether your engine wants HTML at all.
   void Html(string rawHtml);
 
-  // A passage navigation link whose label is plain text. Wire your UI's
-  // click handler to session.Goto(target).
+  // A passage navigation link. Wire your UI's click handler to
+  // session.Goto(target).
   void Link(string text, string target);
-
-  // A navigation link whose label carries structure a flat string can't
-  // express (styled or spliced content). The label arrives as ordinary
-  // events between the bracket pair; render both shapes as the same
-  // navigable link.
-  void BeginLink(string target);
-  void EndLink();
 
   // An in-prose error (bad expression, type mismatch, unknown macro).
   // The runtime never throws on the render hot path — errors come
@@ -93,6 +86,8 @@ public interface IRenderOutput
 }
 ```
 
+New output channels arrive as optional interfaces, so an adapter only receives what it opted into. Today there is one: implement `ILinkLabelOutput` (`BeginLink(target)`/`EndLink()`) and `result.ReplayTo(output)` delivers a link whose label carries styling or other structure as a bracket around ordinary events. Without it, that link arrives as a plain `Link` with flattened text and still navigates. If you walk `Entries` instead of replaying them, set `session.OutputFeatures = OutputFeatures.LinkLabels` to see the brackets there.
+
 ### Mapping to common engines
 
 The bracketing primitives (`PushStyle`/`PopStyle`, `BeginInteractive`/`EndInteractive`) intentionally line up with how inline-tag rich-text systems already work:
@@ -104,7 +99,7 @@ The bracketing primitives (`PushStyle`/`PopStyle`, `BeginInteractive`/`EndIntera
 | HTML / web | `<b>...</b>` | `<a data-region-id="region.Id">...</a>` | use `HtmlRenderOutput` (built in) |
 | CLI / plain text | ANSI bold | numbered hotkey | manual prompt → dispatch |
 
-For web/HTML consumers, replay a render's entries through the built-in `HtmlRenderOutput` and it translates semantic events into HTML tags automatically — no manual mapping.
+For web/HTML consumers, replay a render through the built-in `HtmlRenderOutput` (`result.ReplayTo(html)`) and it translates semantic events into HTML tags automatically — no manual mapping.
 
 ### A complete minimal adapter
 

@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-Save/load, an undo/redo timeline with reproducible randomness, the `(link:)` family, conditionals rebuilt as composable changers, string targets across the enchant/interaction macros, and inline text formatting. **Note:** `IRenderOutput` gained two members — see *Changed*.
+Save/load, an undo/redo timeline with reproducible randomness, the `(link:)` family, conditionals rebuilt as composable changers, string targets across the enchant/interaction macros, and inline text formatting. **Breaking:** hosts must rename the story class and rebuild — see *Changed*. `IRenderOutput` is unchanged, so existing adapters keep working.
 
 ### Added
 
@@ -21,7 +21,8 @@ Save/load, an undo/redo timeline with reproducible randomness, the `(link:)` fam
 - **Maths macros.** `(round:)`, `(min:)`, `(max:)`, `(floor:)`, `(ceil:)`, `(trunc:)`, `(abs:)`, `(sign:)`.
 - **String macros.** `(uppercase:)`, `(lowercase:)`, `(upperfirst:)`, `(lowerfirst:)`, `(substring:)`, `(words:)`, `(str-reversed:)`, `(str-repeated:)`, `(str-nth:)` (with `string-` aliases), all surrogate-pair-safe.
 - **`(sorted:)` upgrades.** Sorts mixed numbers+strings (numbers first, matching reference's documented example), takes an optional leading `via` key-lambda with stable ordering for equal keys, and returns an empty array for zero values.
-- **`Entry.ReplayTo(IRenderOutput)`.** Dispatch a stored render entry back through any adapter — the bridge from `RenderResult.Entries` to a streaming `IRenderOutput` such as `HtmlRenderOutput`.
+- **`RenderResult.ReplayTo(IRenderOutput)` and `Entry.ReplayTo(IRenderOutput)`.** Dispatch a stored render back through any adapter — the bridge from `RenderResult.Entries` to a streaming `IRenderOutput` such as `HtmlRenderOutput`.
+- **Structured link labels, opt-in.** A link whose label carries styles, armed regions or spliced content can reach a host as a `BeginLink(target)`/`EndLink()` bracket by implementing the new optional `ILinkLabelOutput`; hosts walking `Entries` set `session.OutputFeatures = OutputFeatures.LinkLabels`. Other adapters need no change: the label flattens to one `Link`, dropping its styling, regions and HTML and moving any errors to just after the link.
 - **Macro-name normalisation.** Names are case-, dash-, and underscore-insensitive (`(textstyle:)` ≡ `(text-style:)`), as in reference.
 - **Compatibility profiles — a story keeps the semantics of the Harlowe major it declares.** `format-version` selects a profile at load; a host can override it with `new HarloweStory(html, HarloweProfile.V3)` or `new TweeReader(HarloweProfile.V3)` (the override belongs on the loader — some differences are lexical, so they're decided before any post-load property could be set). Absent or unrecognised versions run under the newest semantics; a pre-3.x version clamps to Harlowe 3. `story.GetCompatibilityNotices()` joins `GetParseErrors()`/`GetBrokenLinks()` as a third load-time report, describing anything unusual about the declared version. Saves are pinned to their own profile and never follow the story, so bumping `format-version` can't re-interpret existing save blobs.
 - **Exponent number literals** (`1e3`, `2.5e-2`) parse and round-trip.
@@ -30,7 +31,6 @@ Save/load, an undo/redo timeline with reproducible randomness, the `(link:)` fam
 
 - **The story class is now `HarloweStory` (was `Harlowe`).** Sharing its namespace's name broke the documented quick-start: with `using Harlowe;`, `new Harlowe(...)` resolves to the namespace and fails to compile (CS0118). **Migration:** rename `Harlowe` to `HarloweStory` wherever it names the story type; the `Harlowe` namespace is unchanged.
 - **`(background:)` / `(bg:)` now reads a plain string as an image URL, not a colour name.** Aligning with reference Harlowe: a value is a colour only when it's a colour *value* (`navy`, `#a4e`, `(rgb: …)`), a hex-shaped string, or a CSS function call (`"rgb(0,0,255)"`); anything else is an image path. **Migration: drop the quotes** — `(bg: "navy")` becomes `(bg: navy)`. (Stories written against real Harlowe already do this, since `(bg: "navy")` is an image path there too.) A gradient-shaped string now raises an explicit "not implemented" error instead of silently emitting CSS the browser drops.
-- **`IRenderOutput` gained `BeginLink(string target)` / `EndLink()`.** A link whose label carries structure (styles, armed regions, spliced content) now arrives as this bracket pair with the label flowing through the ordinary channels; plain-label links keep the flat `Link` event. Existing implementations must add the two members.
 - **Interactions re-resolve persistently.** Click/hover targets are re-matched against the full render tree after every render and dispatch (mirroring enchantments), so a `(click: ?b)` written before `|b>[...]` arms correctly and click-chains keep working across dispatches.
 - **Plain `(click:)`/`(mouseover:)`/`(mouseout:)` reveal in place** — the attached hook appears at the macro's own position on trigger (reference behaviour), rather than replacing the target; composed styles land on the revealed content, not the armed region.
 - **`?link` is a real target.** Styling and arming wrap around the link; `(replace:/append:/prepend: ?link)` splice into its label; string targets match inside labels.

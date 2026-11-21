@@ -154,6 +154,18 @@ namespace Harlowe.Runtime
       }
     }
 
+    /// <summary>
+    /// Which optional output features appear directly in
+    /// <see cref="RenderResult.Entries"/>, for hosts that walk that list. The
+    /// default, <see cref="OutputFeatures.None"/>, holds only core channels: a
+    /// structured link label arrives as a flat link followed by any errors from
+    /// inside it. Hosts replaying through an adapter don't need this, since
+    /// <see cref="RenderResult.ReplayTo"/> follows the adapter's type. Applies
+    /// to results built after it is set; <see cref="RenderResult.Text"/> and
+    /// saves don't depend on it.
+    /// </summary>
+    public OutputFeatures OutputFeatures { get; set; }
+
     /// <summary>Name of the passage currently loaded into the session.</summary>
     public string CurrentPassage => _currentPassage;
 
@@ -1048,7 +1060,9 @@ namespace Harlowe.Runtime
       {
         PassageName = _currentPassage,
         Text = buf.Text,
-        Entries = buf.Entries
+        Entries = (OutputFeatures & OutputFeatures.LinkLabels) != 0
+          ? buf.Entries
+          : OutputFeatureAdapter.LowerEntries(buf.Entries)
       };
     }
 

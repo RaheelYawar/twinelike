@@ -60,7 +60,7 @@ namespace Harlowe.Runtime
   /// (<c>harlowe-blink</c>, <c>harlowe-shudder</c>, etc.) in their own
   /// stylesheet; this adapter does not inject them.</para>
   /// </summary>
-  public class HtmlRenderOutput : IRenderOutput
+  public class HtmlRenderOutput : ILinkLabelOutput
   {
     /// <summary>
     /// Default <c>href</c> emitted on interactive anchors. <c>javascript:void(0)</c>
@@ -74,7 +74,10 @@ namespace Harlowe.Runtime
     /// </summary>
     public const string DefaultInteractiveHref = "javascript:void(0)";
 
-    private readonly IRenderOutput _inner;
+    // Forwards to the host's sink, lowering what that sink can't receive. Its
+    // label suppression also swallows this adapter's own tags, while _openTags
+    // keeps balancing them.
+    private readonly OutputFeatureAdapter _inner;
     private readonly string _interactiveHref;
     private readonly Stack<string[]> _openTags = new Stack<string[]>();
 
@@ -104,11 +107,12 @@ namespace Harlowe.Runtime
     /// </summary>
     public HtmlRenderOutput(IRenderOutput inner, string interactiveHref)
     {
+      if (inner == null) throw new System.ArgumentNullException(nameof(inner));
       if (inner is HtmlRenderOutput)
         throw new System.ArgumentException(
           "HtmlRenderOutput cannot wrap another HtmlRenderOutput — Text and Error would double-escape while Html/PushStyle pass through once. Wrap the underlying buffer directly.",
           nameof(inner));
-      _inner = inner;
+      _inner = new OutputFeatureAdapter(inner);
       _interactiveHref = string.IsNullOrWhiteSpace(interactiveHref) ? string.Empty : interactiveHref;
     }
 
@@ -135,7 +139,9 @@ namespace Harlowe.Runtime
 
     // BeginLink/EndLink forward as typed entries like Link (target raw, per
     // the IRenderOutput escaping contract); the label content between them
-    // arrives through Text/Html and is escaped by those channels.
+    // arrives through Text/Html and is escaped by those channels. For an
+    // inner sink without ILinkLabelOutput, _inner flattens the label into a
+    // Link whose text is therefore already escaped exactly once.
     public void BeginLink(string target) => _inner.BeginLink(target);
     public void EndLink() => _inner.EndLink();
 

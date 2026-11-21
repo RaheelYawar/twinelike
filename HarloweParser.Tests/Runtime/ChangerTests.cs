@@ -14,7 +14,7 @@ namespace Harlowe.Tests.Runtime
   /// </summary>
   public class ChangerTests
   {
-    private class CapturedOutput : IRenderOutput
+    private class CapturedOutput : ILinkLabelOutput
     {
       public List<string> Calls = new List<string>();
       public void Text(string content) => Calls.Add("T:" + content);
