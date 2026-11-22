@@ -64,7 +64,6 @@ namespace Harlowe.Parsing
     /// </summary>
     public PassageBody Parse(IReadOnlyList<Token> tokens, string source)
     {
-      _matchedHooks = FindMatchedHooks(tokens);
       _outerSpans = _levelBraces = _levelUnclosed = 0;
       _pendingUnclosedHook = null;
       var cursor = new TokenCursor(tokens, source);
@@ -72,52 +71,21 @@ namespace Harlowe.Parsing
       return new PassageBody { Children = children };
     }
 
-    // Stream indices of the `[` and `]` tokens that form a real hook.
-    private HashSet<int> _matchedHooks;
-
     /// <summary>
-    /// Pairs each <c>]</c> with the nearest open <c>[</c>, as reference's lexer
-    /// does with its front-token stack. A bracket left unpaired isn't hook
-    /// markup at all: reference keeps it as literal text, so it can't take a
-    /// macro's attachment or swallow the prose after it.
+    /// True when the token <paramref name="offset"/> ahead is a <c>[</c> with a
+    /// matching <c>]</c>. An unpaired bracket isn't hook markup at all: it's
+    /// literal text, so it can't take a macro's attachment or swallow the prose
+    /// after it.
     /// </summary>
-    private static HashSet<int> FindMatchedHooks(IReadOnlyList<Token> tokens)
+    private static bool IsHookAt(TokenCursor cursor, int offset)
     {
-      var matched = new HashSet<int>();
-      var open = new Stack<int>();
-      for (int i = 0; i < tokens.Count; i++)
-      {
-        if (tokens[i].Type == TokenType.HookOpen) open.Push(i);
-        else if (tokens[i].Type == TokenType.HookClose && open.Count > 0)
-        {
-          matched.Add(open.Pop());
-          matched.Add(i);
-        }
-      }
-      return matched;
+      var token = cursor.Peek(offset);
+      return token.Type == TokenType.HookOpen && token.Partner >= 0;
     }
 
-    /// <summary>True when the token <paramref name="offset"/> ahead is a <c>[</c> with a matching <c>]</c>.</summary>
-    private bool IsHookAt(TokenCursor cursor, int offset)
-      => cursor.Peek(offset).Type == TokenType.HookOpen && _matchedHooks.Contains(cursor.Index + offset);
-
-    /// <summary>
-    /// Tracks hook nesting through a lookahead scan at <paramref name="offset"/>,
-    /// ignoring brackets that are literal text. Returns false when the scan
-    /// reaches the <c>]</c> of the hook it started in.
-    /// </summary>
-    private bool StaysInHook(TokenCursor cursor, int offset, ref int hookDepth)
-    {
-      if (!_matchedHooks.Contains(cursor.Index + offset)) return true;
-      if (cursor.Peek(offset).Type == TokenType.HookOpen)
-      {
-        hookDepth++;
-        return true;
-      }
-      if (hookDepth == 0) return false;
-      hookDepth--;
-      return true;
-    }
+    /// <summary>True when the cursor is at the closer of the hook being parsed, rather than a literal <c>]</c>.</summary>
+    private static bool AtTerminator(TokenCursor cursor, TokenType? terminator)
+      => terminator.HasValue && cursor.Current.Type == terminator.Value && cursor.Current.Partner >= 0;
 
     /// <summary>
     /// Loops over <see cref="ParseNode"/> until either end-of-file or the
@@ -142,7 +110,7 @@ namespace Harlowe.Parsing
     private List<IBodyNode> ParseNodes(TokenCursor cursor, TokenType? terminator)
     {
       var nodes = new List<IBodyNode>();
-      while (!cursor.IsAtEnd && (!terminator.HasValue || cursor.Current.Type != terminator.Value))
+      while (!cursor.IsAtEnd && !AtTerminator(cursor, terminator))
       {
         // Capture the failure-span start BEFORE attempting the node so the
         // catch can slice the original source between the failed node's first
@@ -192,13 +160,10 @@ namespace Harlowe.Parsing
     /// <summary>
     /// Resolve inline-formatting delimiters and <c>{…}</c> collapsing markers in
     /// a freshly-parsed sibling list into <see cref="FormatNode"/>s and
-    /// <see cref="CollapsedNode"/>s. Mirrors reference Harlowe's
-    /// <c>foldChildren</c> (<c>ts/markup/lexer.ts</c>): a closer folds with the
-    /// nearest open marker of its kind; markers that cross (<c>''//x''//</c>)
-    /// or never close degrade to literal text. Runs once per nesting level —
-    /// each hook's contents are folded independently, so neither crosses a
-    /// hook boundary (also matching reference, where each token's
-    /// <c>innerText</c> is lexed on its own).
+    /// <see cref="CollapsedNode"/>s. The tokenizer has already paired them
+    /// across the whole passage, as reference's lexer does, so only real pairs
+    /// reach here and they nest. Runs once per nesting level. The literal
+    /// fallback covers a pair that error recovery split by skipping one half.
     ///
     /// <para>The common case — a passage with none of these markers — hits the
     /// fast path and returns the original list untouched.</para>
@@ -436,7 +401,7 @@ namespace Harlowe.Parsing
       {
         var t = cursor.Current.Type;
         bool atOuter = hookDepth == 0;
-        if (atOuter && terminator.HasValue && t == terminator.Value)
+        if (atOuter && AtTerminator(cursor, terminator))
           return false;
         if (atOuter && t == TokenType.Newline)
         {
@@ -455,8 +420,8 @@ namespace Harlowe.Parsing
           if (owed == 0 && hookDepth == 0) return true;
           continue;
         }
-        else if (t == TokenType.HookOpen) hookDepth++;
-        else if (t == TokenType.HookClose && hookDepth > 0) hookDepth--;
+        else if (t == TokenType.HookOpen && cursor.Current.Partner >= 0) hookDepth++;
+        else if (t == TokenType.HookClose && cursor.Current.Partner >= 0 && hookDepth > 0) hookDepth--;
         cursor.Advance();
       }
       return false;
@@ -490,11 +455,27 @@ namespace Harlowe.Parsing
           cursor.Advance();
           return new HtmlNode { RawHtml = t.Value };
 
-        case TokenType.FormatDelimiter:
-          // Emit a transient marker; ParseNodes folds matching pairs into
-          // FormatNodes (and degrades unmatched ones to literal text) once the
-          // whole sibling list at this level is built.
+        case TokenType.Verbatim:
+        {
           cursor.Advance();
+          int run = 0;
+          while (t.Value[run] == '`') run++;
+          return new VerbatimNode
+          {
+            Delimiter = t.Value.Substring(0, run),
+            Text = t.Value.Substring(run, t.Value.Length - 2 * run),
+          };
+        }
+
+        case TokenType.HorizontalRule:
+          cursor.Advance();
+          return new HorizontalRuleNode { OriginalSource = t.Value };
+
+        case TokenType.FormatDelimiter:
+          // A pair becomes a transient marker that ParseNodes folds into a
+          // FormatNode once the whole sibling list at this level is built.
+          cursor.Advance();
+          if (t.Partner < 0) return new TextNode { Content = t.Value };
           return new FormatDelimiterMarker { Kind = InlineFormats.FromDelimiter(t.Value) };
 
         case TokenType.CollapseOpen:
@@ -502,12 +483,13 @@ namespace Harlowe.Parsing
           // Past the nesting limit a brace is prose, so input like 100,000
           // `{` can't build an AST deep enough to overflow the stack.
           cursor.Advance();
-          if (AtNestingLimit) return new TextNode { Content = "{" };
+          if (t.Partner < 0 || AtNestingLimit) return new TextNode { Content = "{" };
           _levelBraces++;
           return new CollapseMarker { IsOpener = true };
 
         case TokenType.CollapseClose:
           cursor.Advance();
+          if (t.Partner < 0) return new TextNode { Content = "}" };
           if (_levelBraces > 0) _levelBraces--;
           return new CollapseMarker { IsOpener = false };
 
@@ -539,8 +521,8 @@ namespace Harlowe.Parsing
           return ParseHookContents(cursor, HookAnchor.None, name: null);
 
         case TokenType.HookClose:
-          // Inside a hook this is the terminator and never reaches here, so
-          // it's a `]` with no opener: literal text, as in reference.
+          // A paired closer is the enclosing hook's terminator and never
+          // reaches here, so this `]` has no opener: literal text.
           cursor.Advance();
           return new TextNode { Content = "]" };
 
@@ -619,8 +601,12 @@ namespace Harlowe.Parsing
       switch (next.Type)
       {
         case TokenType.EndOfFile:
+          break; // nothing to eliminate
+
         case TokenType.HookClose:
-          break; // nothing to eliminate; leave the terminator for the caller
+          // A real closer is the caller's terminator. An unpaired one is text.
+          if (next.Partner < 0) cursor.Advance();
+          break;
 
         case TokenType.Text:
           while (cursor.Current.Type == TokenType.Text) cursor.Advance();
@@ -648,11 +634,8 @@ namespace Harlowe.Parsing
           break;
 
         case TokenType.FormatDelimiter:
-          SkipFormatSpan(cursor);
-          break;
-
         case TokenType.CollapseOpen:
-          SkipCollapsedSpan(cursor);
+          SkipPairedSpan(cursor);
           break;
 
         default:
@@ -692,57 +675,20 @@ namespace Harlowe.Parsing
     }
 
     /// <summary>
-    /// Cursor is at a <see cref="TokenType.FormatDelimiter"/> right after a
-    /// comment marker. Pure lookahead for the matching same-kind delimiter at
-    /// the same hook depth (a delimiter inside a nested hook belongs to that
-    /// hook's own fold, as in reference, where each token's children fold
-    /// independently); if found, the whole span through the closer is
-    /// consumed, else just the opener (an unmatched delimiter degrades to
-    /// literal text, which is the one token the comment then eliminates).
-    /// The scan crosses line breaks — format folding does too.
+    /// Cursor is at an inline-format delimiter or <c>{</c> right after a comment
+    /// marker. A paired span is one folded token in reference, so the comment
+    /// eliminates all of it through its closer. An unpaired one is literal text
+    /// and is eaten alone.
     /// </summary>
-    private void SkipFormatSpan(TokenCursor cursor)
+    private static void SkipPairedSpan(TokenCursor cursor)
     {
-      string kind = cursor.Current.Value;
-      int hookDepth = 0;
-      for (int offset = 1; ; offset++)
+      int closer = cursor.Current.Partner;
+      if (closer <= cursor.Index)
       {
-        var t = cursor.Peek(offset);
-        if (t.Type == TokenType.EndOfFile) break;
-        if (!StaysInHook(cursor, offset, ref hookDepth)) break; // span never matched
-        if (t.Type == TokenType.FormatDelimiter && t.Value == kind && hookDepth == 0)
-        {
-          for (int i = 0; i <= offset; i++) cursor.Advance();
-          return;
-        }
+        cursor.Advance();
+        return;
       }
-      cursor.Advance(); // unmatched: eat the delimiter alone
-    }
-
-    /// <summary>
-    /// Cursor is at a <see cref="TokenType.CollapseOpen"/> right after a comment
-    /// marker. A matched <c>{…}</c> at this hook depth is one folded token in
-    /// reference, so the comment eliminates all of it; an unmatched <c>{</c>
-    /// degrades to literal text and is eaten alone. Pure lookahead until a
-    /// match is found.
-    /// </summary>
-    private void SkipCollapsedSpan(TokenCursor cursor)
-    {
-      int hookDepth = 0;
-      int braceDepth = 1;
-      for (int offset = 1; ; offset++)
-      {
-        var t = cursor.Peek(offset);
-        if (t.Type == TokenType.EndOfFile) break;
-        if (!StaysInHook(cursor, offset, ref hookDepth)) break; // the enclosing hook closes first
-        if (hookDepth == 0 && t.Type == TokenType.CollapseOpen) braceDepth++;
-        else if (hookDepth == 0 && t.Type == TokenType.CollapseClose && --braceDepth == 0)
-        {
-          for (int i = 0; i <= offset; i++) cursor.Advance();
-          return;
-        }
-      }
-      cursor.Advance(); // unmatched: eat the brace alone
+      while (cursor.Index <= closer) cursor.Advance();
     }
 
     /// <summary>

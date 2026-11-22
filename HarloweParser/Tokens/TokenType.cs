@@ -116,14 +116,27 @@ namespace Harlowe.Tokens
     HtmlTag,
 
     /// <summary>
-    /// An inline text-formatting delimiter in passage body — <c>''</c> (bold) or
-    /// <c>//</c> (italic). The Value is the literal delimiter (<c>"''"</c> /
-    /// <c>"//"</c>). These are symmetric toggle markers (opener and closer are
-    /// identical, per reference Harlowe's <c>boldOpener</c>/<c>italicOpener</c>);
-    /// the body parser folds matching pairs into a <see cref="Ast.Body.FormatNode"/>
-    /// and degrades any unmatched delimiter to literal text.
+    /// An inline text-formatting delimiter in passage body: <c>''</c>, <c>//</c>,
+    /// <c>~~</c>, <c>^^</c>, <c>*</c> or <c>**</c>. The Value is the literal
+    /// delimiter. The tokenizer records each pair in <see cref="Token.Partner"/>,
+    /// the body parser folds pairs into a <see cref="Ast.Body.FormatNode"/>, and
+    /// a delimiter with no partner is literal text.
     /// </summary>
     FormatDelimiter,
+
+    /// <summary>
+    /// A whole <c>`…`</c> span (reference's folded <c>verbatim</c> token). The
+    /// Value holds the source including both runs of graves. Everything inside
+    /// is literal text, and an opener with no closer stays a plain
+    /// <see cref="Text"/> token.
+    /// </summary>
+    Verbatim,
+
+    /// <summary>
+    /// A line of three or more hyphens (reference's <c>hr</c>). The Value holds
+    /// the line as written, including the line break it consumes.
+    /// </summary>
+    HorizontalRule,
 
     /// <summary>
     /// The <c>--</c> comment marker (reference's <c>comment</c> pattern in

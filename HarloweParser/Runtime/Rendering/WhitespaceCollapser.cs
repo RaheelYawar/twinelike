@@ -80,7 +80,9 @@ namespace Harlowe.Runtime.Rendering
         switch (children[i])
         {
           case RenderTextNode text:
-            if (!string.IsNullOrEmpty(text.Content))
+            // Reference prints a kept line break as a <br>, which isn't a text
+            // node, so text that is only line breaks is invisible to the trimming.
+            if (!string.IsNullOrEmpty(text.Content) && !(solid && IsOnlyLineBreaks(text.Content)))
               slots.Add(new Slot { Parent = container, Node = text, Span = span, Solid = solid });
             break;
           case RenderErrorNode _:
@@ -102,6 +104,13 @@ namespace Harlowe.Runtime.Rendering
             break;
         }
       }
+    }
+
+    private static bool IsOnlyLineBreaks(string text)
+    {
+      for (int i = 0; i < text.Length; i++)
+        if (text[i] != '\n') return false;
+      return true;
     }
 
     /// <summary>Collapses the slots in <c>[start, end)</c>, which are one whole span.</summary>

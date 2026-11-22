@@ -300,8 +300,67 @@ namespace Harlowe.Runtime
       return true;
     }
 
-    /// <summary>The in-prose error for a render that has used up <see cref="NestedRenderBudget"/>.</summary>
+    /// <summary>The in-prose error for a render that has used up <see cref="NestedRenderBudget"/> or <see cref="TargetWalkBudget"/>.</summary>
     internal const string OverBudgetMessage = "this render has displayed or printed too much nested content";
+
+    /// <summary>
+    /// The most page-walking one render or dispatch may do to resolve macro
+    /// targets, in characters of text plus <see cref="TargetWalkNodeCost"/> per
+    /// node. Every <c>(replace:)</c>, <c>(enchant:)</c> or <c>(click:)</c>
+    /// searches the whole page, and a passage that displays itself can run
+    /// thousands of them over a page that keeps growing. This still allows
+    /// hundreds of walks of a very large page.
+    /// </summary>
+    internal const long TargetWalkBudget = 100000000;
+
+    /// <summary>What visiting one render node costs, since it's slower than scanning one character.</summary>
+    internal const int TargetWalkNodeCost = 8;
+
+    /// <summary>Walk budget spent so far in this render or dispatch.</summary>
+    internal long TargetWalkCost;
+
+    private Rendering.RenderErrorNode _targetWalkRefusal;
+
+    /// <summary>
+    /// How deeply the page may nest before targeting macros stop adding to it.
+    /// Each <c>(enchant:)</c>, <c>(change:)</c> or <c>(click:)</c> wraps its
+    /// targets in a new layer and every later walk recurses through those
+    /// layers, so enough of them would overflow the host's stack. Far deeper
+    /// than any real page.
+    /// </summary>
+    internal const int MaxTargetedTreeDepth = 512;
+
+    /// <summary>
+    /// Charges one walk of <paramref name="root"/>, or returns false once the
+    /// budget is used up or the page is at <see cref="MaxTargetedTreeDepth"/>.
+    /// Measuring is bounded by both, because a refused macro adds nothing.
+    /// <c>?page</c> is measured too even though finding it is instant, since
+    /// wrapping the whole page is the easiest way to add depth.
+    /// </summary>
+    internal bool TrySpendOnTargetWalk(Rendering.RenderNode root)
+    {
+      if (TargetWalkCost >= TargetWalkBudget) return false;
+      int height = 0;
+      TargetWalkCost += Rendering.RenderNodes.WalkCost(root, 0, ref height);
+      return height < MaxTargetedTreeDepth;
+    }
+
+    /// <summary>Shows the budget error once at the end of the page, for a pass with no position of its own to report at.</summary>
+    internal void ShowTargetWalkRefusal(Rendering.IRenderContainer root)
+    {
+      if (_targetWalkRefusal != null) return;
+      _targetWalkRefusal = new Rendering.RenderErrorNode { Message = OverBudgetMessage };
+      root.Children.Add(_targetWalkRefusal);
+    }
+
+    /// <summary>Gives a dispatch a fresh walk budget and clears the last refusal's error, which the passes show again if it still applies.</summary>
+    internal void ResetTargetWalk(Rendering.IRenderContainer root)
+    {
+      TargetWalkCost = 0;
+      if (_targetWalkRefusal == null) return;
+      Rendering.RenderNodes.RemoveDescendant(root, _targetWalkRefusal);
+      _targetWalkRefusal = null;
+    }
 
     /// <summary>Closes a render admitted by <see cref="EnterNestedRender"/>.</summary>
     internal void ExitNestedRender()

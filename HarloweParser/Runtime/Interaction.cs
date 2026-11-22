@@ -165,6 +165,11 @@ namespace Harlowe.Runtime
         IReadOnlyList<RenderNode> targets;
         if (interaction.LabelTarget)
         {
+          if (ctx != null && !ctx.TrySpendOnTargetWalk(root))
+          {
+            ctx.ShowTargetWalkRefusal(root);
+            continue;
+          }
           var labels = new List<RenderNode>();
           RenderNodes.CollectWhere(root,
             n => n is RenderHookNode h && h.LabelRegionId == interaction.RegionId, labels);
@@ -173,13 +178,14 @@ namespace Harlowe.Runtime
         else
         {
           targets = EnchantmentPass.ResolveTargets(root, interaction.Target, interaction.StringTarget,
-            wrap => wrap.SourceRegionId = interaction.RegionId);
+            wrap => wrap.SourceRegionId = interaction.RegionId, ctx);
         }
         if (targets == null) continue;
 
         bool wrappedAny = false;
         int pos = 0;
         bool lambdaFailed = false;
+        NodePositions positions = null;
         for (int j = 0; j < targets.Count; j++)
         {
           if (!(targets[j] is IRenderContainer container)) continue;
@@ -244,7 +250,8 @@ namespace Harlowe.Runtime
             // alongside the region event. StripWraps hoists the link back out
             // through the same generalized unwrap.
             interactiveNode.Children.Add(targets[j]);
-            RenderNodes.ReplaceChild(root, targets[j], wrapped);
+            if (positions == null) positions = new NodePositions(root);
+            positions.Replace(targets[j], wrapped);
           }
           else
           {

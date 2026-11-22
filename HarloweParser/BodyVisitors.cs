@@ -21,6 +21,8 @@ namespace Harlowe
     public virtual void Visit(ParseErrorNode node) { }
     // Commented-out content is dead: no links to collect, no errors to report.
     public virtual void Visit(CommentNode node) { }
+    public virtual void Visit(VerbatimNode node) { }
+    public virtual void Visit(HorizontalRuleNode node) { }
 
     public virtual void Visit(MacroNode node)
     {

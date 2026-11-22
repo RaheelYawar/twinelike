@@ -162,7 +162,9 @@ A story keeps the semantics of the Harlowe major it declares. `format-version` s
 | Ordinal indexing (`1st`, `last`, `Nthlast`) | ✓ |
 | Hooks: anonymous `[…]`, `\|name>[…]`, `[…]<name\|`, unclosed `[=` | ✓ |
 | Twine links: `[[text->target]]`, `[[target<-text]]`, bare `[[name]]` | ✓ |
-| Inline text styling: `''bold''`, `//italic//`, `~~strike~~`, `^^sup^^` (Markdown `*em*`/`**strong**` pending) | ⚠ |
+| Inline text styling: `''bold''`, `//italic//`, `~~strike~~`, `^^sup^^`, `*em*`, `**strong**` | ✓ |
+| Verbatim text in backticks, horizontal rules (`---`) | ✓ |
+| Block markup: lists, headings, alignment, columns | ✗ |
 | Lambdas: `where`, `via`, `making`, `each` (incl. implicit `it`) | ✓ |
 | Hook references: `?name`, `?passage`, `?page`, `?link` (+ ordinal narrowing) | ✓ |
 | `(goto:)` with multi-step undo & redo | ✓ |

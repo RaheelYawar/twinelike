@@ -21,6 +21,13 @@ namespace Harlowe.Tokens
 
     private Stack<Frame> _modes;
     private bool _inLink;
+    private MarkupFronts _fronts;
+
+    // Source position right after a bullet. Block markup may follow a bullet on
+    // the same line, as it may follow a line break. A position, not a token
+    // count, because closing a verbatim span removes tokens.
+    private int _blockStartPos;
+    private bool _hasVerbatim;
 
     private readonly HarloweProfile _profile;
 
@@ -86,6 +93,9 @@ namespace Harlowe.Tokens
       _modes = new Stack<Frame>();
       _modes.Push(new Frame { Mode = TokenizerMode.Body });
       _inLink = false;
+      _fronts = new MarkupFronts();
+      _blockStartPos = -1;
+      _hasVerbatim = false;
 
       while (_pos < _src.Length)
       {
@@ -96,6 +106,7 @@ namespace Harlowe.Tokens
       }
 
       Emit(TokenType.EndOfFile, string.Empty, _pos, _line, _col);
+      if (_hasVerbatim) FillVerbatimValues();
       return _tokens;
     }
 
@@ -110,6 +121,7 @@ namespace Harlowe.Tokens
       if (_inLink) { ScanLinkContent(); return; }
 
       int startPos = _pos, startLine = _line, startCol = _col;
+      if (AtBlockStart && TryScanBlockMarkup(startPos, startLine, startCol)) return;
       char c = _src[_pos];
 
       switch (c)
@@ -121,8 +133,19 @@ namespace Harlowe.Tokens
         case '(':
           if (TryScanMacroOpen(startPos, startLine, startCol)) return;
           break;
+        case '*':
+          ScanStar(startPos, startLine, startCol);
+          return;
+        case '`':
+          ScanGraves(startPos, startLine, startCol);
+          return;
         case '[':
-          if (Peek(1) == '[' && HasLinkCloserAhead())
+          // Reference's link opener is `\[\[(?!\[)`, so in `[[[a]]` the first
+          // bracket is a hook opener and the link starts at the second. After
+          // `|name>` the first bracket always belongs to that named hook,
+          // because reference lexes `|name>[` as one token.
+          bool named = _tokens.Count > 0 && _tokens[_tokens.Count - 1].Type == TokenType.HookNameRight;
+          if (!named && Peek(1) == '[' && Peek(2) != '[' && HasLinkCloserAhead())
           {
             AdvanceN(2);
             _inLink = true;
@@ -146,17 +169,20 @@ namespace Harlowe.Tokens
           }
           Advance();
           Emit(TokenType.HookOpen, "[", startPos, startLine, startCol);
+          _fronts.Push(named ? FrontKind.NamedHook : FrontKind.Hook, _tokens.Count - 1);
           return;
         case ']':
+          int hookFront = _fronts.CloseHook(IsHookNameLeftAt(_pos + 1));
           Advance();
-          Emit(TokenType.HookClose, "]", startPos, startLine, startCol);
+          EmitPaired(TokenType.HookClose, "]", hookFront, startPos, startLine, startCol);
           return;
         case '{':
           ScanCollapseOpener(startPos, startLine, startCol);
           return;
         case '}':
+          int collapseFront = _fronts.Close(FrontKind.Collapse);
           Advance();
-          Emit(TokenType.CollapseClose, "}", startPos, startLine, startCol);
+          EmitPaired(TokenType.CollapseClose, "}", collapseFront, startPos, startLine, startCol);
           return;
         case '<':
           if (TryScanHtmlComment(startPos, startLine, startCol)) return;
@@ -218,6 +244,159 @@ namespace Harlowe.Tokens
       string lexeme = _src.Substring(_pos, length);
       AdvanceN(length);
       Emit(length > 1 ? TokenType.CollapseUnclosed : TokenType.CollapseOpen, lexeme, startPos, startLine, startCol);
+      if (length == 1) _fronts.Push(FrontKind.Collapse, _tokens.Count - 1);
+    }
+
+    /// <summary>
+    /// True where a block rule may start: reference's
+    /// <c>blockRuleConstraint</c> allows them at the start of the source or
+    /// straight after a line break, rule or bullet.
+    /// </summary>
+    private bool AtBlockStart
+    {
+      get
+      {
+        if (_tokens.Count == 0 || _pos == _blockStartPos) return true;
+        var last = _tokens[_tokens.Count - 1].Type;
+        return last == TokenType.Newline || last == TokenType.HorizontalRule;
+      }
+    }
+
+    /// <summary>
+    /// At a block start, consumes a horizontal rule or a bullet. The rule is
+    /// reference's <c>hr</c> pattern, <c>{ws}-{3,}{ws}(\n|$)</c>, so it owns its
+    /// line break. Lists aren't implemented, so a bullet stays literal text, but
+    /// it has to be recognised because it outranks emphasis: <c>* a *b*</c> is
+    /// one list item with <c>b</c> emphasised.
+    /// </summary>
+    private bool TryScanBlockMarkup(int startPos, int startLine, int startCol)
+    {
+      int look = SkipMarkupSpace(_pos);
+      if (look >= _src.Length) return false;
+
+      if (_src[look] == '-')
+      {
+        int end = look;
+        while (end < _src.Length && _src[end] == '-') end++;
+        if (end - look < 3) return false;
+        end = SkipMarkupSpace(end);
+        if (end < _src.Length && _src[end] != '\n') return false;
+        if (end < _src.Length) end++;
+        string rule = _src.Substring(_pos, end - _pos);
+        AdvanceN(rule.Length);
+        Emit(TokenType.HorizontalRule, rule, startPos, startLine, startCol);
+        return true;
+      }
+
+      if (_src[look] == '*')
+      {
+        int stars = look;
+        while (stars < _src.Length && _src[stars] == '*') stars++;
+        int after = SkipMarkupSpace(stars);
+        if (after == stars) return false;
+        string bullet = _src.Substring(_pos, after - _pos);
+        AdvanceN(bullet.Length);
+        Emit(TokenType.Text, bullet, startPos, startLine, startCol);
+        _blockStartPos = _pos;
+        return true;
+      }
+      return false;
+    }
+
+    /// <summary>
+    /// Index of the first character at or after <paramref name="pos"/> outside
+    /// reference's <c>ws</c> class, which excludes line breaks and U+1680.
+    /// </summary>
+    private int SkipMarkupSpace(int pos)
+    {
+      while (pos < _src.Length && IsMarkupSpace(_src[pos])) pos++;
+      return pos;
+    }
+
+    private static bool IsMarkupSpace(char c)
+    {
+      int u = c;
+      return u == 0x20 || u == 0x0c || u == 0x09 || u == 0x0b || u == 0xa0
+        || (u >= 0x2000 && u <= 0x200a) || u == 0x2028 || u == 0x2029
+        || u == 0x202f || u == 0x205f || u == 0x3000;
+    }
+
+    /// <summary>
+    /// Consumes one emphasis delimiter from a run of asterisks, in reference's
+    /// rule order (<c>emBack</c>, <c>strongBack</c>, <c>strongFront</c>,
+    /// <c>emFront</c>) so <c>***a***</c> reads as strong around emphasis. The
+    /// body dispatch comes back here for the rest of the run.
+    /// </summary>
+    private void ScanStar(int startPos, int startLine, int startCol)
+    {
+      bool doubled = Peek(1) == '*';
+      if (_fronts.CanClose(FrontKind.Emphasis))
+        CloseFormat("*", FrontKind.Emphasis, startPos, startLine, startCol);
+      else if (doubled && _fronts.CanClose(FrontKind.Strong))
+        CloseFormat("**", FrontKind.Strong, startPos, startLine, startCol);
+      else
+      {
+        string delimiter = doubled ? "**" : "*";
+        AdvanceN(delimiter.Length);
+        Emit(TokenType.FormatDelimiter, delimiter, startPos, startLine, startCol);
+        _fronts.Push(doubled ? FrontKind.Strong : FrontKind.Emphasis, _tokens.Count - 1);
+      }
+    }
+
+    private void CloseFormat(string delimiter, FrontKind kind, int startPos, int startLine, int startCol)
+    {
+      int front = _fronts.Close(kind);
+      AdvanceN(delimiter.Length);
+      EmitPaired(TokenType.FormatDelimiter, delimiter, front, startPos, startLine, startCol);
+    }
+
+    /// <summary>
+    /// Consumes a run of graves. A run the length of an open verbatim closes it,
+    /// replacing everything since the opener with one
+    /// <see cref="TokenType.Verbatim"/> token. Any other run opens a new span,
+    /// and stays literal text if nothing closes it.
+    /// </summary>
+    private void ScanGraves(int startPos, int startLine, int startCol)
+    {
+      int end = _pos;
+      while (end < _src.Length && _src[end] == '`') end++;
+      int run = end - _pos;
+      int front = _fronts.CloseVerbatim(run);
+      AdvanceN(run);
+
+      if (front < 0)
+      {
+        Emit(TokenType.Text, _src.Substring(startPos, run), startPos, startLine, startCol);
+        _fronts.Push(FrontKind.Verbatim, _tokens.Count - 1, run);
+        return;
+      }
+
+      // The value is filled in once scanning ends, since an outer span can
+      // swallow this one and nested spans would otherwise copy the text repeatedly.
+      var opener = _tokens[front];
+      _tokens.RemoveRange(front, _tokens.Count - front);
+      Emit(TokenType.Verbatim, null, opener.Position, opener.Line, opener.Column);
+      _hasVerbatim = true;
+    }
+
+    /// <summary>Gives each surviving verbatim token its source. Body tokens are contiguous, so the next token marks where it ends.</summary>
+    private void FillVerbatimValues()
+    {
+      for (int i = 0; i < _tokens.Count - 1; i++)
+      {
+        var token = _tokens[i];
+        if (token.Type == TokenType.Verbatim)
+          token.Value = _src.Substring(token.Position, _tokens[i + 1].Position - token.Position);
+      }
+    }
+
+    /// <summary>Emits a closer and records its pairing with the token at <paramref name="front"/>, if any.</summary>
+    private void EmitPaired(TokenType type, string value, int front, int pos, int line, int col)
+    {
+      Emit(type, value, pos, line, col);
+      if (front < 0) return;
+      _tokens[front].Partner = _tokens.Count - 1;
+      _tokens[_tokens.Count - 1].Partner = front;
     }
 
     /// <summary>
@@ -233,8 +412,15 @@ namespace Harlowe.Tokens
     {
       if (!IsFormatDelimiterStart(_pos)) return false;
       string delim = _src.Substring(_pos, 2);
+      var kind = delim == "''" ? FrontKind.Bold : delim == "//" ? FrontKind.Italic : delim == "~~" ? FrontKind.Strike : FrontKind.Superscript;
+      if (_fronts.CanClose(kind))
+      {
+        CloseFormat(delim, kind, startPos, startLine, startCol);
+        return true;
+      }
       AdvanceN(2);
       Emit(TokenType.FormatDelimiter, delim, startPos, startLine, startCol);
+      _fronts.Push(kind, _tokens.Count - 1);
       return true;
     }
 
@@ -579,6 +765,16 @@ namespace Harlowe.Tokens
       AdvanceN(look - _pos + 1);
       Emit(TokenType.HookNameLeft, name, startPos, startLine, startCol);
       return true;
+    }
+
+    /// <summary>True if a <c>&lt;name|</c> begins at <paramref name="pos"/>. Pure lookahead with the same shape <see cref="TryScanHookNameLeft"/> consumes.</summary>
+    private bool IsHookNameLeftAt(int pos)
+    {
+      if (pos >= _src.Length || _src[pos] != '<') return false;
+      int look = pos + 1;
+      if (look >= _src.Length || !char.IsLetter(_src[look])) return false;
+      while (look < _src.Length && IsIdContinue(_src[look])) look++;
+      return look < _src.Length && _src[look] == '|';
     }
 
     /// <summary>
@@ -1342,7 +1538,7 @@ namespace Harlowe.Tokens
       switch (c)
       {
         case '(': case '[': case ']': case '<': case '|': case '$': case '_': case '\n':
-        case '{': case '}':
+        case '{': case '}': case '*': case '`':
           return true;
         default:
           return false;

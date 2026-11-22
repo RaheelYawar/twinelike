@@ -211,6 +211,20 @@ namespace Harlowe.Twee
       if (node.UnclosedMarker == null) _sb.Append('}');
     }
 
+    public void Visit(VerbatimNode node) => _sb.Append(node.Delimiter).Append(node.Text).Append(node.Delimiter);
+
+    /// <summary>
+    /// Emits the rule as written. A rule always ends its line, so a last-line
+    /// rule gains a line break here: it's harmless at the end of a passage, and
+    /// stops anything appended after it from turning the rule into prose.
+    /// </summary>
+    public void Visit(HorizontalRuleNode node)
+    {
+      string rule = node.OriginalSource ?? "---\n";
+      _sb.Append(rule);
+      if (!rule.EndsWith("\n", System.StringComparison.Ordinal)) _sb.Append('\n');
+    }
+
     /// <summary>
     /// Emits a body-position macro: <c>(name: args)</c>, immediately followed
     /// by an attached hook (no whitespace) when present. The body parser's

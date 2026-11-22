@@ -69,6 +69,148 @@ namespace Harlowe.Tests.Runtime
       Assert.InRange(result.Text.Length, 0, 4_000_000);
     }
 
+    // Each of these macros searches the whole page, so a self-displaying
+    // passage used to run thousands of searches over a growing page.
+    [Theory]
+    [InlineData("a(display: \"Start\")(replace: \"a\")[b](display: \"Start\")")]
+    [InlineData("|h>[a](display: \"Start\")(replace: ?h)[b](display: \"Start\")")]
+    [InlineData("a(display: \"Start\")(enchant: \"a\", (text-style: \"bold\"))(display: \"Start\")")]
+    [InlineData("|h>[a](display: \"Start\")(enchant: ?h, (text-style: \"bold\"))(display: \"Start\")")]
+    [InlineData("a(display: \"Start\")(click: \"a\")[b](display: \"Start\")")]
+    [InlineData("(link: \"a\")[b](display: \"Start\")(display: \"Start\")")]
+    [InlineData("''bold'' //italic// _(display: \"Start\")_unde(replace: \"a\")[ b  c ]rline__ ld'' //italic// __u~~strik(display: \"Start\")_unde~~ ^^super^^")]
+    public void SelfDisplayWithATargetingMacro_StopsQuicklyWithAnError(string body)
+    {
+      var result = RenderWithin20Seconds(Story(("Start", body)));
+
+      Assert.Contains("too much nested content", Errors(result));
+    }
+
+    // Wrapping each match used to insert into the same child list, which was
+    // quadratic in the number of matches.
+    [Theory]
+    [InlineData("(replace: \"a\")[b]")]
+    [InlineData("(enchant: \"a\", (text-style: \"bold\"))")]
+    [InlineData("(click: \"a\")[b]")]
+    public void OneMacroOverVeryManyMatches_FinishesQuickly(string macro)
+    {
+      var result = RenderWithin20Seconds(Story(("Start", new string('a', 200000) + macro)));
+
+      Assert.Equal("", Errors(result));
+    }
+
+    // Each of these adds a layer around its target. Enough layers used to
+    // overflow the stack, which kills the host with no chance to report it.
+    [Theory]
+    [InlineData("(enchant: ?h, (text-style: \"bold\"))")]
+    [InlineData("(change: ?h, (text-style: \"bold\"))")]
+    [InlineData("(click: ?h)[x]")]
+    public void ThousandsOfLayersOnOneHook_StopWithAnErrorOnASmallStack(string macro)
+    {
+      var body = new StringBuilder("|h>[a]");
+      for (int i = 0; i < 10000; i++) body.Append(macro);
+      var story = Story(("Start", body.ToString()));
+
+      RenderResult result = null;
+      var worker = new Thread(() => result = new StorySession(story).Render(), 512 * 1024) { IsBackground = true };
+      worker.Start();
+
+      Assert.True(worker.Join(20000), "render did not finish");
+      Assert.Contains("too much nested content", Errors(result));
+    }
+
+    [Theory]
+    [InlineData("a(display: \"Start\")(change: ?page, (text-style: \"bold\"))(display: \"Start\")")]
+    [InlineData("a(display: \"Start\")(enchant: ?page, (text-style: \"bold\"))(display: \"Start\")")]
+    public void SelfDisplayWrappingThePage_FinishesOnASmallStack(string body)
+    {
+      var story = Story(("Start", body));
+
+      RenderResult result = null;
+      var worker = new Thread(() => result = new StorySession(story).Render(), 512 * 1024) { IsBackground = true };
+      worker.Start();
+
+      Assert.True(worker.Join(20000), "render did not finish");
+      Assert.Contains("too much nested content", Errors(result));
+    }
+
+    [Fact]
+    public void AFlatPageThatSearchesTooMuch_StopsWithAnError()
+    {
+      var body = new StringBuilder(new string('x', 25000));
+      for (int i = 0; i < 5000; i++) body.Append("(replace: \"zz\")[y]");
+
+      var result = RenderWithin20Seconds(Story(("Start", body.ToString())));
+
+      Assert.Contains("too much nested content", Errors(result));
+    }
+
+    [Fact]
+    public void ManyEnchantmentsOnManyLinks_StopWithAnError()
+    {
+      var body = new StringBuilder();
+      for (int i = 0; i < 1500; i++) body.Append("[[l->Other]]");
+      for (int i = 0; i < 300; i++) body.Append("(enchant: ?link, (text-style: \"bold\"))");
+
+      var result = RenderWithin20Seconds(Story(("Start", body.ToString()), ("Other", "o")));
+
+      Assert.Contains("too much nested content", Errors(result));
+    }
+
+    // Wrapping a link used to search the whole page for it.
+    [Theory]
+    [InlineData("(enchant: ?link, (text-style: \"bold\"))", 5)]
+    [InlineData("(click: ?link)[x]", 5)]
+    public void AFewMacrosOverThousandsOfLinks_AllApply(string macro, int count)
+    {
+      const int links = 5000;
+      var body = new StringBuilder();
+      for (int i = 0; i < links; i++) body.Append("[[l->Other]]");
+      for (int i = 0; i < count; i++) body.Append(macro);
+
+      var result = RenderWithin20Seconds(Story(("Start", body.ToString()), ("Other", "o")));
+
+      Assert.Equal("", Errors(result));
+      int linkEvents = 0, wraps = 0;
+      foreach (var entry in result.Entries)
+      {
+        if (entry.Kind == BufferedRenderOutput.Kind.Link) linkEvents++;
+        if (entry.Kind == BufferedRenderOutput.Kind.PushStyle || entry.Kind == BufferedRenderOutput.Kind.BeginInteractive) wraps++;
+      }
+      Assert.Equal(links, linkEvents);
+      Assert.Equal(links * count, wraps);
+    }
+
+    [Fact]
+    public void AnOverBudgetPass_ReportsOnceAndClearsWhenADispatchFits()
+    {
+      var body = new StringBuilder("|big>[").Append('x', 3500000).Append("]go(click: \"go\")[(replace: ?big)[small]]");
+      for (int i = 0; i < 40; i++) body.Append("(enchant: \"zzz\", (text-style: \"bold\"))");
+      var session = new StorySession(Story(("Start", body.ToString())));
+
+      var first = session.Render();
+      Assert.Equal("this render has displayed or printed too much nested content\n", Errors(first));
+
+      string region = null;
+      foreach (var entry in first.Entries)
+        if (entry.Kind == BufferedRenderOutput.Kind.BeginInteractive) region = entry.Region.Id;
+      var after = session.DispatchEvent(region);
+
+      Assert.Equal("", Errors(after));
+      Assert.Contains("small", after.Text);
+    }
+
+    [Fact]
+    public void ManyTargetingMacrosOnAnOrdinaryPage_AllStillRun()
+    {
+      var body = new StringBuilder(new string('x', 20000)).Append(" word");
+      for (int i = 0; i < 200; i++) body.Append("(replace: \"word\")[word]");
+      var result = new StorySession(Story(("Start", body.ToString()))).Render();
+
+      Assert.Equal("", Errors(result));
+      Assert.EndsWith(" word", result.Text);
+    }
+
     [Fact]
     public void DispatchThatExceedsTheBudget_ShowsTheErrorInPlace()
     {

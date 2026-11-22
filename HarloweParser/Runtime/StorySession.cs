@@ -996,8 +996,11 @@ namespace Harlowe.Runtime
         _liveContext.Interactions.Remove(fired);
 
       // Each dispatch gets its own nested-render budget. Sharing the render's
-      // would let a long-lived passage run out after enough clicks.
+      // would let a long-lived passage run out after enough clicks. The target
+      // lookups below aren't charged to it: an event makes a fixed few of them
+      // however the story is written, unlike the macros its hook runs.
       _liveContext.NestedRenderCost = 0;
+      _liveContext.ResetTargetWalk(_liveRoot);
       _liveContext.RenderNesting = 0;
       _liveContext.DisplayDepth = 0;
 

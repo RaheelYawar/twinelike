@@ -355,6 +355,27 @@ namespace Harlowe.Runtime.Rendering
       return copy;
     }
 
+    /// <summary>The work one search of <paramref name="node"/>'s subtree costs, as charged by <see cref="MacroContext.TrySpendOnTargetWalk"/>.</summary>
+    internal static long WalkCost(RenderNode node)
+    {
+      int height = 0;
+      return WalkCost(node, 0, ref height);
+    }
+
+    /// <summary>As <see cref="WalkCost(RenderNode)"/>, also raising <paramref name="height"/> to the deepest level below <paramref name="node"/>.</summary>
+    internal static long WalkCost(RenderNode node, int depth, ref int height)
+    {
+      if (depth > height) height = depth;
+      long cost = MacroContext.TargetWalkNodeCost;
+      if (node is RenderTextNode text) cost += text.Content?.Length ?? 0;
+      if (node is IRenderContainer container)
+      {
+        var children = container.Children;
+        for (int i = 0; i < children.Count; i++) cost += WalkCost(children[i], depth + 1, ref height);
+      }
+      return cost;
+    }
+
     /// <summary>
     /// The work one splice of <paramref name="nodes"/> costs: a unit per node
     /// plus one per character it holds. Revisions clone their source into every
@@ -475,6 +496,62 @@ namespace Harlowe.Runtime.Rendering
         if (children[i] is IRenderContainer c && ReplaceChild(c, target, replacement)) return true;
       }
       return false;
+    }
+
+    /// <summary>Removes <paramref name="target"/> from wherever it sits under <paramref name="root"/>. Returns true if found.</summary>
+    internal static bool RemoveDescendant(IRenderContainer root, RenderNode target)
+    {
+      var children = root.Children;
+      for (int i = 0; i < children.Count; i++)
+      {
+        if (ReferenceEquals(children[i], target))
+        {
+          children.RemoveAt(i);
+          return true;
+        }
+        if (children[i] is IRenderContainer c && RemoveDescendant(c, target)) return true;
+      }
+      return false;
+    }
+  }
+
+  /// <summary>
+  /// Where every node under a root sits, recorded in one walk, so wrapping many
+  /// <c>?link</c> matches doesn't search the page once per link.
+  /// </summary>
+  internal sealed class NodePositions
+  {
+    private readonly IRenderContainer _root;
+    private readonly Dictionary<RenderNode, KeyValuePair<IRenderContainer, int>> _positions =
+      new Dictionary<RenderNode, KeyValuePair<IRenderContainer, int>>();
+
+    public NodePositions(IRenderContainer root)
+    {
+      _root = root;
+      Record(root);
+    }
+
+    private void Record(IRenderContainer container)
+    {
+      var children = container.Children;
+      for (int i = 0; i < children.Count; i++)
+      {
+        _positions[children[i]] = new KeyValuePair<IRenderContainer, int>(container, i);
+        if (children[i] is IRenderContainer c) Record(c);
+      }
+    }
+
+    /// <summary>Replaces <paramref name="target"/> in place. A node moved since the walk, by a wrap around its parent's content, is searched for.</summary>
+    public bool Replace(RenderNode target, RenderNode replacement)
+    {
+      if (_positions.TryGetValue(target, out var at)
+          && at.Value < at.Key.Children.Count
+          && ReferenceEquals(at.Key.Children[at.Value], target))
+      {
+        at.Key.Children[at.Value] = replacement;
+        return true;
+      }
+      return RenderNodes.ReplaceChild(_root, target, replacement);
     }
   }
 }

@@ -313,6 +313,12 @@ namespace Harlowe.Runtime
       for (int s = 0; s < d.Revisions.Count; s++)
       {
         var rev = d.Revisions[s];
+        if (ctx != null && !ctx.TrySpendOnTargetWalk(liveRoot))
+        {
+          output.Error(MacroContext.OverBudgetMessage);
+          return;
+        }
+
         IReadOnlyList<RenderNode> targets;
         if (rev.HookTarget != null)
         {
@@ -497,9 +503,21 @@ namespace Harlowe.Runtime
     public void ApplyToNode(IRenderContainer root, RenderNode target, Enchantment source = null)
     {
       if (root == null || target == null) return;
-      var styles = BuildStyles();
-      if (styles.Count == 0) return;
+      var wrapped = WrapInStyles(target, source);
+      if (!ReferenceEquals(wrapped, target)) RenderNodes.ReplaceChild(root, target, wrapped);
+    }
 
+    /// <summary>As <see cref="ApplyToNode(IRenderContainer, RenderNode, Enchantment)"/>, for a pass wrapping many links, whose positions were recorded once.</summary>
+    internal void ApplyToNode(NodePositions positions, RenderNode target, Enchantment source)
+    {
+      var wrapped = WrapInStyles(target, source);
+      if (!ReferenceEquals(wrapped, target)) positions.Replace(target, wrapped);
+    }
+
+    /// <summary>Builds this changer's style layers around <paramref name="target"/> and returns the outermost, or <paramref name="target"/> itself when there are none. Doesn't place the result in the tree.</summary>
+    private RenderNode WrapInStyles(RenderNode target, Enchantment source)
+    {
+      var styles = BuildStyles();
       RenderNode wrapped = target;
       for (int i = styles.Count - 1; i >= 0; i--)
       {
@@ -507,7 +525,7 @@ namespace Harlowe.Runtime
         styleNode.Children.Add(wrapped);
         wrapped = styleNode;
       }
-      RenderNodes.ReplaceChild(root, target, wrapped);
+      return wrapped;
     }
 
     /// <summary>Run every patch against a fresh descriptor — the single place the patch list is folded, shared by <see cref="Apply"/> and <see cref="BuildStyles"/>.</summary>

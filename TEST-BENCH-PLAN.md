@@ -1,6 +1,6 @@
 # Test bench plan
 
-How we find out how much real Harlowe plays correctly, on every runtime we target, and stop it going backwards. Researched 2026-11-21. Nothing here is built yet.
+How we find out how much real Harlowe plays correctly, on every runtime we target, and stop it going backwards. Researched 2026-11-21. Phase 0a has run from prototype scripts, and nothing is in this repository yet.
 
 ## Where testing stands
 
@@ -8,13 +8,15 @@ The unit tests all pass, but they only check behaviour someone already thought t
 
 | Measure | Result |
 |---|---|
-| Reference Harlowe's own specs that can run without a browser | 7,001 checks from 1,599 of its 2,699 tests. **3,632 pass (51.9%)** under the Harlowe 4 profile and 3,629 under Harlowe 3 |
+| Reference Harlowe's own specs that can run without a browser | 7,001 checks from 1,599 of its 2,699 tests. **3,632 pass (51.9%)** under the Harlowe 4 profile and 3,629 under Harlowe 3. Real Harlowe 3.3.9 passes 6,732 (96.2%) |
 | Public Harlowe 3.3 stories on GitHub, counted by pattern | 156 stories, about 30,800 macro calls. **74 (47%)** call only macros we implement, and about 25% of calls hit a macro we lack |
 | MIT/CC0 Harlowe 3.3.9 stories, played by seeded random walks | 8 stories. **2 play with no in-prose errors**, and those two make only 2 macro calls between them |
+| Walks recorded on real Harlowe 3.3.9 and replayed on Twinelike | **All 41 Service Suspended passages match**. Files-005 matches its first passage and stops at timed macros in its second |
+| Generated markup snippets on both engines | **99.2% of about 103,000 comparable snippets match** |
 
-So no story with real macro use plays cleanly yet, and the results change what to build next. Most errors in the playthroughs are `$x is not set`: Harlowe 3 reads an unset variable as `0` (`COMPATIBILITY.md` row 2), and we still use the Harlowe 4 error. After that come `(show:)`, `(visited:)`, `(box:)` and `(hide:)`. We also don't run `startup`, `header` or `footer` passages, which 3 of the 8 stories use. By number of stories, the most-used missing macros are `(box:)` 27, `(live:)` 23, `(prompt:)` 16, `(stop:)` 14, `(css:)` 11, `(passage:)` 11, `(show:)` 10 and `(track:)` 10.
+So no story with real macro use plays cleanly yet, a story with no errors can still show the wrong text, and the results change what to build next. Most errors in the playthroughs are `$x is not set`: Harlowe 3 reads an unset variable as `0` (`COMPATIBILITY.md` row 2), and we still use the Harlowe 4 error. After that come `(show:)`, `(visited:)`, `(box:)` and `(hide:)`. We also don't run `startup`, `header` or `footer` passages, which 3 of the 8 stories use. By number of stories, the most-used missing macros are `(box:)` 27, `(live:)` 23, `(prompt:)` 16, `(stop:)` 14, `(css:)` 11, `(passage:)` 11, `(show:)` 10 and `(track:)` 10.
 
-**Not yet verified:** real Harlowe 3.3.9 loaded in headless Chrome once, but no comparison run has completed, so the browser layer below is unproven. No Unity, Godot or Phaser host has been built or run. Phase 0 exists to settle these before anything depends on them.
+**Not yet verified:** no Unity, Godot or Phaser host has been built or run. Phase 0b exists to settle that before anything depends on it.
 
 ## Design
 
@@ -49,7 +51,7 @@ The reference suite is 48 Jasmine spec files. A prototype runs them against reco
 
 The specs come from the pinned 4.0-unstable node while our target is 3.3.9, so every check runs under both profiles and only counts as a 3.3.9 requirement once it also passes on real 3.3.9. A check that holds for only one major is tagged with it, so adding Harlowe 3's unset-variable behaviour can't read as a regression in a Harlowe 4 check. `(live:)` and `(stop:)` have no reference specs, so their contracts come from observing real 3.3.9 in Layer 3.
 
-The replay has to run a test the way the reference does: `clearState()` resets the session, and `print` compares text as `markupToPrint` does. The specs are third-party Zlib source, so the extracted data is regenerated from the pinned archive and verified by SHA-256. Only check IDs and statuses are committed. The 1,100 tests with no portable check go in a committed ledger of why each stopped, mostly at a DOM query (887) or a timer (97), and those needing only clicks and visible text become Layer 3 scenarios.
+The replay has to run a test the way the reference does: `clearState()` resets the session, the debug flag follows each suite, and `print` compares text as `markupToPrint` does. The specs are third-party Zlib source, so the extracted data is regenerated from the pinned archive and verified by SHA-256. Only check IDs and statuses are committed. The 1,100 tests with no portable check go in a committed ledger of why each stopped, mostly at a DOM query (887) or a timer (97), and those needing only clicks and visible text become Layer 3 scenarios.
 
 ### Layer 2: story corpus
 
@@ -57,7 +59,7 @@ Every story file is pinned to a commit and a SHA-256, recorded with its licence 
 
 | Story | Repo @ commit | Licence | Files | Passages | Macro calls | Reached / clean | Blocked by |
 |---|---|---|---|---|---|---|---|
-| **Files-005** (first target) | `nuuj-lord/Files-005` @ `ef9cca363164` | MIT | `index.html`, `source-code.twee` | 97 | 313 | 15 / 11 | Unset variables, `(after:)`, `(input:)`, `(box:)` |
+| **Files-005** (first target) | `nuuj-lord/Files-005` @ `ef9cca363164` | MIT | `index.html`, `source-code.twee` | 97 | 312 | 15 / 12 | Unset variables, `(after:)`, `(input:)`, `(box:)` |
 | **egg.exe** (finish target) | `henriquek-btdg/egg-exe` @ `31db173ae3f5` | MIT | `index.html`, `src/index.twee` | 75 | 326 | 1 / 0 | `(box:)`, then `(track:)` |
 | Service Suspended | `Znboston/service-suspended` @ `658b967ca7d1` | MIT | `project-1/docs/Service Suspended.html`, `project-1/src/Service Suspended.twee` | 41 | 2 | 41 / 41 | Nothing |
 | Early in the Morning | `CristopherB14/createYourStory` @ `a952615872d4` | MIT | `earlyInTheMorning.html` | 34 | 0 | 34 / 34 | Nothing |
@@ -68,13 +70,13 @@ Every story file is pinned to a commit and a SHA-256, recorded with its licence 
 
 "Reached" counts passages the walks visit, and "clean" those that never showed an error. Counts come from the published HTML where a story has both forms, and its Twee source stays a second corpus entry that exercises `TweeReader`.
 
-Files-005 is the first target because it has the most macro-using passages we can already run: 30 of its 58 call only macros we implement. egg.exe is the goal, a finished game with source and export. `(box:)` stops it at the first passage, and 71 of its 74 macro-using passages call `(track:)`. The two clean stories only prove prose and links, so they're a regression floor. Sand-dancer is the heaviest macro user, but it ports a game by other authors, so the port's CC0 may not cover the original prose. It stays fetch-only, out of default CI, and is never redistributed. egg.exe deals with mental health and self-harm, so its text stays out of logs and reports we publish.
+Files-005 is the first target because it has the most macro-using passages we can already run: 31 of its 58 call only macros we implement. egg.exe is the goal, a finished game with source and export. `(box:)` stops it at the first passage, and 71 of its 74 macro-using passages call `(track:)`. The two clean stories only prove prose and links, so they're a regression floor. Sand-dancer is the heaviest macro user, but it ports a game by other authors, so the port's CC0 may not cover the original prose. It stays fetch-only, out of default CI, and is never redistributed. egg.exe deals with mental health and self-harm, so its text stays out of logs and reports we publish.
 
 The crawler plays seeded walks through links and click regions, plus a hand-written walkthrough of each story's main path, because random walks rarely finish one. It fails on an exception, a stuck session, or a hang measured by a step budget rather than wall-clock time. Per story and passage it records load-time parse errors and broken links, passages reached and clean, and error kinds, and an inventory of each story's setup passages and missing macros marks what can't be compared yet. It also runs undo, redo and a save/load round trip at each step, which real content has never exercised. These are invariants and can't tell wrong text from right, which is Layer 3's job.
 
 ### Layer 3: differential against real Harlowe
 
-A Node harness builds each story with Twine's own `harlowe-3.3.9/format.js`, pinned by commit, and plays it in headless Chromium through Playwright. Scenarios are recorded on real Harlowe, because a walk recorded on Twinelike would carry our own errors into the expected result. The transcripts are compared step by step, and the report stops at the first divergence unless asked for a full trace.
+A Node harness builds each story with Twine's own `harlowe-3.3.9/format.js`, pinned by commit, and plays it in headless Chromium through Playwright with outside network access blocked. Scenarios are recorded on real Harlowe, because a walk recorded on Twinelike would carry our own errors into the expected result. The transcripts are compared step by step, and the report stops at the first divergence unless asked for a full trace. A second check renders tens of thousands of generated markup snippets on both engines, which is how the pairing rules were validated.
 
 ```json
 { "story": "files-005", "seed": "42", "steps": [
@@ -92,11 +94,11 @@ A Node harness builds each story with Twine's own `harlowe-3.3.9/format.js`, pin
 - **Choices** are anything the player can trigger, as one segment kind in document order that carries its event (`click`, `mouseover` or `mouseout`), and a step fires that event. On the page that's `tw-link` and elements with an `enchantment-link`, `-clickblock`, `-mouseover`, `-mouseoverblock`, `-mouseout` or `-mouseoutblock` class, and in `RenderResult` it's `Link` and `BeginInteractive`. One kind is deliberate: Harlowe draws `(link:)` as `tw-link`, where we use an interactive region. External URLs compare as text, and a choice nested inside another is `unsupported`.
 - **Broken links** are their own segment: `tw-broken-link` on the page, and our label-plus-error pair on our side, which doesn't count as an error.
 - **Destinations** aren't in the DOM, because 3.3.9 keeps a link's target in internal data. A target is checked when a scenario follows the link, by the next step's passage name.
-- **Passage name** comes from 3.3.9's internal `State` object, which the test build's copy of the pinned `format.js` exposes to the harness through a one-line alias. The alias changes nothing a story can see, and the build aborts unless its anchor text occurs exactly once. `sessionStorage` won't do, because `(redirect:)` doesn't update it.
+- **Passage name** comes from 3.3.9's internal `State` object. Harlowe evaluates story scripts inside its own module scope, so the test build adds one story script that hands `State` to the harness, and `format.js` and the story's passages stay unchanged. `sessionStorage` won't do, because `(redirect:)` doesn't update it.
 - **Errors** are compared by count, not wording, because our messages differ on purpose.
-- **Randomness.** `MulberryRng` matched the generator in the 3.3.9 build on all 200 draws compared. `new StorySession(story, 42)` is seed `"42"` at position 0, and so is `(seed: "42")` in 3.3.9, so the test build adds a `startup` passage calling it, named to sort first, and no library change is needed. That passage is the only thing added to a story. Stories that call `(seed:)` themselves are `unsupported` until we implement it. `(shuffled:)`, which we lack, and the per-match rewind in divergence #23 consume draws differently and shift everything after them, so they're `unsupported` until aligned.
-- **Time.** Playwright's clock API controls the browser's, stepping in increments of 16 ms or less so animation-frame loops run. `time` needs an injectable clock on our side, reset on each passage, and every step pumps frames until the passage, turn count and page stop changing, because `(go-to:)`, `(redirect:)`, `(undo:)` and `(load-game:)` navigate on a later frame and can chain.
-- **Unsupported at first:** any passage calling a macro we lack, stories with their own `startup`, `header` or `footer` passages until we run them, passages calling `(passages:)`, which would list the injected passage, and locale-dependent sort order.
+- **Randomness.** `MulberryRng` matched the generator in the 3.3.9 build on all 200 draws compared. `new StorySession(story, 42)` is seed `"42"` at position 0, and the same story script calls `State.setSeed("42")` before the first passage, so no library change is needed. Stories that call `(seed:)` themselves are `unsupported` until we implement it. `(shuffled:)`, which we lack, and the per-match rewind in divergence #23 consume draws differently and shift everything after them, so they're `unsupported` until aligned.
+- **Time.** Playwright's clock API controls the browser's, stepping in increments of 16 ms or less so animation-frame loops run. `time` needs an injectable clock on our side, reset on each passage, and every step pumps frames until the passage, turn count and page stop changing, because `(go-to:)`, `(redirect:)`, `(undo:)` and `(load-game:)` navigate on a later frame and can chain. A scenario records a `wait` step where a story reveals its choices on a timer, and our replay stops there until we have timed macros.
+- **Unsupported at first:** any passage calling a macro we lack, stories with their own `startup`, `header` or `footer` passages until we run them, and locale-dependent sort order.
 
 ### Layer 4: engine benches
 
@@ -118,11 +120,11 @@ Phaser 4 has no rich-text or link primitive, so the adapter is itself part of wh
 
 ## Phases
 
-Each phase ends in something usable, so the work can stop after any of them. The total is about 23 working days.
+Each phase ends in something usable, so the work can stop after any of them. About 21 working days remain.
 
 | # | Work | Done when | Size |
 |---|---|---|---|
-| 0a | Browser feasibility | Gates 1 to 3 pass, or the plan changes | 2 days |
+| 0a | Browser feasibility | **Done 2026-11-21.** Gates 1 to 3 passed | 2 days |
 | 0b | Engine feasibility | Gates 4 to 6 pass, or the plan changes. The spikes are kept as each host's skeleton | 3 days |
 | 1 | Conformance runner, ratchet, and tests and CI on .NET 10 | A deliberately broken macro fails CI, and so does a baseline that loses a pass without a reason | 3 days |
 | 2 | Corpus, fetcher, crawler and walkthroughs | All 8 stories run from verified pins with per-story metrics | 2 days |
@@ -136,8 +138,10 @@ Each phase ends in something usable, so the work can stop after any of them. The
 **Phase 0a gates**, all on real Harlowe 3.3.9:
 
 1. Two runs of the same scenario give identical, non-empty transcripts for Service Suspended and Files-005. The passage name matches the known passage at the start and after a link, undo, redo, `(go-to:)`, `(redirect:)` and `(load-game:)`. A hand-written page with a `[[link]]`, a `(link:)`, a `(click:)` region, a `(mouseover:)` region and a broken link produces the expected segments on both engines.
-2. A 50-draw `(random:)` story seeded by the injected `startup` passage prints the same values on both engines, with no errors on either.
+2. A 50-draw `(random:)` story seeded through the test build's story script prints the same values on both engines, with no errors on either.
 3. At least 90% of the extracted checks replay correctly. A sample of the failures is triaged into stub bugs and real 4.0 differences, each with a citation, and stub bugs are fixed before Phase 1 takes a baseline.
+
+**Phase 0a result.** All three gates passed in Chromium. Every recorded walk replayed identically, 10 on Service Suspended and 6 on Files-005, and the 50 seeded draws matched with no errors. Real Harlowe passes 6,732 of the 7,001 extracted checks (96.2%). Of the 269 failures, 268 trace to entries in Harlowe's 4.0.0 change list, and one `(dropdown:)` spacing case has no entry. The triage found one harness bug, a swallowed debug flag, now fixed.
 
 **Phase 0b gates** prove the plumbing, each playing one Service Suspended and one Files-005 scenario and matching the .NET transcript:
 
@@ -154,8 +158,7 @@ Each phase ends in something usable, so the work can stop after any of them. The
 
 ## Decisions needed
 
-1. **Headless browser:** Phase 0a has to run real Harlowe in headless Chromium. Recommendation: allow it for the pinned `format.js` and corpus.
-2. **Unity version:** bench on the installed 6000.5.7f1, or install 6.3 LTS, supported until December 2027? Recommendation: the version the game will ship on, and the installed one until that's known.
-3. **Unity in CI:** keep it local, or add Unity licence secrets to GitHub? Recommendation: local until the bench is stable.
-4. **.NET toolchain:** the .NET 10 SDK at Phase 1 and `wasm-tools` at Phase 5 change this machine's global .NET setup. Recommendation: approve each at its phase.
-5. **Third-party data:** keep stories and extracted specs out of the repository and fetch them by hash? Recommendation: yes.
+1. **Unity version:** bench on the installed 6000.5.7f1, or install 6.3 LTS, supported until December 2027? Recommendation: the version the game will ship on, and the installed one until that's known.
+2. **Unity in CI:** keep it local, or add Unity licence secrets to GitHub? Recommendation: local until the bench is stable.
+3. **.NET toolchain:** the .NET 10 SDK at Phase 1 and `wasm-tools` at Phase 5 change this machine's global .NET setup. Recommendation: approve each at its phase.
+4. **Third-party data:** keep stories and extracted specs out of the repository and fetch them by hash? Recommendation: yes.

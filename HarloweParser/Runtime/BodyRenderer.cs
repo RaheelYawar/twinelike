@@ -232,9 +232,30 @@ namespace Harlowe.Runtime
     /// </summary>
     public void Visit(FormatNode node)
     {
+      if (RendersNothing(node.Children)) return;
       _output.PushStyle(StyleFor(node.Format));
-      if (node.Children != null) RenderChildren(node.Children);
+      RenderChildren(node.Children);
       _output.PopStyle();
+    }
+
+    /// <summary>
+    /// True for a span with no content to render, like <c>****</c>. Reference's
+    /// <c>renderTag</c> drops the element when its rendered HTML is empty, and
+    /// only comments and other empty spans render to nothing at that stage.
+    /// An unclosed <c>{=</c> doesn't go through <c>renderTag</c>, so it counts
+    /// as content.
+    /// </summary>
+    private static bool RendersNothing(List<IBodyNode> children)
+    {
+      if (children == null) return true;
+      for (int i = 0; i < children.Count; i++)
+      {
+        if (children[i] is CommentNode) continue;
+        if (children[i] is FormatNode format && RendersNothing(format.Children)) continue;
+        if (children[i] is CollapsedNode collapsed && collapsed.UnclosedMarker == null && RendersNothing(collapsed.Children)) continue;
+        return false;
+      }
+      return true;
     }
 
     /// <summary>
@@ -279,6 +300,20 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
+    /// Prints a verbatim span as written. Inside <c>{…}</c> its whitespace is
+    /// kept, as reference's <c>collapse()</c> treats <c>&lt;tw-verbatim&gt;</c>
+    /// like printed output.
+    /// </summary>
+    public void Visit(VerbatimNode node)
+    {
+      var preserved = BeginPrintedOutput();
+      _output.Text(node.Text);
+      preserved?.EndWhitespace();
+    }
+
+    public void Visit(HorizontalRuleNode node) => _output.Html("<hr>");
+
+    /// <summary>
     /// The <see cref="Ast.Body.InlineFormat"/> → <see cref="StyleSpec"/> mapping
     /// (the runtime half of the centralized format mapping; the delimiter half
     /// lives in <see cref="Ast.Body.InlineFormats"/>). The throwing default is a
@@ -300,6 +335,10 @@ namespace Harlowe.Runtime
         // distinct from the (text-style:"superscript") macro's CSS effect —
         // matching reference, which renders ^^ as <sup> but the macro as a span.
         case Ast.Body.InlineFormat.Superscript: spec.Superscript = true; break;
+        // Reference documents these as "identical to italics and boldface by
+        // default", and a host has no use for a separate semantic flag.
+        case Ast.Body.InlineFormat.Emphasis: spec.Italic = true; break;
+        case Ast.Body.InlineFormat.Strong: spec.Bold = true; break;
         default:
           throw new System.ArgumentOutOfRangeException(
             nameof(format), format, "no StyleSpec mapping for this InlineFormat");
@@ -633,7 +672,7 @@ namespace Harlowe.Runtime
     /// parsing and the nested-render budget. Tests for the characters that start
     /// body markup, the same set as the tokenizer's <c>IsBodySpecial</c>, plus
     /// the doubled delimiters <c>''</c>, <c>//</c>, <c>~~</c>, <c>^^</c> and
-    /// <c>--</c>.
+    /// <c>--</c>, the last of which also covers a <c>---</c> rule.
     /// </summary>
     private static bool MayContainMarkup(string text)
     {
@@ -643,6 +682,7 @@ namespace Harlowe.Runtime
         switch (c)
         {
           case '(': case '[': case ']': case '<': case '|': case '$': case '_': case '{': case '}':
+          case '*': case '`':
             return true;
           case '\'': case '/': case '~': case '^': case '-':
             if (i + 1 < text.Length && text[i + 1] == c) return true;
