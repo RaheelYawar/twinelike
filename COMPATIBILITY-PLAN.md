@@ -54,6 +54,8 @@ Four cases, not two:
 | below 3 (e.g. `2.1.0`) | **V3** | **Warning** — clamps down, see below |
 | future major (`5.2.0`) or unparseable | newest | **Warning** — distinguish "capability gap" from "malformed" in the message |
 
+**Superseded 2026-11-21:** absent and unparseable versions now select V3 as well, because a story with no declared version was silently losing the prose after every `--`.
+
 The below-3 clamp is a small deliberate extension to the agreed "unrecognised → newest" default. `CLAUDE.md` says the promise "starts at 3.x", and a 2.x story's prose is exactly as likely to contain `--` em-dashes as a 3.x story's — sending it to V4 truncates that prose, sending it to V3 does not. One extra branch in `Resolve`, strictly safer.
 
 **`SaveSerializer` pins, and not to `Latest`.** `SaveSerializer.Deserialise` re-lexes `"(v:" + source + ")"` where the source came from our own `HarloweValue.ToSource()` — engine-emitted, not author-written, so author compatibility policy has no bearing on it. Following the story would make save blobs silently re-lex under different rules when an author bumps `format-version` in Twine: data loss for zero benefit. Pin to a dedicated `HarloweProfile.SaveFormat` constant (today `== V4`), documented as *never follows the story; changing it requires a `SaveBlobVersion.Current` bump*. `Latest` is wrong here precisely because it moves. This makes `StorySession`'s two `MacroContext` sites (`:541` save, `:728` render) differ **deliberately**, with a comment, rather than by accident.
@@ -113,7 +115,7 @@ Sequencing constraints: 2 before 3 (guards must exist before anything selects V3
 
 ## Risks & decisions taken
 
-- **Residual by design:** a story with no `format-version` still gets newest, so metadata-less 3.x stories keep truncating at `--`. That follows the agreed default; real Twine exports always declare a version, so the exposure is hand-built stories.
+- **Residual by design (closed 2026-11-21, when the default moved to V3):** a story with no `format-version` still gets newest, so metadata-less 3.x stories keep truncating at `--`. That follows the agreed default; real Twine exports always declare a version, so the exposure is hand-built stories.
 - **Stale ASTs:** changing `FormatVersion` after passages are loaded does not re-parse them. True under every option considered; documented on the property. Deliberately *not* making the setter re-parse — a metadata assignment silently re-tokenising the whole story is more surprising than the stale rule.
 - **`feature-coverage.twee:8` → `4.0.0` is a bug fix, not a behaviour change:** `build-feature-coverage-html.js:87` already hardcodes `format-version="4.0.0"` into the generated ground truth, so that harness has always been a V4 artifact and the twee's `3.3.9` was dead metadata this feature would otherwise promote into a silent semantic switch.
 - **Reflection enters the test project** for the first time, deliberately, and only there.

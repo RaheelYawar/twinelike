@@ -34,12 +34,13 @@ namespace Harlowe.Runtime
 
     /// <summary>
     /// The compatibility profile runtime behaviour follows — the major the
-    /// story declared. Defaults to <see cref="HarloweProfile.Latest"/>;
-    /// <see cref="StorySession"/> overwrites it with the story's own profile.
-    /// Parse-time switches are applied by the tokenizer instead and never
-    /// reach here.
+    /// story declared. Defaults to <see cref="HarloweProfile.V3"/>, the same
+    /// choice <see cref="HarloweProfile.Resolve"/> makes for an undeclared
+    /// version; <see cref="StorySession"/> overwrites it with the story's own
+    /// profile. Printed markup is lexed under it; other parse-time switches
+    /// are applied by the loaders' tokenizer and never reach here.
     /// </summary>
-    public HarloweProfile Profile = HarloweProfile.Latest;
+    public HarloweProfile Profile = HarloweProfile.V3;
 
     /// <summary>
     /// Renders the named passage into <paramref name="output"/>. Returns
@@ -216,15 +217,105 @@ namespace Harlowe.Runtime
     public int NextRegionIndex;
 
     /// <summary>
-    /// Number of <c>(display:)</c> calls currently on the stack — incremented by
-    /// <see cref="StorySession"/> before recursing into the displayed passage
-    /// and decremented on the way out. Used to bound runaway recursion when a
-    /// passage displays itself (directly or through a cycle); compare against
-    /// <see cref="StorySession"/>'s <c>MaxDisplayDepth</c>. Lives here rather
-    /// than on the session so the count survives across the fresh
-    /// <see cref="BodyRenderer"/> each inline display creates.
+    /// Number of nested renders currently on the stack: <c>(display:)</c> calls
+    /// and printed strings rendered as markup, both managed by
+    /// <see cref="EnterNestedRender"/>. Bounds runaway recursion from a passage
+    /// that displays itself or a variable that prints itself. Lives here so
+    /// the count survives across the fresh <see cref="BodyRenderer"/> each
+    /// nested render creates.
     /// </summary>
     public int DisplayDepth;
+
+    /// <summary>The nesting ceiling used when no session has wired <see cref="MaxRenderDepth"/>.</summary>
+    internal const int DefaultMaxRenderDepth = 20;
+
+    /// <summary>
+    /// The current nesting ceiling. <see cref="StorySession"/> wires this to
+    /// <see cref="StorySession.MaxDisplayDepth"/>; null in standalone renders,
+    /// which use <see cref="DefaultMaxRenderDepth"/>.
+    /// </summary>
+    public Func<int> MaxRenderDepth;
+
+    /// <summary>
+    /// The most nested-render work one render or dispatch may do, measured in
+    /// characters of expanded source plus <see cref="NestedRenderOverhead"/>
+    /// per render. A depth limit alone can't stop a passage that displays
+    /// itself twice, because the work doubles at every level. Four million
+    /// is far beyond any real page and keeps that worst case to a fraction of
+    /// a second.
+    /// </summary>
+    internal const int NestedRenderBudget = 4000000;
+
+    /// <summary>The fixed cost of one nested render, so that tiny passages can't recurse almost for free.</summary>
+    internal const int NestedRenderOverhead = 256;
+
+    /// <summary>Budget spent so far. <see cref="StorySession"/> resets it at the start of each dispatch; each render has a fresh context.</summary>
+    internal int NestedRenderCost;
+
+    /// <summary>
+    /// The most hooks and nested renders that may be open at once. Each level
+    /// costs real call stack, and a stack overflow kills the host process with
+    /// no chance to report it. One passage can nest 128 hooks, so a recursive
+    /// display or print would otherwise multiply that by its own depth. At
+    /// this limit the worst case, with a macro attached to every hook and the
+    /// parser running on top for a printed string, fits a 512 KB stack, the
+    /// smallest default among common host threads.
+    /// </summary>
+    internal const int MaxRenderNesting = 128;
+
+    /// <summary>Hooks and nested renders currently open, compared against <see cref="MaxRenderNesting"/>.</summary>
+    internal int RenderNesting;
+
+    /// <summary>
+    /// Admits one nested render of <paramref name="sourceLength"/> characters,
+    /// or says why it can't run. On <see cref="NestedRenderRefusal.None"/> the
+    /// caller must pair this with <see cref="ExitNestedRender"/>.
+    /// </summary>
+    internal NestedRenderRefusal EnterNestedRender(int sourceLength)
+    {
+      int maxDepth = MaxRenderDepth != null ? MaxRenderDepth() : DefaultMaxRenderDepth;
+      if (DisplayDepth >= maxDepth || RenderNesting >= MaxRenderNesting) return NestedRenderRefusal.TooDeep;
+
+      // Compared by subtraction so a huge source length can't overflow.
+      int remaining = NestedRenderBudget - NestedRenderCost;
+      if (sourceLength > remaining - NestedRenderOverhead) return NestedRenderRefusal.OverBudget;
+
+      NestedRenderCost += sourceLength + NestedRenderOverhead;
+      DisplayDepth++;
+      RenderNesting++;
+      return NestedRenderRefusal.None;
+    }
+
+    /// <summary>
+    /// Charges a revision's clone of <paramref name="cost"/> units (see
+    /// <see cref="Rendering.RenderNodes.SpliceCost"/>) to the same budget, or
+    /// returns false when it doesn't fit. Without this, a passage that displays
+    /// itself inside an <c>(append:)</c> stays within the render count while
+    /// its tree grows exponentially.
+    /// </summary>
+    internal bool TrySpendOnSplice(long cost)
+    {
+      if (cost > NestedRenderBudget - NestedRenderCost) return false;
+      NestedRenderCost += (int)cost;
+      return true;
+    }
+
+    /// <summary>The in-prose error for a render that has used up <see cref="NestedRenderBudget"/>.</summary>
+    internal const string OverBudgetMessage = "this render has displayed or printed too much nested content";
+
+    /// <summary>Closes a render admitted by <see cref="EnterNestedRender"/>.</summary>
+    internal void ExitNestedRender()
+    {
+      DisplayDepth--;
+      RenderNesting--;
+    }
+
+    /// <summary>
+    /// Set once a <c>{…}</c> span has rendered, so
+    /// <see cref="StorySession"/> only runs
+    /// <see cref="Rendering.WhitespaceCollapser"/> on passages that need it.
+    /// </summary>
+    internal bool UsesCollapsedWhitespace;
 
     /// <summary>Convenience setter for <see cref="PendingGoto"/>; equivalent to <c>ctx.PendingGoto = name</c> but reads better in macro implementations.</summary>
     public void RequestGoto(string passageName) => PendingGoto = passageName;
@@ -292,5 +383,18 @@ namespace Harlowe.Runtime
         if (list != null && list.Count > count) list.RemoveRange(count, list.Count - count);
       }
     }
+  }
+
+  /// <summary>Why <see cref="MacroContext.EnterNestedRender"/> turned a nested render away.</summary>
+  internal enum NestedRenderRefusal
+  {
+    /// <summary>The render may proceed.</summary>
+    None,
+
+    /// <summary>Nesting has reached <see cref="MacroContext.MaxRenderDepth"/>.</summary>
+    TooDeep,
+
+    /// <summary>This render or dispatch has used up <see cref="MacroContext.NestedRenderBudget"/>.</summary>
+    OverBudget,
   }
 }

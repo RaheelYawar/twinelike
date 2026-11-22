@@ -589,8 +589,7 @@ namespace Harlowe.Tests.Runtime
       // for the host process. The setter now caps at a safe absolute ceiling
       // so the in-prose error path still fires before the real stack does.
       var session = new StorySession(OnePassage("hi")) { MaxDisplayDepth = int.MaxValue };
-      Assert.True(session.MaxDisplayDepth <= 1024, "absolute ceiling should bound the configured depth");
-      Assert.True(session.MaxDisplayDepth >= 20, "ceiling should still leave generous headroom over the default");
+      Assert.Equal(128, session.MaxDisplayDepth);
     }
 
     // -----------------------------------------------------------------------

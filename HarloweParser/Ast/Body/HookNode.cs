@@ -44,6 +44,9 @@ namespace Harlowe.Ast.Body
     /// <summary>The body nodes contained inside the brackets.</summary>
     public List<IBodyNode> Children;
 
+    /// <summary>The opener as written when this is an unclosed hook (<c>[=</c>, <c>[==</c>, …), which runs to the end of its container and has no <c>]</c>. Null for an ordinary hook.</summary>
+    public string UnclosedMarker;
+
     public void Accept(IBodyVisitor visitor) => visitor.Visit(this);
   }
 }

@@ -59,6 +59,22 @@ namespace Harlowe.Runtime
     public static HarloweValue OfColour(ColourValue colour) => new HarloweValue(HarloweValueKind.Colour, colour ?? throw new ArgumentNullException(nameof(colour)));
     public static HarloweValue OfDatatype(DatatypeValue datatype) => new HarloweValue(HarloweValueKind.Datatype, datatype ?? throw new ArgumentNullException(nameof(datatype)));
 
+    /// <summary>
+    /// A String whose text is printed exactly as it stands instead of being
+    /// rendered as markup. <c>(print:)</c> uses this for a changer's descriptive
+    /// form, <c>[A (font:) changer]</c>, whose brackets are not a hook. Reference
+    /// gets the same result by wrapping it in verbatim markup.
+    /// <paramref name="source"/> is the expression that recreates the value in a
+    /// save, since a plain string literal would come back as markup.
+    /// </summary>
+    internal static HarloweValue OfLiteralText(string s, string source = null)
+      => new HarloweValue(HarloweValueKind.String, s ?? string.Empty) { IsLiteralText = true, _literalSource = source };
+
+    /// <summary>True for a String built by <see cref="OfLiteralText"/>. Doesn't affect equality.</summary>
+    internal bool IsLiteralText { get; private set; }
+
+    private string _literalSource;
+
     public bool IsError => Kind == HarloweValueKind.Error;
 
     public double AsNumber => (double)Raw;
@@ -320,7 +336,9 @@ namespace Harlowe.Runtime
           return FormatNumber(d);
         }
         case HarloweValueKind.String:
-          return Twee.MarkupPrinter.StringLiteral((string)Raw);
+          // Literal text with no recreating expression can't be saved: as a
+          // plain string it would come back as markup, so the save fails loudly.
+          return IsLiteralText ? _literalSource : Twee.MarkupPrinter.StringLiteral((string)Raw);
         case HarloweValueKind.Bool:
           return (bool)Raw ? "true" : "false";
         case HarloweValueKind.Array:
@@ -427,8 +445,8 @@ namespace Harlowe.Runtime
           return ((ColourValue)Raw).ToCssString();
         case HarloweValueKind.Datatype:
           // Reference's print() is "[the num datatype]" wrapped in verbatim
-          // markup; the brackets are literal text on our render channel, which
-          // never re-parses what it is handed.
+          // markup. The body renderer prints only strings as markup, so a
+          // datatype's brackets stay literal.
           return ((DatatypeValue)Raw).ToPrintedString();
       }
       return string.Empty;

@@ -9,11 +9,9 @@ namespace Harlowe.Runtime.Macros
   /// <c>max: [max, rest(Number)]</c>) — they differ only in the comparison
   /// direction.
   ///
-  /// <para>Variadic (one or more numbers). A single trailing Array is
-  /// auto-unpacked (the project's deferred-spread convention, shared with
-  /// <c>(sorted:)</c>), so <c>(min: (a:3,1,2))</c> is the min of 3, 1, 2. Every
-  /// value must be a Number; a non-number — at the top level or inside the
-  /// unpacked array — is an error. Any NaN makes the result NaN (matching JS
+  /// <para>Variadic (one or more numbers), so an array is given with
+  /// <c>...</c>: <c>(min: ...$scores)</c>. Every value must be a Number; a
+  /// non-number is an error. Any NaN makes the result NaN (matching JS
   /// <c>Math.min</c>/<c>Math.max</c>), so the result never depends on argument
   /// order.</para>
   /// </summary>
@@ -32,7 +30,7 @@ namespace Harlowe.Runtime.Macros
 
     public HarloweValue Invoke(List<HarloweValue> args, MacroContext context)
     {
-      var items = LambdaArgs.ExpandItems(args, startIndex: 0);
+      var items = LambdaArgs.Items(args, startIndex: 0);
       if (items.Count == 0)
         return HarloweValue.OfError($"({_name}:) needs at least one number.");
 

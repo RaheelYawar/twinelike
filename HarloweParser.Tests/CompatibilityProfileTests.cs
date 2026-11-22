@@ -41,8 +41,8 @@ namespace Harlowe.Tests
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    public void Resolve_Absent_SelectsLatest(string version)
-      => Assert.Same(HarloweProfile.Latest, HarloweProfile.Resolve(version));
+    public void Resolve_Absent_SelectsV3(string version)
+      => Assert.Same(HarloweProfile.V3, HarloweProfile.Resolve(version));
 
     [Theory]
     [InlineData("2.1.0")]
@@ -69,8 +69,20 @@ namespace Harlowe.Tests
     [InlineData("v3.3.9")]  // leading 'v' — no leading digit run, so unparseable
     [InlineData("   ")]
     [InlineData(".3.9")]
-    public void Resolve_Unparseable_SelectsLatest(string version)
-      => Assert.Same(HarloweProfile.Latest, HarloweProfile.Resolve(version));
+    public void Resolve_Unparseable_SelectsV3(string version)
+      => Assert.Same(HarloweProfile.V3, HarloweProfile.Resolve(version));
+
+    [Fact]
+    public void UnversionedStory_KeepsProseAroundDoubleHyphens()
+    {
+      // The reason the default is V3: under V4 rules `--` is a comment and
+      // this prose would silently lose everything after each one.
+      var story = new HarloweStory();
+      story.AddPassage(new HarlowePassage { Name = "Start", RawBody = "He paused -- then spoke.\nLater -- much later -- she left." });
+      story.StartNode = story.GetPassage("Start").Pid;
+
+      Assert.Equal("He paused -- then spoke.\nLater -- much later -- she left.", new StorySession(story).Render().Text);
+    }
 
     [Fact]
     public void SaveFormat_IsPinned_NotAnAliasOfLatest()
@@ -329,7 +341,7 @@ namespace Harlowe.Tests
       var notices = new HarloweStory().GetCompatibilityNotices();
       var n = Assert.Single(notices);
       Assert.Equal(NoticeSeverity.Info, n.Severity);
-      Assert.Same(HarloweProfile.Latest, n.Profile);
+      Assert.Same(HarloweProfile.V3, n.Profile);
       Assert.Equal("", n.DeclaredVersion);
       Assert.Contains("no format-version", n.Message);
     }
@@ -350,10 +362,11 @@ namespace Harlowe.Tests
     {
       // Distinguished from the future-major case on purpose: one means "this
       // library is behind", the other "this metadata is malformed", and they
-      // call for different fixes even though both run under the newest.
+      // call for different fixes.
       var story = new HarloweStory { FormatVersion = "not-a-version" };
       var n = Assert.Single(story.GetCompatibilityNotices());
       Assert.Equal(NoticeSeverity.Warning, n.Severity);
+      Assert.Same(HarloweProfile.V3, n.Profile);
       Assert.Contains("could not be read as a version number", n.Message);
       Assert.DoesNotContain("newer major", n.Message);
     }

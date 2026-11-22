@@ -82,10 +82,11 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
-    public void Max_SingleArray_AutoUnpacks()
+    public void Max_ArrayWithoutSpread_Errors()
     {
+      // Reference's rest(Number) signature: an array needs `...`.
       var (reg, ctx) = Setup();
-      Assert.Equal(3.0, Call(reg, ctx, Array(3, 1, 2)).AsNumber);
+      Assert.True(Call(reg, ctx, Array(3, 1, 2)).IsError);
     }
 
     [Fact]

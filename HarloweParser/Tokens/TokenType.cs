@@ -34,6 +34,13 @@ namespace Harlowe.Tokens
     /// <summary>The closing <c>]</c> of a hook.</summary>
     HookClose,
 
+    /// <summary>
+    /// An unclosed hook opener, <c>[=</c> with any number of <c>=</c>
+    /// (reference's <c>unclosedHook</c>): the hook holds everything after it in
+    /// the enclosing hook or passage. The Value holds the marker as written.
+    /// </summary>
+    HookOpenUnclosed,
+
     /// <summary>A left-anchored hook name: <c>&lt;name|</c>. The name attaches to the hook on its left.</summary>
     HookNameLeft,
 
@@ -140,6 +147,24 @@ namespace Harlowe.Tokens
     /// a comment and stays prose.
     /// </summary>
     HtmlComment,
+
+    /// <summary>
+    /// The <c>{</c> that opens a span of collapsing whitespace (reference's
+    /// <c>collapsedFront</c>). The body parser pairs it with a
+    /// <see cref="CollapseClose"/>; an unmatched one degrades to literal text.
+    /// </summary>
+    CollapseOpen,
+
+    /// <summary>The <c>}</c> that closes a collapsing span (reference's <c>collapsedBack</c>). Literal text when nothing is open.</summary>
+    CollapseClose,
+
+    /// <summary>
+    /// An unclosed collapsing marker, <c>{=</c> with any number of <c>=</c>
+    /// (reference's <c>unclosedCollapsed</c>): everything after it in the
+    /// enclosing hook or passage collapses. The Value holds the marker as
+    /// written.
+    /// </summary>
+    CollapseUnclosed,
 
     /// <summary>
     /// A lex-time authoring mistake inside an expression — a common wrong

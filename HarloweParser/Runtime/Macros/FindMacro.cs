@@ -5,15 +5,14 @@ namespace Harlowe.Runtime.Macros
   /// <summary>
   /// <c>(find: where-lambda, items...)</c>. Iterates the items, evaluates the
   /// lambda's <c>where</c> clause once per item, and returns a new array of
-  /// the items that produced <c>true</c>. The full Harlowe surface accepts
-  /// items either inline or spread from an array (<c>...$arr</c>); spread
-  /// support is deferred to a later slice, so a single trailing array arg is
-  /// auto-iterated for convenience.
+  /// the items that produced <c>true</c>. Zero items give an empty array, so
+  /// a possibly-empty <c>...$list</c> needs no guard (reference's
+  /// <c>zeroOrMore</c> signature).
   /// </summary>
   public class FindMacro : IMacro
   {
     public string Name => "find";
-    public int MinArgs => 2;
+    public int MinArgs => 1;
     public int MaxArgs => -1;
 
     public HarloweValue Invoke(List<HarloweValue> args, MacroContext context)
@@ -22,7 +21,7 @@ namespace Harlowe.Runtime.Macros
         return HarloweValue.OfError("(find:) first argument must be a lambda");
 
       var lambda = args[0].AsLambda;
-      var items = LambdaArgs.ExpandItems(args, startIndex: 1);
+      var items = LambdaArgs.Items(args, startIndex: 1);
       var matches = new List<HarloweValue>();
 
       for (int i = 0; i < items.Count; i++)

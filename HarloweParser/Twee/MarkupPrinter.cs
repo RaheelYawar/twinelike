@@ -174,9 +174,10 @@ namespace Harlowe.Twee
       {
         _sb.Append('|').Append(node.Name).Append('>');
       }
-      _sb.Append('[');
+      _sb.Append(node.UnclosedMarker ?? "[");
       if (node.Children != null)
         foreach (var child in node.Children) child.Accept(this);
+      if (node.UnclosedMarker != null) return;
       _sb.Append(']');
       if (node.Anchor == HookAnchor.Left)
       {
@@ -196,6 +197,18 @@ namespace Harlowe.Twee
       if (node.Children != null)
         foreach (var child in node.Children) child.Accept(this);
       _sb.Append(delim);
+    }
+
+    /// <summary>
+    /// Emits a collapsing span as it was written: <c>{…}</c> for a matched
+    /// pair, or the unclosed marker (<c>{=</c>, <c>{==</c>, …) with no closer.
+    /// </summary>
+    public void Visit(CollapsedNode node)
+    {
+      _sb.Append(node.UnclosedMarker ?? "{");
+      if (node.Children != null)
+        foreach (var child in node.Children) child.Accept(this);
+      if (node.UnclosedMarker == null) _sb.Append('}');
     }
 
     /// <summary>

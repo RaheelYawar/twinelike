@@ -124,24 +124,24 @@ namespace Harlowe.Runtime
     // the two navigation-shaped macros have a consistent default ceiling, but
     // authors building modular UIs out of nested displays can raise the
     // ceiling via the public setter at construction time.
-    private const int DefaultMaxDisplayDepth = 20;
+    private const int DefaultMaxDisplayDepth = MacroContext.DefaultMaxRenderDepth;
 
-    // Absolute ceiling, regardless of consumer configuration. .NET's default
-    // 1MB stack with a few hundred bytes per recursion frame leaves room for
-    // a few thousand levels, but we leave a safety margin — exceeding the
-    // real stack throws StackOverflowException, which is uncatchable and
-    // crashes the host process, violating the no-throws runtime contract.
-    private const int AbsoluteMaxDisplayDepth = 256;
+    // Absolute ceiling, regardless of consumer configuration: the shared limit
+    // on open hooks and nested renders. Exceeding the real stack throws
+    // StackOverflowException, which is uncatchable and crashes the host
+    // process, violating the no-throws runtime contract.
+    private const int AbsoluteMaxDisplayDepth = MacroContext.MaxRenderNesting;
 
     private int _maxDisplayDepth = DefaultMaxDisplayDepth;
 
     /// <summary>
-    /// Maximum (display:) nesting depth. Mutating mid-render is supported but
-    /// only affects subsequent (display:) calls — the active stack frame
-    /// continues unaffected. Values are clamped to <c>[1, 256]</c>: under 1
-    /// would refuse a single (display:) call (the documented baseline);
-    /// above 256 risks a StackOverflowException, which terminates the host
-    /// process and bypasses the in-prose error contract.
+    /// Maximum nesting depth of (display:) calls and printed markup, which share
+    /// one limit because either can recurse through the other. Mutating
+    /// mid-render is supported but only affects subsequent nested renders — the
+    /// active stack frame continues unaffected. Values are clamped to
+    /// <c>[1, 128]</c>: under 1 would refuse a single (display:) call (the
+    /// documented baseline); above 128 risks a StackOverflowException, which
+    /// terminates the host process and bypasses the in-prose error contract.
     /// </summary>
     public int MaxDisplayDepth
     {
@@ -863,6 +863,7 @@ namespace Harlowe.Runtime
         NextRegionIndex = _nextRegionIndex
       };
       ctx.RenderPassage = (name, output) => InlineDisplayPassage(name, output, ctx);
+      ctx.MaxRenderDepth = () => MaxDisplayDepth;
       ctx.PassageExists = name => _story.GetPassage(name) != null;
       ctx.CanUndo = () => _past.Count > 0;
       ctx.SaveGame = (s, fn) => SaveGame(s, fn);
@@ -926,6 +927,9 @@ namespace Harlowe.Runtime
       // (strip + re-apply), so DispatchEvent re-runs them after click-driven
       // mutations without double-wrapping. Interactions first so enchantment
       // restylings layer outside the interactive wraps, matching prior nesting.
+      // Whitespace collapses before both, because reference finishes collapsing
+      // before it runs updateEnchantments, so string targets see collapsed text.
+      if (ctx.UsesCollapsedWhitespace) Rendering.WhitespaceCollapser.Apply(builder.Root);
       InteractionPass.Update(builder.Root, ctx.Interactions, ctx.ClickHandlers, ctx);
       EnchantmentPass.Update(builder.Root, ctx.Enchantments, ctx);
       _nextRegionIndex = ctx.NextRegionIndex;
@@ -991,6 +995,12 @@ namespace Harlowe.Runtime
       if (fired.Once)
         _liveContext.Interactions.Remove(fired);
 
+      // Each dispatch gets its own nested-render budget. Sharing the render's
+      // would let a long-lived passage run out after enough clicks.
+      _liveContext.NestedRenderCost = 0;
+      _liveContext.RenderNesting = 0;
+      _liveContext.DisplayDepth = 0;
+
       // Render the deferred hook into a detached subtree using the live
       // context — so inner (click:)/(enchant:)/(replace:) calls inside the
       // deferred hook register against the live session state (e.g. a nested
@@ -1030,7 +1040,7 @@ namespace Harlowe.Runtime
         for (int i = 0; i < targets.Count; i++)
         {
           if (targets[i] is Rendering.IRenderContainer container)
-            Rendering.RenderNodes.Splice(container, source, fired.Mode.Value);
+            SpliceWithinBudget(container, source, fired.Mode.Value);
         }
       }
       else
@@ -1052,7 +1062,7 @@ namespace Harlowe.Runtime
         for (int i = 0; i < anchors.Count; i++)
         {
           if (anchors[i] is Rendering.IRenderContainer anchor)
-            Rendering.RenderNodes.Splice(anchor, source, fired.RevealMode);
+            SpliceWithinBudget(anchor, source, fired.RevealMode);
         }
 
         // A consumed link-changer's label reverts to plain prose: clear the
@@ -1081,7 +1091,9 @@ namespace Harlowe.Runtime
       // and RNG position, so pass-time macro execution cannot clobber the
       // click's queued navigation (nor grow the lists being iterated or desync
       // the RNG); EnchantmentPassCannotMutatePendingGoto in the test suite
-      // guards that.
+      // guards that. Revealed content inside a {…} span collapses first, for the
+      // same reason as in the main render.
+      if (_liveContext.UsesCollapsedWhitespace) Rendering.WhitespaceCollapser.Apply(_liveRoot);
       InteractionPass.Update(_liveRoot, _liveContext.Interactions, _liveContext.ClickHandlers, _liveContext);
       EnchantmentPass.Update(_liveRoot, _liveContext.Enchantments, _liveContext);
       // The deferred hook may have armed nested interactions; keep their ids
@@ -1110,6 +1122,15 @@ namespace Harlowe.Runtime
       }
 
       return BuildResultFromLiveTree();
+    }
+
+    /// <summary>Splices a dispatch's content into one target, or shows the budget error there if it no longer fits.</summary>
+    private void SpliceWithinBudget(Rendering.IRenderContainer target, List<Rendering.RenderNode> source, RevisionMode mode)
+    {
+      if (_liveContext.TrySpendOnSplice(Rendering.RenderNodes.SpliceCost(source)))
+        Rendering.RenderNodes.Splice(target, source, mode);
+      else
+        target.Children.Add(new Rendering.RenderErrorNode { Message = MacroContext.OverBudgetMessage });
     }
 
     /// <summary>
@@ -1154,19 +1175,35 @@ namespace Harlowe.Runtime
     /// render sink for in-prose use (so Link/Error/Style events propagate),
     /// or a private buffer for expression-position use (so the rendered text
     /// can be returned as a String). Returns an Error value if the passage
-    /// isn't found or if <see cref="MaxDisplayDepth"/> nested displays would
-    /// be exceeded; otherwise returns an empty String — the work is the
-    /// side-effect on <paramref name="output"/>.
+    /// isn't found, if <see cref="MaxDisplayDepth"/> nested renders would be
+    /// exceeded, or if this render has used up its nested-render budget;
+    /// otherwise returns an empty String — the work is the side-effect on
+    /// <paramref name="output"/>.
     /// </summary>
     private HarloweValue InlineDisplayPassage(string name, IRenderOutput output, MacroContext ctx)
     {
       var passage = _story.GetPassage(name);
       if (passage == null) return HarloweValue.OfError($"passage '{name}' not found");
-      if (ctx.DisplayDepth >= MaxDisplayDepth)
+      var refusal = ctx.EnterNestedRender(passage.RawBody?.Length ?? 0);
+      if (refusal == NestedRenderRefusal.TooDeep)
         return HarloweValue.OfError($"(display:) recursion limit reached at '{name}'");
-      ctx.DisplayDepth++;
-      try { new BodyRenderer(output, _registry, ctx).Render(passage.Ast); }
-      finally { ctx.DisplayDepth--; }
+      if (refusal == NestedRenderRefusal.OverBudget)
+        return HarloweValue.OfError($"(display:) stopped at '{name}': {MacroContext.OverBudgetMessage}");
+
+      // A displayed passage is its own stack frame in reference's renderInto:
+      // a fresh (else:) pairing and a child temp-variable scope.
+      var priorConditional = ctx.LastConditional;
+      ctx.LastConditional = null;
+      try
+      {
+        using (ctx.Store.PushTempScope())
+          new BodyRenderer(output, _registry, ctx).Render(passage.Ast);
+      }
+      finally
+      {
+        ctx.LastConditional = priorConditional;
+        ctx.ExitNestedRender();
+      }
       return HarloweValue.OfString(string.Empty);
     }
 

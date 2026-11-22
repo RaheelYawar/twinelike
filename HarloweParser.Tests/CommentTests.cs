@@ -198,10 +198,12 @@ namespace Harlowe.Tests
     }
 
     [Fact]
-    public void CommentHook_Unclosed_CommentsToEndOfInput()
+    public void CommentBeforeUnmatchedBracket_EliminatesOnlyTheBracket()
     {
+      // Reference's lexer demotes an unmatched `[` to its own text token, and
+      // the renderer's `comment` case skips exactly one token.
       var buf = RenderRaw("A--[never closed\nB");
-      Assert.Equal("A", buf.Text);
+      Assert.Equal("Anever closed\nB", buf.Text);
       Assert.Equal(0, CountErrors(buf));
     }
 
@@ -539,10 +541,10 @@ namespace Harlowe.Tests
     }
 
     [Fact]
-    public void V3_UnclosedHook_ContentStillShows()
+    public void V3_UnmatchedBracket_StaysInTheProse()
     {
       var buf = RenderRawV3("A--[never closed\nB");
-      Assert.Equal("A--never closed\nB", buf.Text);
+      Assert.Equal("A--[never closed\nB", buf.Text);
       Assert.Equal(0, CountErrors(buf));
     }
 

@@ -46,7 +46,38 @@ namespace Harlowe.Runtime.Rendering
   /// <summary>Plain prose text. Flushes to <see cref="IRenderOutput.Text"/>.</summary>
   public class RenderTextNode : RenderNode
   {
-    public string Content;
+    private string _content;
+    private System.Text.StringBuilder _appended;
+
+    /// <summary>The node's text. Appends are buffered until the next read.</summary>
+    public string Content
+    {
+      get
+      {
+        if (_appended != null)
+        {
+          _content = _appended.ToString();
+          _appended = null;
+        }
+        return _content;
+      }
+      set
+      {
+        _content = value;
+        _appended = null;
+      }
+    }
+
+    /// <summary>
+    /// Adds to the end of the text. The builder coalesces a whole prose run
+    /// into one node through this, and repeated string concatenation there
+    /// would be quadratic in the length of the passage.
+    /// </summary>
+    internal void Append(string text)
+    {
+      if (_appended == null) _appended = new System.Text.StringBuilder(_content);
+      _appended.Append(text);
+    }
 
     public override RenderNode Clone() => new RenderTextNode { Content = Content };
   }
@@ -171,6 +202,19 @@ namespace Harlowe.Runtime.Rendering
     }
   }
 
+  /// <summary>How a <see cref="RenderHookNode"/> takes part in collapsing whitespace.</summary>
+  public enum WhitespaceMode
+  {
+    /// <summary>Follows whatever encloses it. The default for ordinary hooks.</summary>
+    Inherit,
+
+    /// <summary>A collapsing span: reference's <c>&lt;tw-collapsed&gt;</c>.</summary>
+    Collapse,
+
+    /// <summary>Kept as written inside a collapsing span: reference's <c>&lt;tw-expression&gt;</c> and <c>[collapsing=false]</c>.</summary>
+    Preserve,
+  }
+
   /// <summary>
   /// A hook — the addressable unit. Anonymous hooks still produce one
   /// (<see cref="Name"/> is <c>null</c>) so position/string targeting can find
@@ -236,11 +280,19 @@ namespace Harlowe.Runtime.Rendering
     /// </summary>
     public string LabelRegionId;
 
+    /// <summary>
+    /// How <see cref="WhitespaceCollapser"/> treats this hook's content. A
+    /// <c>{…}</c> span is an anonymous hook marked
+    /// <see cref="WhitespaceMode.Collapse"/>; printed values and displayed
+    /// passages inside one are marked <see cref="WhitespaceMode.Preserve"/>.
+    /// </summary>
+    public WhitespaceMode Whitespace;
+
     public List<RenderNode> Children { get; } = new List<RenderNode>();
 
     public override RenderNode Clone()
     {
-      var copy = new RenderHookNode { Name = Name, Anchor = Anchor, SourceEnchantment = SourceEnchantment, SourceRegionId = SourceRegionId, RevealRegionId = RevealRegionId, LabelRegionId = LabelRegionId };
+      var copy = new RenderHookNode { Name = Name, Anchor = Anchor, SourceEnchantment = SourceEnchantment, SourceRegionId = SourceRegionId, RevealRegionId = RevealRegionId, LabelRegionId = LabelRegionId, Whitespace = Whitespace };
       RenderNodes.CloneInto(Children, copy.Children);
       return copy;
     }
@@ -301,6 +353,30 @@ namespace Harlowe.Runtime.Rendering
       var copy = new List<RenderNode>(source.Count);
       CloneInto(source, copy);
       return copy;
+    }
+
+    /// <summary>
+    /// The work one splice of <paramref name="nodes"/> costs: a unit per node
+    /// plus one per character it holds. Revisions clone their source into every
+    /// target, so a recursive story can grow the tree far faster than it
+    /// renders, and this is what <see cref="MacroContext.TrySpendOnSplice"/>
+    /// charges for it.
+    /// </summary>
+    internal static long SpliceCost(List<RenderNode> nodes)
+    {
+      long cost = nodes.Count;
+      for (int i = 0; i < nodes.Count; i++)
+      {
+        switch (nodes[i])
+        {
+          case RenderTextNode text: cost += text.Content?.Length ?? 0; break;
+          case RenderErrorNode error: cost += error.Message?.Length ?? 0; break;
+          case RenderHtmlNode html: cost += html.RawHtml?.Length ?? 0; break;
+          case RenderLinkNode link: cost += link.Target?.Length ?? 0; break;
+        }
+        if (nodes[i] is IRenderContainer container) cost += SpliceCost(container.Children);
+      }
+      return cost;
     }
 
     /// <summary>

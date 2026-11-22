@@ -160,13 +160,16 @@ A story keeps the semantics of the Harlowe major it declares. `format-version` s
 | Every operator from the Harlowe 3.3.9 precedence table | ✓ |
 | Property access (`'s`, `of`, `its`) | ✓ |
 | Ordinal indexing (`1st`, `last`, `Nthlast`) | ✓ |
-| Hooks: anonymous `[…]`, `\|name>[…]`, `[…]<name\|` | ✓ |
+| Hooks: anonymous `[…]`, `\|name>[…]`, `[…]<name\|`, unclosed `[=` | ✓ |
 | Twine links: `[[text->target]]`, `[[target<-text]]`, bare `[[name]]` | ✓ |
 | Inline text styling: `''bold''`, `//italic//`, `~~strike~~`, `^^sup^^` (Markdown `*em*`/`**strong**` pending) | ⚠ |
 | Lambdas: `where`, `via`, `making`, `each` (incl. implicit `it`) | ✓ |
 | Hook references: `?name`, `?passage`, `?page`, `?link` (+ ordinal narrowing) | ✓ |
 | `(goto:)` with multi-step undo & redo | ✓ |
 | Inline `<html>` passthrough in passage bodies | ✓ |
+| Collapsing whitespace: `{…}`, `{=` | ✓ |
+| `...` spread of arrays and strings (`...num` spread datatypes pending) | ⚠ |
+| Printed strings and variables render as markup | ✓ |
 | String escape sequences (`\n`/`\r`/`\t`/`\\`/`\"`/`\xHH`/`\uHHHH`, etc.) | ✓ |
 | `when` lambda clause | ✗ (reserved for `(event:)`) |
 
@@ -201,7 +204,7 @@ A story keeps the semantics of the Harlowe major it declares. `format-version` s
 | `(live:)`, `(event:)`, `(trigger:)` | ✗ |
 | `(t8n:)`, `(transition:)`, transition modifiers | ✗ |
 | Custom `(macro:)`, `(output:)` | ✗ |
-| Storylets, `...` spread | ✗ |
+| Storylets | ✗ |
 
 ### Storage
 

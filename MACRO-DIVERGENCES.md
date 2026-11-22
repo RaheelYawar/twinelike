@@ -13,9 +13,10 @@ for the save-model slice (which lands `(history:)` semantics).
 
 - **High severity (0 active, 6 fixed)**: silent wrong result or breaks documented Harlowe idioms.
 - **Medium severity (0 active, 10 fixed, 1 reclassified)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
-- **Low severity (6 active, 2 fixed)**: documented as deliberate or marginal.
+- **Low severity (7 active, 2 fixed)**: documented as deliberate or marginal.
 
-**6 active, all low-severity** — #17 (load-guard vs intra-turn `(goto:)`), #18
+**7 active, all low-severity** — #26 (deliberate: a printed array renders each
+item separately, so markup can't span items), #17 (load-guard vs intra-turn `(goto:)`), #18
 (stacked-interaction nesting order), #21 (deliberate: out-of-range array sets
 error rather than growing sparse holes), #23 (deliberate: a `via`-lambda's RNG
 draw is rewound per match so the passes stay idempotent), #24 (deliberate: the
@@ -757,6 +758,13 @@ type signature). See the `ValidateOperators_*` tests in
   matches even numbers" / "odd numbers", so the documented contract wins over
   the coercion artefact, per the version policy in `CLAUDE.md`. Pinned by
   `EvenAndOdd_RejectNonNumbers`. Revisit only if a real story depends on it.
+
+### 26. A printed array renders each item separately (deliberate; found in the printed-markup slice, 2026-11-21)
+
+- **Ours**: `BodyRenderer.EmitPrinted` renders each item as its own markup source, joined by commas. A datamap prints as literal `key:value` text.
+- **Reference**: `printBuiltinValue` joins the items into one string before rendering, so markup can span items, and prints a datamap as an HTML table with verbatim cells.
+- **Trigger**: `(print: (a: "''x", "y''"))`, where the bold opens in one item and closes in another.
+- **User-visible**: those delimiters stay literal. Deliberate: per-item rendering keeps non-string items such as datatypes and changers from being parsed as markup, and the core never puts HTML tables into the render channel. Separately, `(print:)` returns a value rather than reference's Command, because no Command type exists here, so `(print: (print: "x"))` prints `x` where reference prints `[A (print:) command]`.
 
 ### 25. The `lowercase` / `uppercase` datatypes don't expand under case mapping (deliberate; found in the Datatype slice review, 2026-07-26)
 

@@ -134,12 +134,29 @@ namespace Harlowe.Tokens
           // hook opener so the second `[` and the rest of the passage —
           // newlines, macros — still tokenize instead of being swallowed into
           // one phantom link.
+          if (Peek(1) == '=')
+          {
+            // Reference's `unclosedHook` pattern, `\[=+`.
+            int unclosedEnd = _pos + 1;
+            while (unclosedEnd < _src.Length && _src[unclosedEnd] == '=') unclosedEnd++;
+            string marker = _src.Substring(_pos, unclosedEnd - _pos);
+            AdvanceN(marker.Length);
+            Emit(TokenType.HookOpenUnclosed, marker, startPos, startLine, startCol);
+            return;
+          }
           Advance();
           Emit(TokenType.HookOpen, "[", startPos, startLine, startCol);
           return;
         case ']':
           Advance();
           Emit(TokenType.HookClose, "]", startPos, startLine, startCol);
+          return;
+        case '{':
+          ScanCollapseOpener(startPos, startLine, startCol);
+          return;
+        case '}':
+          Advance();
+          Emit(TokenType.CollapseClose, "}", startPos, startLine, startCol);
           return;
         case '<':
           if (TryScanHtmlComment(startPos, startLine, startCol)) return;
@@ -186,6 +203,21 @@ namespace Harlowe.Tokens
       if (TryScanUrl(startPos, startLine, startCol)) return;
 
       ScanText(startPos, startLine, startCol);
+    }
+
+    /// <summary>
+    /// Consumes <c>{</c> as a <see cref="TokenType.CollapseOpen"/>, or <c>{=</c>
+    /// with any run of <c>=</c> as a <see cref="TokenType.CollapseUnclosed"/>
+    /// (reference's <c>unclosedCollapsed</c> pattern, <c>\{=+</c>).
+    /// </summary>
+    private void ScanCollapseOpener(int startPos, int startLine, int startCol)
+    {
+      int look = _pos + 1;
+      while (look < _src.Length && _src[look] == '=') look++;
+      int length = look - _pos;
+      string lexeme = _src.Substring(_pos, length);
+      AdvanceN(length);
+      Emit(length > 1 ? TokenType.CollapseUnclosed : TokenType.CollapseOpen, lexeme, startPos, startLine, startCol);
     }
 
     /// <summary>
@@ -1310,6 +1342,7 @@ namespace Harlowe.Tokens
       switch (c)
       {
         case '(': case '[': case ']': case '<': case '|': case '$': case '_': case '\n':
+        case '{': case '}':
           return true;
         default:
           return false;

@@ -63,21 +63,32 @@ namespace Harlowe.Runtime.Rendering
       // the accumulated text contains the needle, extract, then continue from
       // the split-off tail.
       var examined = new List<Slot>();
-      var text = new System.Text.StringBuilder();
+      int examinedLength = 0;
+      string carry = string.Empty;
       int next = 0;
       while (next < pending.Count)
       {
         var slot = pending[next++];
         examined.Add(slot);
-        text.Append(slot.Node.Content ?? string.Empty);
+        string content = slot.Node.Content ?? string.Empty;
 
-        int index = text.ToString().IndexOf(needle, System.StringComparison.Ordinal);
-        if (index < 0) continue;
+        // A match wholly inside the earlier slots would already have been
+        // found, so any match ends in this one and starts no further back than
+        // needle.Length - 1 characters. Searching only that window keeps the
+        // scan linear however many slots a match-free stretch spans.
+        string window = carry + content;
+        int hit = window.IndexOf(needle, System.StringComparison.Ordinal);
+        if (hit < 0)
+        {
+          examinedLength += content.Length;
+          carry = window.Substring(window.Length - System.Math.Min(needle.Length - 1, window.Length));
+          continue;
+        }
+        int index = examinedLength - carry.Length + hit;
 
-        // The match's end always lies inside the newest slot (it would have
-        // been found on an earlier iteration otherwise), so the leftover after
-        // the match is entirely that slot's tail.
-        int remaining = text.Length - (index + needle.Length);
+        // The match's end always lies inside the newest slot, so the leftover
+        // after the match is entirely that slot's tail.
+        int remaining = examinedLength + content.Length - (index + needle.Length);
 
         // Drop examined slots wholly before the match; they stay in place.
         int first = 0;
@@ -88,9 +99,10 @@ namespace Harlowe.Runtime.Rendering
         }
 
         wraps.Add(Extract(examined, first, index, remaining, needle, out Slot? tail));
-        if (tail.HasValue) pending.Insert(next, tail.Value);
+        if (tail.HasValue) pending[--next] = tail.Value; // rescan the tail in this slot's place
         examined.Clear();
-        text.Length = 0;
+        examinedLength = 0;
+        carry = string.Empty;
       }
       return wraps;
     }

@@ -53,9 +53,8 @@ namespace Harlowe
 
     /// <summary>
     /// The newest profile the library knows about. Used when a story declares
-    /// no format version, or declares one from a major newer than any we
-    /// implement — in both cases the story is likelier to want current
-    /// semantics than a historical reconstruction.
+    /// a major newer than any we implement, where current semantics are the
+    /// closest thing available.
     /// <para><b>This moves</b> when a new major is added, which is what makes
     /// it wrong for anything that must stay stable across releases — see
     /// <see cref="SaveFormat"/>.</para>
@@ -82,20 +81,18 @@ namespace Harlowe
     /// major is read — <c>"3.3.9"</c>, <c>"3"</c> and <c>"3.0.0-beta"</c> all
     /// select <see cref="V3"/>.
     ///
-    /// <para>Absent, unparseable, or from a major newer than we implement
-    /// selects <see cref="Latest"/>. A major <em>below</em> 3 also selects
-    /// <see cref="V3"/> rather than the newest: the lock-in promise starts at
-    /// 3.x because 1.x/2.x were never audited here, but a 2.x story's prose is
-    /// exactly as likely to contain <c>--</c> em-dashes as a 3.x story's, so
-    /// clamping down preserves that prose where defaulting up would eat it.
-    /// <see cref="GetCompatibilityNotices"/> on the story reports each of these
+    /// <para>A version that is absent, unparseable, or below 3 also selects
+    /// <see cref="V3"/>, the release this library targets. Guessing Harlowe 4
+    /// would treat every <c>--</c> em-dash as a comment and silently delete the
+    /// prose after it, while guessing Harlowe 3 at worst shows a comment as
+    /// text. Only a major newer than we implement selects <see cref="Latest"/>.
+    /// <see cref="HarloweStory.GetCompatibilityNotices"/> reports each of these
     /// cases; nothing here throws.</para>
     /// </summary>
     public static HarloweProfile Resolve(string formatVersion)
     {
       int major = ParseMajor(formatVersion);
-      if (major < 0) return Latest;   // absent or unparseable
-      if (major <= 3) return V3;      // 3.x, and the below-3 clamp
+      if (major <= 3) return V3;      // 3.x, below 3, absent or unparseable (-1)
       if (major == 4) return V4;
       return Latest;                  // a major newer than we implement
     }

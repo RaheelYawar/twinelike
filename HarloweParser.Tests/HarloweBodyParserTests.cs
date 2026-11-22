@@ -53,10 +53,10 @@ namespace Harlowe.Tests
     }
 
     [Fact]
-    public void StrayHookClose_SilentlySkipped()
+    public void StrayHookClose_IsLiteralText()
     {
-      // A `]` with no opener is tolerated, not a parse error — the parser
-      // skips the stray closer and keeps the surrounding prose.
+      // Reference's hookBack rule only matches with an open front token, so a
+      // `]` with no opener stays in the prose.
       var body = Parse("a]b");
       var text = new System.Text.StringBuilder();
       foreach (var child in body.Children)
@@ -64,17 +64,42 @@ namespace Harlowe.Tests
         Assert.IsNotType<ParseErrorNode>(child);
         if (child is TextNode t) text.Append(t.Content);
       }
-      Assert.Equal("ab", text.ToString());
+      Assert.Equal("a]b", text.ToString());
+    }
+
+    [Theory]
+    [InlineData("a [ b", "a [ b")]
+    [InlineData("[[Shop", "[[Shop")]
+    [InlineData("[ [x] ", "[ x ")]
+    [InlineData("a<b|c", "a<b|c")]
+    public void UnmatchedHookMarkup_IsLiteralText(string source, string expected)
+    {
+      var text = new System.Text.StringBuilder();
+      void Flatten(System.Collections.Generic.IEnumerable<IBodyNode> nodes)
+      {
+        foreach (var child in nodes)
+        {
+          if (child is TextNode t) text.Append(t.Content);
+          else if (child is HookNode h) Flatten(h.Children);
+        }
+      }
+      Flatten(Parse(source).Children);
+      Assert.Equal(expected, text.ToString());
     }
 
     [Fact]
-    public void RightAnchoredHookName_WithoutBody_ProducesEmptyNamedHook()
+    public void UnmatchedHookOpen_DoesNotAttachToAMacro()
     {
-      // `|name>` not followed by `[` — a named anchor with no hook body.
+      var body = Parse("(if: true)[never closed");
+      Assert.Null(Assert.IsType<MacroNode>(body.Children[0]).AttachedHook);
+    }
+
+    [Fact]
+    public void RightAnchoredHookName_WithoutBody_IsLiteralText()
+    {
+      // Reference's pattern is `|name>[`, so with no hook the name stays prose.
       var body = Parse("|mark>x");
-      var hook = Assert.IsType<HookNode>(body.Children[0]);
-      Assert.Equal("mark", hook.Name);
-      Assert.Empty(hook.Children);
+      Assert.Equal("|mark>", Assert.IsType<TextNode>(body.Children[0]).Content);
       Assert.Equal("x", Assert.IsType<TextNode>(body.Children[1]).Content);
     }
 

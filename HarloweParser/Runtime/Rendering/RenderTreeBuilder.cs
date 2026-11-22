@@ -71,7 +71,7 @@ namespace Harlowe.Runtime.Rendering
       // count on the render hot path.
       var children = Current.Children;
       if (children.Count > 0 && children[children.Count - 1] is RenderTextNode last)
-        last.Content += content;
+        last.Append(content);
       else
         children.Add(new RenderTextNode { Content = content });
     }
@@ -132,6 +132,32 @@ namespace Harlowe.Runtime.Rendering
     public void EndHook()
     {
       if (_stack.Count > 1) _stack.Pop();
+    }
+
+    /// <summary>
+    /// Open an anonymous hook carrying a <see cref="WhitespaceMode"/>, for a
+    /// <c>{…}</c> span or for printed content inside one. Close it with
+    /// <see cref="EndWhitespace"/>.
+    /// </summary>
+    public void BeginWhitespace(WhitespaceMode mode)
+    {
+      var node = new RenderHookNode { Whitespace = mode };
+      Current.Children.Add(node);
+      _stack.Push(node);
+    }
+
+    /// <summary>
+    /// Close a <see cref="BeginWhitespace"/> hook, removing it when nothing was
+    /// written into it, so a <c>(set:)</c> inside <c>{…}</c> leaves no trace.
+    /// </summary>
+    public void EndWhitespace()
+    {
+      if (_stack.Count <= 1) return;
+      var node = _stack.Pop();
+      if (node.Children.Count > 0 || !(node is RenderNode empty)) return;
+      var siblings = Current.Children;
+      int at = siblings.LastIndexOf(empty);
+      if (at >= 0) siblings.RemoveAt(at);
     }
 
     /// <summary>

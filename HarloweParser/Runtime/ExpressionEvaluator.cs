@@ -178,6 +178,12 @@ namespace Harlowe.Runtime
           _result = operand;
           return;
         }
+        case "...":
+          // A spread at the top of a macro argument is expanded by
+          // EvaluateMacroArguments and never reaches here. Reference's Spreader
+          // is likewise unstorable and meaningless anywhere else.
+          _result = HarloweValue.OfError("a spread '...' value can only be given directly to a macro");
+          return;
         default:
           _result = HarloweValue.OfError($"unsupported unary operator '{node.Operator}'");
           return;
@@ -721,6 +727,56 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
+    /// Evaluates a macro's whole argument list into <paramref name="into"/>,
+    /// expanding each top-level <c>...</c> spread in place — reference's
+    /// <c>spreadArguments</c> in <c>ts/macros.ts</c>, which runs before arity
+    /// and type checks, so a spread can supply any number of arguments.
+    /// Returns the first error, or null.
+    /// </summary>
+    public HarloweValue EvaluateMacroArguments(string macroName, List<IExpressionNode> arguments, List<HarloweValue> into)
+    {
+      for (int i = 0; i < arguments.Count; i++)
+      {
+        if (arguments[i] is UnaryOpNode spread && spread.Operator == "...")
+        {
+          var spreadError = SpreadInto(spread.Operand, into);
+          if (spreadError != null) return spreadError;
+          continue;
+        }
+        var value = EvaluateMacroArgument(macroName, arguments[i]);
+        if (value.IsError) return value;
+        into.Add(value);
+      }
+      return null;
+    }
+
+    /// <summary>
+    /// Appends the items of a spread operand: an array's elements or a string's
+    /// code points (JS spreads strings by code point). Datasets don't exist
+    /// here yet, and spread datatypes (<c>...num</c>) are a separate feature.
+    /// Returns the error, or null.
+    /// </summary>
+    private HarloweValue SpreadInto(IExpressionNode operand, List<HarloweValue> into)
+    {
+      var value = Evaluate(operand);
+      if (value.IsError) return value;
+      switch (value.Kind)
+      {
+        case HarloweValueKind.Array:
+          into.AddRange(value.AsArray);
+          return null;
+        case HarloweValueKind.String:
+          var characters = CodePoints.Split(value.AsString);
+          for (int i = 0; i < characters.Count; i++) into.Add(HarloweValue.OfString(characters[i]));
+          return null;
+        case HarloweValueKind.Datatype:
+          return HarloweValue.OfError("spread datatypes (...num) aren't implemented");
+        default:
+          return HarloweValue.OfError($"I can't spread out a {value.Kind}, because it is not a string, dataset, or array.");
+      }
+    }
+
+    /// <summary>
     /// Executes one (move:) argument — <c>source into dest</c> — per
     /// reference's <c>AssignmentRequest.set(true)</c> in
     /// <c>ts/datatypes/assignmentrequest.ts</c>: read the source, assign the
@@ -1242,12 +1298,8 @@ namespace Harlowe.Runtime
       var operatorError = ValidateAssignmentOperators(node.Name, node.Arguments);
       if (operatorError != null) { _result = operatorError; return; }
       var args = new List<HarloweValue>(node.Arguments.Count);
-      for (int i = 0; i < node.Arguments.Count; i++)
-      {
-        var v = EvaluateMacroArgument(node.Name, node.Arguments[i]);
-        if (v.IsError) { _result = v; return; }
-        args.Add(v);
-      }
+      var argumentError = EvaluateMacroArguments(node.Name, node.Arguments, args);
+      if (argumentError != null) { _result = argumentError; return; }
       _result = _macros.Invoke(node.Name, args) ?? HarloweValue.OfError($"macro '{node.Name}' returned no value");
       StampChangerSource(_result, node.Name, args);
     }
@@ -1510,7 +1562,7 @@ namespace Harlowe.Runtime
     /// only from the <c>(p-opt:)</c> string-pattern family, which isn't
     /// implemented here. Array positions are compared one-for-one, since a
     /// spread datatype (<c>...num</c>, the one thing that can span several
-    /// positions) needs the unimplemented <c>...</c> syntax to write.</para>
+    /// positions) isn't implemented.</para>
     /// </summary>
     private static bool MatchesRecur(HarloweValue left, HarloweValue right, int depth, ref bool tooDeep)
     {

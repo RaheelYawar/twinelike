@@ -39,6 +39,12 @@ namespace Harlowe
       foreach (var child in node.Children) child.Accept(this);
     }
 
+    public virtual void Visit(CollapsedNode node)
+    {
+      if (node.Children == null) return;
+      foreach (var child in node.Children) child.Accept(this);
+    }
+
     public virtual void Visit(ChangerChainNode node)
     {
       if (node.AttachedHook != null) node.AttachedHook.Accept(this);

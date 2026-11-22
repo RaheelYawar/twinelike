@@ -22,6 +22,21 @@ namespace Harlowe.Parsing
     private int _depth;
     private const int MaxDepth = 128;
 
+    // Spans of `{`, `{=` and `[=` open around the cursor, which nest in the AST
+    // just as hooks do and so count toward MaxDepth: those in enclosing hooks,
+    // the `{`s still open at this level (a `}` can close one), and the unclosed
+    // markers at this level (nothing closes them).
+    private int _outerSpans;
+    private int _levelBraces;
+    private int _levelUnclosed;
+
+    private bool AtNestingLimit => _depth + _outerSpans + _levelBraces + _levelUnclosed >= MaxDepth;
+
+    // An unclosed hook just attached to the node being parsed. ParseNodes
+    // places its marker right after that node, so the fold can give it the
+    // rest of the sibling list.
+    private UnclosedHookMarker _pendingUnclosedHook;
+
     public HarloweBodyParser() : this(new HarloweExpressionParser()) { }
 
     public HarloweBodyParser(IExpressionParser expressionParser)
@@ -49,9 +64,59 @@ namespace Harlowe.Parsing
     /// </summary>
     public PassageBody Parse(IReadOnlyList<Token> tokens, string source)
     {
+      _matchedHooks = FindMatchedHooks(tokens);
+      _outerSpans = _levelBraces = _levelUnclosed = 0;
+      _pendingUnclosedHook = null;
       var cursor = new TokenCursor(tokens, source);
       var children = ParseNodes(cursor, terminator: null);
       return new PassageBody { Children = children };
+    }
+
+    // Stream indices of the `[` and `]` tokens that form a real hook.
+    private HashSet<int> _matchedHooks;
+
+    /// <summary>
+    /// Pairs each <c>]</c> with the nearest open <c>[</c>, as reference's lexer
+    /// does with its front-token stack. A bracket left unpaired isn't hook
+    /// markup at all: reference keeps it as literal text, so it can't take a
+    /// macro's attachment or swallow the prose after it.
+    /// </summary>
+    private static HashSet<int> FindMatchedHooks(IReadOnlyList<Token> tokens)
+    {
+      var matched = new HashSet<int>();
+      var open = new Stack<int>();
+      for (int i = 0; i < tokens.Count; i++)
+      {
+        if (tokens[i].Type == TokenType.HookOpen) open.Push(i);
+        else if (tokens[i].Type == TokenType.HookClose && open.Count > 0)
+        {
+          matched.Add(open.Pop());
+          matched.Add(i);
+        }
+      }
+      return matched;
+    }
+
+    /// <summary>True when the token <paramref name="offset"/> ahead is a <c>[</c> with a matching <c>]</c>.</summary>
+    private bool IsHookAt(TokenCursor cursor, int offset)
+      => cursor.Peek(offset).Type == TokenType.HookOpen && _matchedHooks.Contains(cursor.Index + offset);
+
+    /// <summary>
+    /// Tracks hook nesting through a lookahead scan at <paramref name="offset"/>,
+    /// ignoring brackets that are literal text. Returns false when the scan
+    /// reaches the <c>]</c> of the hook it started in.
+    /// </summary>
+    private bool StaysInHook(TokenCursor cursor, int offset, ref int hookDepth)
+    {
+      if (!_matchedHooks.Contains(cursor.Index + offset)) return true;
+      if (cursor.Peek(offset).Type == TokenType.HookOpen)
+      {
+        hookDepth++;
+        return true;
+      }
+      if (hookDepth == 0) return false;
+      hookDepth--;
+      return true;
     }
 
     /// <summary>
@@ -94,6 +159,7 @@ namespace Harlowe.Parsing
         }
         catch (HarloweParseException ex)
         {
+          _pendingUnclosedHook = null;
           bool advanced = TryAdvanceToResumePoint(
             cursor, terminator, cursor.NetMacroDepthSince(startIndex));
           nodes.Add(new ParseErrorNode
@@ -114,39 +180,53 @@ namespace Harlowe.Parsing
           continue;
         }
         if (node != null) nodes.Add(node);
+        if (_pendingUnclosedHook != null)
+        {
+          nodes.Add(_pendingUnclosedHook);
+          _pendingUnclosedHook = null;
+        }
       }
       return FoldFormatting(nodes);
     }
 
     /// <summary>
-    /// Resolve inline-formatting delimiter markers in a freshly-parsed sibling
-    /// list into <see cref="FormatNode"/>s. Mirrors reference Harlowe's
-    /// <c>foldChildren</c> (<c>ts/markup/lexer.ts</c>): a delimiter folds with
-    /// the nearest open delimiter of the same kind; delimiters that cross
-    /// (<c>''//x''//</c>) or never close degrade to literal text. Runs once per
-    /// nesting level — each hook's contents are folded independently, so
-    /// formatting never crosses a hook boundary (also matching reference, where
-    /// each token's <c>innerText</c> is lexed on its own).
+    /// Resolve inline-formatting delimiters and <c>{…}</c> collapsing markers in
+    /// a freshly-parsed sibling list into <see cref="FormatNode"/>s and
+    /// <see cref="CollapsedNode"/>s. Mirrors reference Harlowe's
+    /// <c>foldChildren</c> (<c>ts/markup/lexer.ts</c>): a closer folds with the
+    /// nearest open marker of its kind; markers that cross (<c>''//x''//</c>)
+    /// or never close degrade to literal text. Runs once per nesting level —
+    /// each hook's contents are folded independently, so neither crosses a
+    /// hook boundary (also matching reference, where each token's
+    /// <c>innerText</c> is lexed on its own).
     ///
-    /// <para>The common case — a passage with no <c>''</c>/<c>//</c> at all —
-    /// hits the fast path and returns the original list untouched.</para>
+    /// <para>The common case — a passage with none of these markers — hits the
+    /// fast path and returns the original list untouched.</para>
     /// </summary>
     private static List<IBodyNode> FoldFormatting(List<IBodyNode> nodes)
     {
       bool hasMarker = false;
       for (int i = 0; i < nodes.Count; i++)
-        if (nodes[i] is FormatDelimiterMarker) { hasMarker = true; break; }
+        if (nodes[i] is FormatDelimiterMarker || nodes[i] is CollapseMarker
+            || nodes[i] is UnclosedCollapseMarker || nodes[i] is UnclosedHookMarker)
+        { hasMarker = true; break; }
       if (!hasMarker) return nodes;
 
-      // A stack of open format frames over a synthetic root. Each frame collects
-      // the nodes that become a FormatNode's children if a matching closer
-      // arrives, or are flattened (behind a literal delimiter) into the parent
-      // if the frame stays unmatched.
+      // A stack of open frames over a synthetic root. Each frame collects the
+      // nodes that become a FormatNode's or CollapsedNode's children if a
+      // matching closer arrives, or are flattened (behind a literal delimiter)
+      // into the parent if the frame stays unmatched.
       var root = new FormatFrame { Children = new List<IBodyNode>() };
       var stack = new List<FormatFrame> { root };
 
       for (int i = 0; i < nodes.Count; i++)
       {
+        if (nodes[i] is CollapseMarker collapse)
+        {
+          FoldCollapseMarker(collapse, stack);
+          continue;
+        }
+
         if (!(nodes[i] is FormatDelimiterMarker marker))
         {
           stack[stack.Count - 1].Children.Add(nodes[i]);
@@ -176,30 +256,137 @@ namespace Harlowe.Parsing
 
       // Whatever is still open never closed — degrade each to literal text.
       while (stack.Count > 1) FlattenAsLiteral(stack);
-      return root.Children;
+      return ApplyUnclosedMarkers(root.Children);
     }
 
     /// <summary>
-    /// Pop the top (unmatched) format frame and splice its content into its
-    /// parent behind a literal delimiter <see cref="TextNode"/>, so a crossed
-    /// or unclosed <c>''</c>/<c>//</c> renders as the characters the author
-    /// typed.
+    /// Handles one <c>{</c> or <c>}</c> during the fold. An opener starts a
+    /// frame. A closer folds with the nearest open <c>{</c>, degrading any
+    /// markers it crosses to literal text, or is literal itself when no
+    /// <c>{</c> is open.
+    /// </summary>
+    private static void FoldCollapseMarker(CollapseMarker marker, List<FormatFrame> stack)
+    {
+      if (marker.IsOpener)
+      {
+        stack.Add(new FormatFrame { IsCollapse = true, Children = new List<IBodyNode>() });
+        return;
+      }
+
+      int match = -1;
+      for (int s = stack.Count - 1; s >= 1; s--)
+        if (stack[s].IsCollapse) { match = s; break; }
+
+      if (match < 0)
+      {
+        stack[stack.Count - 1].Children.Add(new TextNode { Content = "}" });
+        return;
+      }
+
+      while (stack.Count - 1 > match) FlattenAsLiteral(stack);
+      var closed = stack[stack.Count - 1];
+      stack.RemoveAt(stack.Count - 1);
+      stack[stack.Count - 1].Children.Add(new CollapsedNode { Children = closed.Children });
+    }
+
+    /// <summary>
+    /// Gives each <c>{=</c> and <c>[=</c> marker the rest of its sibling list —
+    /// reference's renderer does the same with <c>tokens.slice(i + 1, len)</c>,
+    /// so a marker inside a formatted span runs only to the end of that span.
+    /// Descends into the spans this fold built; hooks have already been folded
+    /// on their own. Recursion is bounded because the parser counts these
+    /// markers toward <see cref="MaxDepth"/>.
+    /// </summary>
+    private static List<IBodyNode> ApplyUnclosedMarkers(List<IBodyNode> nodes)
+    {
+      for (int i = 0; i < nodes.Count; i++)
+      {
+        switch (nodes[i])
+        {
+          case FormatNode format:
+            format.Children = ApplyUnclosedMarkers(format.Children);
+            break;
+          case CollapsedNode collapsed:
+            collapsed.Children = ApplyUnclosedMarkers(collapsed.Children);
+            break;
+          case UnclosedCollapseMarker marker:
+          {
+            var result = nodes.GetRange(0, i);
+            result.Add(new CollapsedNode
+            {
+              UnclosedMarker = marker.Source,
+              Children = ApplyUnclosedMarkers(nodes.GetRange(i + 1, nodes.Count - i - 1)),
+            });
+            return result;
+          }
+          case UnclosedHookMarker hookMarker:
+          {
+            hookMarker.Hook.Children = ApplyUnclosedMarkers(nodes.GetRange(i + 1, nodes.Count - i - 1));
+            var result = nodes.GetRange(0, i);
+            if (!hookMarker.IsAttached) result.Add(hookMarker.Hook);
+            return result;
+          }
+        }
+      }
+      return nodes;
+    }
+
+    /// <summary>
+    /// Pop the top (unmatched) frame and splice its content into its parent
+    /// behind a literal delimiter <see cref="TextNode"/>, so a crossed or
+    /// unclosed <c>''</c>, <c>//</c> or <c>{</c> renders as the characters the
+    /// author typed.
     /// </summary>
     private static void FlattenAsLiteral(List<FormatFrame> stack)
     {
       var open = stack[stack.Count - 1];
       stack.RemoveAt(stack.Count - 1);
       var parent = stack[stack.Count - 1];
-      // Kind is non-null for every non-root frame, and the root is never flattened.
-      parent.Children.Add(new TextNode { Content = InlineFormats.Delimiter(open.Kind.Value) });
+      // Every non-root frame is a collapse or has a Kind, and the root is never flattened.
+      string literal = open.IsCollapse ? "{" : InlineFormats.Delimiter(open.Kind.Value);
+      parent.Children.Add(new TextNode { Content = literal });
       parent.Children.AddRange(open.Children);
     }
 
-    /// <summary>One open inline-format span during the fold. <see cref="Kind"/> is null for the synthetic root.</summary>
+    /// <summary>One open span during the fold: an inline format (<see cref="Kind"/>) or a <c>{…}</c> (<see cref="IsCollapse"/>). The synthetic root is neither.</summary>
     private sealed class FormatFrame
     {
       public InlineFormat? Kind;
+      public bool IsCollapse;
       public List<IBodyNode> Children;
+    }
+
+    /// <summary>Transient stand-in for a <c>{</c> or <c>}</c> between parsing and <see cref="FoldFormatting"/>. Never survives a <see cref="ParseNodes"/> call.</summary>
+    private sealed class CollapseMarker : IBodyNode
+    {
+      public bool IsOpener;
+      public void Accept(IBodyVisitor visitor) =>
+        throw new System.InvalidOperationException(
+          "collapse marker should have been folded away during parsing");
+    }
+
+    /// <summary>Transient stand-in for a <c>{=</c> between parsing and <see cref="ApplyUnclosedMarkers"/>. Never survives a <see cref="ParseNodes"/> call.</summary>
+    private sealed class UnclosedCollapseMarker : IBodyNode
+    {
+      public string Source;
+      public void Accept(IBodyVisitor visitor) =>
+        throw new System.InvalidOperationException(
+          "unclosed collapse marker should have been folded away during parsing");
+    }
+
+    /// <summary>
+    /// Transient stand-in for a <c>[=</c> between parsing and
+    /// <see cref="ApplyUnclosedMarkers"/>. <see cref="IsAttached"/> means the
+    /// hook is already held by the node before it (a macro, or a <c>|name&gt;</c>),
+    /// so only its content is filled in.
+    /// </summary>
+    private sealed class UnclosedHookMarker : IBodyNode
+    {
+      public HookNode Hook;
+      public bool IsAttached;
+      public void Accept(IBodyVisitor visitor) =>
+        throw new System.InvalidOperationException(
+          "unclosed hook marker should have been folded away during parsing");
     }
 
     /// <summary>
@@ -310,12 +497,58 @@ namespace Harlowe.Parsing
           cursor.Advance();
           return new FormatDelimiterMarker { Kind = InlineFormats.FromDelimiter(t.Value) };
 
+        case TokenType.CollapseOpen:
+          // Folded with the format delimiters once this level is complete.
+          // Past the nesting limit a brace is prose, so input like 100,000
+          // `{` can't build an AST deep enough to overflow the stack.
+          cursor.Advance();
+          if (AtNestingLimit) return new TextNode { Content = "{" };
+          _levelBraces++;
+          return new CollapseMarker { IsOpener = true };
+
+        case TokenType.CollapseClose:
+          cursor.Advance();
+          if (_levelBraces > 0) _levelBraces--;
+          return new CollapseMarker { IsOpener = false };
+
+        case TokenType.CollapseUnclosed:
+          cursor.Advance();
+          if (AtNestingLimit) return new TextNode { Content = t.Value };
+          _levelUnclosed++;
+          return new UnclosedCollapseMarker { Source = t.Value };
+
+        case TokenType.HookOpenUnclosed:
+          cursor.Advance();
+          if (AtNestingLimit) return new TextNode { Content = t.Value };
+          _levelUnclosed++;
+          return new UnclosedHookMarker
+          {
+            Hook = new HookNode { UnclosedMarker = t.Value, Children = new List<IBodyNode>() },
+          };
+
         case TokenType.MacroOpen:
           return ParseMacro(cursor);
 
         case TokenType.HookOpen:
+          if (!IsHookAt(cursor, 0))
+          {
+            cursor.Advance();
+            return new TextNode { Content = "[" };
+          }
           cursor.Advance();
           return ParseHookContents(cursor, HookAnchor.None, name: null);
+
+        case TokenType.HookClose:
+          // Inside a hook this is the terminator and never reaches here, so
+          // it's a `]` with no opener: literal text, as in reference.
+          cursor.Advance();
+          return new TextNode { Content = "]" };
+
+        case TokenType.HookNameLeft:
+          // Only a name directly after a hook's `]` is markup, and
+          // ParseHookContents consumes that one.
+          cursor.Advance();
+          return new TextNode { Content = "<" + t.Value + "|" };
 
         case TokenType.HookNameRight:
           return ParseRightAnchoredHook(cursor);
@@ -333,9 +566,8 @@ namespace Harlowe.Parsing
           return new CommentNode { OriginalSource = t.Value };
 
         default:
-          // Stray closers (HookClose without an opener, HookNameLeft outside a
-          // hook, etc.) are silently skipped — the parser is tolerant of
-          // malformed Harlowe rather than crashing.
+          // Tokens that can't begin a body node are skipped: the parser is
+          // tolerant of malformed Harlowe rather than crashing.
           cursor.Advance();
           return null;
       }
@@ -395,8 +627,10 @@ namespace Harlowe.Parsing
           break;
 
         case TokenType.HookOpen:
+          // An unmatched `[` is literal text, so it's the one token eliminated.
+          bool isHook = IsHookAt(cursor, 0);
           cursor.Advance();
-          ParseHookContents(cursor, HookAnchor.None, name: null); // discarded
+          if (isHook) ParseHookContents(cursor, HookAnchor.None, name: null); // discarded
           break;
 
         case TokenType.MacroOpen:
@@ -417,6 +651,10 @@ namespace Harlowe.Parsing
           SkipFormatSpan(cursor);
           break;
 
+        case TokenType.CollapseOpen:
+          SkipCollapsedSpan(cursor);
+          break;
+
         default:
           // Newline, variable, HTML tag, a following comment marker, a stray
           // closer — all single tokens. Reference eats a br here too, so
@@ -425,6 +663,9 @@ namespace Harlowe.Parsing
           break;
       }
 
+      // A commented-out `|name>[=` is eliminated alone: it must not go on to
+      // claim the prose after it.
+      _pendingUnclosedHook = null;
       return new CommentNode { OriginalSource = cursor.SliceFrom(startPos) };
     }
 
@@ -460,7 +701,7 @@ namespace Harlowe.Parsing
     /// literal text, which is the one token the comment then eliminates).
     /// The scan crosses line breaks — format folding does too.
     /// </summary>
-    private static void SkipFormatSpan(TokenCursor cursor)
+    private void SkipFormatSpan(TokenCursor cursor)
     {
       string kind = cursor.Current.Value;
       int hookDepth = 0;
@@ -468,19 +709,40 @@ namespace Harlowe.Parsing
       {
         var t = cursor.Peek(offset);
         if (t.Type == TokenType.EndOfFile) break;
-        if (t.Type == TokenType.HookOpen) hookDepth++;
-        else if (t.Type == TokenType.HookClose)
-        {
-          if (hookDepth == 0) break; // enclosing hook closes — span never matched
-          hookDepth--;
-        }
-        else if (t.Type == TokenType.FormatDelimiter && t.Value == kind && hookDepth == 0)
+        if (!StaysInHook(cursor, offset, ref hookDepth)) break; // span never matched
+        if (t.Type == TokenType.FormatDelimiter && t.Value == kind && hookDepth == 0)
         {
           for (int i = 0; i <= offset; i++) cursor.Advance();
           return;
         }
       }
       cursor.Advance(); // unmatched: eat the delimiter alone
+    }
+
+    /// <summary>
+    /// Cursor is at a <see cref="TokenType.CollapseOpen"/> right after a comment
+    /// marker. A matched <c>{…}</c> at this hook depth is one folded token in
+    /// reference, so the comment eliminates all of it; an unmatched <c>{</c>
+    /// degrades to literal text and is eaten alone. Pure lookahead until a
+    /// match is found.
+    /// </summary>
+    private void SkipCollapsedSpan(TokenCursor cursor)
+    {
+      int hookDepth = 0;
+      int braceDepth = 1;
+      for (int offset = 1; ; offset++)
+      {
+        var t = cursor.Peek(offset);
+        if (t.Type == TokenType.EndOfFile) break;
+        if (!StaysInHook(cursor, offset, ref hookDepth)) break; // the enclosing hook closes first
+        if (hookDepth == 0 && t.Type == TokenType.CollapseOpen) braceDepth++;
+        else if (hookDepth == 0 && t.Type == TokenType.CollapseClose && --braceDepth == 0)
+        {
+          for (int i = 0; i <= offset; i++) cursor.Advance();
+          return;
+        }
+      }
+      cursor.Advance(); // unmatched: eat the brace alone
     }
 
     /// <summary>
@@ -577,7 +839,7 @@ namespace Harlowe.Parsing
       cursor.Advance();
 
       int offset = SkipBodyWhitespace(cursor);
-      if (cursor.Peek(offset).Type == TokenType.HookOpen)
+      if (IsHookAt(cursor, offset))
       {
         for (int i = 0; i <= offset; i++) cursor.Advance();
         var hook = ParseHookContents(cursor, HookAnchor.None, name: null);
@@ -587,8 +849,33 @@ namespace Harlowe.Parsing
           AttachedHook = hook,
         };
       }
+      if (TryAttachUnclosedHook(cursor, offset, out var unclosed))
+      {
+        return new ChangerChainNode
+        {
+          Expression = new VariableRefNode { Name = t.Value, IsTemporary = isTemporary },
+          AttachedHook = unclosed,
+        };
+      }
 
       return new VariableNode { Name = t.Value, IsTemporary = isTemporary };
+    }
+
+    /// <summary>
+    /// If a <c>[=</c> follows at <paramref name="offset"/>, consumes through it
+    /// and returns the hook for the caller to attach, queuing its marker so the
+    /// fold fills it with the rest of this level.
+    /// </summary>
+    private bool TryAttachUnclosedHook(TokenCursor cursor, int offset, out HookNode hook)
+    {
+      hook = null;
+      var token = cursor.Peek(offset);
+      if (token.Type != TokenType.HookOpenUnclosed || AtNestingLimit) return false;
+      for (int i = 0; i <= offset; i++) cursor.Advance();
+      hook = new HookNode { UnclosedMarker = token.Value, Children = new List<IBodyNode>() };
+      _levelUnclosed++;
+      _pendingUnclosedHook = new UnclosedHookMarker { Hook = hook, IsAttached = true };
+      return true;
     }
 
     /// <summary>
@@ -600,7 +887,12 @@ namespace Harlowe.Parsing
     private void AttachOptionalHook(TokenCursor cursor, System.Action<HookNode> setHook)
     {
       int offset = SkipBodyWhitespace(cursor);
-      if (cursor.Peek(offset).Type != TokenType.HookOpen) return;
+      if (TryAttachUnclosedHook(cursor, offset, out var unclosed))
+      {
+        setHook(unclosed);
+        return;
+      }
+      if (!IsHookAt(cursor, offset)) return;
       for (int i = 0; i <= offset; i++) cursor.Advance();
       setHook(ParseHookContents(cursor, HookAnchor.None, name: null));
     }
@@ -703,12 +995,18 @@ namespace Harlowe.Parsing
       // thousands of nested '[' from blowing the C# stack with an uncatchable
       // StackOverflowException; the per-node recovery / loader catch turns it
       // into an in-prose error. Restored via finally so it stays balanced.
-      if (++_depth > MaxDepth)
+      if (AtNestingLimit)
       {
-        _depth--;
         var deep = cursor.Current;
         throw new HarloweParseException("hooks nested too deeply", deep.Line, deep.Column);
       }
+
+      // Spans can't cross a hook boundary, so this level's become outer ones
+      // while the hook parses, and come back when it closes.
+      int outerSpans = _outerSpans, levelBraces = _levelBraces, levelUnclosed = _levelUnclosed;
+      _outerSpans += _levelBraces + _levelUnclosed;
+      _levelBraces = _levelUnclosed = 0;
+      _depth++;
       try
       {
         var children = ParseNodes(cursor, terminator: TokenType.HookClose);
@@ -723,28 +1021,40 @@ namespace Harlowe.Parsing
 
         return new HookNode { Name = name, Anchor = anchor, Children = children };
       }
-      finally { _depth--; }
+      finally
+      {
+        _depth--;
+        _outerSpans = outerSpans;
+        _levelBraces = levelBraces;
+        _levelUnclosed = levelUnclosed;
+      }
     }
 
     /// <summary>
     /// Cursor is at <see cref="TokenType.HookNameRight"/> (<c>|name&gt;</c>).
-    /// If the very next token is <see cref="TokenType.HookOpen"/>, builds a
-    /// right-anchored hook with the given name. If no hook follows, returns
-    /// an empty named hook so the name isn't lost — degraded but
-    /// non-crashing.
+    /// If a hook follows immediately, builds a right-anchored hook with the
+    /// given name. Otherwise the characters are prose: reference's pattern is
+    /// <c>|name&gt;[</c>, so a name with no hook after it never becomes markup.
     /// </summary>
-    private HookNode ParseRightAnchoredHook(TokenCursor cursor)
+    private IBodyNode ParseRightAnchoredHook(TokenCursor cursor)
     {
       string name = cursor.Current.Value;
       cursor.Advance();
 
-      if (cursor.Current.Type == TokenType.HookOpen)
+      if (IsHookAt(cursor, 0))
       {
         cursor.Advance();
         return ParseHookContents(cursor, HookAnchor.Right, name);
       }
 
-      return new HookNode { Name = name, Anchor = HookAnchor.Right, Children = new List<IBodyNode>() };
+      if (TryAttachUnclosedHook(cursor, 0, out var unclosed))
+      {
+        unclosed.Name = name;
+        unclosed.Anchor = HookAnchor.Right;
+        return unclosed;
+      }
+
+      return new TextNode { Content = "|" + name + ">" };
     }
 
     /// <summary>

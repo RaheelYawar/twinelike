@@ -50,6 +50,11 @@ namespace Harlowe.Runtime
     private readonly MacroContext _context;
     private readonly ExpressionEvaluator _evaluator;
 
+    // How many {…} spans lexically enclose the node being rendered. Printed
+    // output inside one is marked to keep its whitespace, and a hook rendered
+    // elsewhere (a revision or click) remembers whether its source was inside.
+    private int _collapseDepth;
+
     public BodyRenderer(IRenderOutput output, MacroRegistry registry, MacroContext context)
     {
       _output = output;
@@ -94,7 +99,9 @@ namespace Harlowe.Runtime
       if (value.IsError) { _output.Error(value.ErrorMessage); return; }
       // A bare changer variable can't be displayed — reference errors here too.
       if (value.Kind == HarloweValueKind.Changer) { _output.Error(UnattachedChangerError(value.AsChanger)); return; }
-      _output.Text(value.ToHarloweString());
+      var preserved = BeginPrintedOutput();
+      EmitPrinted(value);
+      preserved?.EndWhitespace();
     }
 
     public void Visit(HtmlNode node) => _output.Html(node.RawHtml);
@@ -185,6 +192,16 @@ namespace Harlowe.Runtime
     /// </summary>
     public void Visit(HookNode node)
     {
+      // The parser limits nesting within one source, but a recursive display
+      // or print multiplies it, so the running total is checked here. Reference
+      // has the same guard in renderInto, with this wording.
+      if (_context.RenderNesting >= MacroContext.MaxRenderNesting)
+      {
+        _output.Error("Printing this expression may have trapped me in an infinite loop.");
+        return;
+      }
+      _context.RenderNesting++;
+
       var builder = _output as Rendering.RenderTreeBuilder;
       builder?.BeginHook(node.Name, node.Anchor);
       // A hook is its own conditional scope. Reference Harlowe renders each
@@ -200,6 +217,7 @@ namespace Harlowe.Runtime
       }
       _context.LastConditional = priorConditional;
       builder?.EndHook();
+      _context.RenderNesting--;
     }
 
     /// <summary>
@@ -217,6 +235,47 @@ namespace Harlowe.Runtime
       _output.PushStyle(StyleFor(node.Format));
       if (node.Children != null) RenderChildren(node.Children);
       _output.PopStyle();
+    }
+
+    /// <summary>
+    /// Render a collapsing-whitespace span. On a render tree the span is a
+    /// marked hook that <see cref="Rendering.WhitespaceCollapser"/> processes
+    /// once the whole passage has run, because a later macro can still target
+    /// text inside it. A plain sink has no tree to mark, so the span renders
+    /// into a local one, collapses, and replays.
+    /// </summary>
+    public void Visit(CollapsedNode node)
+    {
+      _context.UsesCollapsedWhitespace = true;
+      if (node.Children == null) return;
+
+      // A span nests like a hook, so it shares the hook nesting limit.
+      if (_context.RenderNesting >= MacroContext.MaxRenderNesting)
+      {
+        _output.Error("Printing this expression may have trapped me in an infinite loop.");
+        return;
+      }
+      _context.RenderNesting++;
+
+      if (_output is Rendering.RenderTreeBuilder builder)
+      {
+        builder.BeginWhitespace(Rendering.WhitespaceMode.Collapse);
+        _collapseDepth++;
+        RenderChildren(node.Children);
+        _collapseDepth--;
+        builder.EndWhitespace();
+      }
+      else
+      {
+        var local = new Rendering.RenderTreeBuilder();
+        local.BeginWhitespace(Rendering.WhitespaceMode.Collapse);
+        var inner = new BodyRenderer(local, _registry, _context) { _collapseDepth = 1 };
+        inner.RenderChildren(node.Children);
+        local.EndWhitespace();
+        Rendering.WhitespaceCollapser.Apply(local.Root);
+        Rendering.RenderTreeFlusher.Flush(local.Root, _output);
+      }
+      _context.RenderNesting--;
     }
 
     /// <summary>
@@ -288,7 +347,9 @@ namespace Harlowe.Runtime
       // Other non-Changer values: emit the value's text form (matching the
       // existing VariableNode behaviour), then render the hook contents —
       // reference likewise declines to attach plain data and prints it in place.
+      var preserved = BeginPrintedOutput();
       EmitMacroResult(result);
+      preserved?.EndWhitespace();
       if (node.AttachedHook != null) node.AttachedHook.Accept(this);
     }
 
@@ -313,12 +374,8 @@ namespace Harlowe.Runtime
         // wrong assignment operator anywhere means nothing assigns.
         var operatorError = _evaluator.ValidateAssignmentOperators(node.Name, node.Arguments);
         if (operatorError != null) { _output.Error(operatorError.ErrorMessage); return; }
-        for (int i = 0; i < node.Arguments.Count; i++)
-        {
-          var v = _evaluator.EvaluateMacroArgument(node.Name, node.Arguments[i]);
-          if (v.IsError) { _output.Error(v.ErrorMessage); return; }
-          args.Add(v);
-        }
+        var argumentError = _evaluator.EvaluateMacroArguments(node.Name, node.Arguments, args);
+        if (argumentError != null) { _output.Error(argumentError.ErrorMessage); return; }
       }
 
       // Expose the active sink for command macros (e.g. (display:)) that want
@@ -326,12 +383,18 @@ namespace Harlowe.Runtime
       // than capture it as a string. Cleared on the way out so a subsequent
       // arg-eval pass (which goes through ExpressionEvaluator with no
       // surrounding BodyRenderer) sees a null sink and routes through the
-      // buffered-snapshot path instead.
+      // buffered-snapshot path instead. Whatever a macro writes here keeps its
+      // whitespace inside {…}, like reference's <tw-expression> content.
       var priorOutput = _context.Output;
       _context.Output = _output;
+      var preserved = BeginPrintedOutput();
       HarloweValue result;
       try { result = _registry.Invoke(node.Name, args, _context); }
-      finally { _context.Output = priorOutput; }
+      finally
+      {
+        preserved?.EndWhitespace();
+        _context.Output = priorOutput;
+      }
 
       // The conditional pairing (LastConditional, reference's lastHookShown)
       // is only touched when a hook is shown or hidden by an attached
@@ -373,7 +436,9 @@ namespace Harlowe.Runtime
       // unconditionally.
       if (result != null && !result.IsError)
       {
+        var printed = BeginPrintedOutput();
         EmitMacroResult(result);
+        printed?.EndWhitespace();
       }
       if (node.AttachedHook != null) node.AttachedHook.Accept(this);
     }
@@ -387,7 +452,10 @@ namespace Harlowe.Runtime
     /// </summary>
     private void ApplyChangerHook(Changer changer, IBodyNode hook, string macroName)
     {
-      bool shown = changer.Apply(_output, target => RenderHookInto(hook, target), _context);
+      // Captured now: a click's deferred render runs after this renderer has
+      // left the {…} span the macro was written in.
+      bool insideCollapse = _collapseDepth > 0;
+      bool shown = changer.Apply(_output, target => RenderHookInto(hook, target, insideCollapse), _context);
       UpdateConditionalPairing(macroName, shown);
     }
 
@@ -439,12 +507,40 @@ namespace Harlowe.Runtime
     /// spin up a sub-renderer sharing the registry and context. The latter is
     /// how a revision changer renders its hook into a detached tree — see
     /// <see cref="Changer.Apply"/> — without touching the live output.
+    ///
+    /// <para>Whitespace follows where the hook was <em>written</em>, wherever
+    /// it lands (reference's "lexical rather than dynamic position"). A hook
+    /// written inside <c>{…}</c> collapses even when spliced outside it, and
+    /// one written outside keeps its whitespace when spliced into a span.</para>
     /// </summary>
-    private void RenderHookInto(IBodyNode hook, IRenderOutput target)
+    private void RenderHookInto(IBodyNode hook, IRenderOutput target, bool insideCollapse)
     {
       if (hook == null) return;
       if (ReferenceEquals(target, _output)) { hook.Accept(this); return; }
-      hook.Accept(new BodyRenderer(target, _registry, _context));
+
+      var renderer = new BodyRenderer(target, _registry, _context) { _collapseDepth = insideCollapse ? 1 : 0 };
+      var builder = target as Rendering.RenderTreeBuilder;
+      if (builder == null || (!insideCollapse && !_context.UsesCollapsedWhitespace))
+      {
+        hook.Accept(renderer);
+        return;
+      }
+      builder.BeginWhitespace(insideCollapse ? Rendering.WhitespaceMode.Collapse : Rendering.WhitespaceMode.Preserve);
+      hook.Accept(renderer);
+      builder.EndWhitespace();
+    }
+
+    /// <summary>
+    /// Inside a <c>{…}</c> span, opens a hook that keeps printed content's
+    /// whitespace and returns the builder to close it on. Null, with nothing
+    /// opened, everywhere else.
+    /// </summary>
+    private Rendering.RenderTreeBuilder BeginPrintedOutput()
+    {
+      if (_collapseDepth == 0) return null;
+      var builder = _output as Rendering.RenderTreeBuilder;
+      builder?.BeginWhitespace(Rendering.WhitespaceMode.Preserve);
+      return builder;
     }
 
     private void EmitMacroResult(HarloweValue result)
@@ -452,17 +548,108 @@ namespace Harlowe.Runtime
       switch (result.Kind)
       {
         case HarloweValueKind.String:
-          if (result.AsString.Length > 0) _output.Text(result.AsString);
-          return;
         case HarloweValueKind.Number:
         case HarloweValueKind.Bool:
         case HarloweValueKind.Array:
         case HarloweValueKind.Datamap:
         case HarloweValueKind.Colour:
         case HarloweValueKind.Datatype:
-          _output.Text(result.ToHarloweString());
+          EmitPrinted(result);
           return;
       }
+    }
+
+    /// <summary>
+    /// Prints a value into prose. Strings render as markup, as in reference's
+    /// <c>#runExpression</c>, which hands the printed text to <c>renderInto</c>.
+    /// Arrays print their items that way, comma-separated. Every other value's
+    /// text has no markup in it and goes out as it stands.
+    /// </summary>
+    private void EmitPrinted(HarloweValue value)
+    {
+      switch (value.Kind)
+      {
+        case HarloweValueKind.String:
+          if (value.AsString.Length == 0) return;
+          if (value.IsLiteralText) _output.Text(value.AsString);
+          else RenderPrintedMarkup(value.AsString);
+          return;
+        case HarloweValueKind.Array:
+          var items = value.AsArray;
+          for (int i = 0; i < items.Count; i++)
+          {
+            if (i > 0) _output.Text(",");
+            EmitPrinted(items[i]);
+          }
+          return;
+        default:
+          _output.Text(value.ToHarloweString());
+          return;
+      }
+    }
+
+    /// <summary>
+    /// Parses a printed string and renders it in place, in its own temp-variable
+    /// and conditional scope (reference's <c>renderInto</c> pushes a new stack
+    /// frame). A variable can print itself, so this shares the nested-render
+    /// limits with <c>(display:)</c>; the depth error is reference's wording for
+    /// the same situation.
+    /// </summary>
+    private void RenderPrintedMarkup(string source)
+    {
+      if (!MayContainMarkup(source)) { _output.Text(source); return; }
+
+      var refusal = _context.EnterNestedRender(source.Length);
+      if (refusal != NestedRenderRefusal.None)
+      {
+        _output.Error(refusal == NestedRenderRefusal.TooDeep
+          ? "Printing this expression may have trapped me in an infinite loop."
+          : "Printing stopped: " + MacroContext.OverBudgetMessage);
+        return;
+      }
+
+      var priorConditional = _context.LastConditional;
+      _context.LastConditional = null;
+      try
+      {
+        var tokens = new Tokens.HarloweTokenizer(_context.Profile).Tokenize(source);
+        var body = new Parsing.HarloweBodyParser().Parse(tokens, source);
+        using (_context.Store.PushTempScope())
+          new BodyRenderer(_output, _registry, _context).Render(body);
+      }
+      catch (HarloweParseException ex)
+      {
+        _output.Error(ex.Message);
+      }
+      finally
+      {
+        _context.LastConditional = priorConditional;
+        _context.ExitNestedRender();
+      }
+    }
+
+    /// <summary>
+    /// False when <paramref name="text"/> can't contain markup, so it can skip
+    /// parsing and the nested-render budget. Tests for the characters that start
+    /// body markup, the same set as the tokenizer's <c>IsBodySpecial</c>, plus
+    /// the doubled delimiters <c>''</c>, <c>//</c>, <c>~~</c>, <c>^^</c> and
+    /// <c>--</c>.
+    /// </summary>
+    private static bool MayContainMarkup(string text)
+    {
+      for (int i = 0; i < text.Length; i++)
+      {
+        char c = text[i];
+        switch (c)
+        {
+          case '(': case '[': case ']': case '<': case '|': case '$': case '_': case '{': case '}':
+            return true;
+          case '\'': case '/': case '~': case '^': case '-':
+            if (i + 1 < text.Length && text[i + 1] == c) return true;
+            break;
+        }
+      }
+      return false;
     }
   }
 }

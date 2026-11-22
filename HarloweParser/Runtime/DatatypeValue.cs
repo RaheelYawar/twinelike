@@ -23,9 +23,8 @@ namespace Harlowe.Runtime
   /// consumers run under IL2CPP. Interning also makes reference equality agree
   /// with <see cref="EqualsDatatype"/>.</para>
   ///
-  /// <para><em>Not yet implemented:</em> spread datatypes (<c>...num</c>), which
-  /// wait on the <c>...</c> spread syntax, and the <c>(p:)</c> string-pattern
-  /// family, which subclasses this in reference (<c>ts/datatypes/pattern.ts</c>).
+  /// <para><em>Not yet implemented:</em> spread datatypes (<c>...num</c>) and
+  /// the <c>(p:)</c> string-pattern family, which subclasses this in reference (<c>ts/datatypes/pattern.ts</c>).
   /// Datatype names for value types this library doesn't have yet — <c>ds</c>,
   /// <c>gradient</c>, <c>image</c>, <c>macro</c>, <c>command</c>, <c>codehook</c>,
   /// <c>measure</c> — still lex and compare; they simply match nothing, which is
@@ -315,8 +314,8 @@ namespace Harlowe.Runtime
     /// <summary>
     /// Renderer-facing form, reference's <c>print()</c>/<c>objectName</c>:
     /// <c>[the num datatype]</c>. Reference wraps this in verbatim markup so the
-    /// brackets aren't read as a hook; we hand plain text to the render channel,
-    /// which never re-parses it.
+    /// brackets aren't read as a hook; our renderer only parses strings as
+    /// markup, so this is printed as it stands.
     ///
     /// <para>Deliberately <em>not</em> <see cref="ToString"/> — this is prose
     /// shown to a player, so it must be requested explicitly rather than

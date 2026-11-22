@@ -379,22 +379,23 @@ namespace Harlowe
     /// of profile is invisible — and a story running under semantics it didn't
     /// ask for shows symptoms far from the cause.</para>
     ///
-    /// <para>Four cases, in the shape a caller has to handle them:</para>
+    /// <para>Five cases, in the shape a caller has to handle them:</para>
     /// <list type="bullet">
     ///   <item><description>No version declared — <see cref="NoticeSeverity.Info"/>.
     ///     Ordinary for hand-built and test stories; real Twine exports always
-    ///     declare one. Runs under the newest profile.</description></item>
+    ///     declare one. Runs under <see cref="HarloweProfile.V3"/>.</description></item>
     ///   <item><description>A major we implement — no notice.</description></item>
     ///   <item><description>A major below 3 — <see cref="NoticeSeverity.Warning"/>,
     ///     clamped to <see cref="HarloweProfile.V3"/>: 1.x/2.x were never
     ///     audited here, so their semantics aren't reconstructed, but the
     ///     nearest audited major is closer than the newest.</description></item>
-    ///   <item><description>A major newer than we implement, or an unparseable
-    ///     version — <see cref="NoticeSeverity.Warning"/>, running under the
-    ///     newest. The two are distinguished in
-    ///     <see cref="CompatibilityNotice.Detail"/>, since one means "this
-    ///     library is behind" and the other means "this metadata is
-    ///     malformed".</description></item>
+    ///   <item><description>A major newer than we implement —
+    ///     <see cref="NoticeSeverity.Warning"/>, running under the newest,
+    ///     because this library is behind.</description></item>
+    ///   <item><description>An unparseable version —
+    ///     <see cref="NoticeSeverity.Warning"/>, running under
+    ///     <see cref="HarloweProfile.V3"/>, because the metadata is
+    ///     malformed.</description></item>
     /// </list>
     ///
     /// <para>An explicit <see cref="Profile"/> override is reported too — the
@@ -430,7 +431,7 @@ namespace Harlowe
           Severity = NoticeSeverity.Info,
           DeclaredVersion = declared,
           Profile = profile,
-          Detail = "no format-version was declared, so the newest supported semantics are used",
+          Detail = "no format-version was declared",
         });
         return notices;
       }
@@ -445,7 +446,7 @@ namespace Harlowe
 
       if (major < 0)
         detail = "the declared format-version '" + declared
-          + "' could not be read as a version number, so the newest supported semantics are used";
+          + "' could not be read as a version number";
       else if (major < 3)
         detail = "the declared format-version '" + declared
           + "' predates Harlowe 3, the oldest major this library reproduces";

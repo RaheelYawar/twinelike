@@ -330,9 +330,17 @@ namespace Harlowe.Runtime
           continue;
         }
 
+        long cost = RenderNodes.SpliceCost(source);
         for (int i = 0; i < targets.Count; i++)
-          if (targets[i] is IRenderContainer container)
-            RenderNodes.Splice(container, source, rev.Mode);
+        {
+          if (!(targets[i] is IRenderContainer container)) continue;
+          if (ctx != null && !ctx.TrySpendOnSplice(cost))
+          {
+            output.Error(MacroContext.OverBudgetMessage);
+            return;
+          }
+          RenderNodes.Splice(container, source, rev.Mode);
+        }
       }
     }
 
