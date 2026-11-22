@@ -691,12 +691,18 @@ namespace Harlowe.Tokens
     /// fresh Expression frame onto the mode stack. The cursor is left just past
     /// the colon. Returns false (without consuming anything) if the lookahead
     /// does not match a valid macro opener — e.g. <c>(hello)</c>, which the
-    /// caller then treats as text or as a grouping paren.
+    /// caller then treats as text or as a grouping paren. Follows reference's
+    /// <c>macro.name</c> rule in <c>ts/markup/patterns.ts</c>: a leading
+    /// <c>$</c> is a call to a custom macro held in that variable, so the name
+    /// keeps its sigil, and a colon before <c>/</c> is no opener, which keeps
+    /// <c>(http://example.com)</c> as prose.
     /// </summary>
     private bool TryScanMacroOpen(int startPos, int startLine, int startCol)
     {
-      int look = _pos + 1;
-      int nameStart = look;
+      int start = _pos + 1;
+      bool inVariable = start < _src.Length && _src[start] == '$';
+      int nameStart = inVariable ? start + 1 : start;
+      int look = nameStart;
       while (look < _src.Length)
       {
         char ch = _src[look];
@@ -705,8 +711,9 @@ namespace Harlowe.Tokens
       }
       if (look == nameStart) return false;
       if (look >= _src.Length || _src[look] != ':') return false;
+      if (look + 1 < _src.Length && _src[look + 1] == '/') return false;
 
-      string name = _src.Substring(nameStart, look - nameStart);
+      string name = _src.Substring(start, look - start);
       AdvanceN(look - _pos + 1);
       _modes.Push(new Frame { Mode = TokenizerMode.Expression });
       Emit(TokenType.MacroOpen, name, startPos, startLine, startCol);

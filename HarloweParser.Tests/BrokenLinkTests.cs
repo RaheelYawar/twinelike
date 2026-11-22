@@ -274,9 +274,9 @@ namespace Harlowe.Tests
     [Fact]
     public void VariableLinkTarget_Unset_ErrorsInProse_NoLinkEvent()
     {
-      var r = new StorySession(Story(("Start", "[[Go->$next]]"))).Render();
+      var r = new StorySession(Story(("Start", "[[Go->_next]]"))).Render();
       Assert.Equal(0, CountKind(r, BufferedRenderOutput.Kind.Link));
-      Assert.True(HasError(r, "$next"));
+      Assert.True(HasError(r, "_next"));
     }
 
     [Fact]

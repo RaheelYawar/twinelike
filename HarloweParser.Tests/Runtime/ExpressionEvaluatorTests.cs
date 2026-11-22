@@ -15,7 +15,8 @@ namespace Harlowe.Tests.Runtime
     // Helpers ----------------------------------------------------------------
 
     private static HarloweValue Eval(string source, IVariableStore store = null,
-                                     IEvaluationContext context = null, IMacroInvoker macros = null)
+                                     IEvaluationContext context = null, IMacroInvoker macros = null,
+                                     HarloweProfile profile = null)
     {
       store = store ?? new HarloweVariableStore();
       // The test driver parses a single arbitrary expression — including the
@@ -29,7 +30,7 @@ namespace Harlowe.Tests.Runtime
       cursor.Advance(); // consume MacroOpen
       var args = parser.ParseArgumentList(cursor, allowAssignment: true);
       var node = args.Count > 0 ? args[0] : null;
-      var evaluator = new ExpressionEvaluator(store, context, macros);
+      var evaluator = new ExpressionEvaluator(store, context, macros, null, profile);
       return evaluator.Evaluate(node);
     }
 
@@ -81,9 +82,9 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void UnsetVariable_ReturnsError()
     {
-      var v = Eval("$missing");
+      var v = Eval("_missing");
       Assert.True(v.IsError);
-      Assert.Contains("$missing", v.ErrorMessage);
+      Assert.Contains("_missing", v.ErrorMessage);
     }
 
     // Identifiers ------------------------------------------------------------
@@ -97,11 +98,15 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
-    public void ItIdentifier_ErrorsBeforeAnySet()
+    public void ItIdentifier_ErrorsBeforeAnySet_UnderHarlowe4()
     {
-      var v = Eval("it");
+      var v = Eval("it", profile: HarloweProfile.V4);
       Assert.True(v.IsError);
     }
+
+    [Fact]
+    public void ItIdentifier_IsZeroBeforeAnySet_UnderHarlowe3()
+      => Assert.Equal(0, Eval("it", profile: HarloweProfile.V3).AsNumber);
 
     [Fact]
     public void TimeIdentifier_ReadsContext()
@@ -485,14 +490,24 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
-    public void To_ItOnUnsetTarget_Errors()
+    public void To_ItOnUnsetTarget_ErrorsUnderHarlowe4()
     {
       // First-ever `(set: $hp to it - 10)` reads $hp's (absent) value through
-      // `it`, which must surface "'it' is not yet set" rather than silently
-      // using an unrelated variable's value.
+      // `it`, which must surface an error rather than silently using an
+      // unrelated variable's value.
       var store = new HarloweVariableStore();
-      var result = Eval("$hp to it - 10", store);
+      var result = Eval("$hp to it - 10", store, profile: HarloweProfile.V4);
       Assert.True(result.IsError);
+      Assert.Null(store.Get("hp", false));
+    }
+
+    [Fact]
+    public void To_ItOnUnsetTarget_ReadsZeroUnderHarlowe3()
+    {
+      var store = new HarloweVariableStore();
+      Eval("$hp to 50", store);
+      Eval("$mp to it - 10", store, profile: HarloweProfile.V3);
+      Assert.Equal(-10, store.Get("mp", false).AsNumber);
     }
 
     [Fact]
@@ -579,26 +594,26 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void ErrorOperand_ShortCircuitsBinary()
     {
-      // $missing is unset → produces Error → 1 + $missing should be the same Error,
+      // _missing is unset → produces Error → 1 + _missing should be the same Error,
       // not a "type mismatch" error.
-      var v = Eval("1 + $missing");
+      var v = Eval("1 + _missing");
       Assert.True(v.IsError);
-      Assert.Contains("$missing", v.ErrorMessage);
+      Assert.Contains("_missing", v.ErrorMessage);
     }
 
     [Fact]
     public void ErrorOperand_ShortCircuitsUnary()
     {
-      var v = Eval("not $missing");
+      var v = Eval("not _missing");
       Assert.True(v.IsError);
-      Assert.Contains("$missing", v.ErrorMessage);
+      Assert.Contains("_missing", v.ErrorMessage);
     }
 
     [Fact]
     public void ErrorOperand_ShortCircuitsAssignment()
     {
       var store = new HarloweVariableStore();
-      var v = Eval("$x to $missing", store);
+      var v = Eval("$x to _missing", store);
       Assert.True(v.IsError);
       Assert.Null(store.Get("x", false));  // assignment did not happen
     }
@@ -646,7 +661,7 @@ namespace Harlowe.Tests.Runtime
       {
         Handler = (name, args) => { called = true; return HarloweValue.OfNumber(0); }
       };
-      var v = Eval("(foo: $missing)", null, null, invoker);
+      var v = Eval("(foo: _missing)", null, null, invoker);
       Assert.True(v.IsError);
       Assert.False(called);
     }
@@ -1434,7 +1449,7 @@ namespace Harlowe.Tests.Runtime
     {
       var store = StoreWith("arr", Numbers(1, 2));
       var before = store.Get("arr", false);
-      var v = EvalP("$arr's 1st to $missing", store);
+      var v = EvalP("$arr's 1st to _missing", store);
       Assert.True(v.IsError);
       Assert.Same(before, store.Get("arr", false));
       Assert.Equal(1, before.AsArray[0].AsNumber);
@@ -1516,9 +1531,9 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void PropertyAssign_UnsetRoot_Errors()
     {
-      var v = EvalP("$nope's 1st to 5");
+      var v = EvalP("_nope's 1st to 5");
       Assert.True(v.IsError);
-      Assert.Contains("$nope is not set", v.ErrorMessage);
+      Assert.Contains("_nope is not set", v.ErrorMessage);
     }
 
     [Fact]
@@ -1683,8 +1698,8 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void Move_UnsetSourceRoot_Errors()
     {
-      Assert.Contains("$nope is not set", EvalMoveArg("$nope's 1st into $x").ErrorMessage);
-      Assert.Contains("$gone is not set", EvalMoveArg("$gone into $x").ErrorMessage);
+      Assert.Contains("_nope is not set", EvalMoveArg("_nope's 1st into $x").ErrorMessage);
+      Assert.Contains("_gone is not set", EvalMoveArg("_gone into $x").ErrorMessage);
     }
 
     [Fact]

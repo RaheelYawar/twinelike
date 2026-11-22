@@ -230,7 +230,7 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void Render_UnsetVariableInChain_EmitsError()
     {
-      var buf = Render("$missing[hi]");
+      var buf = Render("_missing[hi]");
       var err = buf.Entries.Find(e => e.Kind == BufferedRenderOutput.Kind.Error);
       Assert.NotNull(err);
     }

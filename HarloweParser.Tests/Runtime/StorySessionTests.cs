@@ -509,7 +509,7 @@ namespace Harlowe.Tests.Runtime
     {
       // A runtime error inside the displayed passage must surface as an Error
       // entry on the parent output, not be swallowed by the buffer flattening.
-      var session = new StorySession(TwoPassages("(display: \"P2\")", "$missing"));
+      var session = new StorySession(TwoPassages("(display: \"P2\")", "_missing"));
       var r = session.Render();
       Assert.True(CountKind(r, BufferedRenderOutput.Kind.Error) >= 1);
     }
@@ -637,10 +637,11 @@ namespace Harlowe.Tests.Runtime
       var session = new StorySession(TwoPassages("$x", "(set: $x to 99)"));
       session.Goto("P2");  // sets $x = 99 in store
       session.Undo();
-      // After undo, the store is restored to pre-goto state ($x unset).
-      // Render P1 which references $x — should produce an error (unset).
+      // After undo, the store is restored to pre-goto state ($x unset), so P1
+      // shows Harlowe 3's default for an unset variable rather than 99.
       var r = session.Render();
-      Assert.Equal(1, CountKind(r, BufferedRenderOutput.Kind.Error));
+      Assert.Equal("0", r.Text);
+      Assert.False(session.TryGetVariable("x", out _));
     }
 
     [Fact]
@@ -716,7 +717,7 @@ namespace Harlowe.Tests.Runtime
         + "<tw-passagedata pid=\"3\" name=\"P3\" tags=\"\">(set: $x to 2)$x</tw-passagedata>"
         + "</tw-storydata></body></html>";
       var session = new StorySession(new HarloweStory(html));
-      session.Render();             // P1 — error (unset), but we don't care
+      session.Render();             // P1 — $x unset
       session.Goto("P2");           // $x = 1
       session.Goto("P3");           // $x = 2
 
@@ -726,7 +727,8 @@ namespace Harlowe.Tests.Runtime
 
       session.Undo();               // pop snapshot taken before entering P2 — $x unset
       var r2 = session.Render();
-      Assert.Equal(1, CountKind(r2, BufferedRenderOutput.Kind.Error));
+      Assert.Equal("0", r2.Text);
+      Assert.False(session.TryGetVariable("x", out _));
     }
 
     [Fact]

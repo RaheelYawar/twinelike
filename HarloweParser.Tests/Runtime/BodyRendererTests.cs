@@ -221,14 +221,14 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void Variable_Unset_RoutesError()
     {
-      var h = Render("$missing");
+      var h = Render("_missing");
       Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
     }
 
     [Fact]
     public void Variable_Unset_DoesNotAbortRest()
     {
-      var h = Render("before $missing after");
+      var h = Render("before _missing after");
       Assert.Contains("before ", h.Buf.Text);
       Assert.Contains(" after", h.Buf.Text);
     }
@@ -710,8 +710,8 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void MacroArgError_RoutedAndStops()
     {
-      // $missing → Error → routed via Error channel; macro never invoked, no goto, render continues for siblings.
-      var h = Render("a (set: $x to $missing) b");
+      // _missing → Error → routed via Error channel; macro never invoked, no goto, render continues for siblings.
+      var h = Render("a (set: $x to _missing) b");
       Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
       Assert.Contains("a ", h.Buf.Text);
       Assert.Contains(" b", h.Buf.Text);

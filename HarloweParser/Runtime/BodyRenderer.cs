@@ -39,8 +39,8 @@ namespace Harlowe.Runtime
   /// <para>
   /// <b>Errors.</b> Argument-evaluation errors and macro-returned errors are
   /// pushed through <see cref="IRenderOutput.Error"/>; they never throw. An
-  /// unset variable in body position emits an error and the surrounding
-  /// passage continues to render.
+  /// unset temp variable in body position, or an unset story variable under
+  /// Harlowe 4, emits an error and the surrounding passage continues to render.
   /// </para>
   /// </summary>
   public class BodyRenderer : IBodyVisitor
@@ -60,7 +60,7 @@ namespace Harlowe.Runtime
       _output = output;
       _registry = registry;
       _context = context;
-      _evaluator = new ExpressionEvaluator(context.Store, context.EvaluationContext, registry, context.Rng);
+      _evaluator = new ExpressionEvaluator(context.Store, context.EvaluationContext, registry, context.Rng, context.Profile);
     }
 
     /// <summary>
@@ -89,7 +89,7 @@ namespace Harlowe.Runtime
 
     public void Visit(VariableNode node)
     {
-      var value = _context.Store.Get(node.Name, node.IsTemporary);
+      var value = _evaluator.ReadVariable(node.Name, node.IsTemporary);
       if (value == null)
       {
         string sigil = node.IsTemporary ? "_" : "$";
@@ -138,16 +138,17 @@ namespace Harlowe.Runtime
       // store here; the existence check below then sees the real passage name.
       if (LinkNode.TryParseVariableTarget(target, out bool isTemp, out string varName))
       {
-        var value = _context.Store.Get(varName, isTemp);
+        // A target that can't be read is an error in place of the whole link,
+        // label included, where a readable target naming no passage below is
+        // a broken link that keeps its label.
+        var value = _evaluator.ReadVariable(varName, isTemp);
         if (value == null)
         {
-          if (!string.IsNullOrEmpty(text)) _output.Text(text);
           _output.Error($"{(isTemp ? "_" : "$")}{varName} is not set");
           return;
         }
         if (value.IsError)
         {
-          if (!string.IsNullOrEmpty(text)) _output.Text(text);
           _output.Error(value.ErrorMessage);
           return;
         }

@@ -418,9 +418,9 @@ namespace Harlowe.Tests.Runtime.Macros
     {
       // The lambda's clause itself errors — the match is swapped for the error
       // (reference's e.replaceWith(error.render())), the rest of the pass stops.
-      var buf = Render("gold(enchant: \"gold\", via $missing)", out _);
+      var buf = Render("gold(enchant: \"gold\", via _missing)", out _);
       var err = Assert.Single(Errors(buf));
-      Assert.Contains("$missing is not set", err);
+      Assert.Contains("_missing is not set", err);
       Assert.DoesNotContain("gold", buf.Text);
     }
 

@@ -141,6 +141,7 @@ namespace Harlowe.Tests
       new Dictionary<string, Func<HarloweProfile, string>>(StringComparer.Ordinal)
       {
         { "CommentMarkup", p => RenderUnder(p, "it was -- and remains -- fine") },
+        { "UnsetReadsAsZero", p => RenderUnder(p, "(print: $never + 1)") },
       };
 
     /// <summary>
@@ -208,6 +209,14 @@ namespace Harlowe.Tests
       const string src = "it was -- and remains -- fine";
       Assert.Equal("it was -- and remains -- fine", RenderUnder(HarloweProfile.V3, src));
       Assert.Equal("it was ", RenderUnder(HarloweProfile.V4, src));
+    }
+
+    [Fact]
+    public void UnsetReadsAsZero_ConcreteValues_BothProfiles()
+    {
+      const string src = "(print: $never + 1)";
+      Assert.Equal("1", RenderUnder(HarloweProfile.V3, src));
+      Assert.Equal("", RenderUnder(HarloweProfile.V4, src));
     }
 
     // ----- The switch reaching real stories -----

@@ -1,6 +1,6 @@
 # Harlowe Version Compatibility
 
-**Status: machinery shipped 2026-07-20; one switch implemented (row 1), ten still inventory.** `HarloweProfile` selects a profile from the story's declared `format-version` (host-overridable at the loader), and `CompatibilityProfileTests` reflects over the switch properties to demand a behavioural probe per switch — so a switch declared but wired to nothing fails the build. This file stays the append-only record of every point where Harlowe majors deliberately differ. The governing policy — per-major lock-in, append-only profiles, what does and doesn't earn a switch — is the "Version policy" section of `CLAUDE.md`; the implementation procedure, which outlives this slice because every future major re-runs it, is `COMPATIBILITY-PLAN.md`.
+**Status: machinery shipped 2026-07-20; two switches implemented (rows 1 and 2), nine still inventory.** `HarloweProfile` selects a profile from the story's declared `format-version` (host-overridable at the loader), and `CompatibilityProfileTests` reflects over the switch properties to demand a behavioural probe per switch — so a switch declared but wired to nothing fails the build. This file stays the append-only record of every point where Harlowe majors deliberately differ. The governing policy — per-major lock-in, append-only profiles, what does and doesn't earn a switch — is the "Version policy" section of `CLAUDE.md`; the implementation procedure, which outlives this slice because every future major re-runs it, is `COMPATIBILITY-PLAN.md`.
 
 **Add a row the moment a version difference is found**, even if nothing is implemented on either side. A missing switch is invisible; an empty row is not.
 
@@ -19,7 +19,7 @@
 | # | Switch | V3 (≤3.3.9) | V4 | Ours | Reference |
 |---|---|---|---|---|---|
 | 1 | `--` comment markup | none: prose `--` is literal, `5--3` is `5 - (-3)` | comments out the next element | **both** (`HarloweProfile.CommentMarkup`) | `comment` rule, `ts/markup/patterns.ts` |
-| 2 | Unset story variable read | defaults to `0` | error | **V4** | 4.0 Alterations → Coding |
+| 2 | Unset story variable read, and `it` with nothing bound | defaults to `0` | error | **both** (`HarloweProfile.UnsetReadsAsZero`) | `get` in `internaltypes/varref`; 4.0 Alterations → Coding |
 | 3 | Colour `is` tolerance | RGB within 1e-3, alpha exact | all data values within 0.01 | **V3** | `colour.ts` `is()`; 4.0 Alterations → Macros |
 | 4 | `'s` with surrounding spaces (`$a 's 1st`); `it's` as `its` synonym | rejected | accepted | see note | 4.0 Alterations → Coding |
 | 5 | `any` array/dataset data name | works (renamed `some` in 3.3.0, alias kept) | removed, conflicts with the `any` datatype | — (see note) | 4.0 Compatibility |

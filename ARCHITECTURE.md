@@ -114,7 +114,7 @@ A bad expression (`(set: $x to "five" * 2)`, unknown macro, type mismatch) produ
 
 ```
 [story prose]      Text("You see ")
-[bad expression]   Error("$missing is not set")
+[bad expression]   Error("_missing is not set")
 [continues]        Text(", and the door creaks.")
 ```
 

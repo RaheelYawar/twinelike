@@ -37,18 +37,32 @@ namespace Harlowe
     /// </summary>
     public bool CommentMarkup { get; private set; }
 
+    /// <summary>
+    /// Whether a story variable or <c>it</c> with no value reads as <c>0</c>.
+    /// Under 3.x, the getter in <c>internaltypes/varref</c> gives 0 for a name
+    /// missing from the story's variables, and <c>it</c> starts at 0. Harlowe
+    /// 4.0 removed the default ("story-wide variables … no longer have a default
+    /// value of 0 when first used"), so reading one is an error there. Temp
+    /// variables have no default under either major. Consumed by
+    /// <see cref="Runtime.ExpressionEvaluator.ReadVariable"/> and the
+    /// evaluator's read of <c>it</c>.
+    /// </summary>
+    public bool UnsetReadsAsZero { get; private set; }
+
     private HarloweProfile() { }
 
     /// <summary>Harlowe 3 semantics, pinned to 3.3.9 — the last 3.x release. Twine binds a story to the newest version within its major, so a 3.2-authored story has been running under 3.3.9 rules for years; lock-in is per major, not per minor.</summary>
     public static readonly HarloweProfile V3 = new HarloweProfile
     {
       CommentMarkup = false,
+      UnsetReadsAsZero = true,
     };
 
     /// <summary>Harlowe 4 semantics, tracking the 4.0-unstable branch until 4.0 releases.</summary>
     public static readonly HarloweProfile V4 = new HarloweProfile
     {
       CommentMarkup = true,
+      UnsetReadsAsZero = false,
     };
 
     /// <summary>

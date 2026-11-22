@@ -24,13 +24,15 @@ namespace Harlowe.Runtime
     private readonly IEvaluationContext _context;
     private readonly IMacroInvoker _macros;
     private readonly IRng _rng;
+    private readonly HarloweProfile _profile;
     private HarloweValue _result;
 
-    public ExpressionEvaluator(IVariableStore store, IEvaluationContext context, IMacroInvoker macros, IRng rng = null)
+    public ExpressionEvaluator(IVariableStore store, IEvaluationContext context, IMacroInvoker macros, IRng rng = null, HarloweProfile profile = null)
     {
       _store = store;
       _context = context;
       _macros = macros;
+      _profile = profile ?? HarloweProfile.V3;
       // The `random` data name draws from here. Callers with a session pass
       // MacroContext.Rng so draws share the session stream (and so undo/redo/
       // load replay reproduces them via the Moment's recorded RNG state);
@@ -100,7 +102,7 @@ namespace Harlowe.Runtime
       switch (node.Name)
       {
         case "it":
-          _result = _store.It ?? HarloweValue.OfError("'it' is not yet set");
+          _result = ReadIt();
           break;
         case "pos":
           // The 1-indexed lambda iteration position. Bound by LambdaInvoker
@@ -130,11 +132,28 @@ namespace Harlowe.Runtime
     }
 
     public void Visit(VariableRefNode node)
+      => _result = ReadVariable(node.Name, node.IsTemporary) ?? UnsetError(node);
+
+    /// <summary>
+    /// A variable's value as story code reads it: what's stored, or 0 for a
+    /// story variable that was never set when the profile has that default.
+    /// Null means there's no value to read. The read never creates the variable.
+    /// </summary>
+    internal HarloweValue ReadVariable(string name, bool isTemporary)
     {
-      var value = _store.Get(node.Name, node.IsTemporary);
-      if (value != null) { _result = value; return; }
-      _result = UnsetError(node);
+      var value = _store.Get(name, isTemporary);
+      if (value == null && !isTemporary && _profile.UnsetReadsAsZero) return HarloweValue.OfNumber(0);
+      return value;
     }
+
+    /// <summary>The value of <c>it</c>: what's bound, the profile's default when nothing is, or an error.</summary>
+    private HarloweValue ReadIt()
+    {
+      if (_store.It != null) return _store.It;
+      return _profile.UnsetReadsAsZero ? HarloweValue.OfNumber(0) : ItNotSetError();
+    }
+
+    private static HarloweValue ItNotSetError() => HarloweValue.OfError("'it' is not yet set");
 
     private static HarloweValue UnsetError(VariableRefNode v)
       => HarloweValue.OfError($"{(v.IsTemporary ? "_" : "$")}{v.Name} is not set");
@@ -148,8 +167,8 @@ namespace Harlowe.Runtime
       {
         case "its":
         {
-          var it = _store.It;
-          if (it == null) { _result = HarloweValue.OfError("'it' is not yet set"); return; }
+          var it = ReadIt();
+          if (it.IsError) { _result = it; return; }
           // Property access does not rebind `it`; `'s`/`of`/`its` are pure reads.
           _result = ResolveProperty(it, node.Operand);
           return;
@@ -286,11 +305,11 @@ namespace Harlowe.Runtime
       {
         // Reference binds `it` to the assignment target's CURRENT value before
         // the right-hand side runs, so `(set: $x to it + 1)` reads $x rather
-        // than the globally last-set variable. A null (target never set)
-        // surfaces as "'it' is not yet set" only if the RHS actually reads it;
-        // the binding is restored on dispose, then Set rebinds `it` to the new
-        // value as usual.
-        var current = _store.Get(target.Name, target.IsTemporary);
+        // than the globally last-set variable. A target with no value binds the
+        // read's error, which only surfaces if the RHS actually reads `it`. The
+        // binding is restored on dispose, then Set rebinds `it` to the new value
+        // as usual.
+        var current = ReadVariable(target.Name, target.IsTemporary) ?? UnsetError(target);
         using (_store.PushItBinding(current))
           value = Evaluate(valueNode);
       }
@@ -330,9 +349,10 @@ namespace Harlowe.Runtime
         // As with bare variables, `it` is the destination's CURRENT value
         // while the right-hand side runs (reference's setIt on the `to` arm),
         // so `(set: $arr's 1st to it + 1)` increments the element. A new
-        // datamap key / append slot binds null, surfacing as "'it' is not
-        // yet set" only if the RHS actually reads it.
-        using (_store.PushItBinding(oldValue))
+        // datamap key / append slot binds an error that only surfaces if the
+        // RHS actually reads it: unlike a variable, a missing slot has no
+        // default under any profile.
+        using (_store.PushItBinding(oldValue ?? ItNotSetError()))
           value = Evaluate(valueNode);
       }
       else
@@ -356,7 +376,7 @@ namespace Harlowe.Runtime
       oldValue = null;
       if (!TryDecomposeAssignmentTarget(targetNode, out root, out var accessors))
         return HarloweValue.OfError($"I can't {macroName} that value, if it isn't stored in a variable.");
-      var rootValue = _store.Get(root.Name, root.IsTemporary);
+      var rootValue = ReadVariable(root.Name, root.IsTemporary);
       if (rootValue == null) return UnsetError(root);
       steps = new List<WriteStep>(accessors.Count);
       return ResolveWritePath(rootValue, accessors, steps, out oldValue);
@@ -801,7 +821,7 @@ namespace Harlowe.Runtime
       if (node.Left is VariableRefNode srcVar)
       {
         srcRoot = srcVar;
-        value = _store.Get(srcVar.Name, srcVar.IsTemporary);
+        value = ReadVariable(srcVar.Name, srcVar.IsTemporary);
         if (value == null) { _result = UnsetError(srcVar); return; }
         // A whole-variable source has no slot of its own to delete
         // (reference's documented contract); a pattern destination deletes
@@ -810,7 +830,7 @@ namespace Harlowe.Runtime
       }
       else if (TryDecomposeAssignmentTarget(node.Left, out srcRoot, out var srcAccessors))
       {
-        var srcRootValue = _store.Get(srcRoot.Name, srcRoot.IsTemporary);
+        var srcRootValue = ReadVariable(srcRoot.Name, srcRoot.IsTemporary);
         if (srcRootValue == null) { _result = UnsetError(srcRoot); return; }
         frozen = new List<WriteStep>(srcAccessors.Count);
         var readError = ResolveSourcePath(srcRootValue, srcAccessors, frozen, out value, out deletePoison);

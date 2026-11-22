@@ -8,13 +8,13 @@ The unit tests all pass, but they only check behaviour someone already thought t
 
 | Measure | Result |
 |---|---|
-| Reference Harlowe's own specs that can run without a browser | 7,001 checks from 1,599 of its 2,699 tests. **3,632 pass (51.9%)** under the Harlowe 4 profile and 3,629 under Harlowe 3. Real Harlowe 3.3.9 passes 6,732 (96.2%) |
+| Reference Harlowe's own specs that can run without a browser | 7,001 checks from 1,599 of its 2,699 tests. **3,633 pass (51.9%)** under the Harlowe 4 profile and 3,630 under Harlowe 3. Real Harlowe 3.3.9 passes 6,732 (96.2%) |
 | Public Harlowe 3.3 stories on GitHub, counted by pattern | 156 stories, about 30,800 macro calls. **74 (47%)** call only macros we implement, and about 25% of calls hit a macro we lack |
 | MIT/CC0 Harlowe 3.3.9 stories, played by seeded random walks | 8 stories. **2 play with no in-prose errors**, and those two make only 2 macro calls between them |
 | Walks recorded on real Harlowe 3.3.9 and replayed on Twinelike | **All 41 Service Suspended passages match**. Files-005 matches its first passage and stops at timed macros in its second |
-| Generated markup snippets on both engines | **99.2% of about 103,000 comparable snippets match** |
+| Generated markup snippets on both engines | **99.8% of about 103,000 comparable snippets match** |
 
-So no story with real macro use plays cleanly yet, a story with no errors can still show the wrong text, and the results change what to build next. Most errors in the playthroughs are `$x is not set`: Harlowe 3 reads an unset variable as `0` (`COMPATIBILITY.md` row 2), and we still use the Harlowe 4 error. After that come `(show:)`, `(visited:)`, `(box:)` and `(hide:)`. We also don't run `startup`, `header` or `footer` passages, which 3 of the 8 stories use. By number of stories, the most-used missing macros are `(box:)` 27, `(live:)` 23, `(prompt:)` 16, `(stop:)` 14, `(css:)` 11, `(passage:)` 11, `(show:)` 10 and `(track:)` 10.
+So no story with real macro use plays cleanly yet, a story with no errors can still show the wrong text, and the results change what to build next. Most errors in the playthroughs are now calls to author-defined macros (`($name: …)`). After those come `(input:)`, `(visited:)`, `(box:)`, `(show:)` and `(hide:)`. We also don't run `startup`, `header` or `footer` passages, which 3 of the 8 stories use. By number of stories, the most-used missing macros are `(box:)` 27, `(live:)` 23, `(prompt:)` 16, `(stop:)` 14, `(css:)` 11, `(passage:)` 11, `(show:)` 10 and `(track:)` 10.
 
 **Not yet verified:** no Unity, Godot or Phaser host has been built or run. Phase 0b exists to settle that before anything depends on it.
 
@@ -59,14 +59,14 @@ Every story file is pinned to a commit and a SHA-256, recorded with its licence 
 
 | Story | Repo @ commit | Licence | Files | Passages | Macro calls | Reached / clean | Blocked by |
 |---|---|---|---|---|---|---|---|
-| **Files-005** (first target) | `nuuj-lord/Files-005` @ `ef9cca363164` | MIT | `index.html`, `source-code.twee` | 97 | 312 | 15 / 12 | Unset variables, `(after:)`, `(input:)`, `(box:)` |
+| **Files-005** (first target) | `nuuj-lord/Files-005` @ `ef9cca363164` | MIT | `index.html`, `source-code.twee` | 97 | 312 | 20 / 16 | `(input:)`, `(after:)`, `(box:)` |
 | **egg.exe** (finish target) | `henriquek-btdg/egg-exe` @ `31db173ae3f5` | MIT | `index.html`, `src/index.twee` | 75 | 326 | 1 / 0 | `(box:)`, then `(track:)` |
 | Service Suspended | `Znboston/service-suspended` @ `658b967ca7d1` | MIT | `project-1/docs/Service Suspended.html`, `project-1/src/Service Suspended.twee` | 41 | 2 | 41 / 41 | Nothing |
 | Early in the Morning | `CristopherB14/createYourStory` @ `a952615872d4` | MIT | `earlyInTheMorning.html` | 34 | 0 | 34 / 34 | Nothing |
 | Ethics in Science | `PyrrhicShadow/Pyrrhic-s-Twinery` @ `131fb674d68c` | MIT | `twine/EthicsInScience.html` | 19 | 57 | 7 / 5 | `(event:)`, `(visited:)`, parse errors |
 | Lamplight | `IkeaSourPatches/Lamplight` @ `9f3915f69a81` | MIT | `index.html` | 11 | 301 | 1 / 0 | `(button:)`, `(input-box:)`, `(css:)` |
-| harlowe-demo | `jreamy/harlowe-demo` @ `5cecb9546973` | MIT | `game.twee` | 9 | 311 | 4 / 1 | Unset variables |
-| Sand-dancer, redux | `jgheithcock/sand-dancer` @ `fc7847d909c4` | CC0, see below | `Sand-Dancer.twee` | 76 | 1,414 | 7 / 0 | Unset variables, `(show:)`, parse errors |
+| harlowe-demo | `jreamy/harlowe-demo` @ `5cecb9546973` | MIT | `game.twee` | 9 | 350 | 4 / 1 | Custom macros |
+| Sand-dancer, redux | `jgheithcock/sand-dancer` @ `fc7847d909c4` | CC0, see below | `Sand-Dancer.twee` | 76 | 1,688 | 7 / 0 | Custom macros, `(show:)`, parse errors |
 
 "Reached" counts passages the walks visit, and "clean" those that never showed an error. Counts come from the published HTML where a story has both forms, and its Twee source stays a second corpus entry that exercises `TweeReader`.
 

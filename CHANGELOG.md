@@ -36,6 +36,7 @@ Save/load, an undo/redo timeline with reproducible randomness, the `(link:)` fam
 
 ### Changed
 
+- **Unset variables follow the story's Harlowe major.** In a Harlowe 3 story, a story variable that was never set reads as `0`, and so does `it` with nothing to refer to, as in real 3.3.9. Harlowe 4 stories keep the error, and temp variables error in both. A `($name: …)` call is now one in-prose error, because custom macros aren't implemented, and a parenthesised URL like `(http://example.com)` stays prose.
 - **Unmatched hook markup stays in the prose.** A `[` with no `]`, a `]` with no `[`, and a `|name>` or `<name|` that isn't attached to a hook now print as written, as in reference, instead of vanishing or swallowing the text after them.
 - **Paired markup crosses as it does in reference.** A closer pairs with the nearest open marker of its kind, even across an open hook or style, and whatever it crossed stays literal, so `''[x'']` is a bold `[x` followed by `]`. **For hosts:** `IBodyVisitor` gains `Visit` methods for `CollapsedNode`, `VerbatimNode` and `HorizontalRuleNode`.
 - **An array given without `...` is one value.** The old auto-unpack convention is gone now that spread exists, matching reference. **Migration:** write `(for: each _x, ...$list)` and `(max: ...$list)` instead of passing the bare array.

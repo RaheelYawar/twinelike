@@ -103,7 +103,7 @@ namespace Harlowe.Tests
     public void SpaceBesideAnError_IsKept()
     {
       // The error counts as visible text, so neither space collapses into the other.
-      Assert.Equal("a  b", Session("{ a (print: $unset) b }").Render().Text);
+      Assert.Equal("a  b", Session("{ a (print: _unset) b }").Render().Text);
     }
 
     [Theory]

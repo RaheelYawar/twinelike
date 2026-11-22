@@ -101,8 +101,8 @@ namespace Harlowe.Tests.Runtime.Macros
     public void EvalPredicate_PropagatesClauseError()
     {
       var (reg, ctx) = Setup();
-      // unset $missing — looked up inside the predicate, surfaces as error.
-      var lambda = ParseLambda("_x where $missing > 5");
+      // unset _missing — looked up inside the predicate, surfaces as error.
+      var lambda = ParseLambda("_x where _missing > 5");
       var v = LambdaInvoker.EvalPredicate(lambda, HarloweValue.OfNumber(10), 1, ctx);
       Assert.True(v.IsError);
     }
@@ -222,8 +222,8 @@ namespace Harlowe.Tests.Runtime.Macros
     public void Find_ErrorInIterable_ShortCircuits()
     {
       var (reg, ctx) = Setup();
-      // Reading unset $bad as one of the items surfaces an error that find propagates.
-      var v = Eval(reg, ctx, "(find: _x where _x > 0, 1, $bad, 3)");
+      // Reading unset _bad as one of the items surfaces an error that find propagates.
+      var v = Eval(reg, ctx, "(find: _x where _x > 0, 1, _bad, 3)");
       Assert.True(v.IsError);
     }
 
@@ -231,11 +231,11 @@ namespace Harlowe.Tests.Runtime.Macros
     public void Find_ErrorInLambdaSlot_PropagatesOriginalError()
     {
       var (reg, ctx) = Setup();
-      // The lambda-slot expression itself errors (unset $bad). The original
+      // The lambda-slot expression itself errors (unset _bad). The original
       // error must propagate via the central gate, not be masked behind the
       // macro's own "first argument must be a lambda" message (cf.
       // Find_NonLambdaFirstArg_Errors, where a plain non-lambda still reports it).
-      var v = Eval(reg, ctx, "(find: $bad, 1, 2, 3)");
+      var v = Eval(reg, ctx, "(find: _bad, 1, 2, 3)");
       Assert.True(v.IsError);
       Assert.DoesNotContain("must be a lambda", v.ErrorMessage);
     }
