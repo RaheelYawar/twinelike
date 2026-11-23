@@ -348,12 +348,12 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
-    public void LinkGoto_NoOutput_ReturnsProseOnlyError()
+    public void LinkGoto_OutsideProse_IsACommandValue()
     {
       var (reg, ctx) = Standalone();
       var v = reg.Invoke("link-goto", new List<HarloweValue> { HarloweValue.OfString("t") }, ctx);
-      Assert.True(v.IsError);
-      Assert.Contains("passage prose", v.ErrorMessage);
+      Assert.Equal(HarloweValueKind.Command, v.Kind);
+      Assert.Equal("[A (link-goto:) command]", v.ToHarloweString());
     }
 
     [Fact]

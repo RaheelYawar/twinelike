@@ -360,7 +360,7 @@ namespace Harlowe.Tests.Runtime
     {
       // Reference's parent-walking set() loop in ts/internaltypes/varref.ts:
       // "inner hooks can modify outer hooks' values" — a (set:) of a name
-      // that exists in any outer scope writes to the OUTERMOST declaration.
+      // that exists in any outer scope writes to the nearest declaration.
       // After the inner scope pops, the change persists.
       var store = new HarloweVariableStore();
       store.Set("x", isTemporary: true, value: HarloweValue.OfNumber(1));
@@ -370,6 +370,21 @@ namespace Harlowe.Tests.Runtime
         Assert.Equal(2, store.Get("x", isTemporary: true).AsNumber);
       }
       Assert.Equal(2, store.Get("x", isTemporary: true).AsNumber);
+    }
+
+    [Fact]
+    public void PushTempScope_SetOfAShadowedName_WritesToTheShadow()
+    {
+      var store = new HarloweVariableStore();
+      store.Set("x", isTemporary: true, value: HarloweValue.OfNumber(1));
+      using (store.PushTempScope())
+      {
+        store.SetInCurrentScope("x", isTemporary: true, value: HarloweValue.OfNumber(2));
+        using (store.PushTempScope())
+          store.Set("x", isTemporary: true, value: HarloweValue.OfNumber(3));
+        Assert.Equal(3, store.Get("x", isTemporary: true).AsNumber);
+      }
+      Assert.Equal(1, store.Get("x", isTemporary: true).AsNumber);
     }
 
     [Fact]

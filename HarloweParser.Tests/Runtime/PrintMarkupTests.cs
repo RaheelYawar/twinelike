@@ -103,9 +103,10 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void PrintedElse_DoesNotPairWithAnOuterIf()
     {
-      // A printed string is its own conditional frame, as in reference.
+      // A printed string is its own conditional frame, as in reference, so its
+      // (else:) errors while its hook still renders.
       var result = Session("(if: false)[a](print: \"(else:)[b]\")(else:)[c]").Render();
-      Assert.Equal("c", result.Text);
+      Assert.Equal("bc", result.Text);
     }
 
     [Fact]

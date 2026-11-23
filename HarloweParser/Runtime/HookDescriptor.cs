@@ -61,6 +61,20 @@ namespace Harlowe.Runtime
   }
 
   /// <summary>
+  /// The patch <c>(output:)</c> adds. It changes nothing on the descriptor: the
+  /// renderer sees it on the changer and captures the hook as a custom command,
+  /// and when that command runs the rest of the changer applies as usual.
+  /// </summary>
+  public sealed class OutputPatch : IChangerPatch
+  {
+    public void Apply(HookDescriptor descriptor) { }
+
+    public override bool Equals(object obj) => obj is OutputPatch;
+
+    public override int GetHashCode() => typeof(OutputPatch).GetHashCode();
+  }
+
+  /// <summary>
   /// The loop instruction a <c>(for:)</c> changer leaves on a descriptor.
   /// Names the parameter to bind (and its sigil) plus the items to iterate.
   /// </summary>

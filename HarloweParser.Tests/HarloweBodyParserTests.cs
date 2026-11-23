@@ -524,40 +524,21 @@ namespace Harlowe.Tests
     }
 
     [Fact]
-    public void ChainAssignmentError_DoesNotSwallowFollowingSiblingMacro()
+    public void AssignmentBeforeAPlus_ParsesAsSiblings()
     {
-      // (set:) in chain position throws AFTER its own arg list consumed the
-      // closing paren, so the broken construct owes no MacroClose. The resync
-      // used to hunt for the next MacroClose anyway and ate the well-formed
-      // sibling: `(print: 1)` vanished and only ` tail` survived. The sibling
-      // macro is now itself the resume point.
+      // 3.3.9 renders this as " + 1 tail": only a changer joins a +, and that
+      // isn't known until the macro runs, so it's no parse error.
       var body = Parse("(set: $x to 5) + (print: 1) tail");
-      ParseErrorNode err = null;
       MacroNode print = null;
       bool sawTail = false;
       for (int i = 0; i < body.Children.Count; i++)
       {
-        if (body.Children[i] is ParseErrorNode n && err == null) err = n;
+        Assert.False(body.Children[i] is ParseErrorNode);
         if (body.Children[i] is MacroNode m && m.Name == "print") print = m;
         if (body.Children[i] is TextNode t && t.Content.Contains("tail")) sawTail = true;
       }
-      Assert.NotNull(err);
-      Assert.Contains("set", err.Message);
       Assert.NotNull(print);
-      Assert.True(sawTail, "prose after the sibling macro should survive recovery");
-    }
-
-    [Fact]
-    public void ChainAssignmentError_ErrorSpanStopsBeforeSiblingMacro()
-    {
-      // The captured OriginalSource covers the broken construct — the (set:)
-      // call plus the dangling `+` — and nothing of the sibling that follows.
-      var body = ParseWithSource("(set: $x to 5) + (print: 1) tail");
-      ParseErrorNode err = null;
-      for (int i = 0; i < body.Children.Count; i++)
-        if (body.Children[i] is ParseErrorNode n) { err = n; break; }
-      Assert.NotNull(err);
-      Assert.Equal("(set: $x to 5) + ", err.OriginalSource);
+      Assert.True(sawTail, "prose after the sibling macro should be kept");
     }
 
     [Fact]

@@ -40,6 +40,7 @@ namespace Harlowe.Runtime.Macros
           case HarloweValueKind.Number:
           case HarloweValueKind.Bool:
           case HarloweValueKind.Array:
+          case HarloweValueKind.CodeHook:
             sb.Append(v.ToHarloweString());
             break;
           default:

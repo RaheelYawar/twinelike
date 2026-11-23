@@ -236,7 +236,7 @@ namespace Harlowe.Tests.Runtime
     {
       var result = new StorySession(Story(("Start", "(if: false)[a](display: \"P\")"), ("P", "(else:)[b]"))).Render();
       Assert.NotEqual("", Errors(result));
-      Assert.Equal("", result.Text);
+      Assert.Equal("b", result.Text);
     }
 
     [Fact]
@@ -244,7 +244,7 @@ namespace Harlowe.Tests.Runtime
     {
       var result = new StorySession(Story(("Start", "(display: \"P\")(else:)[c]"), ("P", "(if: true)[a]"))).Render();
       Assert.NotEqual("", Errors(result));
-      Assert.Equal("a", result.Text);
+      Assert.Equal("ac", result.Text);
     }
 
     [Fact]

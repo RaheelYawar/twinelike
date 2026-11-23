@@ -74,20 +74,12 @@ namespace Harlowe.Runtime.Macros
   }
 
   /// <summary>
-  /// <c>(link-goto: text, [passage])</c>. Emits a plain navigation link at the
-  /// macro's position — reference: "the link syntax is, essentially, a
-  /// syntactic shorthand for (link-goto:)", and this engine keeps that exact
-  /// symmetry by emitting the same <see cref="IRenderOutput.Link"/> event
-  /// <c>[[text-&gt;passage]]</c> produces. The passage name defaults to the
-  /// text (<c>(link-goto: "Cellar")</c> ≡ <c>[[Cellar]]</c>).
-  ///
-  /// <para>A dangling target emits the label as plain prose plus an in-prose
-  /// error and <em>no</em> link event — the same treatment
-  /// <see cref="BodyRenderer.Visit(Ast.Body.LinkNode)"/> gives
-  /// <c>[[text-&gt;passage]]</c>, so the shorthand symmetry holds for broken
-  /// links too. Reference gates on <c>Passages.hasValid</c> and renders an
-  /// unclickable <c>&lt;tw-broken-link&gt;</c>; see that method for why we spend
-  /// the error channel rather than a broken-link one.</para>
+  /// <c>(link-goto: text, [passage])</c>. Returns a command that renders a plain
+  /// navigation link when it reaches prose — reference: "the link syntax is,
+  /// essentially, a syntactic shorthand for (link-goto:)", and the command goes
+  /// through <see cref="BodyRenderer.Visit(Ast.Body.LinkNode)"/> so the two
+  /// behave the same, broken links and variable targets included. The passage
+  /// name defaults to the text (<c>(link-goto: "Cellar")</c> ≡ <c>[[Cellar]]</c>).
   /// </summary>
   public class LinkGotoMacro : IMacro
   {
@@ -108,19 +100,7 @@ namespace Harlowe.Runtime.Macros
           return HarloweValue.OfError($"(link-goto:) requires a passage name String as its second argument, got {v.Kind}");
         passage = v.AsString;
       }
-
-      if (context.Output == null)
-        return HarloweValue.OfError("(link-goto:) can only be used in passage prose in this engine");
-
-      var missing = context.MissingPassageError("link to", passage);
-      if (missing != null)
-      {
-        if (!string.IsNullOrEmpty(text)) context.Output.Text(text);
-        return missing;
-      }
-
-      context.Output.Link(text, passage);
-      return null;
+      return HarloweValue.OfCommand(CommandValue.ForLink(text, passage));
     }
   }
 
@@ -132,18 +112,19 @@ namespace Harlowe.Runtime.Macros
   /// <paramref name="alt"/> text instead (or nothing) — reference shows the
   /// second string rather than erroring, unlike <c>(click-undo:)</c>.
   /// </summary>
-  public class LinkUndoMacro : IMacro
+  public class LinkUndoMacro : IMacro, ICommandCheck
   {
     public string Name => "link-undo";
     public int MinArgs => 1;
     public int MaxArgs => 2;
 
-    public HarloweValue Invoke(List<HarloweValue> args, MacroContext context)
-    {
-      var error = LinkMacroSupport.ValidateText(args[0], "(link-undo:)", out var text);
-      if (error != null) return error;
+    HarloweValue ICommandCheck.Check(List<HarloweValue> args, MacroContext context) => Validate(args, out _, out _);
 
-      string alt = string.Empty;
+    private static HarloweValue Validate(List<HarloweValue> args, out string text, out string alt)
+    {
+      alt = string.Empty;
+      var error = LinkMacroSupport.ValidateText(args[0], "(link-undo:)", out text);
+      if (error != null) return error;
       if (args.Count > 1)
       {
         var v = args[1];
@@ -151,6 +132,13 @@ namespace Harlowe.Runtime.Macros
           return HarloweValue.OfError($"(link-undo:) requires a String as its second argument, got {v.Kind}");
         alt = v.AsString;
       }
+      return null;
+    }
+
+    public HarloweValue Invoke(List<HarloweValue> args, MacroContext context)
+    {
+      var error = Validate(args, out var text, out var alt);
+      if (error != null) return error;
 
       if (context.Output == null)
         return HarloweValue.OfError("(link-undo:) can only be used in passage prose in this engine");

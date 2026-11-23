@@ -58,6 +58,10 @@ namespace Harlowe.Runtime
     public static HarloweValue OfHookName(HookNameValue hookName) => new HarloweValue(HarloweValueKind.HookName, hookName ?? throw new ArgumentNullException(nameof(hookName)));
     public static HarloweValue OfColour(ColourValue colour) => new HarloweValue(HarloweValueKind.Colour, colour ?? throw new ArgumentNullException(nameof(colour)));
     public static HarloweValue OfDatatype(DatatypeValue datatype) => new HarloweValue(HarloweValueKind.Datatype, datatype ?? throw new ArgumentNullException(nameof(datatype)));
+    public static HarloweValue OfCodeHook(CodeHookValue hook) => new HarloweValue(HarloweValueKind.CodeHook, hook ?? throw new ArgumentNullException(nameof(hook)));
+    public static HarloweValue OfTypedVar(TypedVarValue typedVar) => new HarloweValue(HarloweValueKind.TypedVar, typedVar ?? throw new ArgumentNullException(nameof(typedVar)));
+    public static HarloweValue OfCustomMacro(CustomMacroValue macro) => new HarloweValue(HarloweValueKind.CustomMacro, macro ?? throw new ArgumentNullException(nameof(macro)));
+    public static HarloweValue OfCommand(CommandValue command) => new HarloweValue(HarloweValueKind.Command, command ?? throw new ArgumentNullException(nameof(command)));
 
     /// <summary>
     /// A String whose text is printed exactly as it stands instead of being
@@ -88,6 +92,10 @@ namespace Harlowe.Runtime
     public HookNameValue AsHookName => (HookNameValue)Raw;
     public ColourValue AsColour => (ColourValue)Raw;
     public DatatypeValue AsDatatype => (DatatypeValue)Raw;
+    public CodeHookValue AsCodeHook => (CodeHookValue)Raw;
+    public TypedVarValue AsTypedVar => (TypedVarValue)Raw;
+    public CustomMacroValue AsCustomMacro => (CustomMacroValue)Raw;
+    public CommandValue AsCommand => (CommandValue)Raw;
 
     /// <summary>
     /// Harlowe truthiness: only <c>true</c> for a <see cref="HarloweValueKind.Bool"/>
@@ -153,6 +161,13 @@ namespace Harlowe.Runtime
           return ((ColourValue)raw).EqualsColour((ColourValue)other.Raw);
         case HarloweValueKind.Datatype:
           return ((DatatypeValue)raw).EqualsDatatype((DatatypeValue)other.Raw);
+        case HarloweValueKind.CodeHook:
+          return ((CodeHookValue)raw).EqualsHook((CodeHookValue)other.Raw);
+        case HarloweValueKind.TypedVar:
+        case HarloweValueKind.CustomMacro:
+          return ReferenceEquals(raw, other.Raw);
+        case HarloweValueKind.Command:
+          return ((CommandValue)raw).EqualsCommand((CommandValue)other.Raw);
       }
       return false;
     }
@@ -185,6 +200,14 @@ namespace Harlowe.Runtime
         case HarloweValueKind.HookName: h = (h * 397) ^ ((HookNameValue)Raw).GetHashCode(); break;
         case HarloweValueKind.Colour: h = (h * 397) ^ ((ColourValue)Raw).GetHashCode(); break;
         case HarloweValueKind.Datatype: h = (h * 397) ^ ((DatatypeValue)Raw).GetHashCode(); break;
+        case HarloweValueKind.CodeHook: h = (h * 397) ^ ((CodeHookValue)Raw).GetHashCode(); break;
+        case HarloweValueKind.TypedVar:
+        case HarloweValueKind.CustomMacro:
+          h = (h * 397) ^ System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(Raw);
+          break;
+        case HarloweValueKind.Command:
+          h = (h * 397) ^ ((CommandValue)Raw).CommandHash();
+          break;
       }
       return h;
     }
@@ -324,7 +347,7 @@ namespace Harlowe.Runtime
     /// uncatchable <see cref="System.StackOverflowException"/>, matching the depth
     /// caps elsewhere (DeepCopyValue, the parsers, JsonReader).
     /// </summary>
-    private string ToSource(int depth)
+    internal string ToSource(int depth)
     {
       if (depth >= MaxSourceDepth) return null;
       switch (Kind)
@@ -355,6 +378,14 @@ namespace Harlowe.Runtime
           return ((ColourValue)Raw).ToSource();
         case HarloweValueKind.Datatype:
           return ((DatatypeValue)Raw).ToSource();
+        case HarloweValueKind.CodeHook:
+          return ((CodeHookValue)Raw).Source;
+        case HarloweValueKind.TypedVar:
+          return ((TypedVarValue)Raw).ToSource(depth + 1);
+        case HarloweValueKind.CustomMacro:
+          return ((CustomMacroValue)Raw).ToSource(depth + 1);
+        case HarloweValueKind.Command:
+          return ((CommandValue)Raw).ToSource(depth + 1);
         case HarloweValueKind.Error:
           return null;
       }
@@ -448,8 +479,47 @@ namespace Harlowe.Runtime
           // markup. The body renderer prints only strings as markup, so a
           // datatype's brackets stay literal.
           return ((DatatypeValue)Raw).ToPrintedString();
+        case HarloweValueKind.CodeHook:
+          return ((CodeHookValue)Raw).InnerSource;
+        case HarloweValueKind.TypedVar:
+          return "[A typed variable name]";
+        case HarloweValueKind.CustomMacro:
+          return "[" + ((CustomMacroValue)Raw).ObjectName + "]";
+        case HarloweValueKind.Command:
+          return ((CommandValue)Raw).PrintedName;
       }
       return string.Empty;
+    }
+
+    /// <summary>
+    /// Reference's <c>objectName</c>: how an error message refers to this value,
+    /// such as <c>the number 5</c> or <c>the string "x"</c>.
+    /// </summary>
+    internal string ObjectName
+    {
+      get
+      {
+        switch (Kind)
+        {
+          case HarloweValueKind.Number: return "the number " + FormatNumber((double)Raw);
+          case HarloweValueKind.String: return "the string \"" + (string)Raw + "\"";
+          case HarloweValueKind.Bool: return "the boolean value '" + ((bool)Raw ? "true" : "false") + "'";
+          case HarloweValueKind.Array: return ((List<HarloweValue>)Raw).Count == 0 ? "an empty array" : "an array";
+          case HarloweValueKind.Datamap: return ((Dictionary<string, HarloweValue>)Raw).Count == 0 ? "an empty datamap" : "a datamap";
+          case HarloweValueKind.Changer:
+            string front = ((Changer)Raw).FrontMacroName;
+            return front != null ? "a (" + front + ":) changer" : "a changer";
+          case HarloweValueKind.Lambda: return "a lambda";
+          case HarloweValueKind.HookName: return "a hook name";
+          case HarloweValueKind.Colour: return "a colour";
+          case HarloweValueKind.Datatype: return "the " + ((DatatypeValue)Raw).Name + " datatype";
+          case HarloweValueKind.CodeHook: return "a code hook";
+          case HarloweValueKind.TypedVar: return ((TypedVarValue)Raw).ObjectName;
+          case HarloweValueKind.CustomMacro: return ((CustomMacroValue)Raw).ObjectName;
+          case HarloweValueKind.Command: return ((CommandValue)Raw).ObjectName;
+          default: return "an error";
+        }
+      }
     }
 
     private static string JoinArray(List<HarloweValue> items)

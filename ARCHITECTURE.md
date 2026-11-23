@@ -240,7 +240,7 @@ classDiagram
 - **Body nodes** describe rendered prose: text, hooks, links, macros that *do something* in body position (`(if:)`, `(set:)`, `(for:)`).
 - **Expression nodes** describe macro arguments: literals, operators, nested calls.
 - A macro in body position is `MacroNode`; the same syntax in an arg list is `MacroCallNode`. Different lifecycle, different visitor.
-- `ChangerChainNode` covers two folded shapes: inline composition `(m1)+(m2)[hook]` and stored-changer-then-hook `$var[hook]`.
+- `ChangerChainNode` is `$var[hook]`. Inline composition, `(m1)+(m2)[hook]`, stays as sibling nodes, because only a changer joins a `+` and that isn't known until the macro runs. `BodyRenderer.FollowChanger` resolves it.
 
 Both trees use the visitor pattern. Adding a new node type means a `Visit(NewNode)` method on its visitor interface, which forces every existing visitor to acknowledge it (compile-time enforcement, no missing-case bugs).
 

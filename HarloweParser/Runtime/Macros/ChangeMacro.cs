@@ -11,11 +11,14 @@ namespace Harlowe.Runtime.Macros
   /// affected (use <c>(enchant:)</c> for that). Produces no visible output of
   /// its own.
   /// </summary>
-  public class ChangeMacro : IMacro
+  public class ChangeMacro : IMacro, ICommandCheck
   {
     public string Name => "change";
     public int MinArgs => 2;
     public int MaxArgs => 2;
+
+    HarloweValue ICommandCheck.Check(List<HarloweValue> args, MacroContext context)
+      => EnchantmentMacroSupport.Validate(args, "(change:)", out _);
 
     public HarloweValue Invoke(List<HarloweValue> args, MacroContext context)
     {

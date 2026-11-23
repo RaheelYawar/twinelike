@@ -172,6 +172,7 @@ namespace Harlowe.Tokens
           _fronts.Push(named ? FrontKind.NamedHook : FrontKind.Hook, _tokens.Count - 1);
           return;
         case ']':
+          if (TryCloseCodeHook(startPos, startLine, startCol)) return;
           int hookFront = _fronts.CloseHook(IsHookNameLeftAt(_pos + 1));
           Advance();
           EmitPaired(TokenType.HookClose, "]", hookFront, startPos, startLine, startCol);
@@ -595,6 +596,8 @@ namespace Harlowe.Tokens
     /// </summary>
     private void ScanExpression()
     {
+      if (_inLink) { ScanLinkContent(); return; }
+
       // Skip Unicode whitespace between tokens. char.IsWhiteSpace matches
       // NBSP / em-en / ideographic / line+paragraph separators — same set
       // as reference Harlowe's `ws` pattern in ts/markup/patterns.ts, which
@@ -634,8 +637,27 @@ namespace Harlowe.Tokens
           }
           return;
         case '[':
-          Advance();
-          Emit(TokenType.BracketOpen, "[", startPos, startLine, startCol);
+          // `[[a->b]]` is a link here as it is in prose (reference's
+          // passageLink rule runs in both modes). Any other `[` opens a code hook.
+          if (Peek(1) == '[' && Peek(2) != '[' && HasLinkCloserAhead())
+          {
+            AdvanceN(2);
+            _inLink = true;
+            Emit(TokenType.LinkOpen, "[[", startPos, startLine, startCol);
+            return;
+          }
+          // Reference's unclosed-hook opener only exists in prose, so inside a
+          // macro call it's bad syntax rather than a code hook.
+          if (Peek(1) == '=')
+          {
+            int markerEnd = _pos + 1;
+            while (markerEnd < _src.Length && _src[markerEnd] == '=') markerEnd++;
+            string unclosedMarker = _src.Substring(_pos, markerEnd - _pos);
+            AdvanceN(unclosedMarker.Length);
+            Emit(TokenType.Error, $"\"{unclosedMarker}\" isn't valid Harlowe syntax for the inside of a macro call.", startPos, startLine, startCol);
+            return;
+          }
+          OpenCodeHook(startPos, startLine, startCol);
           return;
         case ']':
           Advance();
@@ -683,6 +705,45 @@ namespace Harlowe.Tokens
       if (TryScanSymbolOperator(startPos, startLine, startCol)) return;
 
       Advance();
+    }
+
+    /// <summary>
+    /// Opens a code hook. Its contents lex as markup, so the frame is a Body
+    /// frame, and they get their own <see cref="MarkupFronts"/> because markup
+    /// inside a code hook can't pair with markup outside it: a <c>}</c> in the
+    /// hook must not close a <c>{</c> before the macro and strand the closer.
+    /// </summary>
+    private void OpenCodeHook(int startPos, int startLine, int startCol)
+    {
+      Advance();
+      Emit(TokenType.BracketOpen, "[", startPos, startLine, startCol);
+      _modes.Push(new Frame { Mode = TokenizerMode.Body, CodeHookOpener = _tokens.Count - 1, OuterFronts = _fronts });
+      _fronts = new MarkupFronts();
+    }
+
+    /// <summary>
+    /// At a <c>]</c>: closes the current code hook when it isn't closing a hook
+    /// inside it, pairs the two brackets, and goes back to the expression.
+    /// False otherwise.
+    /// </summary>
+    private bool TryCloseCodeHook(int startPos, int startLine, int startCol)
+    {
+      var frame = _modes.Peek();
+      if (frame.CodeHookOpener < 0 || !_fronts.CanCloseEnclosing) return false;
+      Advance();
+      Emit(TokenType.BracketClose, "]", startPos, startLine, startCol);
+      int close = _tokens.Count - 1;
+      _tokens[frame.CodeHookOpener].Partner = close;
+      _tokens[close].Partner = frame.CodeHookOpener;
+      _fronts = frame.OuterFronts;
+      _modes.Pop();
+      // A name written on a code hook (`[x]<name|`) is legal and does nothing.
+      if (IsHookNameLeftAt(_pos))
+      {
+        int bar = _src.IndexOf('|', _pos);
+        AdvanceN(bar - _pos + 1);
+      }
+      return true;
     }
 
     /// <summary>
@@ -1656,6 +1717,12 @@ namespace Harlowe.Tokens
     {
       public TokenizerMode Mode;
       public int ParenDepth;
+
+      /// <summary>For a code hook's Body frame, the index of its <c>[</c> token. -1 for every other frame.</summary>
+      public int CodeHookOpener = -1;
+
+      /// <summary>The markup fronts to go back to when this code hook closes.</summary>
+      public MarkupFronts OuterFronts;
     }
   }
 

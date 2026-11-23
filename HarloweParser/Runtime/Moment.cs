@@ -24,11 +24,18 @@ namespace Harlowe.Runtime
 
     /// <summary>
     /// Forward delta of story (<c>$</c>) variables changed during this turn —
-    /// only the changed vars, not a full store clone. Flattened oldest-first to
-    /// reconstruct full state on undo/redo/load. Captured when the turn leaves the
-    /// present slot.
+    /// only the changed vars, not a full store clone. A null value records a
+    /// variable <c>(move:)</c> removed. Flattened oldest-first to reconstruct full
+    /// state on undo/redo/load. Captured when the turn leaves the present slot.
     /// </summary>
     public Dictionary<string, HarloweValue> StoreDelta;
+
+    /// <summary>
+    /// Type restrictions put on story variables during this turn, by name, or
+    /// null if none were. Flattened alongside <see cref="StoreDelta"/>, so undoing
+    /// the turn lifts them.
+    /// </summary>
+    public Dictionary<string, HarloweValue> TypeDelta;
 
     /// <summary>
     /// The ordered passages entered during this turn when it spanned more than one

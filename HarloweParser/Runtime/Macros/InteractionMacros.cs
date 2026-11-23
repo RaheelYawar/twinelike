@@ -108,7 +108,7 @@ namespace Harlowe.Runtime.Macros
   /// <c>-undo</c> (errors on the first turn). Registered six times in
   /// <see cref="StandardMacros"/>.
   /// </summary>
-  public class InteractionCommandMacro : IMacro
+  public class InteractionCommandMacro : IMacro, ICommandCheck
   {
     private readonly string _name;
     private readonly InteractionKind _kind;
@@ -125,34 +125,39 @@ namespace Harlowe.Runtime.Macros
     public int MinArgs => _undo ? 1 : 2;
     public int MaxArgs => _undo ? 1 : 2;
 
-    public HarloweValue Invoke(List<HarloweValue> args, MacroContext context)
+    HarloweValue ICommandCheck.Check(List<HarloweValue> args, MacroContext context)
+      => Validate(args, context, out _, out _, out _);
+
+    private HarloweValue Validate(List<HarloweValue> args, MacroContext context,
+      out HookNameValue hookTarget, out string stringTarget, out string passage)
     {
       string display = "(" + _name + ":)";
+      passage = null;
 
-      var error = EnchantmentMacroSupport.ValidateTarget(args[0], display, out var hookTarget, out var stringTarget);
+      var error = EnchantmentMacroSupport.ValidateTarget(args[0], display, out hookTarget, out stringTarget);
       if (error != null) return error;
       if (hookTarget == null && string.IsNullOrEmpty(stringTarget))
         return HarloweValue.OfError($"A string given to this {display} macro was empty.");
+      if (_undo) return null;
 
-      string passage = null;
-      if (_undo)
-      {
-        // Reference checks State.pastLength when the command runs — so the
-        // error is in-prose on the first turn, not deferred to click time.
-        if (context.CanUndo != null && !context.CanUndo())
-          return HarloweValue.OfError("I can't (undo:) on the first turn.");
-      }
-      else
-      {
-        var v = args[1];
-        if (v.Kind != HarloweValueKind.String)
-          return HarloweValue.OfError($"{display} requires a passage name String as its second argument, got {v.Kind}");
-        passage = v.AsString;
-        if (passage.Length == 0)
-          return HarloweValue.OfError($"A string given to this {display} macro was empty.");
-        var missing = context.MissingPassageError(display, passage);
-        if (missing != null) return missing;
-      }
+      var v = args[1];
+      if (v.Kind != HarloweValueKind.String)
+        return HarloweValue.OfError($"{display} requires a passage name String as its second argument, got {v.Kind}");
+      passage = v.AsString;
+      if (passage.Length == 0)
+        return HarloweValue.OfError($"A string given to this {display} macro was empty.");
+      return context.MissingPassageError(display, passage);
+    }
+
+    public HarloweValue Invoke(List<HarloweValue> args, MacroContext context)
+    {
+      var error = Validate(args, context, out var hookTarget, out var stringTarget, out var passage);
+      if (error != null) return error;
+
+      // Reference checks State.pastLength when the command runs — so the
+      // error is in-prose on the first turn, not deferred to click time.
+      if (_undo && context.CanUndo != null && !context.CanUndo())
+        return HarloweValue.OfError("I can't (undo:) on the first turn.");
 
       // No reveal anchor and no deferred renderer: the dispatch navigates
       // instead of filling anything, so the only render-tree footprint is the

@@ -108,6 +108,9 @@ namespace Harlowe.Runtime
     /// <summary>Renders the deferred hook into a given output on dispatch.</summary>
     public Action<IRenderOutput> RenderDeferredHook;
 
+    /// <summary>The temp scopes in view when this was armed (<see cref="IVariableStore.CaptureScopeChain"/>), which the deferred hook runs in. Null for one built without a variable store.</summary>
+    public object TempScopes;
+
     /// <summary>
     /// Region id, allocated once when the interaction is recorded and kept
     /// stable across passes — so an id the host already holds from a prior

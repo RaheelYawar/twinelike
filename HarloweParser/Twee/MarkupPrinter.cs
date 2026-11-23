@@ -235,20 +235,22 @@ namespace Harlowe.Twee
     public void Visit(MacroNode node)
     {
       EmitMacroCall(node.Name, node.Arguments);
-      if (node.AttachedHook != null) node.AttachedHook.Accept(this);
+      EmitAttachedHook(node.HookGap, node.AttachedHook);
     }
 
-    /// <summary>
-    /// Emits a changer-chain node: the expression in canonical form (which
-    /// already produces <c>(m1)+(m2)</c> or <c>$var</c> via the existing
-    /// expression visitors), immediately followed by the hook. Re-parses to
-    /// the same shape — the body parser detects the chain pattern from the
-    /// expression's leading token.
-    /// </summary>
+    /// <summary>Emits <c>$var</c>, the whitespace written after it, and its hook.</summary>
     public void Visit(ChangerChainNode node)
     {
       node.Expression.Accept((IExpressionVisitor)this);
-      if (node.AttachedHook != null) node.AttachedHook.Accept(this);
+      EmitAttachedHook(node.HookGap, node.AttachedHook);
+    }
+
+    /// <summary>The whitespace is kept because it renders unless the expression turns out to be a changer.</summary>
+    private void EmitAttachedHook(string gap, HookNode hook)
+    {
+      if (hook == null) return;
+      _sb.Append(gap);
+      hook.Accept(this);
     }
 
     // ----- IExpressionVisitor -----
@@ -308,6 +310,11 @@ namespace Harlowe.Twee
       {
         _sb.Append("'s ");
       }
+      else if (node.Operator == "-type")
+      {
+        // Written straight after the type: `num-type _a`.
+        _sb.Append("-type ");
+      }
       else
       {
         _sb.Append(' ').Append(node.SourceOperator ?? node.Operator).Append(' ');
@@ -333,6 +340,20 @@ namespace Harlowe.Twee
     }
 
     public void Visit(MacroCallNode node) => EmitMacroCall(node.Name, node.Arguments);
+
+    /// <summary>Emits a code hook as it was written, or from its nodes when the parser had no source.</summary>
+    public void Visit(CodeHookNode node)
+    {
+      if (node.Source != null)
+      {
+        _sb.Append(node.Source);
+        return;
+      }
+      _sb.Append('[');
+      if (node.Children != null)
+        foreach (var child in node.Children) child.Accept(this);
+      _sb.Append(']');
+    }
 
     /// <summary>
     /// Emits a hook reference: <c>?name</c>, with each ordinal step appended as

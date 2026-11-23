@@ -565,14 +565,47 @@ namespace Harlowe.Tests
     [Fact]
     public void Macro_BracketsInExpression_TokenizedAsBracketTokens()
     {
+      // A bracket in an expression opens a code hook, whose contents are markup.
       AssertSequence(Tokenize("(print: $a[1])"),
         (TokenType.MacroOpen, "print"),
         (TokenType.Variable, "a"),
         (TokenType.BracketOpen, "["),
-        (TokenType.NumberLiteral, "1"),
+        (TokenType.Text, "1"),
         (TokenType.BracketClose, "]"),
         (TokenType.MacroClose, ")"),
         (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void CodeHook_ContentIsMarkupAndBracketsPair()
+    {
+      var tokens = Tokenize("(a: [x(b: [y])[z]''w''])");
+      int open = -1, close = -1;
+      for (int i = 0; i < tokens.Count; i++)
+      {
+        if (tokens[i].Type == TokenType.BracketOpen && open < 0) open = i;
+        if (tokens[i].Type == TokenType.BracketClose) close = i;
+      }
+      Assert.Equal(close, tokens[open].Partner);
+      Assert.Equal(open, tokens[close].Partner);
+      Assert.Equal(TokenType.MacroClose, tokens[close + 1].Type);
+      Assert.Contains(tokens, t => t.Type == TokenType.HookOpen);
+      Assert.Contains(tokens, t => t.Type == TokenType.FormatDelimiter);
+    }
+
+    [Theory]
+    [InlineData("{(a: [}])}")]       // a closer in the hook can't reach markup outside it
+    [InlineData("(a: [`]`])")]       // a bracket in verbatim doesn't close it
+    [InlineData("(a: [|n>[x]])")]    // a named hook inside it
+    public void CodeHook_CloserIsNotConfusedByItsContents(string source)
+    {
+      var tokens = Tokenize(source);
+      Token closer = null;
+      for (int i = 0; i < tokens.Count; i++)
+        if (tokens[i].Type == TokenType.BracketClose) closer = tokens[i];
+      Assert.NotNull(closer);
+      Assert.True(closer.Partner >= 0);
+      Assert.Equal(source.LastIndexOf(']'), closer.Position);
     }
 
     [Fact]

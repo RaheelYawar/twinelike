@@ -42,7 +42,45 @@ namespace Harlowe.Parsing
     public HarloweBodyParser(IExpressionParser expressionParser)
     {
       _expressionParser = expressionParser;
+      if (expressionParser is HarloweExpressionParser harlowe) harlowe.BodyParser = this;
     }
+
+    /// <summary>
+    /// Reads a code hook's contents, with the cursor just past its <c>[</c>, and
+    /// stops at the paired <c>]</c> without consuming it. Counts as one hook
+    /// level toward the nesting limit, so macros nested through code hooks can't
+    /// recurse past it.
+    /// </summary>
+    internal List<IBodyNode> ParseCodeHookChildren(TokenCursor cursor)
+    {
+      if (AtNestingLimit)
+      {
+        var deep = cursor.Current;
+        throw new HarloweParseException("hooks nested too deeply", deep.Line, deep.Column);
+      }
+
+      int outerSpans = _outerSpans, levelBraces = _levelBraces, levelUnclosed = _levelUnclosed;
+      var pendingHook = _pendingUnclosedHook;
+      _pendingUnclosedHook = null;
+      _outerSpans += _levelBraces + _levelUnclosed;
+      _levelBraces = _levelUnclosed = 0;
+      _depth++;
+      try
+      {
+        return ParseNodes(cursor, terminator: TokenType.BracketClose);
+      }
+      finally
+      {
+        _depth--;
+        _outerSpans = outerSpans;
+        _levelBraces = levelBraces;
+        _levelUnclosed = levelUnclosed;
+        _pendingUnclosedHook = pendingHook;
+      }
+    }
+
+    /// <summary>Reads a <c>[[…]]</c> link that appears in an expression.</summary>
+    internal LinkNode ParseLinkForExpression(TokenCursor cursor) => ParseLink(cursor);
 
     /// <summary>
     /// Top-level entry: build a <see cref="PassageBody"/> from <paramref name="tokens"/>
@@ -692,22 +730,10 @@ namespace Harlowe.Parsing
     }
 
     /// <summary>
-    /// Cursor is at <see cref="TokenType.MacroOpen"/>. Parses a body macro,
-    /// then handles two follow-up shapes:
-    ///
-    /// <list type="number">
-    /// <item><b>Changer chain</b>: <c>(m1)+(m2)+...[hook]</c>. After the macro,
-    /// the parser peeks for a <c>+</c> followed by another macro and folds the
-    /// run into a <see cref="ChangerChainNode"/> whose
-    /// <see cref="ChangerChainNode.Expression"/> is a <see cref="BinaryOpNode"/>
-    /// chain over <see cref="MacroCallNode"/>s.</item>
-    /// <item><b>Plain body macro</b>: a <see cref="MacroNode"/> with an
-    /// optional <see cref="MacroNode.AttachedHook"/>, the v1 path.</item>
-    /// </list>
-    ///
-    /// The two paths are mutually exclusive: a <c>+</c> after the first macro
-    /// commits to the chain shape; otherwise the parser falls through to the
-    /// macro-with-hook lookahead.
+    /// Cursor is at <see cref="TokenType.MacroOpen"/>. Parses a body macro and
+    /// any hook written after it. A <c>+</c> between macros stays in the sibling
+    /// list as text, because only a changer joins it, and whether a macro gives
+    /// a changer isn't known until it runs. The renderer resolves the chain.
     /// </summary>
     private IBodyNode ParseMacro(TokenCursor cursor)
     {
@@ -716,49 +742,6 @@ namespace Harlowe.Parsing
       cursor.Advance();
       var args = _expressionParser.ParseArgumentList(cursor, HarloweExpressionParser.IsAssignmentMacro(name));
 
-      // Try changer chain first — committing as soon as we see `+ (macro)`.
-      if (LooksLikeChainContinuation(cursor))
-      {
-        // Reject (set:)/(put:) as a chain component: the chain is evaluated
-        // as a value expression, which would silently execute the assignment
-        // *before* producing the (inevitable) chain-type error. The first
-        // arg list has already been parsed with assignment enabled — we
-        // catch the misuse before the AST escapes so no mutation occurs at
-        // render time.
-        if (HarloweExpressionParser.IsAssignmentMacro(name))
-          throw new HarloweParseException(
-            $"({name}:) cannot appear as a changer-chain component — it's an assignment macro, not a value-position macro",
-            nameToken.Line, nameToken.Column);
-
-        IExpressionNode expr = new MacroCallNode { Name = name, Arguments = args, Line = nameToken.Line, Column = nameToken.Column };
-        while (TryAdvanceToChainContinuation(cursor))
-        {
-          // Cursor is now at the next MacroOpen. Parse one macro call.
-          // Changer-chain components are value-position macros: a stray
-          // assignment here would never reach (set:)/(put:) semantics, so
-          // forbid `to`/`into` in their arg lists.
-          var nextNameToken = cursor.Current;
-          string nextName = nextNameToken.Value;
-          cursor.Advance();
-          if (HarloweExpressionParser.IsAssignmentMacro(nextName))
-            throw new HarloweParseException(
-              $"({nextName}:) cannot appear as a changer-chain component — it's an assignment macro, not a value-position macro",
-              nextNameToken.Line, nextNameToken.Column);
-          var nextArgs = _expressionParser.ParseArgumentList(cursor, allowAssignment: false);
-          expr = new BinaryOpNode
-          {
-            Operator = "+",
-            Left = expr,
-            Right = new MacroCallNode { Name = nextName, Arguments = nextArgs, Line = nextNameToken.Line, Column = nextNameToken.Column },
-          };
-        }
-
-        var chain = new ChangerChainNode { Expression = expr };
-        AttachOptionalHook(cursor, h => chain.AttachedHook = h);
-        return chain;
-      }
-
-      // Plain body macro path
       var macro = new MacroNode
       {
         Name = name,
@@ -766,7 +749,11 @@ namespace Harlowe.Parsing
         Line = nameToken.Line,
         Column = nameToken.Column
       };
-      AttachOptionalHook(cursor, h => macro.AttachedHook = h);
+      AttachOptionalHook(cursor, (hook, gap) =>
+      {
+        macro.AttachedHook = hook;
+        macro.HookGap = gap;
+      });
       return macro;
     }
 
@@ -784,23 +771,20 @@ namespace Harlowe.Parsing
       var t = cursor.Current;
       cursor.Advance();
 
-      int offset = SkipBodyWhitespace(cursor);
-      if (IsHookAt(cursor, offset))
+      HookNode attached = null;
+      string hookGap = null;
+      AttachOptionalHook(cursor, (hook, gap) =>
       {
-        for (int i = 0; i <= offset; i++) cursor.Advance();
-        var hook = ParseHookContents(cursor, HookAnchor.None, name: null);
-        return new ChangerChainNode
-        {
-          Expression = new VariableRefNode { Name = t.Value, IsTemporary = isTemporary },
-          AttachedHook = hook,
-        };
-      }
-      if (TryAttachUnclosedHook(cursor, offset, out var unclosed))
+        attached = hook;
+        hookGap = gap;
+      });
+      if (attached != null)
       {
         return new ChangerChainNode
         {
           Expression = new VariableRefNode { Name = t.Value, IsTemporary = isTemporary },
-          AttachedHook = unclosed,
+          AttachedHook = attached,
+          HookGap = hookGap,
         };
       }
 
@@ -825,85 +809,31 @@ namespace Harlowe.Parsing
     }
 
     /// <summary>
-    /// Skips whitespace from the current cursor position; if a
-    /// <see cref="TokenType.HookOpen"/> follows, consumes through the open and
-    /// passes the parsed hook to <paramref name="setHook"/>. No-ops when no
-    /// hook is present.
+    /// Skips whitespace from the current cursor position. If a hook follows,
+    /// consumes it and passes it to <paramref name="setHook"/>, with the
+    /// whitespace that was skipped. No-ops when no hook is present.
     /// </summary>
-    private void AttachOptionalHook(TokenCursor cursor, System.Action<HookNode> setHook)
+    private void AttachOptionalHook(TokenCursor cursor, System.Action<HookNode, string> setHook)
     {
       int offset = SkipBodyWhitespace(cursor);
+      string gap = WhitespaceText(cursor, offset);
       if (TryAttachUnclosedHook(cursor, offset, out var unclosed))
       {
-        setHook(unclosed);
+        setHook(unclosed, gap);
         return;
       }
       if (!IsHookAt(cursor, offset)) return;
       for (int i = 0; i <= offset; i++) cursor.Advance();
-      setHook(ParseHookContents(cursor, HookAnchor.None, name: null));
+      setHook(ParseHookContents(cursor, HookAnchor.None, name: null), gap);
     }
 
-    /// <summary>
-    /// Pure-lookahead: returns true iff the cursor position is followed (after
-    /// optional whitespace) by a <c>+</c>-marker Text token whose trimmed
-    /// content is exactly <c>+</c>, then more whitespace, then a
-    /// <see cref="TokenType.MacroOpen"/>. Does not advance the cursor.
-    ///
-    /// <para>The <c>+</c> marker is a <see cref="TokenType.Text"/> token
-    /// because <c>+</c> is not body-special at the tokenizer level — it falls
-    /// into <c>ScanText</c> just like any other character. We peek into the
-    /// Text content to recognise the marker.</para>
-    ///
-    /// <para>Parameterless <c>Trim()</c> is deliberate. Reference Harlowe's
-    /// <c>ts/markup/patterns.ts</c> defines its syntactic-whitespace class
-    /// (the <c>ws</c> pattern at line 63) as the union of ASCII space,
-    /// <c>\f</c>, <c>\t</c>, <c>\v</c>, U+00A0 (NBSP), U+2000..U+200A (em /
-    /// en / quad / thin / hair spaces), U+2028..U+2029 (line / paragraph
-    /// separators), U+202F (narrow NBSP), U+205F (medium math space), and
-    /// U+3000 (ideographic space), explicitly excluding zero-width
-    /// characters. <c>char.IsWhiteSpace</c> matches almost exactly the same
-    /// set (it returns false for ZWSP/ZWNJ/ZWJ/BOM, matching reference). An
-    /// ASCII-only Trim would diverge from reference and reject NBSP-padded
-    /// chain markers that reference accepts.</para>
-    /// </summary>
-    private static bool LooksLikeChainContinuation(TokenCursor cursor)
+    /// <summary>The text of the next <paramref name="count"/> whitespace tokens, or null for none.</summary>
+    private static string WhitespaceText(TokenCursor cursor, int count)
     {
-      int offset = SkipBodyWhitespace(cursor);
-      var marker = cursor.Peek(offset);
-      if (marker.Type != TokenType.Text || marker.Value.Trim() != "+") return false;
-
-      int after = offset + 1;
-      while (true)
-      {
-        var t = cursor.Peek(after);
-        if (t.Type == TokenType.Newline) { after++; continue; }
-        if (t.Type == TokenType.Text && string.IsNullOrWhiteSpace(t.Value)) { after++; continue; }
-        break;
-      }
-      return cursor.Peek(after).Type == TokenType.MacroOpen;
-    }
-
-    /// <summary>
-    /// If the cursor is at a chain continuation (per
-    /// <see cref="LooksLikeChainContinuation"/>), advances past the
-    /// whitespace/<c>+</c>/whitespace tokens to position the cursor at the
-    /// next <see cref="TokenType.MacroOpen"/>. Returns true on success, false
-    /// (cursor untouched) when the pattern does not match.
-    /// </summary>
-    private static bool TryAdvanceToChainContinuation(TokenCursor cursor)
-    {
-      if (!LooksLikeChainContinuation(cursor)) return false;
-      int offset = SkipBodyWhitespace(cursor);
-      int after = offset + 1;
-      while (true)
-      {
-        var t = cursor.Peek(after);
-        if (t.Type == TokenType.Newline) { after++; continue; }
-        if (t.Type == TokenType.Text && string.IsNullOrWhiteSpace(t.Value)) { after++; continue; }
-        break;
-      }
-      for (int i = 0; i < after; i++) cursor.Advance();
-      return true;
+      if (count == 0) return null;
+      var sb = new System.Text.StringBuilder();
+      for (int i = 0; i < count; i++) sb.Append(cursor.Peek(i).Value);
+      return sb.ToString();
     }
 
     /// <summary>

@@ -23,6 +23,7 @@ namespace Harlowe.Runtime
     private readonly IVariableStore _store;
     private readonly IEvaluationContext _context;
     private readonly IMacroInvoker _macros;
+    private readonly MacroRegistry _registry;
     private readonly IRng _rng;
     private readonly HarloweProfile _profile;
     private HarloweValue _result;
@@ -32,6 +33,7 @@ namespace Harlowe.Runtime
       _store = store;
       _context = context;
       _macros = macros;
+      _registry = macros as MacroRegistry;
       _profile = profile ?? HarloweProfile.V3;
       // The `random` data name draws from here. Callers with a session pass
       // MacroContext.Rng so draws share the session stream (and so undo/redo/
@@ -62,7 +64,9 @@ namespace Harlowe.Runtime
     public HarloweValue Evaluate(IExpressionNode node)
     {
       if (node == null) return HarloweValue.OfError("missing expression");
+      if (_registry != null) _registry.EvaluationDepth++;
       node.Accept(this);
+      if (_registry != null) _registry.EvaluationDepth--;
       return _result ?? HarloweValue.OfError("expression produced no value");
     }
 
@@ -220,6 +224,9 @@ namespace Harlowe.Runtime
       if (node.Operator == "to") { AssignTo(node.Left, node.Right, bindItToTarget: true); return; }
       if (node.Operator == "into") { AssignTo(node.Right, node.Left, bindItToTarget: false); return; }
 
+      // The variable side of `-type` is a name, not a value to read.
+      if (node.Operator == "-type") { _result = EvaluateTypedVar(node); return; }
+
       // Property access keeps the accessor side as a node so an IdentifierNode
       // is treated as a key/property name rather than evaluated as an unknown
       // identifier. Dispatched before the universal evaluation below.
@@ -293,8 +300,178 @@ namespace Harlowe.Runtime
       }
     }
 
+    /// <summary>
+    /// Builds the value of <c>type-type variable</c>, reference's
+    /// <c>TypedVar.create</c>. A leading <c>...</c> on the type makes it a spread
+    /// variable. The variable side has to be a plain variable.
+    /// </summary>
+    private HarloweValue EvaluateTypedVar(BinaryOpNode node)
+    {
+      bool isRest = node.Left is UnaryOpNode spread && spread.Operator == "...";
+      var datatype = Evaluate(isRest ? ((UnaryOpNode)node.Left).Operand : node.Left);
+      if (datatype.IsError) return datatype;
+      if (isRest && datatype.Kind != HarloweValueKind.Datatype)
+        return HarloweValue.OfError("A spread typed variable needs a plain datatype, like ...num-type _a.");
+      if (node.Right is VariableRefNode variable)
+        return HarloweValue.OfTypedVar(new TypedVarValue(datatype, variable.Name, variable.IsTemporary, isRest));
+      return HarloweValue.OfError(node.Right is BinaryOpNode chain && (chain.Operator == "'s" || chain.Operator == "of")
+        ? "I can only restrict the datatypes of variables, not data names or anything else."
+        : "The -type syntax must have a variable to its right.");
+    }
+
+    /// <summary>
+    /// A <c>(set:)</c> or <c>(put:)</c> with a typed destination. The value is
+    /// checked against the type, the restriction is recorded, and then the value
+    /// is stored, reference's order in <c>AssignmentRequest.set</c>.
+    /// </summary>
+    private void AssignTyped(BinaryOpNode typedNode, IExpressionNode valueNode, bool bindItToTarget)
+    {
+      var typedValue = EvaluateTypedVar(typedNode);
+      if (typedValue.IsError) { _result = typedValue; return; }
+      var typed = typedValue.AsTypedVar;
+
+      HarloweValue value;
+      if (bindItToTarget)
+      {
+        var current = ReadVariable(typed.Name, typed.IsTemporary)
+          ?? UnsetError(new VariableRefNode { Name = typed.Name, IsTemporary = typed.IsTemporary });
+        using (_store.PushItBinding(current))
+          value = Evaluate(valueNode);
+      }
+      else
+      {
+        value = Evaluate(valueNode);
+      }
+      if (value.IsError) { _result = value; return; }
+      _result = StoreTyped(typed, value) ?? value;
+    }
+
+    /// <summary>
+    /// Checks <paramref name="value"/> against a typed destination, records the
+    /// restriction and stores the value. <c>any</c> restricts nothing. A
+    /// <c>const</c> variable may take this one value even if it had another,
+    /// because defining the type clears it, and only in the current scope, as
+    /// 3.3.9's <c>defineType</c> does. Returns the error, or null.
+    /// </summary>
+    private HarloweValue StoreTyped(TypedVarValue typed, HarloweValue value)
+    {
+      if (!Matches(value, typed.Datatype))
+        return HarloweValue.OfError($"I can't put {value.ObjectName} into {typed.VariableSource} because it doesn't match {typed.VariableSource}'s datatype, {typed.Datatype.ObjectName}.");
+
+      var type = typed.Datatype;
+      bool isAny = type.Kind == HarloweValueKind.Datatype && type.AsDatatype.Name == "any";
+      bool isConst = type.Kind == HarloweValueKind.Datatype && type.AsDatatype.Name == "const";
+      if (!isAny)
+      {
+        var existing = _store.GetTypeRestriction(typed.Name, typed.IsTemporary);
+        if (existing != null && !existing.Equals(type))
+        {
+          string noun = typed.IsTemporary ? "temp variable" : "variable";
+          return HarloweValue.OfError($"I can't redefine the type of the {noun} {typed.VariableSource} to {type.ObjectName}, as it is already {existing.ObjectName}.");
+        }
+        _store.DefineType(typed.Name, typed.IsTemporary, type);
+      }
+      if (isConst)
+      {
+        var storable = UnstorableError(value);
+        if (storable != null) return storable;
+        var named = NamedForStorage(value, typed.VariableSource);
+        _store.SetInCurrentScope(typed.Name, typed.IsTemporary, named);
+        _store.SetIt(named);
+        return null;
+      }
+      return WriteVariable(typed.Name, typed.IsTemporary, value);
+    }
+
+    /// <summary>
+    /// Stores a whole variable, applying reference's <c>canSet</c> first: nothing
+    /// unstorable, and nothing its type restriction refuses. Returns the error,
+    /// or null.
+    /// </summary>
+    private HarloweValue WriteVariable(string name, bool isTemporary, HarloweValue value)
+    {
+      var storable = UnstorableError(value);
+      if (storable != null) return storable;
+
+      var restriction = _store.GetTypeRestriction(name, isTemporary);
+      if (restriction != null)
+      {
+        string variable = (isTemporary ? "_" : "$") + name;
+        if (restriction.Kind == HarloweValueKind.Datatype && restriction.AsDatatype.Name == "const")
+        {
+          if (_store.Get(name, isTemporary) != null)
+            return HarloweValue.OfError($"I can't alter {variable} because it's been restricted to a constant value.");
+        }
+        else if (!Matches(value, restriction))
+        {
+          return HarloweValue.OfError($"I can't set {variable} to {value.ObjectName} because it's been restricted to {restriction.ToSource()}-type data.");
+        }
+      }
+      _store.Set(name, isTemporary, NamedForStorage(value, (isTemporary ? "_" : "$") + name));
+      return null;
+    }
+
+    /// <summary>
+    /// A custom macro takes the name of the variable it's stored in, for error
+    /// messages. One that's already named is copied first, as reference's
+    /// <c>VarRef.set()</c> does, so the variables hold separate macros.
+    /// </summary>
+    private static HarloweValue NamedForStorage(HarloweValue value, string variable)
+    {
+      if (value.Kind != HarloweValueKind.CustomMacro) return value;
+      var macro = value.AsCustomMacro;
+      if (macro.KnownName != null)
+      {
+        macro = macro.Copy();
+        value = HarloweValue.OfCustomMacro(macro);
+      }
+      macro.KnownName = variable;
+      return value;
+    }
+
+    /// <summary>A typed variable name can't be kept in a variable, even inside a collection. Returns reference's error, or null.</summary>
+    private static HarloweValue UnstorableError(HarloweValue value)
+    {
+      var unstorable = FindUnstorable(value, 0);
+      if (unstorable == null) return null;
+      return HarloweValue.OfError(ReferenceEquals(unstorable, value)
+        ? $"{value.ObjectName} can't be stored."
+        : $"{value.ObjectName} can't be stored because it holds {unstorable.ObjectName}.");
+    }
+
+    private static HarloweValue FindUnstorable(HarloweValue value, int depth)
+    {
+      if (depth >= MaxMatchDepth) return null;
+      switch (value.Kind)
+      {
+        case HarloweValueKind.TypedVar:
+          return value;
+        case HarloweValueKind.Array:
+          var items = value.AsArray;
+          for (int i = 0; i < items.Count; i++)
+          {
+            var found = FindUnstorable(items[i], depth + 1);
+            if (found != null) return found;
+          }
+          return null;
+        case HarloweValueKind.Datamap:
+          foreach (var kv in value.AsDatamap)
+          {
+            var found = FindUnstorable(kv.Value, depth + 1);
+            if (found != null) return found;
+          }
+          return null;
+      }
+      return null;
+    }
+
     private void AssignTo(IExpressionNode targetNode, IExpressionNode valueNode, bool bindItToTarget)
     {
+      if (targetNode is BinaryOpNode typedTarget && typedTarget.Operator == "-type")
+      {
+        AssignTyped(typedTarget, valueNode, bindItToTarget);
+        return;
+      }
       if (!(targetNode is VariableRefNode target))
       {
         AssignToProperty(targetNode, valueNode, bindItToTarget);
@@ -318,8 +495,7 @@ namespace Harlowe.Runtime
         value = Evaluate(valueNode);
       }
       if (value.IsError) { _result = value; return; }
-      _store.Set(target.Name, target.IsTemporary, value);
-      _result = value;
+      _result = WriteVariable(target.Name, target.IsTemporary, value) ?? value;
     }
 
     /// <summary>
@@ -403,7 +579,8 @@ namespace Harlowe.Runtime
           return;
         }
       }
-      _store.Set(root.Name, root.IsTemporary, ApplyWrite(steps, value));
+      var writeError = WriteVariable(root.Name, root.IsTemporary, ApplyWrite(steps, value));
+      if (writeError != null) { _result = writeError; return; }
       _store.SetIt(value);
       _result = value;
     }
@@ -423,6 +600,9 @@ namespace Harlowe.Runtime
       public string Key;
       public int Index;
       public bool IsAppend;
+
+      /// <summary>For a (move:) source written from the end (<c>last</c> is 1, <c>2ndlast</c> is 2), which reference recounts against the container at delete time. Zero otherwise.</summary>
+      public int FromEndOrdinal;
     }
 
     private enum WriteKind { DatamapKey, ArrayIndex, StringIndex }
@@ -771,6 +951,34 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
+    /// Calls the custom macro held in the variable <paramref name="name"/> names
+    /// (<c>$m</c> or <c>_m</c>), reference's <c>variableCall</c> branch in
+    /// <c>ts/twinescript/runner.ts</c>: an unreadable variable is the error, and
+    /// the arguments then evaluate and spread like any macro's. Reads the
+    /// variable through the profile's unset rule, so an unset <c>$m</c> under
+    /// Harlowe 3 is the number 0 and fails as "isn't a custom macro".
+    /// </summary>
+    internal HarloweValue CallCustomMacro(string name, List<IExpressionNode> arguments)
+    {
+      bool isTemporary = name[0] == '_';
+      string variable = name.Substring(1);
+      var target = ReadVariable(variable, isTemporary);
+      if (target == null)
+        return HarloweValue.OfError(isTemporary
+          ? $"There isn't a temp variable named _{variable} in this place."
+          : $"${variable} is not set");
+
+      var args = new List<HarloweValue>(arguments.Count);
+      var argumentError = EvaluateMacroArguments(null, arguments, args);
+      if (argumentError != null) return argumentError;
+
+      var registry = _macros as MacroRegistry;
+      if (registry == null || registry.Context == null)
+        return HarloweValue.OfError("custom macros can't run without a macro registry");
+      return CustomMacroRunner.Call(target, args, registry, registry.Context);
+    }
+
+    /// <summary>
     /// Appends the items of a spread operand: an array's elements or a string's
     /// code points (JS spreads strings by code point). Datasets don't exist
     /// here yet, and spread datatypes (<c>...num</c>) are a separate feature.
@@ -790,7 +998,8 @@ namespace Harlowe.Runtime
           for (int i = 0; i < characters.Count; i++) into.Add(HarloweValue.OfString(characters[i]));
           return null;
         case HarloweValueKind.Datatype:
-          return HarloweValue.OfError("spread datatypes (...num) aren't implemented");
+          into.Add(HarloweValue.OfDatatype(value.AsDatatype.AsSpread()));
+          return null;
         default:
           return HarloweValue.OfError($"I can't spread out a {value.Kind}, because it is not a string, dataset, or array.");
       }
@@ -800,32 +1009,28 @@ namespace Harlowe.Runtime
     /// Executes one (move:) argument — <c>source into dest</c> — per
     /// reference's <c>AssignmentRequest.set(true)</c> in
     /// <c>ts/datatypes/assignmentrequest.ts</c>: read the source, assign the
-    /// destination, then delete the source slot. Only a data-structure slot is
-    /// deleted (array position spliced out, datamap key removed, string
-    /// character excised); a whole-variable source is copied without deletion
-    /// — reference's documented (move:) contract ("Moving from variable to
-    /// variable … won't cause $p to be deleted"). The deletion re-fetches the
-    /// containers from the store after the assignment (reference's delete()
-    /// re-walks its compiled chain), with keys and indices frozen at the
-    /// initial resolve so computed accessors run exactly once. Reference's
-    /// order is preserved: a destination error aborts before any deletion, and
-    /// an undeletable-but-readable source (<c>length</c>, a colour data name)
-    /// errors only after the destination was assigned.
+    /// destination, then delete the source. A data-structure slot is spliced
+    /// out (array position, datamap key, string character) and a whole variable
+    /// is removed, as real 3.3.9 and 4.0 do, whatever the (move:) article says.
+    /// The deletion re-fetches the containers from the store after the
+    /// assignment (reference's delete() re-walks its compiled chain), with keys
+    /// and indices frozen at the initial resolve so computed accessors run
+    /// exactly once. A destination error aborts before any deletion. A deletion
+    /// that can't happen is skipped silently, because reference ignores what
+    /// <c>src.delete()</c> returns, so moving <c>length</c> or a colour data
+    /// name just copies it.
     /// </summary>
     private void MoveAssign(BinaryOpNode node)
     {
       VariableRefNode srcRoot;
       HarloweValue value;
-      HarloweValue deletePoison = null;
+      bool deletable = true;
       List<WriteStep> frozen;
       if (node.Left is VariableRefNode srcVar)
       {
         srcRoot = srcVar;
         value = ReadVariable(srcVar.Name, srcVar.IsTemporary);
         if (value == null) { _result = UnsetError(srcVar); return; }
-        // A whole-variable source has no slot of its own to delete
-        // (reference's documented contract); a pattern destination deletes
-        // one level deeper, from inside the collection.
         frozen = new List<WriteStep>();
       }
       else if (TryDecomposeAssignmentTarget(node.Left, out srcRoot, out var srcAccessors))
@@ -833,7 +1038,7 @@ namespace Harlowe.Runtime
         var srcRootValue = ReadVariable(srcRoot.Name, srcRoot.IsTemporary);
         if (srcRootValue == null) { _result = UnsetError(srcRoot); return; }
         frozen = new List<WriteStep>(srcAccessors.Count);
-        var readError = ResolveSourcePath(srcRootValue, srcAccessors, frozen, out value, out deletePoison);
+        var readError = ResolveSourcePath(srcRootValue, srcAccessors, frozen, out value, out deletable);
         if (readError != null) { _result = readError; return; }
       }
       else
@@ -844,41 +1049,54 @@ namespace Harlowe.Runtime
 
       if (IsPatternShapedDest(node.Right))
       {
-        // Poisoned sources (`length`, colour data names) read as scalars, so
-        // the pattern match below always fails first; the null path is
-        // belt-and-braces against ever deleting through an incomplete one.
-        ExecutePattern(node.Right, value,
-                       deletePoison == null ? srcRoot : null,
-                       deletePoison == null ? frozen : null);
+        // A pattern deletes one level deeper, from inside the collection, so
+        // the variable itself stays. An undeletable source reads as a scalar,
+        // which fails the pattern match before anything could be deleted.
+        ExecutePattern(node.Right, value, deletable ? srcRoot : null, deletable ? frozen : null);
         return;
       }
 
       AssignEvaluatedTo(node.Right, value);
       if (_result.IsError) return;
-      if (deletePoison != null) { _result = deletePoison; return; }
-      if (frozen.Count > 0)
+      if (deletable)
       {
-        var deleteError = DeleteSourceSlot(srcRoot, frozen);
+        var deleteError = DeleteSource(srcRoot, frozen);
         if (deleteError != null) { _result = deleteError; return; }
-        _store.SetIt(value);
       }
       _result = value;
     }
 
     /// <summary>
-    /// The delete tail of a (move:): re-fetch the source root, re-resolve the
-    /// frozen path against the post-assignment store, splice the slot out via
-    /// <see cref="ApplyDelete"/>, and store the rebuilt root. Returns the
-    /// error to surface, or null.
+    /// The delete tail of a (move:). An empty <paramref name="frozen"/> path
+    /// means the whole variable. Otherwise the root is re-fetched, the path is
+    /// re-resolved against the post-assignment store, and the slot is spliced
+    /// out via <see cref="ApplyDelete"/>, with the rebuilt root written to the
+    /// current scope as reference's delete() does. If the assignment reshaped
+    /// the source so the slot can't be reached, nothing is deleted. A path
+    /// through a string is an error, because reference's writeback into the
+    /// immutable string throws. Returns that error, or null.
+    ///
+    /// <para>A variable with a type restriction keeps its value. 3.3.9's
+    /// <c>delete()</c> calls <c>canSet</c> with no value, which a restriction
+    /// refuses at the variable level, and <c>(move:)</c> ignores the refusal.
+    /// 4.0 made this delete, so it's recorded as a version difference.</para>
     /// </summary>
-    private HarloweValue DeleteSourceSlot(VariableRefNode srcRoot, List<WriteStep> frozen)
+    private HarloweValue DeleteSource(VariableRefNode srcRoot, List<WriteStep> frozen)
     {
+      bool restricted = _store.GetTypeRestriction(srcRoot.Name, srcRoot.IsTemporary) != null;
+      if (frozen.Count == 0)
+      {
+        if (!restricted) _store.Delete(srcRoot.Name, srcRoot.IsTemporary);
+        return null;
+      }
       var freshRoot = _store.Get(srcRoot.Name, srcRoot.IsTemporary);
-      if (freshRoot == null) return UnsetError(srcRoot);
+      if (freshRoot == null) return null;
       var steps = new List<WriteStep>(frozen.Count);
-      var deleteError = ReresolveForDelete(freshRoot, frozen, steps);
-      if (deleteError != null) return deleteError;
-      _store.Set(srcRoot.Name, srcRoot.IsTemporary, ApplyDelete(steps));
+      if (!TryReresolveForDelete(freshRoot, frozen, steps, out bool throughString)) return null;
+      if (throughString)
+        return HarloweValue.OfError("I can't move a value out of a character of a string, because a string's characters can't be changed individually.");
+      if (!restricted)
+        _store.SetInCurrentScope(srcRoot.Name, srcRoot.IsTemporary, ApplyDelete(steps));
       return null;
     }
 
@@ -907,6 +1125,12 @@ namespace Harlowe.Runtime
       public IExpressionNode DestNode;
       public HarloweValue Value;
       public List<WriteStep> SrcSteps;
+
+      /// <summary>For a spread position, one source path per gathered value, in ascending order.</summary>
+      public List<List<WriteStep>> RestSteps;
+
+      /// <summary>Set when the destination is a typed variable, which then also records its type.</summary>
+      public TypedVarValue Typed;
     }
 
     /// <summary>
@@ -934,11 +1158,27 @@ namespace Harlowe.Runtime
       }
       for (int i = bindings.Count - 1; i >= 0; i--)
       {
-        AssignEvaluatedTo(bindings[i].DestNode, bindings[i].Value);
-        if (_result.IsError) return;
-        if (srcRoot != null && bindings[i].SrcSteps != null && bindings[i].SrcSteps.Count > 0)
+        var binding = bindings[i];
+        if (binding.Typed != null)
         {
-          var deleteError = DeleteSourceSlot(srcRoot, bindings[i].SrcSteps);
+          var typedError = StoreTyped(binding.Typed, binding.Value);
+          if (typedError != null) { _result = typedError; return; }
+        }
+        else
+        {
+          AssignEvaluatedTo(binding.DestNode, binding.Value);
+          if (_result.IsError) return;
+        }
+        if (srcRoot == null) continue;
+        if (binding.SrcSteps != null && binding.SrcSteps.Count > 0)
+        {
+          var deleteError = DeleteSource(srcRoot, binding.SrcSteps);
+          if (deleteError != null) { _result = deleteError; return; }
+        }
+        // A spread position's slots go highest first, so one delete can't shift the next.
+        for (int r = (binding.RestSteps?.Count ?? 0) - 1; r >= 0; r--)
+        {
+          var deleteError = DeleteSource(srcRoot, binding.RestSteps[r]);
           if (deleteError != null) { _result = deleteError; return; }
         }
       }
@@ -955,9 +1195,9 @@ namespace Harlowe.Runtime
     /// VarRef-as-Map-key there), variables and property chains become
     /// bindings, and any other position evaluates and must <c>matches</c> the
     /// source value — so a bare datatype there is a check that binds nothing
-    /// (<c>(a: num, $x)</c>), as in reference. Still unimplemented: typed-var
-    /// positions (<c>num-type _x</c>, which need TypedVar), rest positions, and
-    /// <c>(p:)</c> string patterns.
+    /// (<c>(a: num, $x)</c>), as in reference. A typed variable binds after its
+    /// type is checked, and a spread one (<c>...num-type _x</c>) gathers a run of
+    /// matching values. Still unimplemented: <c>(p:)</c> string patterns.
     /// Extra source values beyond the pattern are ignored, as in reference.
     /// <paramref name="srcSteps"/> is the frozen accessor path from the
     /// source root to <paramref name="source"/> — null when the source isn't
@@ -970,6 +1210,16 @@ namespace Harlowe.Runtime
     {
       if (source.IsError) return source;
 
+      if (pattern is BinaryOpNode typedPattern && typedPattern.Operator == "-type")
+      {
+        var typedValue = EvaluateTypedVar(typedPattern);
+        if (typedValue.IsError) return typedValue;
+        var typed = typedValue.AsTypedVar;
+        if (!Matches(source, typed.Datatype)) return TypedMismatchError(typed, source);
+        bindings.Add(new PatternBinding { DestNode = typedPattern.Right, Value = source, SrcSteps = srcSteps, Typed = typed });
+        return null;
+      }
+
       if (pattern is VariableRefNode
           || (pattern is BinaryOpNode chain && (chain.Operator == "'s" || chain.Operator == "of"))
           || (pattern is UnaryOpNode itsRef && itsRef.Operator == "its"))
@@ -979,7 +1229,7 @@ namespace Harlowe.Runtime
       }
 
       if (pattern is UnaryOpNode spread && spread.Operator == "...")
-        return HarloweValue.OfError("spread values in (unpack:) patterns need spread datatypes (...num), which aren't implemented");
+        return HarloweValue.OfError("spread values in (unpack:) patterns need a datatype or a typed variable, like ...num or ...num-type _a");
 
       if (pattern is MacroCallNode call)
       {
@@ -989,18 +1239,40 @@ namespace Harlowe.Runtime
           if (source.Kind != HarloweValueKind.Array) return MismatchError(call, source);
           var arr = source.AsArray;
           var args = call.Arguments;
-          if (args.Count > arr.Count)
-          {
-            // Reference's template always pluralises; ours is singular for 1.
-            int missing = args.Count - arr.Count;
-            return HarloweValue.OfError(
-              $"I can't unpack this array because it needs {missing} more value{(missing == 1 ? "" : "s")}.");
-          }
+          int valueIndex = 0;
           for (int i = 0; i < args.Count; i++)
           {
-            var childSteps = ExtendSteps(srcSteps, new WriteStep { Container = source, Kind = WriteKind.ArrayIndex, Index = i + 1 });
-            var err = Destructure(args[i], arr[i], childSteps, bindings);
+            if (valueIndex >= arr.Count)
+            {
+              // Reference's template always pluralises; ours is singular for 1.
+              int missing = args.Count - i;
+              return HarloweValue.OfError(
+                $"I can't unpack this array because it needs {missing} more value{(missing == 1 ? "" : "s")}.");
+            }
+            if (args[i] is BinaryOpNode restNode && restNode.Operator == "-type"
+                && restNode.Left is UnaryOpNode restSpread && restSpread.Operator == "...")
+            {
+              var restError = DestructureRest(restNode, source, srcSteps, ref valueIndex, bindings);
+              if (restError != null) return restError;
+              continue;
+            }
+            // A bare ...num is a check that binds nothing, and unlike a typed
+            // spread its run can be empty, as in 3.3.9's destructure.
+            if (args[i] is UnaryOpNode bareSpread && bareSpread.Operator == "...")
+            {
+              var spreadType = Evaluate(bareSpread.Operand);
+              if (spreadType.IsError) return spreadType;
+              if (spreadType.Kind == HarloweValueKind.Datatype)
+              {
+                var runType = HarloweValue.OfDatatype(spreadType.AsDatatype.AsSpread());
+                while (valueIndex < arr.Count && Matches(arr[valueIndex], runType)) valueIndex++;
+                continue;
+              }
+            }
+            var childSteps = ExtendSteps(srcSteps, new WriteStep { Container = source, Kind = WriteKind.ArrayIndex, Index = valueIndex + 1 });
+            var err = Destructure(args[i], arr[valueIndex], childSteps, bindings);
             if (err != null) return err;
+            valueIndex++;
           }
           return null;
         }
@@ -1038,6 +1310,43 @@ namespace Harlowe.Runtime
       return null;
     }
 
+    /// <summary>
+    /// A <c>...num-type _x</c> position: gathers the run of values from
+    /// <paramref name="valueIndex"/> that match, as an array bound to the
+    /// variable, whose type becomes an array of the spread type. An empty run
+    /// doesn't match, which is 3.3.9's error for one.
+    /// </summary>
+    private HarloweValue DestructureRest(BinaryOpNode node, HarloweValue source, List<WriteStep> srcSteps,
+        ref int valueIndex, List<PatternBinding> bindings)
+    {
+      var typedValue = EvaluateTypedVar(node);
+      if (typedValue.IsError) return typedValue;
+      var rest = typedValue.AsTypedVar;
+      var arr = source.AsArray;
+
+      int start = valueIndex;
+      while (valueIndex < arr.Count && Matches(arr[valueIndex], rest.Datatype)) valueIndex++;
+
+      var slice = arr.GetRange(start, valueIndex - start);
+      var arrayType = HarloweValue.OfArray(new List<HarloweValue> { HarloweValue.OfDatatype(rest.Datatype.AsDatatype.AsSpread()) });
+      var typed = new TypedVarValue(arrayType, rest.Name, rest.IsTemporary, false);
+      var sliceValue = HarloweValue.OfArray(slice);
+      if (slice.Count == 0) return TypedMismatchError(typed, sliceValue);
+
+      List<List<WriteStep>> restSteps = null;
+      if (srcSteps != null)
+      {
+        restSteps = new List<List<WriteStep>>(slice.Count);
+        for (int i = start; i < valueIndex; i++)
+          restSteps.Add(ExtendSteps(srcSteps, new WriteStep { Container = source, Kind = WriteKind.ArrayIndex, Index = i + 1 }));
+      }
+      bindings.Add(new PatternBinding { DestNode = node.Right, Value = sliceValue, RestSteps = restSteps, Typed = typed });
+      return null;
+    }
+
+    private static HarloweValue TypedMismatchError(TypedVarValue typed, HarloweValue value)
+      => HarloweValue.OfError($"I can't put {value.ObjectName} into {typed.VariableSource} because it doesn't match {typed.VariableSource}'s datatype, {typed.Datatype.ObjectName}.");
+
     private static HarloweValue MismatchError(MacroCallNode pattern, HarloweValue source)
       => HarloweValue.OfError($"I tried to unpack, but the ({MacroNames.Normalize(pattern.Name)}:) pattern didn't match {source.ToSource()}.");
 
@@ -1059,10 +1368,15 @@ namespace Harlowe.Runtime
     /// </summary>
     private void AssignEvaluatedTo(IExpressionNode targetNode, HarloweValue value)
     {
+      if (targetNode is BinaryOpNode typedTarget && typedTarget.Operator == "-type")
+      {
+        var typedValue = EvaluateTypedVar(typedTarget);
+        _result = typedValue.IsError ? typedValue : StoreTyped(typedValue.AsTypedVar, value) ?? value;
+        return;
+      }
       if (targetNode is VariableRefNode target)
       {
-        _store.Set(target.Name, target.IsTemporary, value);
-        _result = value;
+        _result = WriteVariable(target.Name, target.IsTemporary, value) ?? value;
         return;
       }
       var pathError = ResolveAssignmentTarget(targetNode, "(move:)", out var root, out var steps, out _);
@@ -1078,16 +1392,14 @@ namespace Harlowe.Runtime
     /// against the pre-assignment counts. Two accessor families read fine but
     /// can never be deleted — a sequential's <c>length</c> and a colour's
     /// data names — those return successfully with
-    /// <paramref name="deletePoison"/> set to reference's canSet error, which
-    /// the caller surfaces only after the destination assignment (reference's
-    /// set-then-delete order). Returns the read error, or null with
+    /// <paramref name="deletable"/> false. Returns the read error, or null with
     /// <paramref name="value"/> holding the source slot's value.
     /// </summary>
     private HarloweValue ResolveSourcePath(HarloweValue rootValue, List<IExpressionNode> accessors,
-        List<WriteStep> frozen, out HarloweValue value, out HarloweValue deletePoison)
+        List<WriteStep> frozen, out HarloweValue value, out bool deletable)
     {
       value = null;
-      deletePoison = null;
+      deletable = true;
       var container = rootValue;
       for (int i = 0; i < accessors.Count; i++)
       {
@@ -1125,17 +1437,18 @@ namespace Harlowe.Runtime
             string noun = isString ? "string" : "array";
             int count = isString ? CodePointCount(container.AsString) : container.AsArray.Count;
             int index;
+            int fromEndOrdinal = 0;
             if (accessor is IdentifierNode id)
             {
               if (id.Name == "length")
               {
-                // Reads fine; can never be deleted. The poison only matters
-                // when this is the slot being moved — mid-chain, the next
-                // level fails its own read on the Number.
+                // Reads fine; can never be deleted. That only matters when
+                // this is the slot being moved — mid-chain, the next level
+                // fails its own read on the Number.
                 child = HarloweValue.OfNumber(count);
                 if (isLast)
                 {
-                  deletePoison = HarloweValue.OfError($"I can't forcibly alter the 'length' of the {noun}.");
+                  deletable = false;
                   value = child;
                   return null;
                 }
@@ -1154,7 +1467,10 @@ namespace Harlowe.Runtime
               else if (!Ordinals.TryParse(id.Name, out int ordIdx, out bool fromEnd))
                 return HarloweValue.OfError($"{noun} has no property '{id.Name}'");
               else
+              {
                 index = fromEnd ? count - ordIdx + 1 : ordIdx;
+                if (fromEnd) fromEndOrdinal = ordIdx;
+              }
             }
             else
             {
@@ -1171,6 +1487,7 @@ namespace Harlowe.Runtime
               return HarloweValue.OfError($"{noun} index {index} is out of range (1..{count})");
             step.Kind = isString ? WriteKind.StringIndex : WriteKind.ArrayIndex;
             step.Index = index;
+            step.FromEndOrdinal = fromEndOrdinal;
             child = isString ? IndexString(container.AsString, index) : container.AsArray[index - 1];
             break;
           }
@@ -1184,7 +1501,7 @@ namespace Harlowe.Runtime
               // Readable, never deletable (reference's canSet catch-all).
               if (isLast)
               {
-                deletePoison = HarloweValue.OfError("I can't modify the colour");
+                deletable = false;
                 value = prop;
                 return null;
               }
@@ -1208,53 +1525,45 @@ namespace Harlowe.Runtime
     /// Re-fetches the containers along a frozen (move:) source path against
     /// the post-assignment store state — reference's delete() re-walks its
     /// compiled chain, so an overlapping destination write is honoured — while
-    /// keeping the initially-resolved keys and indices. The only reachable
-    /// errors are overlap degenerates where the assignment reshaped the
-    /// source (kind changes, vanished keys, shrunk ranges). Returns the
-    /// error, or null with <paramref name="steps"/> ready for
-    /// <see cref="ApplyDelete"/>.
+    /// keeping the initially-resolved keys, with from-end positions recounted
+    /// as reference does. The deepest level follows reference's <c>canSet</c>:
+    /// arrays and strings share position space, so either can lose the slot,
+    /// and a slot that's no longer there is a no-op that still writes the
+    /// container back. False when the path no longer reaches a container that
+    /// can be deleted from; otherwise <paramref name="steps"/> is ready for
+    /// <see cref="ApplyDelete"/>, unless <paramref name="throughString"/> says
+    /// the writeback would have to land inside a string.
     /// </summary>
-    private static HarloweValue ReresolveForDelete(HarloweValue freshRoot, List<WriteStep> frozen, List<WriteStep> steps)
+    private static bool TryReresolveForDelete(HarloweValue freshRoot, List<WriteStep> frozen, List<WriteStep> steps, out bool throughString)
     {
+      throughString = false;
       var container = freshRoot;
       for (int i = 0; i < frozen.Count; i++)
       {
-        if (container.IsError) return container;
+        bool deepest = i == frozen.Count - 1;
         var step = new WriteStep { Container = container, Kind = frozen[i].Kind, Key = frozen[i].Key, Index = frozen[i].Index };
-        HarloweValue child;
-        switch (step.Kind)
+        HarloweValue child = null;
+        if (step.Kind == WriteKind.DatamapKey)
         {
-          case WriteKind.DatamapKey:
-            if (container.Kind != HarloweValueKind.Datamap)
-              return HarloweValue.OfError($"a {container.Kind} has no properties");
-            if (!container.AsDatamap.TryGetValue(step.Key, out child))
-              return HarloweValue.OfError($"datamap has no key '{step.Key}'");
-            break;
-          case WriteKind.ArrayIndex:
-          {
-            if (container.Kind != HarloweValueKind.Array)
-              return HarloweValue.OfError($"a {container.Kind} has no properties");
-            var arr = container.AsArray;
-            if (step.Index < 1 || step.Index > arr.Count)
-              return HarloweValue.OfError($"array index {step.Index} is out of range (1..{arr.Count})");
-            child = arr[step.Index - 1];
-            break;
-          }
-          default:
-          {
-            if (container.Kind != HarloweValueKind.String)
-              return HarloweValue.OfError($"a {container.Kind} has no properties");
-            int count = CodePointCount(container.AsString);
-            if (step.Index < 1 || step.Index > count)
-              return HarloweValue.OfError($"string index {step.Index} is out of range (1..{count})");
-            child = IndexString(container.AsString, step.Index);
-            break;
-          }
+          if (container.Kind != HarloweValueKind.Datamap) return false;
+          if (!container.AsDatamap.TryGetValue(step.Key, out child) && !deepest) return false;
+        }
+        else
+        {
+          bool isString = container.Kind == HarloweValueKind.String;
+          if (!isString && container.Kind != HarloweValueKind.Array) return false;
+          step.Kind = isString ? WriteKind.StringIndex : WriteKind.ArrayIndex;
+          int count = isString ? CodePointCount(container.AsString) : container.AsArray.Count;
+          if (frozen[i].FromEndOrdinal > 0) step.Index = count - frozen[i].FromEndOrdinal + 1;
+          bool inRange = step.Index >= 1 && step.Index <= count;
+          if (!inRange && !deepest) return false;
+          if (inRange) child = isString ? IndexString(container.AsString, step.Index) : container.AsArray[step.Index - 1];
+          if (isString && !deepest) throughString = true;
         }
         steps.Add(step);
         container = child;
       }
-      return null;
+      return true;
     }
 
     /// <summary>
@@ -1284,14 +1593,21 @@ namespace Harlowe.Runtime
           case WriteKind.ArrayIndex:
           {
             var arr = new List<HarloweValue>(step.Container.AsArray);
-            if (deepest) arr.RemoveAt(step.Index - 1);
-            else arr[step.Index - 1] = child;
+            if (!deepest) arr[step.Index - 1] = child;
+            else if (step.Index >= 1 && step.Index <= arr.Count) arr.RemoveAt(step.Index - 1);
             child = HarloweValue.OfArray(arr);
             break;
           }
           default:
-            child = HarloweValue.OfString(CodePoints.ReplaceAt(step.Container.AsString, step.Index, deepest ? "" : child.AsString));
+          {
+            // Only ever the deepest level: a path through a string is refused
+            // before this runs.
+            string text = step.Container.AsString;
+            child = step.Index >= 1 && step.Index <= CodePointCount(text)
+              ? HarloweValue.OfString(CodePoints.ReplaceAt(text, step.Index, ""))
+              : step.Container;
             break;
+          }
         }
       }
       return child;
@@ -1302,6 +1618,11 @@ namespace Harlowe.Runtime
       if (_macros == null)
       {
         _result = HarloweValue.OfError($"macro '{node.Name}' cannot be called: no macro registry configured");
+        return;
+      }
+      if (MacroNames.IsCustomCall(node.Name))
+      {
+        _result = CallCustomMacro(node.Name, node.Arguments);
         return;
       }
       // Pre-check the macro name so an unknown call surfaces as a clean
@@ -1320,6 +1641,24 @@ namespace Harlowe.Runtime
       var args = new List<HarloweValue>(node.Arguments.Count);
       var argumentError = EvaluateMacroArguments(node.Name, node.Arguments, args);
       if (argumentError != null) { _result = argumentError; return; }
+
+      // A command in an expression is a value, and only does something when it
+      // reaches prose. An assignment has already happened by this point: 3.3.9
+      // assigns while evaluating it, then refuses it as data.
+      var role = _registry != null ? BuiltinCommands.RoleOf(node.Name) : CommandRole.None;
+      if (role == CommandRole.Operation)
+      {
+        _result = HarloweValue.OfError($"A ({BuiltinCommands.CanonicalName(node.Name)}:) operation can't be used as a value.");
+        return;
+      }
+      if (role != CommandRole.None)
+      {
+        _result = _registry.CheckCall(node.Name, args)
+          ?? _registry.CheckCommand(node.Name, args, _registry.Context)
+          ?? HarloweValue.OfCommand(CommandValue.ForBuiltin(node.Name, args));
+        return;
+      }
+
       _result = _macros.Invoke(node.Name, args) ?? HarloweValue.OfError($"macro '{node.Name}' returned no value");
       StampChangerSource(_result, node.Name, args);
     }
@@ -1338,7 +1677,17 @@ namespace Harlowe.Runtime
     /// <see cref="Changer.Source"/> stays null and the changer simply can't be saved.
     /// Lets a changer stored in a variable round-trip through save/load.
     /// </summary>
-    private static void StampChangerSource(HarloweValue result, string macroName, List<HarloweValue> args)
+    internal static Changer ComposeChangers(Changer left, Changer right)
+    {
+      // Reference chains composed changers' source with `+`. If either operand
+      // is unstamped the composite has no reliable source, so it can't be saved.
+      var composed = left.Compose(right);
+      string ls = left.Source, rs = right.Source;
+      composed.Source = (ls != null && rs != null) ? ls + "+" + rs : null;
+      return composed;
+    }
+
+    internal static void StampChangerSource(HarloweValue result, string macroName, List<HarloweValue> args)
     {
       if (result == null || result.Kind != HarloweValueKind.Changer) return;
       var changer = result.AsChanger;
@@ -1372,6 +1721,16 @@ namespace Harlowe.Runtime
     /// </summary>
     public void Visit(HookRefNode node)
       => _result = HarloweValue.OfHookName(new HookNameValue { Name = node.Name, Steps = node.Steps });
+
+    /// <summary>
+    /// True while a save is being read back. Code hooks then keep only their
+    /// source and parse on first use, because they were just lexed under the
+    /// save format's profile and their contents belong to the story's.
+    /// </summary>
+    internal bool ReparseCodeHooks;
+
+    public void Visit(CodeHookNode node)
+      => _result = HarloweValue.OfCodeHook(new CodeHookValue(node.Source, ReparseCodeHooks && node.Source != null ? null : node.Children));
 
     /// <summary>
     /// Type-dispatched <c>+</c>. Reference Harlowe (the <c>"+"</c> entry in
@@ -1419,13 +1778,7 @@ namespace Harlowe.Runtime
         }
         case HarloweValueKind.Changer:
         {
-          // Compose then stamp the combined source `left+right` (reference chains
-          // composed changers' source with `+`). If either operand is unstamped the
-          // composite has no reliable source, so leave it null (un-saveable).
-          var composed = left.AsChanger.Compose(right.AsChanger);
-          string ls = left.AsChanger.Source, rs = right.AsChanger.Source;
-          composed.Source = (ls != null && rs != null) ? ls + "+" + rs : null;
-          return HarloweValue.OfChanger(composed);
+          return HarloweValue.OfChanger(ComposeChangers(left.AsChanger, right.AsChanger));
         }
         default:
           return HarloweValue.OfError($"+ does not apply to {left.Kind} and {right.Kind}");
@@ -1559,6 +1912,13 @@ namespace Harlowe.Runtime
     /// The <c>(unpack:)</c> pattern check does the same two steps inline,
     /// since its non-match is an error with its own wording.
     /// </summary>
+    /// <summary><c>matches</c> as a plain test. A value too deep to compare doesn't match.</summary>
+    internal static bool Matches(HarloweValue left, HarloweValue right)
+    {
+      bool tooDeep = false;
+      return MatchesRecur(left, right, 0, ref tooDeep);
+    }
+
     private static HarloweValue OpMatchesValue(HarloweValue left, HarloweValue right, bool negate)
     {
       bool tooDeep = false;
@@ -1580,27 +1940,22 @@ namespace Harlowe.Runtime
     ///
     /// <para>Unlike reference this returns a plain bool: its error case comes
     /// only from the <c>(p-opt:)</c> string-pattern family, which isn't
-    /// implemented here. Array positions are compared one-for-one, since a
-    /// spread datatype (<c>...num</c>, the one thing that can span several
-    /// positions) isn't implemented.</para>
+    /// implemented here. A typed variable in a pattern matches by its type, and
+    /// a spread datatype (<c>...num</c>) spans a run of array positions.</para>
     /// </summary>
     private static bool MatchesRecur(HarloweValue left, HarloweValue right, int depth, ref bool tooDeep)
     {
       if (depth >= MaxMatchDepth) { tooDeep = true; return false; }
+
+      if (left.Kind == HarloweValueKind.TypedVar) return MatchesRecur(left.AsTypedVar.Datatype, right, depth + 1, ref tooDeep);
+      if (right.Kind == HarloweValueKind.TypedVar) return MatchesRecur(left, right.AsTypedVar.Datatype, depth + 1, ref tooDeep);
 
       if (left.Kind == HarloweValueKind.Datatype && left.AsDatatype.IsTypeOf(right)) return true;
       if (right.Kind == HarloweValueKind.Datatype && right.AsDatatype.IsTypeOf(left)) return true;
 
       if (left.Kind == HarloweValueKind.Array && right.Kind == HarloweValueKind.Array)
       {
-        var la = left.AsArray;
-        var ra = right.AsArray;
-        if (la.Count != ra.Count) return false;
-        for (int i = 0; i < la.Count; i++)
-        {
-          if (!MatchesRecur(la[i], ra[i], depth + 1, ref tooDeep)) return false;
-        }
-        return true;
+        return MatchesArrays(left.AsArray, right.AsArray, depth, ref tooDeep);
       }
 
       if (left.Kind == HarloweValueKind.Datamap && right.Kind == HarloweValueKind.Datamap)
@@ -1623,6 +1978,40 @@ namespace Harlowe.Runtime
       return left.Equals(right);
     }
 
+    private static bool IsSpreadDatatype(HarloweValue value)
+      => value.Kind == HarloweValueKind.Datatype && value.AsDatatype.IsSpread;
+
+    /// <summary>
+    /// The array walk in reference's <c>matches</c>. A spread datatype on either
+    /// side takes as long a run from the other side as it can, which may be no
+    /// run at all. Both sides have to be used up, so a spread left over when the
+    /// other side runs out fails the match.
+    /// </summary>
+    private static bool MatchesArrays(List<HarloweValue> left, List<HarloweValue> right, int depth, ref bool tooDeep)
+    {
+      int l = 0, r = 0;
+      while (l < left.Count && r < right.Count)
+      {
+        if (IsSpreadDatatype(left[l]))
+        {
+          while (r < right.Count && MatchesRecur(left[l], right[r], depth + 1, ref tooDeep)) r++;
+          l++;
+        }
+        else if (IsSpreadDatatype(right[r]))
+        {
+          while (l < left.Count && MatchesRecur(left[l], right[r], depth + 1, ref tooDeep)) l++;
+          r++;
+        }
+        else
+        {
+          if (!MatchesRecur(left[l], right[r], depth + 1, ref tooDeep)) return false;
+          l++;
+          r++;
+        }
+      }
+      return l >= left.Count && r >= right.Count;
+    }
+
     private static HarloweValue TypeError(string op, HarloweValue offender)
       => HarloweValue.OfError($"{op} does not apply to a {offender.Kind}");
 
@@ -1642,6 +2031,9 @@ namespace Harlowe.Runtime
 
       var key = Evaluate(accessor);
       if (key.IsError) return key;
+      if (key.Kind == HarloweValueKind.String
+          && (container.Kind == HarloweValueKind.CustomMacro || container.Kind == HarloweValueKind.TypedVar))
+        return ResolveIdentifierAccessor(container, key.AsString);
       return ResolveValueAccessor(container, key);
     }
 
@@ -1649,6 +2041,18 @@ namespace Harlowe.Runtime
     {
       switch (container.Kind)
       {
+        case HarloweValueKind.CustomMacro:
+        {
+          if (name != "params") return HarloweValue.OfError($"a custom macro has no property '{name}'");
+          var parameters = container.AsCustomMacro.Parameters;
+          var list = new List<HarloweValue>(parameters.Count);
+          for (int i = 0; i < parameters.Count; i++) list.Add(HarloweValue.OfTypedVar(parameters[i]));
+          return HarloweValue.OfArray(list);
+        }
+        case HarloweValueKind.TypedVar:
+          if (name == "name") return HarloweValue.OfString(container.AsTypedVar.Name);
+          if (name == "datatype") return container.AsTypedVar.DatatypeProperty;
+          return HarloweValue.OfError($"a typed variable name has no property '{name}'");
         case HarloweValueKind.Datamap:
           if (container.AsDatamap.TryGetValue(name, out var v)) return v;
           return HarloweValue.OfError($"datamap has no key '{name}'");

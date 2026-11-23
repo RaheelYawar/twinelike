@@ -1651,14 +1651,14 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
-    public void Move_WholeVariable_SourceKept()
+    public void Move_WholeVariable_SourceDeleted()
     {
-      // Reference's documented contract: "Moving from variable to variable,
-      // such as by (move:$p into $q), won't cause $p to be deleted."
+      // What real 3.3.9 and the 4.0 specs do, against the (move:) article's
+      // "won't cause $p to be deleted".
       var store = StoreWith("p", HarloweValue.OfNumber(7));
       Assert.False(EvalMoveArg("$p into $q", store).IsError);
       Assert.Equal(7, store.Get("q", false).AsNumber);
-      Assert.Equal(7, store.Get("p", false).AsNumber);
+      Assert.Null(store.Get("p", false));
     }
 
     [Fact]
@@ -1703,28 +1703,25 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
-    public void Move_Length_AssignsThenErrors()
+    public void Move_Length_CopiesAndLeavesTheSource()
     {
-      // `length` reads fine but can't be deleted. Reference's order is
-      // set-then-delete, so the destination keeps the value and the canSet
-      // error surfaces after; the source array is untouched.
+      // `length` reads fine but can't be deleted, and reference ignores what
+      // src.delete() returns, so this is a plain copy with no error.
       var store = StoreWith("a", Numbers(1, 2, 3));
-      var v = EvalMoveArg("$a's length into $x", store);
-      Assert.True(v.IsError);
-      Assert.Equal("I can't forcibly alter the 'length' of the array.", v.ErrorMessage);
+      Assert.False(EvalMoveArg("$a's length into $x", store).IsError);
       Assert.Equal(3, store.Get("x", false).AsNumber);
       Assert.Equal(3, store.Get("a", false).AsArray.Count);
     }
 
     [Fact]
-    public void Move_ColourProperty_AssignsThenErrors()
+    public void Move_ColourProperty_CopiesAndLeavesTheSource()
     {
       var store = new HarloweVariableStore();
       EvalP("$col to (rgb: 10, 20, 30)", store);
-      var v = EvalMoveArg("$col's r into $x", store);
-      Assert.True(v.IsError);
-      Assert.Equal("I can't modify the colour", v.ErrorMessage);
+      var colour = store.Get("col", false);
+      Assert.False(EvalMoveArg("$col's r into $x", store).IsError);
       Assert.Equal(10, store.Get("x", false).AsNumber);
+      Assert.Same(colour, store.Get("col", false));
     }
 
     [Fact]
@@ -2039,7 +2036,7 @@ namespace Harlowe.Tests.Runtime
     {
       var v = EvalUnpackArg("(a: 1, 2) into (a: ...$x)");
       Assert.True(v.IsError);
-      Assert.Contains("datatypes", v.ErrorMessage);
+      Assert.Contains("typed variable", v.ErrorMessage);
     }
 
     [Fact]

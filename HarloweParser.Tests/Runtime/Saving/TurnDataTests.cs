@@ -341,10 +341,10 @@ namespace Harlowe.Tests.Runtime.Saving
     }
 
     [Fact]
-    public void VersionNewerThanTurnData_IsStillRefused()
+    public void VersionNewerThanCurrent_IsRefused()
     {
       var (reg, ctx) = Env();
-      var r = SaveSerializer.DeserialiseTimeline("{ \"version\": 3, \"moments\": [\"P1\"] }", Story("one"), reg, ctx);
+      var r = SaveSerializer.DeserialiseTimeline("{ \"version\": " + (SaveBlobVersion.Current + 1) + ", \"moments\": [\"P1\"] }", Story("one"), reg, ctx);
       Assert.False(r.Ok);
       Assert.Contains("newer version", r.Error);
     }

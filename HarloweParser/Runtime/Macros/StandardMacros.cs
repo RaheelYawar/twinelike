@@ -130,6 +130,14 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new LinkMacro("link-rerun", RevisionMode.Replace, once: false, replacesLabel: false));
       registry.Register(new LinkGotoMacro());
       registry.Register(new LinkUndoMacro());
+      registry.Register(new MacroMacro());
+      registry.Register(new OutputDataMacro("output-data"));
+      registry.Register(new OutputDataMacro("out-data"));
+      registry.Register(new OutputMacro("output"));
+      registry.Register(new OutputMacro("out"));
+      registry.Register(new ErrorMacro());
+      registry.Register(new PartialMacro());
+      registry.Register(new CustomCommandMacro());
     }
   }
 }

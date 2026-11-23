@@ -13,16 +13,20 @@ for the save-model slice (which lands `(history:)` semantics).
 
 - **High severity (0 active, 6 fixed)**: silent wrong result or breaks documented Harlowe idioms.
 - **Medium severity (0 active, 10 fixed, 1 reclassified)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
-- **Low severity (7 active, 2 fixed)**: documented as deliberate or marginal.
+- **Low severity (12 active, 2 fixed)**: documented as deliberate or marginal.
 
-**7 active, all low-severity** — #26 (deliberate: a printed array renders each
+**12 active, all low-severity** — #26 (deliberate: a printed array renders each
 item separately, so markup can't span items), #17 (load-guard vs intra-turn `(goto:)`), #18
 (stacked-interaction nesting order), #21 (deliberate: out-of-range array sets
 error rather than growing sparse holes), #23 (deliberate: a `via`-lambda's RNG
 draw is rewound per match so the passes stay idempotent), #24 (deliberate: the
 `even`/`odd` datatypes require a Number rather than coercing one), #25
 (deliberate: the `lowercase`/`uppercase` datatypes don't expand under case
-mapping, so `ß` is neither).
+mapping, so `ß` is neither), #28 (deliberate: custom macro recursion stops at
+this library's stack-safe limits), #29 (deliberate: `(partial:)` doesn't copy
+the target's signature), #30 (deliberate: `(for:)+(output:)` works), #31
+(deliberate: markup in a code hook can't pair with markup outside the macro),
+#32 (a revision in a macro body whose target comes later does nothing).
 
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
 items are kept and marked rather than renumbered. "Reclassified" means the
@@ -37,10 +41,11 @@ which major a behaviour belongs to before filing it here.
 
 ### 19. Links to nonexistent passages are live, and following one poisons the save — ✅ FIXED (2026-07-12)
 
-**Resolved.** A link is now existence-checked where it is *built* — both
-`BodyRenderer.Visit(LinkNode)` and `LinkGotoMacro`, through the same
-`MacroContext.PassageExists` gate `(goto:)` uses (skipped when no story is wired,
-so standalone renderer tests are unaffected). A dangling target renders its label
+**Resolved.** A link is existence-checked when it *renders*, in
+`BodyRenderer.Visit(LinkNode)`, through the same `MacroContext.PassageExists` gate
+`(goto:)` uses (skipped when no story is wired, so standalone renderer tests are
+unaffected). `(link-goto:)` returns a command that renders through the same method,
+so a link stored in a variable is checked when it's printed. A dangling target renders its label
 as plain prose plus an in-prose error and emits **no `Link` event at all**, so the
 bug is closed structurally: there is nothing for a host to make clickable.
 `StorySession.Goto` refuses an unknown passage outright — returning the current
@@ -755,8 +760,8 @@ type signature). See the `ValidateOperators_*` tests in
 - **User-visible**: rare and one-directional (we reject where reference
   accepts), and an author reaching it has almost certainly forgotten a
   `(num:)`. Deliberate: reference's own Datatype article says these "Only
-  matches even numbers" / "odd numbers", so the documented contract wins over
-  the coercion artefact, per the version policy in `CLAUDE.md`. Pinned by
+  matches even numbers" / "odd numbers", so the documented contract was kept
+  over the coercion artefact, an exception to following the released build. Pinned by
   `EvenAndOdd_RejectNonNumbers`. Revisit only if a real story depends on it.
 
 ### 26. A printed array renders each item separately (deliberate; found in the printed-markup slice, 2026-11-21)
@@ -764,7 +769,27 @@ type signature). See the `ValidateOperators_*` tests in
 - **Ours**: `BodyRenderer.EmitPrinted` renders each item as its own markup source, joined by commas. A datamap prints as literal `key:value` text.
 - **Reference**: `printBuiltinValue` joins the items into one string before rendering, so markup can span items, and prints a datamap as an HTML table with verbatim cells.
 - **Trigger**: `(print: (a: "''x", "y''"))`, where the bold opens in one item and closes in another.
-- **User-visible**: those delimiters stay literal. Deliberate: per-item rendering keeps non-string items such as datatypes and changers from being parsed as markup, and the core never puts HTML tables into the render channel. Separately, `(print:)` returns a value rather than reference's Command, because no Command type exists here, so `(print: (print: "x"))` prints `x` where reference prints `[A (print:) command]`.
+- **User-visible**: those delimiters stay literal. Deliberate: per-item rendering keeps non-string items such as datatypes and changers from being parsed as markup, and the core never puts HTML tables into the render channel.
+
+### 28. Custom macro recursion stops sooner than in a browser (deliberate; found in the custom macro slice, 2026-11-22)
+
+Real 3.3.9 recurses until the JavaScript stack runs out, about 450 calls for a simple macro. Here a call counts toward the 128-level render nesting limit, with a second limit on open expressions, and past either one it's the same in-prose "infinite loop" error. A stack overflow can't be caught and would kill the host, and these limits fit a 512 KB stack even where the runtime has no stack check.
+
+### 29. `(partial:)` doesn't copy the target's type signature (deliberate; found in the custom macro slice, 2026-11-22)
+
+Reference trims the target's signature and checks calls against it, keeping any rest position even when pre-filled, so `(partial: 'text-style', 'bold')` called with nothing errors there. Here the target macro does its own checking on the combined values, so that call works. Twinelike's built-ins have no signature objects to copy.
+
+### 30. `(for:)` composed with `(output:)` works (deliberate; found in the custom macro slice, 2026-11-22)
+
+`(for: each _a, 1, 2)+(output:)[_a]` renders `12` here, which is what Harlowe's own spec asserts. Real 3.3.9 stops with an internal JavaScript error when the command runs, so no working story can depend on that.
+
+### 31. Markup in a code hook can't pair with markup outside the macro (deliberate; found in the custom macro review, 2026-11-22)
+
+Reference lexes a passage with one stack of open markers, so a closer inside a code hook can close something opened before the macro. That discards the macro's own markers and turns the call into prose: `''(print: [ a'' ])''` renders a bold `(print: [ a` followed by ` ])''`. A code hook with no `]` likewise leaves `(print: [ )z` as prose. Here a code hook has its own markers, so the first example prints ` a'' ` in bold and the second is an in-prose error that takes the rest of its line with it, as other unparseable macros do. Only malformed macro calls are affected, and matching them would mean un-lexing a macro that has already been tokenized.
+
+### 32. A revision in a macro body with a later target does nothing (found in the custom macro review, 2026-11-22)
+
+`(set: $m to (macro: [(replace: ?a)[new](output-data: 1)]))($m:)|a>[x]` renders `1newx` in real 3.3.9, printing the hook beside the call even though `?a` isn't on the page yet. Here it renders `1x`, as the same `(replace:)` outside a macro does in both. A target already on the page behaves the same in both.
 
 ### 25. The `lowercase` / `uppercase` datatypes don't expand under case mapping (deliberate; found in the Datatype slice review, 2026-07-26)
 

@@ -72,6 +72,18 @@ namespace Harlowe.Runtime
     /// and that appears inside array/datamap literals to make a pattern. Stored
     /// as a <see cref="DatatypeValue"/> on <see cref="HarloweValue.Raw"/>.
     /// </summary>
-    Datatype
+    Datatype,
+
+    /// <summary>Markup held as data, <c>[like this]</c> in a macro call. Stored as a <see cref="CodeHookValue"/>.</summary>
+    CodeHook,
+
+    /// <summary>A typed variable name, <c>num-type _a</c>. Can't be stored in a variable. Stored as a <see cref="TypedVarValue"/>.</summary>
+    TypedVar,
+
+    /// <summary>A macro made by <c>(macro:)</c> or <c>(partial:)</c>, called as <c>($name:)</c>. Stored as a <see cref="CustomMacroValue"/>.</summary>
+    CustomMacro,
+
+    /// <summary>A command that runs when it appears in prose, like what a custom macro using <c>(output:)</c> returns. Stored as a <see cref="CommandValue"/>.</summary>
+    Command
   }
 }

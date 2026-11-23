@@ -29,5 +29,15 @@ namespace Harlowe
       }
       return sb.ToString();
     }
+
+    /// <summary>
+    /// True for a call to a custom macro held in a variable, <c>($name:)</c> or
+    /// <c>(_name:)</c>: the leading sigil is what reference's runner tests
+    /// (<c>macroNameToken.text.startsWith</c> in <c>ts/twinescript/runner.ts</c>).
+    /// Check this before <see cref="Normalize"/>, which would strip a leading
+    /// underscore and turn <c>(_a:)</c> into a call to <c>(a:)</c>.
+    /// </summary>
+    public static bool IsCustomCall(string name)
+      => !string.IsNullOrEmpty(name) && (name[0] == '$' || name[0] == '_');
   }
 }

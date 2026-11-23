@@ -119,15 +119,13 @@ namespace Harlowe.Tests.Twee
       => AssertBodyRoundTripStable("Hello $name.\n(if: $found)[You see [[Cave]].]\n");
 
     [Fact]
-    public void Body_MacroWithSpacingBeforeHook_Canonicalizes()
+    public void Body_MacroWithSpacingBeforeHook_KeepsTheSpacing()
     {
-      // Whitespace between `)` and `[` is insignificant — the parser attaches
-      // the hook either way, so the printer collapses the gap.
-      string canon = PrintBody("(if: $x)[yes]");
-      string spaced = PrintBody("(if: $x)   [yes]");
-      string newlined = PrintBody("(if: $x)\n[yes]");
-      Assert.Equal(canon, spaced);
-      Assert.Equal(canon, newlined);
+      // The gap renders unless the macro turns out to be a changer, so a
+      // reprint can't drop it without changing what a non-changer shows.
+      Assert.Equal("(if: $x)[yes]", PrintBody("(if: $x)[yes]"));
+      Assert.Equal("(if: $x)   [yes]", PrintBody("(if: $x)   [yes]"));
+      Assert.Equal("(if: $x)\n[yes]", PrintBody("(if: $x)\n[yes]"));
     }
 
     [Fact]

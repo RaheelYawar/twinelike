@@ -120,6 +120,15 @@ namespace Harlowe.Runtime
     /// <summary>True when render should stop and hand control back to the session for a navigation — a pending <c>(goto:)</c> or <c>(load-game:)</c>.</summary>
     public bool NavigationHalt => PendingGoto != null || PendingLoad != null;
 
+    /// <summary>The custom macro whose body is running, or null. Each call saves and restores the one it interrupts.</summary>
+    internal CustomMacroFrame CurrentCustomMacro;
+
+    /// <summary>True when the renderer should stop: a navigation is pending, or the running custom macro has produced its output.</summary>
+    internal bool RenderBlocked => NavigationHalt || (CurrentCustomMacro != null && CurrentCustomMacro.Done);
+
+    /// <summary>True in the sandbox context a save is read back through, the only place the engine's own <c>(custom-command:)</c> macro runs.</summary>
+    internal bool IsRestoringSave;
+
     /// <summary>
     /// True while rendering a just-loaded passage (set by <see cref="StorySession"/>
     /// from its session-held flag, cleared on the next navigation). <c>(load-game:)</c>
@@ -287,6 +296,27 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
+    /// Admits a custom macro's body of <paramref name="sourceLength"/> characters.
+    /// It counts toward <see cref="MaxRenderNesting"/> and the nested-render
+    /// budget but not <see cref="MaxRenderDepth"/>, which limits displays and
+    /// printed markup to 20 levels where real Harlowe runs custom macros
+    /// hundreds deep. On <see cref="NestedRenderRefusal.None"/> pair with
+    /// <see cref="ExitCustomMacro"/>.
+    /// </summary>
+    internal NestedRenderRefusal EnterCustomMacro(int sourceLength)
+    {
+      if (RenderNesting >= MaxRenderNesting) return NestedRenderRefusal.TooDeep;
+      int remaining = NestedRenderBudget - NestedRenderCost;
+      if (sourceLength > remaining - NestedRenderOverhead) return NestedRenderRefusal.OverBudget;
+      NestedRenderCost += sourceLength + NestedRenderOverhead;
+      RenderNesting++;
+      return NestedRenderRefusal.None;
+    }
+
+    /// <summary>Closes a body admitted by <see cref="EnterCustomMacro"/>.</summary>
+    internal void ExitCustomMacro() => RenderNesting--;
+
+    /// <summary>
     /// Charges a revision's clone of <paramref name="cost"/> units (see
     /// <see cref="Rendering.RenderNodes.SpliceCost"/>) to the same budget, or
     /// returns false when it doesn't fit. Without this, a passage that displays
@@ -442,6 +472,16 @@ namespace Harlowe.Runtime
         if (list != null && list.Count > count) list.RemoveRange(count, list.Count - count);
       }
     }
+  }
+
+  /// <summary>One running custom macro: reference's stack frame with an <c>output</c> function.</summary>
+  internal sealed class CustomMacroFrame
+  {
+    /// <summary>What <c>(output:)</c>, <c>(output-data:)</c> or <c>(error:)</c> produced.</summary>
+    public HarloweValue Output;
+
+    /// <summary>True once one of those has run, which stops the rest of the body.</summary>
+    public bool Done;
   }
 
   /// <summary>Why <see cref="MacroContext.EnterNestedRender"/> turned a nested render away.</summary>

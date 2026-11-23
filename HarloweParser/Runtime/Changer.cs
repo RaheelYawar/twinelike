@@ -151,6 +151,17 @@ namespace Harlowe.Runtime
       }
     }
 
+    /// <summary>True when <c>(output:)</c> is part of this changer, so an attached hook becomes a custom macro's output instead of rendering.</summary>
+    internal bool HasOutputPatch
+    {
+      get
+      {
+        for (int i = 0; i < _patches.Count; i++)
+          if (_patches[i] is OutputPatch) return true;
+        return false;
+      }
+    }
+
     /// <summary>
     /// Construct a changer from a fixed sequence of patches. Used by macros
     /// that need to express more than one patch in a single produced changer —
@@ -264,13 +275,22 @@ namespace Harlowe.Runtime
       if (iter.Items == null) return;
       for (int i = 0; i < iter.Items.Count; i++)
       {
+        // A custom macro's (output-data:) or a (goto:) in the loop ends it.
+        if (ctx.RenderBlocked) return;
         var item = iter.Items[i];
         if (item != null && item.IsError) { output.Error(item.ErrorMessage); continue; }
+        // The iteration's own scope holds the loop variable, so a click armed
+        // inside the loop still finds this iteration's value when it fires.
+        using (ctx.Store.PushTempScope())
         using (ctx.Store.PushItBinding(item))
         using (ctx.Store.PushPosBinding(i + 1))
-        using (ctx.Store.PushBinding(iter.ParamName, iter.ParamIsTemporary, item))
         {
-          RunStyles(d.Styles, output, renderHook);
+          // A temp loop variable just lives in that scope. A binding would take
+          // it back out when the iteration ends, before any click could read it.
+          System.IDisposable storyBinding = null;
+          if (iter.ParamIsTemporary) ctx.Store.SetInCurrentScope(iter.ParamName, true, item);
+          else storyBinding = ctx.Store.PushBinding(iter.ParamName, false, item);
+          using (storyBinding) RunStyles(d.Styles, output, renderHook);
         }
       }
     }
@@ -424,6 +444,7 @@ namespace Harlowe.Runtime
         ArmLambda = spec.ArmLambda,
         Styles = styles,
         RenderDeferredHook = renderHook,
+        TempScopes = ctx.Store.CaptureScopeChain(),
         RegionId = regionId
       });
     }

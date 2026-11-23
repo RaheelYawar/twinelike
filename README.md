@@ -205,7 +205,7 @@ A story keeps the semantics of the Harlowe major it declares. `format-version` s
 | `(link-reveal-goto:)`, `(link-show:)`, `(cycling-link:)`, `(link-fullscreen:)`, `(link-storylet:)` | ✗ |
 | `(live:)`, `(event:)`, `(trigger:)` | ✗ |
 | `(t8n:)`, `(transition:)`, transition modifiers | ✗ |
-| Custom `(macro:)`, `(output:)` | ✗ |
+| Custom macros: `(macro:)`, `(output:)`, `(output-data:)`, `(error:)`, `(partial:)`, `($name:)` calls, typed variables, code hooks, `startup` passages | ✓ |
 | Storylets | ✗ |
 
 ### Storage

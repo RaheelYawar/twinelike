@@ -7,11 +7,13 @@ namespace Harlowe
   /// <summary>
   /// Base traversal for <see cref="IBodyVisitor"/> collectors: leaves are
   /// no-ops, containers recurse (hooks — including hooks attached to macros and
-  /// changer chains — and inline-format spans). Collectors override just the
-  /// node they collect; a new container node added here descends for every
-  /// collector at once, instead of each hand-rolled copy having to remember to.
+  /// changer chains — and inline-format spans). It also walks macro arguments,
+  /// because a code hook there holds body content, such as a custom macro's
+  /// code. Collectors override just the node they collect; a new container node
+  /// added here descends for every collector at once, instead of each
+  /// hand-rolled copy having to remember to.
   /// </summary>
-  internal abstract class BodyWalker : IBodyVisitor
+  internal abstract class BodyWalker : IBodyVisitor, IExpressionVisitor
   {
     public virtual void Visit(TextNode node) { }
     public virtual void Visit(NewlineNode node) { }
@@ -26,6 +28,7 @@ namespace Harlowe
 
     public virtual void Visit(MacroNode node)
     {
+      VisitArguments(node.Arguments);
       if (node.AttachedHook != null) node.AttachedHook.Accept(this);
     }
 
@@ -49,7 +52,42 @@ namespace Harlowe
 
     public virtual void Visit(ChangerChainNode node)
     {
+      node.Expression?.Accept(this);
       if (node.AttachedHook != null) node.AttachedHook.Accept(this);
+    }
+
+    public virtual void Visit(LiteralNode node) { }
+    public virtual void Visit(IdentifierNode node) { }
+    public virtual void Visit(VariableRefNode node) { }
+    public virtual void Visit(HookRefNode node) { }
+
+    public virtual void Visit(LambdaNode node)
+    {
+      node.WhereClause?.Accept(this);
+      node.ViaClause?.Accept(this);
+      node.WhenClause?.Accept(this);
+    }
+
+    public virtual void Visit(BinaryOpNode node)
+    {
+      node.Left?.Accept(this);
+      node.Right?.Accept(this);
+    }
+
+    public virtual void Visit(UnaryOpNode node) => node.Operand?.Accept(this);
+
+    public virtual void Visit(MacroCallNode node) => VisitArguments(node.Arguments);
+
+    public virtual void Visit(CodeHookNode node)
+    {
+      if (node.Children == null) return;
+      foreach (var child in node.Children) child.Accept(this);
+    }
+
+    protected void VisitArguments(List<IExpressionNode> arguments)
+    {
+      if (arguments == null) return;
+      for (int i = 0; i < arguments.Count; i++) arguments[i]?.Accept(this);
     }
 
     /// <summary>Visits every top-level child of <paramref name="ast"/>; null-safe.</summary>
@@ -107,7 +145,7 @@ namespace Harlowe
   /// variable link target <c>[[Go-&gt;$next]]</c> — is beyond any static check
   /// and is skipped rather than guessed at.</para>
   /// </summary>
-  internal class ReferenceCollector : BodyWalker, IExpressionVisitor
+  internal class ReferenceCollector : BodyWalker
   {
     /// <summary>One collected reference: the target, plus enough to point at it.</summary>
     internal struct Reference
@@ -162,55 +200,21 @@ namespace Harlowe
     public override void Visit(MacroNode node)
     {
       AddIfNavigation(node.Name, node.Arguments, node.Line, node.Column);
-      // Arguments may hold nested calls — (set: $x to (display: "P")).
-      VisitArguments(node.Arguments);
+      // The base walk covers arguments, which may hold nested calls —
+      // (set: $x to (display: "P")).
       base.Visit(node);
     }
 
-    public override void Visit(ChangerChainNode node)
-    {
-      node.Expression?.Accept(this);
-      base.Visit(node);
-    }
-
-    // --- expression side: find navigation macros nested in arguments ---
-
-    public void Visit(LiteralNode node) { }
-    public void Visit(IdentifierNode node) { }
-    public void Visit(VariableRefNode node) { }
-    public void Visit(HookRefNode node) { }
-
-    public void Visit(LambdaNode node)
-    {
-      node.WhereClause?.Accept(this);
-      node.ViaClause?.Accept(this);
-      node.WhenClause?.Accept(this);
-    }
-
-    public void Visit(BinaryOpNode node)
-    {
-      node.Left?.Accept(this);
-      node.Right?.Accept(this);
-    }
-
-    public void Visit(UnaryOpNode node) => node.Operand?.Accept(this);
-
-    public void Visit(MacroCallNode node)
+    public override void Visit(MacroCallNode node)
     {
       AddIfNavigation(node.Name, node.Arguments, node.Line, node.Column);
-      VisitArguments(node.Arguments);
-    }
-
-    private void VisitArguments(List<IExpressionNode> arguments)
-    {
-      if (arguments == null) return;
-      for (int i = 0; i < arguments.Count; i++) arguments[i]?.Accept(this);
+      base.Visit(node);
     }
 
     /// <summary>Record a reference if this is a navigation macro whose target argument is a literal string.</summary>
     private void AddIfNavigation(string macroName, List<IExpressionNode> arguments, int line, int column)
     {
-      if (macroName == null || arguments == null) return;
+      if (macroName == null || arguments == null || MacroNames.IsCustomCall(macroName)) return;
       if (!NavigationMacros.TryGetValue(MacroNames.Normalize(macroName), out var which)) return;
 
       int index;

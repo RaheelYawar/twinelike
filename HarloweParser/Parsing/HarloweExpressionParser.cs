@@ -230,18 +230,18 @@ namespace Harlowe.Parsing
 
       while (true)
       {
-        args.Add(ParseExpression(cursor, allowAssignmentAtTop: allowAssignment));
-
-        if (cursor.Current.Type == TokenType.Comma)
+        // Reference ignores empty arguments, so `(a:,1)` and `(a:1,,2)` are
+        // fine, and a trailing comma is the same case.
+        while (cursor.Current.Type == TokenType.Comma) cursor.Advance();
+        if (cursor.Current.Type == TokenType.MacroClose)
         {
           cursor.Advance();
-          if (cursor.Current.Type == TokenType.MacroClose)
-          {
-            cursor.Advance();
-            return args;
-          }
-          continue;
+          return args;
         }
+
+        args.Add(ParseExpression(cursor, allowAssignmentAtTop: allowAssignment));
+
+        if (cursor.Current.Type == TokenType.Comma) continue;
 
         if (cursor.Current.Type == TokenType.MacroClose)
         {
@@ -273,6 +273,7 @@ namespace Harlowe.Parsing
     /// </summary>
     public static bool IsAssignmentMacro(string name)
     {
+      if (MacroNames.IsCustomCall(name)) return false;
       string n = MacroNames.Normalize(name);
       return n == "set" || n == "put" || n == "move" || n == "unpack";
     }
@@ -560,11 +561,58 @@ namespace Harlowe.Parsing
           if (cursor.Current.Type == TokenType.ParenClose) cursor.Advance();
           return inner;
 
+        case TokenType.BracketOpen:
+          return ParseCodeHook(cursor);
+
+        case TokenType.LinkOpen:
+          return ParseLinkValue(cursor);
+
         case TokenType.Error:
           throw ErrorTokenException(t);
       }
 
       throw new HarloweParseException($"Unexpected token in expression: {t.Type}({t.Value})", t.Line, t.Column);
+    }
+
+    /// <summary>
+    /// The body parser that code hooks are read with. A body parser hands itself
+    /// over at construction so hook nesting is counted across both, and a
+    /// standalone expression parser (a save value) makes its own.
+    /// </summary>
+    internal HarloweBodyParser BodyParser;
+
+    private HarloweBodyParser OwnBodyParser => BodyParser ?? new HarloweBodyParser(this);
+
+    /// <summary>
+    /// Cursor is at a code hook's <c>[</c>. Its contents are markup, so the body
+    /// parser reads them up to the paired <c>]</c>. An opener with no partner
+    /// never closed, and is a parse error at the opener.
+    /// </summary>
+    private IExpressionNode ParseCodeHook(TokenCursor cursor)
+    {
+      var open = cursor.Current;
+      if (open.Partner < 0)
+        throw new HarloweParseException("this code hook has no closing ']'", open.Line, open.Column);
+      cursor.Advance();
+      var children = OwnBodyParser.ParseCodeHookChildren(cursor);
+      string slice = cursor.SliceFrom(open.Position);
+      cursor.Advance();
+      return new CodeHookNode { Children = children, Source = slice == null ? null : slice + "]" };
+    }
+
+    /// <summary>
+    /// A <c>[[…]]</c> in an expression. Reference lexes it as a link there too,
+    /// and the link syntax is a shorthand for <c>(link-goto:)</c>, which is the
+    /// node this builds.
+    /// </summary>
+    private IExpressionNode ParseLinkValue(TokenCursor cursor)
+    {
+      var open = cursor.Current;
+      var link = OwnBodyParser.ParseLinkForExpression(cursor);
+      var args = new List<IExpressionNode> { new LiteralNode { Kind = LiteralKind.String, Value = link.Text } };
+      if (link.Text != link.Target)
+        args.Add(new LiteralNode { Kind = LiteralKind.String, Value = link.Target });
+      return new MacroCallNode { Name = "link-goto", Arguments = args, Line = open.Line, Column = open.Column };
     }
 
     /// <summary>

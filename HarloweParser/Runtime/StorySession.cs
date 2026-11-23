@@ -101,6 +101,10 @@ namespace Harlowe.Runtime
     // loaded passage — the infinite-loop guard.
     private bool _loadedGame;
 
+    // False until the first render. Startup passages belong to the first turn,
+    // but a host that navigates before ever rendering still needs them to run.
+    private bool _startupHasRun;
+
     // The live render-tree state for the most recent main render. Kept alive
     // across renders so DispatchEvent can mutate it, re-flush, and return an
     // updated RenderResult without re-rendering the whole passage. Both reset
@@ -348,6 +352,7 @@ namespace Harlowe.Runtime
         if (!_liveAtTurnStart)
         {
           _present.StoreDelta = null;
+          _present.TypeDelta = null;
           _present.SeedIter = null;
         }
         FinalizePresent();
@@ -369,7 +374,7 @@ namespace Harlowe.Runtime
       // previous turn's end.
       if (_liveAtTurnStart)
       {
-        _store.ResetStoryVars(FlattenStore());
+        _store.ResetStoryVars(FlattenStore(), FlattenTypes());
         RestoreRng();
       }
       else
@@ -631,6 +636,8 @@ namespace Harlowe.Runtime
       if (past != null) _past.AddRange(past);
       _future.Clear();
       _present = present;
+      // A loaded game's past already holds what its startup passages did.
+      _startupHasRun = true;
       RestoreToPresent();
       // The upcoming render shows a just-loaded passage; arm the loop guard so a
       // (load-game:) within it errors rather than reloading forever. RestoreToPresent
@@ -662,7 +669,8 @@ namespace Harlowe.Runtime
         EvaluationContext = this,
         Invoker = _registry,
         Rng = new MulberryRng(),
-        Profile = HarloweProfile.SaveFormat
+        Profile = HarloweProfile.SaveFormat,
+        IsRestoringSave = true
       };
 
     /// <summary>
@@ -703,6 +711,7 @@ namespace Harlowe.Runtime
       if (_present.StoreDelta != null) return;
       _present.PassageName = _currentPassage;
       _present.StoreDelta = _store.TakeStoryDelta();
+      _present.TypeDelta = _store.TakeTypeDelta();
       // Sparse RNG recording: stamp SeedIter only if the turn actually drew, so a
       // no-draw turn stays compressible (SeedIter null). The shared stream's live
       // position is this turn's end, since its draws are the most recent.
@@ -728,7 +737,7 @@ namespace Harlowe.Runtime
     /// </summary>
     private void RestoreToPresent()
     {
-      _store.ResetStoryVars(FlattenStore());   // start-of-turn store; the replay re-applies the turn's sets
+      _store.ResetStoryVars(FlattenStore(), FlattenTypes());   // start-of-turn store; the replay re-applies the turn's sets
       RestoreRng();                            // start-of-turn RNG; the replay reproduces the turn's draws
       _currentPassage = _present.PassageName;
       _replayFrom = _present.Visits != null && _present.Visits.Count > 0
@@ -794,6 +803,23 @@ namespace Harlowe.Runtime
       {
         var delta = _past[j].StoreDelta;
         if (delta == null) continue;
+        foreach (var kv in delta)
+        {
+          if (kv.Value == null) flat.Remove(kv.Key);
+          else flat[kv.Key] = kv.Value;
+        }
+      }
+      return flat;
+    }
+
+    /// <summary>The story-variable type restrictions at the start of the present turn: every past turn's, as with <see cref="FlattenStore"/>.</summary>
+    private Dictionary<string, HarloweValue> FlattenTypes()
+    {
+      var flat = new Dictionary<string, HarloweValue>();
+      for (int j = 0; j < _past.Count; j++)
+      {
+        var delta = _past[j].TypeDelta;
+        if (delta == null) continue;
         foreach (var kv in delta) flat[kv.Key] = kv.Value;
       }
       return flat;
@@ -821,6 +847,7 @@ namespace Harlowe.Runtime
       {
         _liveRoot = null;
         _liveContext = null;
+        _registry.EvaluationDepth = 0;
         // A replay of a restored turn starts from its entry passage and rebuilds
         // the redirect trail from scratch — seeded with the entry so the derived
         // `visits` counts it mid-replay (a restored Moment's PassageName is the
@@ -878,7 +905,10 @@ namespace Harlowe.Runtime
       // enchantments) without re-rendering the whole passage.
       var builder = new Rendering.RenderTreeBuilder();
       ctx.LiveRoot = builder.Root;
-      new BodyRenderer(builder, _registry, ctx).Render(passage.Ast);
+      var renderer = new BodyRenderer(builder, _registry, ctx);
+      if (depth == 0 && (_past.Count == 0 || !_startupHasRun)) RenderStartupPassages(renderer);
+      _startupHasRun = true;
+      renderer.Render(passage.Ast);
       // Before any early return below: an abandoned render's ids stay spent.
       _nextRegionIndex = ctx.NextRegionIndex;
 
@@ -939,6 +969,31 @@ namespace Harlowe.Runtime
       _liveContext = ctx;
 
       return BuildResultFromLiveTree();
+    }
+
+    /// <summary>
+    /// Runs every <c>startup</c>-tagged passage ahead of the first turn's passage,
+    /// in reference's natural name order (<see cref="NaturalOrder"/>), as its
+    /// <c>showPassage</c> does when no past turn exists. They share the passage's
+    /// frame, so their prose shows above it and their temp variables stay readable
+    /// in it. This is where stories usually define their custom macros.
+    /// </summary>
+    private void RenderStartupPassages(BodyRenderer renderer)
+    {
+      List<HarlowePassage> startups = null;
+      foreach (var candidate in _story.Passages)
+      {
+        if (candidate.Tags == null || !candidate.Tags.Contains("startup")) continue;
+        if (startups == null) startups = new List<HarlowePassage>();
+        startups.Add(candidate);
+      }
+      if (startups == null) return;
+      startups.Sort((a, b) =>
+      {
+        int order = NaturalOrder.Compare(a.Name, b.Name);
+        return order != 0 ? order : string.CompareOrdinal(a.Name, b.Name);
+      });
+      for (int i = 0; i < startups.Count; i++) renderer.Render(startups[i].Ast);
     }
 
     /// <summary>
@@ -1003,6 +1058,7 @@ namespace Harlowe.Runtime
       _liveContext.ResetTargetWalk(_liveRoot);
       _liveContext.RenderNesting = 0;
       _liveContext.DisplayDepth = 0;
+      _registry.EvaluationDepth = 0;
 
       // Render the deferred hook into a detached subtree using the live
       // context — so inner (click:)/(enchant:)/(replace:) calls inside the
@@ -1014,7 +1070,9 @@ namespace Harlowe.Runtime
       var styles = fired.Styles;
       if (styles != null)
         for (int i = 0; i < styles.Count; i++) detached.PushStyle(styles[i]);
-      fired.RenderDeferredHook?.Invoke(detached);
+      // The hook runs with the temp variables it could see when it was armed.
+      using (fired.TempScopes != null ? _liveContext.Store.EnterScopeChain(fired.TempScopes) : null)
+        fired.RenderDeferredHook?.Invoke(detached);
       if (styles != null)
         for (int i = styles.Count - 1; i >= 0; i--) detached.PopStyle();
       var source = detached.Root.Children;

@@ -1,6 +1,6 @@
 # Harlowe Version Compatibility
 
-**Status: machinery shipped 2026-07-20; two switches implemented (rows 1 and 2), nine still inventory.** `HarloweProfile` selects a profile from the story's declared `format-version` (host-overridable at the loader), and `CompatibilityProfileTests` reflects over the switch properties to demand a behavioural probe per switch — so a switch declared but wired to nothing fails the build. This file stays the append-only record of every point where Harlowe majors deliberately differ. The governing policy — per-major lock-in, append-only profiles, what does and doesn't earn a switch — is the "Version policy" section of `CLAUDE.md`; the implementation procedure, which outlives this slice because every future major re-runs it, is `COMPATIBILITY-PLAN.md`.
+**Status: machinery shipped 2026-07-20; two switches implemented (rows 1 and 2), ten still inventory.** `HarloweProfile` selects a profile from the story's declared `format-version` (host-overridable at the loader), and `CompatibilityProfileTests` reflects over the switch properties to demand a behavioural probe per switch — so a switch declared but wired to nothing fails the build. This file stays the append-only record of every point where Harlowe majors deliberately differ. The governing policy — per-major lock-in, append-only profiles, what does and doesn't earn a switch — is the "Version policy" section of `CLAUDE.md`; the implementation procedure, which outlives this slice because every future major re-runs it, is `COMPATIBILITY-PLAN.md`.
 
 **Add a row the moment a version difference is found**, even if nothing is implemented on either side. A missing switch is invisible; an empty row is not.
 
@@ -29,6 +29,9 @@
 | 9 | Colour `oklch` data name | absent | present, alongside `lch` | — | 4.0 Alterations → Coding |
 | 10 | Measurement datatype in `(text-size:)`, `(border-size:)`, `(corner-radius:)`, `(text-indent:)`, `(box:)`, `(scroll:)`, … | number-based "scale" arguments | CSS-style measurements | **V3** for `(text-size:)`; rest unimplemented | 4.0 Additions → Coding; `MACRO-DIVERGENCES.md` #7 |
 | 11 | `[=` unclosed hook "punch-through" in headers/footers | broken, left unfixed for compatibility | fixed | — (column markup unimplemented) | 4.0 Bugfixes → Macros |
+| 12 | `(move:)` of a temp variable declared in an enclosing hook | the source stays readable | the source reads as deleted until that hook ends | **V3** | `delete` in `ts/internaltypes/varscope.ts` |
+| 13 | `(move:)` out of a type-restricted variable | only copies, the source keeps its value | deletes | **V3** | `delete()` in `ts/internaltypes/varref.ts` passes `value ?? undefined` to `canSet` |
+| 14 | A data pattern as a variable's type, `(a: num)-type $a` | restricts later writes | doesn't, only a plain datatype does | **V3** | `defineType` in `ts/datatypes/typedvar.ts` |
 
 Row 5's `any` *datatype* shipped with the Datatype slice (2026-07-25) under both profiles, per the new-in-N rule; the row is about the array/dataset *data name*, which is still unimplemented here along with the rest of the `some`/`all` determiner family. The two can coexist because a word in property position never reaches the datatype rule (`$arr's any` lexes `any` as a data key), so whoever implements determiners inherits the V3 side for free and only has to withhold it under V4.
 

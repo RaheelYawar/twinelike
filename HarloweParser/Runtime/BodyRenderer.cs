@@ -24,9 +24,9 @@ namespace Harlowe.Runtime
   /// <see cref="HarloweValueKind.Changer"/> and has an
   /// <see cref="MacroNode.AttachedHook"/>, the changer's open HTML is emitted,
   /// the hook contents are rendered, and the close HTML follows — see
-  /// <see cref="Changer.Apply"/>. Without an attached hook a changer in prose
-  /// is an in-prose error, matching reference (storing one in a variable
-  /// happens during expression evaluation and never reaches this renderer).
+  /// <see cref="Changer.Apply"/>. A changer with no hook of its own goes
+  /// through <see cref="FollowChanger"/>, which combines it across a <c>+</c>
+  /// and attaches it to the next hook or command, or reports that it can't.
   /// </para>
   ///
   /// <para>
@@ -76,11 +76,371 @@ namespace Harlowe.Runtime
 
     private void RenderChildren(List<IBodyNode> children)
     {
+      var priorSiblings = _siblings;
+      int priorIndex = _siblingIndex;
+      var priorPlanned = _planned;
+      _siblings = children;
+      _planned = null;
       for (int i = 0; i < children.Count; i++)
       {
-        if (_context.NavigationHalt) return;
+        if (_context.RenderBlocked) break;
+        _siblingIndex = i;
+        if (_planned != null && _planned.TryGetValue(i, out var planned))
+        {
+          planned?.Invoke();
+          continue;
+        }
+        if (_frameBlocked && RunsCode(children[i])) continue;
         children[i].Accept(this);
       }
+      _siblings = priorSiblings;
+      _siblingIndex = priorIndex;
+      _planned = priorPlanned;
+    }
+
+    // Set by an (output:) outside any custom macro, for the rest of its hook or
+    // passage. Reference blocks the frame's remaining code there, while prose
+    // already in the page stays.
+    private bool _frameBlocked;
+
+    // The node list being rendered and the current position in it, so a changer
+    // or boolean with no hook of its own can look at what follows it. _planned
+    // holds what a later position does instead of rendering its node, and a
+    // null action removes the node.
+    private List<IBodyNode> _siblings;
+    private int _siblingIndex;
+    private Dictionary<int, System.Action> _planned;
+
+    private static bool RunsCode(IBodyNode node)
+      => node is MacroNode || node is ChangerChainNode || node is VariableNode || node is HookNode || node is LinkNode;
+
+    private void Plan(int index, System.Action action)
+    {
+      if (_planned == null) _planned = new Dictionary<int, System.Action>();
+      _planned[index] = action;
+    }
+
+    private void PlanRemoved(int from, int to)
+    {
+      for (int i = from; i <= to; i++) Plan(i, null);
+    }
+
+    /// <summary>An expression that's been evaluated and won't print, whose hook is still ordinary content.</summary>
+    private void PlanSpent(int index)
+    {
+      var node = _siblings[index];
+      Plan(index, () => RenderGapAndHook(GapOf(node), HookOf(node)));
+    }
+
+    private void RenderGapAndHook(string gap, IBodyNode hook)
+    {
+      if (hook == null) return;
+      if (!string.IsNullOrEmpty(gap)) _output.Text(gap);
+      hook.Accept(this);
+    }
+
+    private static HookNode HookOf(IBodyNode node)
+      => node is MacroNode macro ? macro.AttachedHook : (node as ChangerChainNode)?.AttachedHook;
+
+    private static string GapOf(IBodyNode node)
+      => node is MacroNode macro ? macro.HookGap : (node as ChangerChainNode)?.HookGap;
+
+    /// <summary>The next position after <paramref name="index"/> holding something other than reference's <c>nextNonWhitespace</c> skips.</summary>
+    private int NextContent(int index)
+    {
+      int next = index + 1;
+      while (next < _siblings.Count && RendersNoContent(_siblings[next])) next++;
+      return next;
+    }
+
+    /// <summary>Whitespace, line breaks, and comments, which leave no element in reference's DOM.</summary>
+    private static bool RendersNoContent(IBodyNode node)
+      => node is NewlineNode || node is CommentNode
+        || (node is TextNode text && string.IsNullOrWhiteSpace(text.Content))
+        || (node is HtmlNode html && IsLineBreakTag(html.RawHtml));
+
+    /// <summary>
+    /// A <c>&lt;br&gt;</c> by tag name, whatever attributes it carries. The name
+    /// ends only at whitespace, <c>/</c> or <c>&gt;</c>. A browser parses
+    /// <c>&lt;/br&gt;</c> as a line break too, so reference's DOM holds one.
+    /// </summary>
+    private static bool IsLineBreakTag(string html)
+    {
+      if (html == null) return false;
+      int name = html.StartsWith("</", System.StringComparison.Ordinal) ? 2 : 1;
+      if (html.Length <= name + 2
+          || string.Compare(html, name, "br", 0, 2, System.StringComparison.OrdinalIgnoreCase) != 0)
+        return false;
+      char next = html[name + 2];
+      return next == '>' || next == '/' || char.IsWhiteSpace(next);
+    }
+
+    private static bool IsPlus(IBodyNode node) => node is TextNode text && text.Content.Trim() == "+";
+
+    private static bool IsExpression(IBodyNode node)
+      => node is MacroNode || node is VariableNode || node is ChangerChainNode || node is LinkNode;
+
+    /// <summary>
+    /// Finds what a changer with no hook of its own applies to, following the
+    /// loop in reference's <c>runExpression</c>. A <c>+</c> and another
+    /// expression combine with it, and a hook or command after that takes the
+    /// result. Reference evaluates the next expression either way, so an
+    /// expression that can't attach is spent: it reports in the changer's place
+    /// and doesn't run again, while a hook written after it still renders.
+    /// </summary>
+    private void FollowChanger(Changer changer, string macroName)
+    {
+      string name = macroName ?? changer.FrontMacroName;
+      if (_siblings == null)
+      {
+        _output.Error(UnattachedChangerError(name));
+        return;
+      }
+
+      int at = _siblingIndex;
+      while (true)
+      {
+        int nearest = NextContent(at);
+        int candidate = nearest;
+        if (nearest < _siblings.Count && IsPlus(_siblings[nearest]))
+        {
+          candidate = NextContent(nearest);
+          if (candidate < _siblings.Count && IsExpression(_siblings[candidate]))
+          {
+            var right = EvaluateAdjacent(_siblings[candidate]);
+            if (right.IsError)
+            {
+              // Reference leaves the + in the page when the right side errors.
+              _output.Error(right.Value.ErrorMessage);
+              PlanSpent(candidate);
+              return;
+            }
+            PlanRemoved(at + 1, candidate - 1);
+            if (!right.IsChanger)
+            {
+              _output.Error(CombineError(name, right));
+              PlanSpent(candidate);
+              return;
+            }
+            changer = ExpressionEvaluator.ComposeChangers(changer, right.Value.AsChanger);
+            var ownHook = HookOf(_siblings[candidate]);
+            if (ownHook != null)
+            {
+              var composed = changer;
+              Plan(candidate, () => ApplyChangerHook(composed, ownHook, macroName));
+              return;
+            }
+            Plan(candidate, null);
+            at = candidate;
+            continue;
+          }
+        }
+
+        if (candidate < _siblings.Count && IsExpression(_siblings[candidate]))
+        {
+          AttachToExpression(changer, name, candidate);
+          return;
+        }
+        if (candidate < _siblings.Count && _siblings[candidate] is HookNode following)
+        {
+          // Only the whitespace before a + goes, so `(a:) + [b]` keeps its + in the page.
+          PlanRemoved(at + 1, nearest - 1);
+          var attached = changer;
+          Plan(candidate, () => ApplyChangerHook(attached, following, macroName));
+          return;
+        }
+        _output.Error(UnattachedChangerError(name));
+        return;
+      }
+    }
+
+    /// <summary>
+    /// A changer directly before an expression. A command takes it and runs at
+    /// its own position, so whitespace between them stays. Anything else is an
+    /// error in the changer's place.
+    /// </summary>
+    private void AttachToExpression(Changer changer, string name, int index)
+    {
+      var node = _siblings[index];
+      var adjacent = EvaluateAdjacent(node);
+      if (adjacent.IsError)
+      {
+        _output.Error(adjacent.Value.ErrorMessage);
+        PlanSpent(index);
+        return;
+      }
+      if (adjacent.Attach != null)
+      {
+        Plan(index, () =>
+        {
+          adjacent.Attach(changer);
+          RenderGapAndHook(GapOf(node), HookOf(node));
+        });
+        return;
+      }
+      _output.Error(adjacent.IsChanger
+        ? $"Changers like ({name}:) need to be combined using + between them."
+        : $"{Capitalised(adjacent.ObjectName)} can't have changers like ({name}:) attached.");
+      PlanSpent(index);
+    }
+
+    private static string CombineError(string name, AdjacentExpression right)
+    {
+      string left = name != null ? $"a ({name}:) changer" : "a changer";
+      string hint = right.IsCommand
+        ? $"If you want to attach this changer to {right.ObjectName}, remove the + between them."
+        : "Changers can only be added to other changers.";
+      return $"I can't combine {left} with {right.ObjectName}. {hint}";
+    }
+
+    private static string Capitalised(string text)
+      => string.IsNullOrEmpty(text) ? text : char.ToUpperInvariant(text[0]) + text.Substring(1);
+
+    /// <summary>An expression next to a changer, evaluated but not yet run.</summary>
+    private sealed class AdjacentExpression
+    {
+      /// <summary>What it evaluated to. Null for an assignment, which has no value.</summary>
+      public HarloweValue Value;
+
+      /// <summary>How errors name an assignment, which reference calls an operation.</summary>
+      public string OperationName;
+
+      /// <summary>Runs the command with a changer attached. Null when it can't take one.</summary>
+      public System.Action<Changer> Attach;
+
+      public bool IsError => Value != null && Value.IsError;
+      public bool IsChanger => Value != null && Value.Kind == HarloweValueKind.Changer;
+      public bool IsCommand => Value != null && Value.Kind == HarloweValueKind.Command;
+      public string ObjectName => OperationName ?? Value.ObjectName;
+    }
+
+    private AdjacentExpression EvaluateAdjacent(IBodyNode node)
+    {
+      switch (node)
+      {
+        case LinkNode link:
+          return FromValue(HarloweValue.OfCommand(CommandValue.ForLink(link.Text, link.Target)));
+        case VariableNode variable:
+          return FromValue(_evaluator.ReadVariable(variable.Name, variable.IsTemporary)
+            ?? HarloweValue.OfError($"{(variable.IsTemporary ? "_" : "$")}{variable.Name} is not set"));
+        case ChangerChainNode chain:
+          return FromValue(_evaluator.Evaluate(chain.Expression));
+        default:
+          return EvaluateAdjacentMacro((MacroNode)node);
+      }
+    }
+
+    private AdjacentExpression FromValue(HarloweValue value)
+    {
+      var adjacent = new AdjacentExpression { Value = value };
+      if (value.Kind != HarloweValueKind.Command) return adjacent;
+      var command = value.AsCommand;
+      switch (command.Kind)
+      {
+        case CommandKind.Hook:
+          adjacent.Attach = changer => RunCommand(command, changer);
+          break;
+        case CommandKind.Link:
+          adjacent.Attach = changer => ApplyToCommand(changer, renderer => renderer.Visit(command.Link));
+          break;
+        case CommandKind.Builtin:
+          var role = BuiltinCommands.RoleOf(command.BuiltinName);
+          if (role == CommandRole.Takes)
+            adjacent.Attach = changer => ApplyToCommand(changer, renderer => renderer.RunBuiltin(command.BuiltinName, command.Arguments));
+          else if (role == CommandRole.Ignores)
+            adjacent.Attach = _ => RunBuiltin(command.BuiltinName, command.Arguments);
+          break;
+      }
+      return adjacent;
+    }
+
+    private AdjacentExpression EvaluateAdjacentMacro(MacroNode macro)
+    {
+      var arguments = macro.Arguments ?? new List<Ast.Expression.IExpressionNode>();
+      if (MacroNames.IsCustomCall(macro.Name))
+        return FromValue(_evaluator.CallCustomMacro(macro.Name, arguments));
+
+      // An assignment takes effect when it's evaluated, even though it then
+      // can't attach: 3.3.9 assigns and reports the error.
+      if (BuiltinCommands.RoleOf(macro.Name) == CommandRole.Operation)
+      {
+        var error = _evaluator.ValidateAssignmentOperators(macro.Name, arguments)
+          ?? _evaluator.EvaluateMacroArguments(macro.Name, arguments, new List<HarloweValue>());
+        if (error != null) return new AdjacentExpression { Value = error };
+        return new AdjacentExpression { OperationName = $"a ({BuiltinCommands.CanonicalName(macro.Name)}:) operation" };
+      }
+
+      return FromValue(_evaluator.Evaluate(new Ast.Expression.MacroCallNode
+      {
+        Name = macro.Name,
+        Arguments = arguments,
+        Line = macro.Line,
+        Column = macro.Column,
+      }));
+    }
+
+    /// <summary>
+    /// Applies a changer to a command's output. <c>(output:)</c> instead takes
+    /// the command's place as the macro's result, with nothing to show, because
+    /// a built-in command has no hook for it to capture.
+    /// </summary>
+    private void ApplyToCommand(Changer changer, System.Action<BodyRenderer> run)
+    {
+      if (changer.HasOutputPatch)
+      {
+        CaptureOutput(changer, new HookNode { Children = new List<IBodyNode>() });
+        return;
+      }
+      bool insideCollapse = _collapseDepth > 0;
+      var command = new CommandRun(run);
+      changer.Apply(_output, target => RenderHookInto(command, target, insideCollapse), _context);
+    }
+
+    /// <summary>Lets a command go through the changer pipeline in the place of a hook.</summary>
+    private sealed class CommandRun : IBodyNode
+    {
+      private readonly System.Action<BodyRenderer> _run;
+
+      public CommandRun(System.Action<BodyRenderer> run) { _run = run; }
+
+      public void Accept(IBodyVisitor visitor) => _run((BodyRenderer)visitor);
+    }
+
+    /// <summary>A built-in command, with its arguments already evaluated, printing what it returns.</summary>
+    private void RunBuiltin(string name, List<HarloweValue> args)
+    {
+      var result = InvokeBuiltin(name, args);
+      if (result == null) return;
+      if (result.IsError)
+      {
+        _output.Error(result.ErrorMessage);
+        return;
+      }
+      if (_context.RenderBlocked) return;
+      var printed = BeginPrintedOutput();
+      EmitMacroResult(result);
+      printed?.EndWhitespace();
+    }
+
+    /// <summary>
+    /// An attached <c>false</c> hides the next hook and <c>true</c> shows it,
+    /// and neither removes the whitespace between. A boolean prints nothing
+    /// itself, because reference's <c>runExpression</c> prints only strings,
+    /// numbers, data structures and values with a print form.
+    /// </summary>
+    private void PlanBooleanHook(bool shown)
+    {
+      if (_siblings == null) return;
+      int next = NextContent(_siblingIndex);
+      if (next >= _siblings.Count || !(_siblings[next] is HookNode hook)) return;
+      Plan(next, () => ApplyBoolean(shown, hook));
+    }
+
+    private void ApplyBoolean(bool shown, HookNode hook)
+    {
+      if (shown) hook.Accept(this);
+      else PlantHiddenHook(hook);
+      _context.LastConditional = shown;
     }
 
     public void Visit(TextNode node) => _output.Text(node.Content);
@@ -97,8 +457,17 @@ namespace Harlowe.Runtime
         return;
       }
       if (value.IsError) { _output.Error(value.ErrorMessage); return; }
-      // A bare changer variable can't be displayed — reference errors here too.
-      if (value.Kind == HarloweValueKind.Changer) { _output.Error(UnattachedChangerError(value.AsChanger)); return; }
+      // A bare changer can't be displayed: it attaches to what follows, or errors.
+      if (value.Kind == HarloweValueKind.Changer)
+      {
+        FollowChanger(value.AsChanger, null);
+        return;
+      }
+      if (value.Kind == HarloweValueKind.Bool)
+      {
+        PlanBooleanHook(value.AsBool);
+        return;
+      }
       var preserved = BeginPrintedOutput();
       EmitPrinted(value);
       preserved?.EndWhitespace();
@@ -211,11 +580,14 @@ namespace Harlowe.Runtime
       // nor leak its show/hide decision back out. Start the hook body with a
       // cleared pairing and restore the outer value on exit.
       var priorConditional = _context.LastConditional;
+      bool priorBlocked = _frameBlocked;
       _context.LastConditional = null;
+      _frameBlocked = false;
       using (_context.Store.PushTempScope())
       {
         if (node.Children != null) RenderChildren(node.Children);
       }
+      _frameBlocked = priorBlocked;
       _context.LastConditional = priorConditional;
       builder?.EndHook();
       _context.RenderNesting--;
@@ -348,53 +720,26 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
-    /// Render a changer-chain node: evaluate the expression, apply if it
-    /// resolves to a <see cref="HarloweValueKind.Changer"/>, and fall back to
-    /// "emit value text + render hook" for any other value so non-Changer
-    /// variables still render predictably (the body parser builds these for
-    /// any <c>$var[hook]</c> shape regardless of what the runtime value
-    /// turns out to be).
+    /// A variable with a hook after it. The pairing gate wants the syntactic
+    /// front macro name, which is null for a stored changer, so its hides
+    /// preserve the pairing (reference gates on the expression's name).
     /// </summary>
     public void Visit(ChangerChainNode node)
     {
       var result = _evaluator.Evaluate(node.Expression);
       if (result == null) return;
-      if (result.IsError) { _output.Error(result.ErrorMessage); return; }
-
-      if (result.Kind == HarloweValueKind.Changer)
-      {
-        // The pairing gate wants the syntactic front macro name — null for a
-        // stored changer in a variable, whose hides therefore preserve the
-        // pairing (reference gates on the expression's name, never a variable's).
-        if (node.AttachedHook != null)
-          ApplyChangerHook(result.AsChanger, node.AttachedHook, FrontMacroName(node.Expression));
-        else
-          _output.Error(UnattachedChangerError(result.AsChanger));
-        return;
-      }
-
-      // Attached booleans hide or show the hook and feed the pairing —
-      // reference section.ts: "Attached false values hide hooks as well. This
-      // is special: as it prevents hooks from being run, an (else:) that
-      // follows this will pass."
-      if (result.Kind == HarloweValueKind.Bool && node.AttachedHook != null)
-      {
-        if (result.AsBool) node.AttachedHook.Accept(this);
-        _context.LastConditional = result.AsBool;
-        return;
-      }
-
-      // Other non-Changer values: emit the value's text form (matching the
-      // existing VariableNode behaviour), then render the hook contents —
-      // reference likewise declines to attach plain data and prints it in place.
-      var preserved = BeginPrintedOutput();
-      EmitMacroResult(result);
-      preserved?.EndWhitespace();
-      if (node.AttachedHook != null) node.AttachedHook.Accept(this);
+      FinishExpression(result, node.AttachedHook, node.HookGap, FrontMacroName(node.Expression));
     }
 
     public void Visit(MacroNode node)
     {
+      if (MacroNames.IsCustomCall(node.Name))
+      {
+        var arguments = node.Arguments ?? new List<Ast.Expression.IExpressionNode>();
+        FinishExpression(_evaluator.CallCustomMacro(node.Name, arguments), node.AttachedHook, node.HookGap, node.Name);
+        return;
+      }
+
       // Pre-check the macro name so an unknown call surfaces as a clean
       // in-prose error rather than the arity / type errors a no-op registry
       // dispatch would otherwise produce. `to`/`into` mutation leakage is
@@ -404,6 +749,7 @@ namespace Harlowe.Runtime
       if (!_registry.Contains(node.Name))
       {
         _output.Error($"unknown macro '{node.Name}'");
+        RenderGapAndHook(node.HookGap, node.AttachedHook);
         return;
       }
 
@@ -412,91 +758,253 @@ namespace Harlowe.Runtime
       {
         // Reference's typeChecker runs before any argument executes, so a
         // wrong assignment operator anywhere means nothing assigns.
-        var operatorError = _evaluator.ValidateAssignmentOperators(node.Name, node.Arguments);
-        if (operatorError != null) { _output.Error(operatorError.ErrorMessage); return; }
-        var argumentError = _evaluator.EvaluateMacroArguments(node.Name, node.Arguments, args);
-        if (argumentError != null) { _output.Error(argumentError.ErrorMessage); return; }
+        var argumentError = _evaluator.ValidateAssignmentOperators(node.Name, node.Arguments)
+          ?? _evaluator.EvaluateMacroArguments(node.Name, node.Arguments, args);
+        if (argumentError != null)
+        {
+          _output.Error(argumentError.ErrorMessage);
+          RenderGapAndHook(node.HookGap, node.AttachedHook);
+          return;
+        }
       }
 
-      // Expose the active sink for command macros (e.g. (display:)) that want
-      // to render structured output directly into the parent output rather
-      // than capture it as a string. Cleared on the way out so a subsequent
-      // arg-eval pass (which goes through ExpressionEvaluator with no
-      // surrounding BodyRenderer) sees a null sink and routes through the
-      // buffered-snapshot path instead. Whatever a macro writes here keeps its
-      // whitespace inside {…}, like reference's <tw-expression> content.
+      var result = InvokeBuiltin(node.Name, args);
+      // A custom command keeps its changer and saves through its source, and a
+      // composed one needs both halves stamped. Other changers here are used
+      // and dropped, so they skip the cost of building one.
+      if (result != null && result.Kind == HarloweValueKind.Changer
+          && (result.AsChanger.HasOutputPatch || PlusFollows()))
+        ExpressionEvaluator.StampChangerSource(result, node.Name, args);
+      FinishExpression(result, node.AttachedHook, node.HookGap, node.Name);
+    }
+
+    private bool PlusFollows()
+    {
+      if (_siblings == null) return false;
+      int next = NextContent(_siblingIndex);
+      return next < _siblings.Count && IsPlus(_siblings[next]);
+    }
+
+    /// <summary>
+    /// Runs a built-in macro. It sees this renderer's output, so a command like
+    /// <c>(display:)</c> renders structured content straight into the page. The
+    /// sink is cleared afterwards so argument evaluation, which has no renderer
+    /// around it, takes the buffered path. Whatever a macro writes here keeps
+    /// its whitespace inside <c>{…}</c>, like reference's
+    /// <c>&lt;tw-expression&gt;</c> content.
+    /// </summary>
+    private HarloweValue InvokeBuiltin(string name, List<HarloweValue> args)
+    {
       var priorOutput = _context.Output;
       _context.Output = _output;
       var preserved = BeginPrintedOutput();
-      HarloweValue result;
-      try { result = _registry.Invoke(node.Name, args, _context); }
+      try { return _registry.Invoke(name, args, _context); }
       finally
       {
         preserved?.EndWhitespace();
         _context.Output = priorOutput;
       }
+    }
 
-      // The conditional pairing (LastConditional, reference's lastHookShown)
-      // is only touched when a hook is shown or hidden by an attached
-      // expression — never reset by a plain command macro or by intervening
-      // prose. So an intervening (set:)/(print:) leaves the pairing intact and
-      // a following (else:) still pairs with the original (if:), matching
-      // reference Harlowe. The changer branch below records the outcome via
-      // UpdateConditionalPairing after the hook renders.
-      if (result != null && result.IsError) { _output.Error(result.ErrorMessage); return; }
+    /// <summary>
+    /// What an expression's result does in prose, following reference's
+    /// <c>runExpression</c>. A changer takes the hook and removes the whitespace
+    /// before it. An error replaces the expression and a boolean shows or hides
+    /// the hook, and both leave that whitespace. Other values print in place,
+    /// with the whitespace and hook after them as ordinary content.
+    ///
+    /// <para>The conditional pairing (<see cref="MacroContext.LastConditional"/>,
+    /// reference's <c>lastHookShown</c>) changes only when an attached expression
+    /// shows or hides a hook, so an intervening <c>(set:)</c> or prose leaves an
+    /// <c>(if:)</c>…<c>(else:)</c> pair intact.</para>
+    /// </summary>
+    private void FinishExpression(HarloweValue result, HookNode hook, string gap, string macroName)
+    {
+      if (result != null && result.IsError)
+      {
+        _output.Error(result.ErrorMessage);
+        RenderGapAndHook(gap, hook);
+        return;
+      }
 
       // (goto:) and any macro that triggered a navigation aborts now.
-      if (_context.NavigationHalt) return;
+      if (_context.RenderBlocked) return;
 
-      // Changer + attached hook: open / render contents / close. Conditionals
-      // ((if:)/(unless:)/(else-if:)/(else:)) are changers too, so show/hide is
-      // just the descriptor's Enabled bit. Unattached, a changer in prose is an
-      // authoring mistake — reference errors rather than silently dropping it
-      // (storing it in a variable happens during evaluation, never here).
       if (result != null && result.Kind == HarloweValueKind.Changer)
       {
-        if (node.AttachedHook != null)
-          ApplyChangerHook(result.AsChanger, node.AttachedHook, node.Name);
-        else
-          _output.Error($"The ({node.Name}:) changer should be stored in a variable or attached to a hook.");
+        if (hook != null) ApplyChangerHook(result.AsChanger, hook, macroName);
+        else FollowChanger(result.AsChanger, macroName);
         return;
       }
 
-      // Attached booleans hide or show the hook and feed the pairing —
-      // reference section.ts hides the hook for an attached false and lets a
-      // following (else:) pass.
-      if (result != null && result.Kind == HarloweValueKind.Bool && node.AttachedHook != null)
+      if (result != null && result.Kind == HarloweValueKind.Bool)
       {
-        if (result.AsBool) node.AttachedHook.Accept(this);
-        _context.LastConditional = result.AsBool;
+        if (hook == null)
+        {
+          PlanBooleanHook(result.AsBool);
+          return;
+        }
+        if (!string.IsNullOrEmpty(gap)) _output.Text(gap);
+        ApplyBoolean(result.AsBool, hook);
         return;
       }
 
-      // Other values: emit any visible text, then render the hook (if any)
-      // unconditionally.
-      if (result != null && !result.IsError)
+      if (result != null)
       {
         var printed = BeginPrintedOutput();
         EmitMacroResult(result);
         printed?.EndWhitespace();
       }
-      if (node.AttachedHook != null) node.AttachedHook.Accept(this);
+      RenderGapAndHook(gap, hook);
     }
 
     /// <summary>
-    /// Apply a changer to its attached hook and record the show/hide outcome —
-    /// the shared tail of the <see cref="MacroNode"/> and
-    /// <see cref="ChangerChainNode"/> changer branches.
+    /// Apply a changer to its hook and record the show/hide outcome.
     /// <paramref name="macroName"/> is the applying expression's front macro
     /// name, or null when it has none (a stored changer in a variable).
     /// </summary>
     private void ApplyChangerHook(Changer changer, IBodyNode hook, string macroName)
     {
+      if (changer.HasOutputPatch)
+      {
+        CaptureOutput(changer, hook);
+        return;
+      }
+
       // Captured now: a click's deferred render runs after this renderer has
       // left the {…} span the macro was written in.
       bool insideCollapse = _collapseDepth > 0;
       bool shown = changer.Apply(_output, target => RenderHookInto(hook, target, insideCollapse), _context);
+      if (!shown) PlantHiddenHook(hook);
       UpdateConditionalPairing(macroName, shown);
+    }
+
+    /// <summary>
+    /// A named hook hidden by a false condition stays on the page, empty, so a
+    /// later <c>(replace:)</c> or <c>(append:)</c> can still fill it, as
+    /// reference keeps the hidden <c>&lt;tw-hook&gt;</c> in the DOM.
+    /// </summary>
+    private void PlantHiddenHook(IBodyNode hook)
+    {
+      if (!(hook is HookNode named) || named.Name == null) return;
+      if (!(_output is Rendering.RenderTreeBuilder builder)) return;
+      builder.BeginHook(named.Name, named.Anchor);
+      builder.EndHook();
+    }
+
+    /// <summary>
+    /// The hook attached to <c>(output:)</c>: it doesn't render, and becomes the
+    /// running custom macro's result, a command holding the hook, its changer
+    /// and the temp variables in view. With no macro running, reference
+    /// suppresses the hook and blocks the rest of this frame's code, with no error.
+    /// </summary>
+    private void CaptureOutput(Changer changer, IBodyNode hook)
+    {
+      var frame = _context.CurrentCustomMacro;
+      if (frame == null)
+      {
+        _frameBlocked = true;
+        return;
+      }
+      var children = hook is HookNode hookNode ? hookNode.Children : new List<IBodyNode> { hook };
+      frame.Output = HarloweValue.OfCommand(CommandValue.ForHook(
+        changer, new CodeHookValue(null, children ?? new List<IBodyNode>()), _context.Store.CaptureTemps()));
+      frame.Done = true;
+    }
+
+    /// <summary>
+    /// Runs a command that has reached prose. <c>(output-data:)</c> and
+    /// <c>(error:)</c> hand their value to the running custom macro, which stops
+    /// its body. A custom command renders its hook through its changer, with the
+    /// temp variables it captured added to the ones in view here.
+    /// <paramref name="attached"/> is a changer written just before the command,
+    /// which applies outside the command's own.
+    /// </summary>
+    private void RunCommand(CommandValue command, Changer attached = null)
+    {
+      if (command.Kind == CommandKind.Link)
+      {
+        Visit(command.Link);
+        return;
+      }
+      if (command.Kind == CommandKind.Builtin)
+      {
+        RunBuiltin(command.BuiltinName, command.Arguments);
+        return;
+      }
+
+      if (command.Kind != CommandKind.Hook)
+      {
+        var frame = _context.CurrentCustomMacro;
+        if (frame == null)
+        {
+          string name = command.Kind == CommandKind.OutputData ? "output-data" : "error";
+          _output.Error($"({name}:) should only be used inside a code hook passed to (macro:).");
+          return;
+        }
+        frame.Output = command.Kind == CommandKind.OutputData
+          ? command.Data
+          : HarloweValue.OfError(command.Data.AsString);
+        frame.Done = true;
+        return;
+      }
+
+      // (output:) takes the command's hook as its own result. Reference's capture
+      // reads only the hook, so the temps come from where (output:) is running.
+      if (attached != null && attached.HasOutputPatch)
+      {
+        CaptureOutput(attached, new HookNode { Children = command.Hook.ChildrenFor(_context.Profile) });
+        return;
+      }
+
+      // A command can print itself more than once, so without this charge its
+      // renders would double at every level of nesting.
+      var refusal = _context.EnterCustomMacro(command.Hook.Source.Length);
+      if (refusal != NestedRenderRefusal.None)
+      {
+        _output.Error(refusal == NestedRenderRefusal.TooDeep
+          ? "Printing this expression may have trapped me in an infinite loop."
+          : "Printing stopped: " + MacroContext.OverBudgetMessage);
+        return;
+      }
+      try
+      {
+        var hook = new HookNode { Children = command.Hook.ChildrenFor(_context.Profile) };
+        bool insideCollapse = _collapseDepth > 0;
+        var changer = attached != null ? attached.Compose(command.Changer) : command.Changer;
+        using (_context.Store.PushCapturedTemps(command.Temps))
+          changer.Apply(_output, target => RenderHookInto(hook, target, insideCollapse), _context);
+      }
+      finally
+      {
+        _context.ExitCustomMacro();
+      }
+    }
+
+    /// <summary>Renders a printed code hook's contents, in its own scope, under the limits on nested renders.</summary>
+    private void RenderCodeHook(CodeHookValue hook)
+    {
+      var refusal = _context.EnterNestedRender(hook.Source.Length);
+      if (refusal != NestedRenderRefusal.None)
+      {
+        _output.Error(refusal == NestedRenderRefusal.TooDeep
+          ? "Printing this expression may have trapped me in an infinite loop."
+          : "Printing stopped: " + MacroContext.OverBudgetMessage);
+        return;
+      }
+
+      var priorConditional = _context.LastConditional;
+      _context.LastConditional = null;
+      try
+      {
+        using (_context.Store.PushTempScope())
+          new BodyRenderer(_output, _registry, _context).Render(new PassageBody { Children = hook.ChildrenFor(_context.Profile) });
+      }
+      finally
+      {
+        _context.LastConditional = priorConditional;
+        _context.ExitNestedRender();
+      }
     }
 
     /// <summary>
@@ -532,10 +1040,9 @@ namespace Harlowe.Runtime
       return (expr as Ast.Expression.MacroCallNode)?.Name;
     }
 
-    /// <summary>The reference error for a changer used bare in prose (<c>section.ts</c>: "The (X:) changer should be stored in a variable or attached to a hook."). The name comes from the changer's creation source; unstamped changers get the generic form.</summary>
-    private static string UnattachedChangerError(Changer changer)
+    /// <summary>The reference error for a changer used bare in prose (<c>section.ts</c>: "The (X:) changer should be stored in a variable or attached to a hook."). A stored changer with no creation source gets the generic form.</summary>
+    private static string UnattachedChangerError(string name)
     {
-      string name = changer.FrontMacroName;
       return name != null
         ? $"The ({name}:) changer should be stored in a variable or attached to a hook."
         : "This changer should be stored in a variable or attached to a hook.";
@@ -589,11 +1096,13 @@ namespace Harlowe.Runtime
       {
         case HarloweValueKind.String:
         case HarloweValueKind.Number:
-        case HarloweValueKind.Bool:
         case HarloweValueKind.Array:
         case HarloweValueKind.Datamap:
         case HarloweValueKind.Colour:
         case HarloweValueKind.Datatype:
+        case HarloweValueKind.CodeHook:
+        case HarloweValueKind.CustomMacro:
+        case HarloweValueKind.Command:
           EmitPrinted(result);
           return;
       }
@@ -619,8 +1128,16 @@ namespace Harlowe.Runtime
           for (int i = 0; i < items.Count; i++)
           {
             if (i > 0) _output.Text(",");
-            EmitPrinted(items[i]);
+            // A command in an array prints as a description instead of running.
+            if (items[i].Kind == HarloweValueKind.Command) _output.Text(items[i].ToHarloweString());
+            else EmitPrinted(items[i]);
           }
+          return;
+        case HarloweValueKind.CodeHook:
+          RenderCodeHook(value.AsCodeHook);
+          return;
+        case HarloweValueKind.Command:
+          RunCommand(value.AsCommand);
           return;
         default:
           _output.Text(value.ToHarloweString());

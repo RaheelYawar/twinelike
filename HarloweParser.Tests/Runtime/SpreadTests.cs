@@ -69,7 +69,6 @@ namespace Harlowe.Tests.Runtime
     [InlineData("(print: (a: ...5))", "spread out a Number")]
     [InlineData("(print: (a: ...true))", "spread out a Bool")]
     [InlineData("(print: (a: ...(dm: \"k\", 1)))", "spread out a Datamap")]
-    [InlineData("(print: (a: ...num))", "spread datatypes")]
     [InlineData("(print: (a: ..._missing))", "_missing is not set")]
     [InlineData("(set: $x to ...(a: 1))", "can only be given directly to a macro")]
     [InlineData("(print: ...(a: 1) + (a: 2))", "can only be given directly to a macro")]

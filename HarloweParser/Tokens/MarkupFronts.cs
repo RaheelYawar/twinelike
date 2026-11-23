@@ -90,6 +90,13 @@ namespace Harlowe.Tokens
       return at > Barrier ? TakeFrom(at) : -1;
     }
 
+    /// <summary>
+    /// True when a <c>]</c> has no hook of its own to close and isn't inside an
+    /// open verbatim span, so it can close the code hook these fronts belong to.
+    /// </summary>
+    public bool CanCloseEnclosing =>
+      Barrier < 0 && _nearest[(int)FrontKind.Hook] < 0 && _nearest[(int)FrontKind.NamedHook] < 0;
+
     /// <summary>Pairs a run of <paramref name="run"/> graves with the nearest opener of the same length.</summary>
     public int CloseVerbatim(int run) =>
       _nearestVerbatimByRun.TryGetValue(run, out int at) ? TakeFrom(at) : -1;

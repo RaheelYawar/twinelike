@@ -22,7 +22,13 @@ namespace Harlowe.Runtime.Saving
     /// <summary>Adds host turn data (<see cref="Moment.TurnData"/>). Written only when at least one saved turn carries some.</summary>
     public const int TurnData = 2;
 
+    /// <summary>Adds variables removed by <c>(move:)</c>, written as JSON <c>null</c> in a turn's variables. Written only when at least one saved turn removed one.</summary>
+    public const int DeletedVariables = 3;
+
+    /// <summary>Adds type restrictions on story variables (<see cref="Moment.TypeDelta"/>). Written only when at least one saved turn defined one.</summary>
+    public const int TypeRestrictions = 4;
+
     /// <summary>The newest blob format this build can read.</summary>
-    public const int Current = TurnData;
+    public const int Current = TypeRestrictions;
   }
 }
