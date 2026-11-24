@@ -166,13 +166,14 @@ namespace Harlowe.Twee
     /// <summary>
     /// Emits a hook with its anchor in the canonical position:
     /// <c>|name&gt;[content]</c> for right-anchored, <c>[content]&lt;name|</c>
-    /// for left-anchored, <c>[content]</c> for anonymous.
+    /// for left-anchored, <c>[content]</c> for anonymous. A hidden hook writes
+    /// its name with a parenthesis in place of the arrow.
     /// </summary>
     public void Visit(HookNode node)
     {
       if (node.Anchor == HookAnchor.Right)
       {
-        _sb.Append('|').Append(node.Name).Append('>');
+        _sb.Append('|').Append(node.Name).Append(node.IsHidden ? ')' : '>');
       }
       _sb.Append(node.UnclosedMarker ?? "[");
       if (node.Children != null)
@@ -181,7 +182,7 @@ namespace Harlowe.Twee
       _sb.Append(']');
       if (node.Anchor == HookAnchor.Left)
       {
-        _sb.Append('<').Append(node.Name).Append('|');
+        _sb.Append(node.IsHidden ? '(' : '<').Append(node.Name).Append('|');
       }
     }
 

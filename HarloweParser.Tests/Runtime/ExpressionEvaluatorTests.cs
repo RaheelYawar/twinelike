@@ -1010,21 +1010,15 @@ namespace Harlowe.Tests.Runtime
       Assert.Contains("Datamap key must be a String", v.ErrorMessage);
     }
 
-    // passage identifier -------------------------------------------------------
+    // passage is not an identifier ---------------------------------------------
 
     [Fact]
-    public void Passage_Identifier_ReadsContext()
+    public void Passage_IsNotAnIdentifier()
     {
+      // Real 3.3.9 has no `passage` keyword. (passage:) is the way to read it.
       var ctx = new StubContext { Passage = HarloweValue.OfString("P1") };
-      Assert.Equal("P1", Eval("passage", null, ctx).AsString);
-    }
-
-    [Fact]
-    public void Passage_Identifier_WithoutContext_Errors()
-    {
-      var v = Eval("passage");
-      Assert.True(v.IsError);
-      Assert.Contains("outside a story session", v.ErrorMessage);
+      Assert.True(Eval("passage", null, ctx).IsError);
+      Assert.True(Eval("passage").IsError);
     }
 
     // Polymorphic + / - on unsupported kinds ----------------------------------

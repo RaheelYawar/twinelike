@@ -84,6 +84,9 @@ namespace Harlowe.Runtime
     CustomMacro,
 
     /// <summary>A command that runs when it appears in prose, like what a custom macro using <c>(output:)</c> returns. Stored as a <see cref="CommandValue"/>.</summary>
-    Command
+    Command,
+
+    /// <summary>A collection of unique values, made by <c>(ds:)</c>. Stored as a <see cref="System.Collections.Generic.List{T}"/> of <see cref="HarloweValue"/>s in the order they were added, which is the order it prints in.</summary>
+    Dataset
   }
 }

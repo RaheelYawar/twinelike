@@ -568,7 +568,7 @@ namespace Harlowe.Parsing
           // Only a name directly after a hook's `]` is markup, and
           // ParseHookContents consumes that one.
           cursor.Advance();
-          return new TextNode { Content = "<" + t.Value + "|" };
+          return new TextNode { Content = (t.IsHidden ? "(" : "<") + t.Value + "|" };
 
         case TokenType.HookNameRight:
           return ParseRightAnchoredHook(cursor);
@@ -888,14 +888,16 @@ namespace Harlowe.Parsing
         var children = ParseNodes(cursor, terminator: TokenType.HookClose);
         if (cursor.Current.Type == TokenType.HookClose) cursor.Advance();
 
+        bool hidden = false;
         if (anchor == HookAnchor.None && cursor.Current.Type == TokenType.HookNameLeft)
         {
           name = cursor.Current.Value;
           anchor = HookAnchor.Left;
+          hidden = cursor.Current.IsHidden;
           cursor.Advance();
         }
 
-        return new HookNode { Name = name, Anchor = anchor, Children = children };
+        return new HookNode { Name = name, Anchor = anchor, Children = children, IsHidden = hidden };
       }
       finally
       {
@@ -907,30 +909,35 @@ namespace Harlowe.Parsing
     }
 
     /// <summary>
-    /// Cursor is at <see cref="TokenType.HookNameRight"/> (<c>|name&gt;</c>).
-    /// If a hook follows immediately, builds a right-anchored hook with the
-    /// given name. Otherwise the characters are prose: reference's pattern is
-    /// <c>|name&gt;[</c>, so a name with no hook after it never becomes markup.
+    /// Cursor is at <see cref="TokenType.HookNameRight"/> (<c>|name&gt;</c>, or
+    /// <c>|name)</c> for a hidden hook). If a hook follows immediately, builds a
+    /// right-anchored hook with the given name. Otherwise the characters are
+    /// prose: reference's pattern is <c>|name&gt;[</c>, so a name with no hook
+    /// after it never becomes markup.
     /// </summary>
     private IBodyNode ParseRightAnchoredHook(TokenCursor cursor)
     {
       string name = cursor.Current.Value;
+      bool hidden = cursor.Current.IsHidden;
       cursor.Advance();
 
       if (IsHookAt(cursor, 0))
       {
         cursor.Advance();
-        return ParseHookContents(cursor, HookAnchor.Right, name);
+        var hook = ParseHookContents(cursor, HookAnchor.Right, name);
+        hook.IsHidden = hidden;
+        return hook;
       }
 
       if (TryAttachUnclosedHook(cursor, 0, out var unclosed))
       {
         unclosed.Name = name;
         unclosed.Anchor = HookAnchor.Right;
+        unclosed.IsHidden = hidden;
         return unclosed;
       }
 
-      return new TextNode { Content = "|" + name + ">" };
+      return new TextNode { Content = "|" + name + (hidden ? ")" : ">") };
     }
 
     /// <summary>

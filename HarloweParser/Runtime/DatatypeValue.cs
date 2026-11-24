@@ -106,9 +106,9 @@ namespace Harlowe.Runtime
     /// here too so "which names are implemented" is a readable list rather than
     /// something you derive by diffing a switch against
     /// <see cref="Spellings"/>. A name absent from this table — which here means
-    /// a name for a value type this library doesn't implement (<c>ds</c>,
-    /// <c>gradient</c>, <c>image</c>, <c>measure</c>) — matches nothing, as in
-    /// reference (<c>typeIndex[name] ? … : false</c>).
+    /// a name for a value type this library doesn't implement (<c>gradient</c>,
+    /// <c>image</c>, <c>measure</c>) — matches nothing, as in reference
+    /// (<c>typeIndex[name] ? … : false</c>).
     /// </summary>
     private static readonly Dictionary<string, Func<HarloweValue, bool>> TypeIndex =
       new Dictionary<string, Func<HarloweValue, bool>>(StringComparer.Ordinal)
@@ -121,6 +121,7 @@ namespace Harlowe.Runtime
 
         { "array", v => v.Kind == HarloweValueKind.Array },
         { "dm", v => v.Kind == HarloweValueKind.Datamap },
+        { "ds", v => v.Kind == HarloweValueKind.Dataset },
         { "datatype", v => v.Kind == HarloweValueKind.Datatype },
         { "changer", v => v.Kind == HarloweValueKind.Changer },
         { "colour", v => v.Kind == HarloweValueKind.Colour },
@@ -189,6 +190,7 @@ namespace Harlowe.Runtime
       {
         case HarloweValueKind.Array: return Interned["array"];
         case HarloweValueKind.Datamap: return Interned["dm"];
+        case HarloweValueKind.Dataset: return Interned["ds"];
         case HarloweValueKind.Datatype: return Interned["datatype"];
         case HarloweValueKind.Changer: return Interned["changer"];
         case HarloweValueKind.Colour: return Interned["colour"];
@@ -241,6 +243,7 @@ namespace Harlowe.Runtime
         case HarloweValueKind.String: return value.AsString.Length == 0;
         case HarloweValueKind.Array: return value.AsArray.Count == 0;
         case HarloweValueKind.Datamap: return value.AsDatamap.Count == 0;
+        case HarloweValueKind.Dataset: return value.AsDataset.Count == 0;
       }
       return false;
     }

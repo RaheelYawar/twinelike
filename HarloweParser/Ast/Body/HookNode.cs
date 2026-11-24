@@ -47,6 +47,9 @@ namespace Harlowe.Ast.Body
     /// <summary>The opener as written when this is an unclosed hook (<c>[=</c>, <c>[==</c>, …), which runs to the end of its container and has no <c>]</c>. Null for an ordinary hook.</summary>
     public string UnclosedMarker;
 
+    /// <summary>True for a hook named with a parenthesis, <c>|name)[…]</c> or <c>[…](name|</c>. It renders nothing until <c>(show:)</c> reveals it.</summary>
+    public bool IsHidden;
+
     public void Accept(IBodyVisitor visitor) => visitor.Visit(this);
   }
 }

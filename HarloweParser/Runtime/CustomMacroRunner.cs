@@ -89,7 +89,7 @@ namespace Harlowe.Runtime
 
     private static HarloweValue RunBody(CustomMacroValue macro, List<HarloweValue> args, MacroRegistry registry, MacroContext context)
     {
-      var typeError = CheckArguments(macro, args);
+      var typeError = CheckArguments(macro, args, context);
       if (typeError != null) return typeError;
 
       if (registry.EvaluationDepth > MaxEvaluationDepth || !HasStackRoom())
@@ -150,7 +150,7 @@ namespace Harlowe.Runtime
     /// parameter takes zero or more values, each of its type. Null when the
     /// arguments fit.
     /// </summary>
-    private static HarloweValue CheckArguments(CustomMacroValue macro, List<HarloweValue> args)
+    private static HarloweValue CheckArguments(CustomMacroValue macro, List<HarloweValue> args, MacroContext context)
     {
       var parameters = macro.Parameters;
       bool hasRest = parameters.Count > 0 && parameters[parameters.Count - 1].IsRest;
@@ -162,7 +162,7 @@ namespace Harlowe.Runtime
       for (int i = 0; i < args.Count; i++)
       {
         var parameter = parameters[i < required ? i : required];
-        if (!ExpressionEvaluator.Matches(args[i], parameter.Datatype))
+        if (!ExpressionEvaluator.Matches(args[i], parameter.Datatype, context))
           return HarloweValue.OfError(
             $"{Capitalised(macro.CallName)}'s {Nth(i + 1)} value is {args[i].ObjectName}, but should be {parameter.Datatype.ObjectName}.");
       }

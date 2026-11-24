@@ -25,12 +25,24 @@ namespace Harlowe.Runtime.Rendering
   /// </summary>
   public class RenderTreeBuilder : ILinkLabelOutput
   {
-    private readonly RenderRoot _root = new RenderRoot();
+    private readonly RenderRoot _root;
     private readonly Stack<IRenderContainer> _stack = new Stack<IRenderContainer>();
 
     public RenderTreeBuilder()
     {
+      _root = new RenderRoot();
       _stack.Push(_root);
+    }
+
+    /// <summary>
+    /// A builder that writes straight into an existing node of the tree under
+    /// <paramref name="root"/>, so macros running in that content can see and
+    /// target the rest of the page.
+    /// </summary>
+    internal RenderTreeBuilder(IRenderContainer into, RenderRoot root)
+    {
+      _root = root ?? new RenderRoot();
+      _stack.Push(into);
     }
 
     /// <summary>The tree built so far. Mutated in place by later sub-slices' revision macros.</summary>
@@ -121,9 +133,12 @@ namespace Harlowe.Runtime.Rendering
     /// <see cref="BodyRenderer.Visit(HookNode)"/>; not part of
     /// <see cref="IRenderOutput"/> because hook structure is builder-only.
     /// </summary>
-    public void BeginHook(string name, HookAnchor anchor)
+    public void BeginHook(string name, HookAnchor anchor) => BeginHook(name, anchor, null);
+
+    /// <summary>Opens a hook that stays hidden until <paramref name="hidden"/> is revealed. Null for an ordinary hook.</summary>
+    internal void BeginHook(string name, HookAnchor anchor, HiddenHookContent hidden)
     {
-      var node = new RenderHookNode { Name = name, Anchor = anchor };
+      var node = new RenderHookNode { Name = name, Anchor = anchor, Hidden = hidden };
       Current.Children.Add(node);
       _stack.Push(node);
     }

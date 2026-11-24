@@ -288,14 +288,32 @@ namespace Harlowe.Runtime.Rendering
     /// </summary>
     public WhitespaceMode Whitespace;
 
+    /// <summary>
+    /// Set while this hook is hidden: what <c>(show:)</c> will render into it.
+    /// Reference's <c>hidden</c> and <c>originalSource</c> element data. Copied
+    /// by <see cref="Clone"/>, so each copy of a hidden hook is revealed on its
+    /// own. Revision macros can still put content in a hidden hook.
+    /// </summary>
+    internal HiddenHookContent Hidden;
+
     public List<RenderNode> Children { get; } = new List<RenderNode>();
 
     public override RenderNode Clone()
     {
-      var copy = new RenderHookNode { Name = Name, Anchor = Anchor, SourceEnchantment = SourceEnchantment, SourceRegionId = SourceRegionId, RevealRegionId = RevealRegionId, LabelRegionId = LabelRegionId, Whitespace = Whitespace };
+      var copy = new RenderHookNode { Name = Name, Anchor = Anchor, SourceEnchantment = SourceEnchantment, SourceRegionId = SourceRegionId, RevealRegionId = RevealRegionId, LabelRegionId = LabelRegionId, Whitespace = Whitespace, Hidden = Hidden };
       RenderNodes.CloneInto(Children, copy.Children);
       return copy;
     }
+  }
+
+  /// <summary>What a hidden hook shows when it's revealed.</summary>
+  internal sealed class HiddenHookContent
+  {
+    /// <summary>Renders the hook into the output. The flag says whether the hook sits inside a <c>{…}</c> span.</summary>
+    public Action<IRenderOutput, bool> Render;
+
+    /// <summary>The size of the hook's content, charged to the nested-render budget each time it's revealed.</summary>
+    public int Cost;
   }
 
   /// <summary>
@@ -495,6 +513,48 @@ namespace Harlowe.Runtime.Rendering
         if (ReferenceEquals(children[i], target)) { children[i] = replacement; return true; }
         if (children[i] is IRenderContainer c && ReplaceChild(c, target, replacement)) return true;
       }
+      return false;
+    }
+
+    /// <summary>
+    /// True when whitespace in <paramref name="target"/> collapses: it sits in a
+    /// <c>{…}</c> span, with no printed content between the span and it.
+    /// <paramref name="owner"/> is the root it was found under, or null when
+    /// an earlier reveal has already taken it off the page.
+    /// </summary>
+    internal static bool IsInsideCollapse(List<RenderNode> roots, RenderNode target, out RenderRoot owner)
+    {
+      for (int i = 0; i < roots.Count; i++)
+      {
+        if (roots[i] is RenderRoot root && FindInCollapse(root, target, false, out bool inside))
+        {
+          owner = root;
+          return inside;
+        }
+      }
+      owner = null;
+      return false;
+    }
+
+    private static bool FindInCollapse(IRenderContainer container, RenderNode target, bool inCollapse, out bool inside)
+    {
+      var children = container.Children;
+      for (int i = 0; i < children.Count; i++)
+      {
+        if (ReferenceEquals(children[i], target))
+        {
+          inside = inCollapse;
+          return true;
+        }
+        if (children[i] is IRenderContainer nested)
+        {
+          bool collapses = inCollapse;
+          if (children[i] is RenderHookNode hook && hook.Whitespace != WhitespaceMode.Inherit)
+            collapses = hook.Whitespace == WhitespaceMode.Collapse;
+          if (FindInCollapse(nested, target, collapses, out inside)) return true;
+        }
+      }
+      inside = false;
       return false;
     }
 

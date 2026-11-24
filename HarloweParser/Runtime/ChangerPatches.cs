@@ -79,6 +79,19 @@ namespace Harlowe.Runtime
   }
 
   /// <summary>
+  /// Patch produced by <c>(hidden:)</c>: the hook doesn't render until
+  /// <c>(show:)</c> reveals it. Reference's <c>d =&gt; {d.enabled = false}</c>.
+  /// </summary>
+  public class HiddenPatch : IChangerPatch
+  {
+    public void Apply(HookDescriptor descriptor) => descriptor.Enabled = false;
+
+    public override bool Equals(object obj) => obj is HiddenPatch;
+
+    public override int GetHashCode() => -2;
+  }
+
+  /// <summary>
   /// Patch produced by <c>(for:)</c>. Sets the descriptor's iteration spec.
   /// If a prior iteration patch already wrote one, the later one wins — a
   /// chained <c>(for:) + (for:)</c> composition is rejected at apply time by

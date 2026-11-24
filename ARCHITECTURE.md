@@ -393,7 +393,7 @@ The library never assumes HTML. Engine integrations consume `PushStyle(StyleSpec
 | `Bool` | `bool` | The only truthy kind; everything else is falsy regardless of contents. |
 | `Array` | `List<HarloweValue>` | Deep-copied by the variable store on snapshot. |
 | `Datamap` | `Dictionary<string, HarloweValue>` | Same. |
-| `Dataset` | (deferred) | Not yet runtime-evaluated. |
+| `Dataset` | `List<HarloweValue>` | Unique values in the order added, which is how it prints. `...` sorts it, and `is` ignores order. |
 | `Changer` | `Changer` instance | Empty `ToHarloweString` so `(print:)` doesn't dump internals. |
 | `Error` | `string` (message) | Short-circuits every operator; surfaces through `IRenderOutput.Error`. |
 

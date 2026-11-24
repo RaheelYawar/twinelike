@@ -892,6 +892,7 @@ namespace Harlowe.Runtime
       ctx.RenderPassage = (name, output) => InlineDisplayPassage(name, output, ctx);
       ctx.MaxRenderDepth = () => MaxDisplayDepth;
       ctx.PassageExists = name => _story.GetPassage(name) != null;
+      ctx.FindPassage = name => _story.GetPassage(name);
       ctx.CanUndo = () => _past.Count > 0;
       ctx.SaveGame = (s, fn) => SaveGame(s, fn);
       ctx.SavedGames = SavedGames;

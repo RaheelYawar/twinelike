@@ -30,6 +30,7 @@ namespace Harlowe.Runtime.Macros
         case HarloweValueKind.String:
         case HarloweValueKind.Array:
         case HarloweValueKind.Datamap:
+        case HarloweValueKind.Dataset:
         case HarloweValueKind.Colour:
         case HarloweValueKind.Datatype:
         case HarloweValueKind.CodeHook:

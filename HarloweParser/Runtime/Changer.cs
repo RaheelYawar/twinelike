@@ -151,6 +151,15 @@ namespace Harlowe.Runtime
       }
     }
 
+    /// <summary>False when a condition in this changer, or <c>(hidden:)</c>, hides whatever it's attached to.</summary>
+    internal bool IsEnabled => BuildDescriptor().Enabled;
+
+    /// <summary>True when this changer makes content appear on a click or hover.</summary>
+    internal bool HasInteraction => BuildDescriptor().Interaction != null;
+
+    /// <summary>True for the <c>(link:)</c> family, whose label takes the attached hook's place.</summary>
+    internal bool HasLinkInteraction => BuildDescriptor().Interaction?.LinkText != null;
+
     /// <summary>True when <c>(output:)</c> is part of this changer, so an attached hook becomes a custom macro's output instead of rendering.</summary>
     internal bool HasOutputPatch
     {
@@ -277,6 +286,12 @@ namespace Harlowe.Runtime
       {
         // A custom macro's (output-data:) or a (goto:) in the loop ends it.
         if (ctx.RenderBlocked) return;
+        // Loops multiply when nested, so each pass counts toward the render's budget.
+        if (!ctx.TrySpendOnSplice(MacroContext.LoopIterationCost))
+        {
+          output.Error(MacroContext.OverBudgetMessage);
+          return;
+        }
         var item = iter.Items[i];
         if (item != null && item.IsError) { output.Error(item.ErrorMessage); continue; }
         // The iteration's own scope holds the loop variable, so a click armed

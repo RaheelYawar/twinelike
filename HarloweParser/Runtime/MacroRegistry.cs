@@ -101,7 +101,10 @@ namespace Harlowe.Runtime
           if (args[i].IsError) return args[i];
           // A typed variable name is unstorable, which reference's `Any` type
           // rejects. These macros take `Everything` instead, or take one by design.
-          if (args[i].Kind == HarloweValueKind.TypedVar && !AcceptsTypedVars(MacroNames.Normalize(name)))
+          bool refused = args[i].Kind == HarloweValueKind.TypedVar
+            ? !AcceptsTypedVars(MacroNames.Normalize(name))
+            : args[i].Kind == HarloweValueKind.HookName && !(macro is ITakesHookNames);
+          if (refused)
             return HarloweValue.OfError($"The ({name}:) macro's {i + 1}{OrdinalSuffix(i + 1)} value, {args[i].ObjectName}, is not valid data for this macro.");
         }
       return null;

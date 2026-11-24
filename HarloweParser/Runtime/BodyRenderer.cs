@@ -347,6 +347,8 @@ namespace Harlowe.Runtime
           var role = BuiltinCommands.RoleOf(command.BuiltinName);
           if (role == CommandRole.Takes)
             adjacent.Attach = changer => ApplyToCommand(changer, renderer => renderer.RunBuiltin(command.BuiltinName, command.Arguments));
+          else if (role == CommandRole.Reveals)
+            adjacent.Attach = changer => RevealWith(changer, command.Arguments);
           else if (role == CommandRole.Ignores)
             adjacent.Attach = _ => RunBuiltin(command.BuiltinName, command.Arguments);
           break;
@@ -394,6 +396,21 @@ namespace Harlowe.Runtime
       bool insideCollapse = _collapseDepth > 0;
       var command = new CommandRun(run);
       changer.Apply(_output, target => RenderHookInto(command, target, insideCollapse), _context);
+    }
+
+    /// <summary>
+    /// <c>(show:)</c> with a changer written before it. The changer goes on the
+    /// hooks it reveals rather than around the command. <c>(output:)</c> takes
+    /// the command's place, as with any other built-in command.
+    /// </summary>
+    private void RevealWith(Changer changer, List<HarloweValue> args)
+    {
+      if (changer.HasOutputPatch)
+      {
+        CaptureOutput(changer, new HookNode { Children = new List<IBodyNode>() });
+        return;
+      }
+      Macros.ShowMacro.Reveal(args, _context, _output, changer);
     }
 
     /// <summary>Lets a command go through the changer pipeline in the place of a hook.</summary>
@@ -562,6 +579,12 @@ namespace Harlowe.Runtime
     /// </summary>
     public void Visit(HookNode node)
     {
+      if (node.IsHidden)
+      {
+        PlantHiddenHook(node);
+        return;
+      }
+
       // The parser limits nesting within one source, but a recursive display
       // or print multiplies it, so the running total is checked here. Reference
       // has the same guard in renderInto, with this wording.
@@ -871,6 +894,12 @@ namespace Harlowe.Runtime
         return;
       }
 
+      if (hook is HookNode written && written.IsHidden)
+      {
+        ApplyToHiddenHook(changer, written, macroName);
+        return;
+      }
+
       // Captured now: a click's deferred render runs after this renderer has
       // left the {…} span the macro was written in.
       bool insideCollapse = _collapseDepth > 0;
@@ -880,16 +909,96 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
-    /// A named hook hidden by a false condition stays on the page, empty, so a
-    /// later <c>(replace:)</c> or <c>(append:)</c> can still fill it, as
-    /// reference keeps the hidden <c>&lt;tw-hook&gt;</c> in the DOM.
+    /// A changer attached to a hook written hidden, measured on 3.3.9. The hook
+    /// stays hidden, and an <c>(else:)</c> still pairs with the changer's own
+    /// condition. Styles, revisions and <c>(for:)</c> don't apply when it's
+    /// shown. A <c>(link:)</c> shows its label once the hook is revealed. A
+    /// <c>(click:)</c> on another hook is armed now, and fills this one.
     /// </summary>
-    private void PlantHiddenHook(IBodyNode hook)
+    private void ApplyToHiddenHook(Changer changer, HookNode hook, string macroName)
+    {
+      bool enabled = changer.IsEnabled;
+      UpdateConditionalPairing(macroName, enabled);
+
+      if (changer.HasLinkInteraction)
+      {
+        PlantHiddenHook(hook, changer);
+        return;
+      }
+      if (!enabled || !changer.HasInteraction || !(_output is Rendering.RenderTreeBuilder builder))
+      {
+        PlantHiddenHook(hook);
+        return;
+      }
+
+      bool insideCollapse = _collapseDepth > 0;
+      var body = new HookNode { Children = hook.Children };
+      builder.BeginHook(hook.Name, hook.Anchor, HiddenContentFor(hook, null));
+      changer.Apply(_output, target => RenderHookInto(body, target, insideCollapse), _context);
+      builder.EndHook();
+    }
+
+    /// <summary>
+    /// A named hook that's hidden stays on the page, empty, so a later
+    /// <c>(replace:)</c> can fill it and <c>(show:)</c> can reveal it, as
+    /// reference keeps the hidden <c>&lt;tw-hook&gt;</c> in the DOM.
+    /// <paramref name="shownThrough"/> is a changer to apply when it's revealed.
+    /// </summary>
+    private void PlantHiddenHook(IBodyNode hook, Changer shownThrough = null)
     {
       if (!(hook is HookNode named) || named.Name == null) return;
       if (!(_output is Rendering.RenderTreeBuilder builder)) return;
-      builder.BeginHook(named.Name, named.Anchor);
+      builder.BeginHook(named.Name, named.Anchor, HiddenContentFor(named, shownThrough));
       builder.EndHook();
+    }
+
+    /// <summary>
+    /// What a hidden hook renders when it's shown: its contents, in the temp
+    /// variables in view here, as reference stores <c>tempVariables</c> on the
+    /// element. The contents go in an anonymous hook, so the hook's name isn't
+    /// on the page twice.
+    /// </summary>
+    private Rendering.HiddenHookContent HiddenContentFor(HookNode hook, Changer shownThrough)
+    {
+      var scopes = _context.Store.CaptureScopeChain();
+      var body = new HookNode { Children = hook.Children };
+      var registry = _registry;
+      var context = _context;
+      return new Rendering.HiddenHookContent
+      {
+        Cost = ContentCost(hook.Children),
+        Render = (target, insideCollapse) =>
+        {
+          var renderer = new BodyRenderer(target, registry, context) { _collapseDepth = insideCollapse ? 1 : 0 };
+          using (context.Store.EnterScopeChain(scopes))
+          {
+            if (shownThrough != null)
+              shownThrough.Apply(target, inner => renderer.RenderHookInto(body, inner, insideCollapse), context);
+            else
+              body.Accept(renderer);
+          }
+        },
+      };
+    }
+
+    /// <summary>A rough measure of a hook's size: its nodes and text. Bounded by the parser's nesting limit.</summary>
+    private static int ContentCost(List<IBodyNode> nodes)
+    {
+      if (nodes == null) return 0;
+      long cost = nodes.Count;
+      for (int i = 0; i < nodes.Count && cost < int.MaxValue; i++)
+      {
+        switch (nodes[i])
+        {
+          case TextNode text: cost += text.Content?.Length ?? 0; break;
+          case HookNode hook: cost += ContentCost(hook.Children); break;
+          case FormatNode format: cost += ContentCost(format.Children); break;
+          case CollapsedNode collapsed: cost += ContentCost(collapsed.Children); break;
+          case MacroNode macro when macro.AttachedHook != null: cost += ContentCost(macro.AttachedHook.Children); break;
+          case ChangerChainNode chain when chain.AttachedHook != null: cost += ContentCost(chain.AttachedHook.Children); break;
+        }
+      }
+      return (int)System.Math.Min(cost, int.MaxValue);
     }
 
     /// <summary>
@@ -1098,6 +1207,7 @@ namespace Harlowe.Runtime
         case HarloweValueKind.Number:
         case HarloweValueKind.Array:
         case HarloweValueKind.Datamap:
+        case HarloweValueKind.Dataset:
         case HarloweValueKind.Colour:
         case HarloweValueKind.Datatype:
         case HarloweValueKind.CodeHook:
@@ -1111,10 +1221,14 @@ namespace Harlowe.Runtime
     /// <summary>
     /// Prints a value into prose. Strings render as markup, as in reference's
     /// <c>#runExpression</c>, which hands the printed text to <c>renderInto</c>.
-    /// Arrays print their items that way, comma-separated. Every other value's
-    /// text has no markup in it and goes out as it stands.
+    /// Arrays and datasets print their items that way, comma-separated, a
+    /// dataset in the order its values were added. Every other value's text has
+    /// no markup in it and goes out as it stands. A value can be nested far
+    /// deeper than the call stack allows, so past
+    /// <see cref="HarloweValue.MaxPrintDepth"/> levels this reports an error,
+    /// as reference does when its own printing runs out of stack.
     /// </summary>
-    private void EmitPrinted(HarloweValue value)
+    private void EmitPrinted(HarloweValue value, int depth = 0)
     {
       switch (value.Kind)
       {
@@ -1124,13 +1238,19 @@ namespace Harlowe.Runtime
           else RenderPrintedMarkup(value.AsString);
           return;
         case HarloweValueKind.Array:
-          var items = value.AsArray;
+        case HarloweValueKind.Dataset:
+          if (depth >= HarloweValue.MaxPrintDepth)
+          {
+            _output.Error("This value is nested too deeply to print.");
+            return;
+          }
+          var items = (List<HarloweValue>)value.Raw;
           for (int i = 0; i < items.Count; i++)
           {
             if (i > 0) _output.Text(",");
             // A command in an array prints as a description instead of running.
             if (items[i].Kind == HarloweValueKind.Command) _output.Text(items[i].ToHarloweString());
-            else EmitPrinted(items[i]);
+            else EmitPrinted(items[i], depth + 1);
           }
           return;
         case HarloweValueKind.CodeHook:

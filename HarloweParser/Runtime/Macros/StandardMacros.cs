@@ -34,7 +34,11 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new RandomMacro());
       registry.Register(new EitherMacro());
       registry.Register(new AMacro());
+      registry.Register(new RangeMacro());
       registry.Register(new DmMacro());
+      registry.Register(new DatasetMacro("ds"));
+      registry.Register(new DatasetMacro("dataset"));
+      registry.Register(new PassageMacro());
       registry.Register(new ModuloMacro());
       registry.Register(new TextMacro("text"));
       registry.Register(new TextMacro("str"));
@@ -138,6 +142,8 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new ErrorMacro());
       registry.Register(new PartialMacro());
       registry.Register(new CustomCommandMacro());
+      registry.Register(new HiddenMacro());
+      registry.Register(new ShowMacro());
     }
   }
 }

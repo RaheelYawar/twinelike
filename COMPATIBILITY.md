@@ -45,7 +45,7 @@ Reference bugfixes between majors, fixed under **all** profiles per the rules ab
 
 - `(print: < 4)` inferring a `0` on the left of a comparison (4.0 errors).
 - `2 + ` not erroring with a missing right operand (4.0 errors).
-- Dataset `is` being order-dependent, so `(ds: 2, 3)` ≠ `(ds: 3) + (ds: 2)` (4.0 compares order-independently).
+- Dataset `is` being order-dependent, so `(ds: 2, 3)` ≠ `(ds: 3) + (ds: 2)` (4.0 compares order-independently). Implemented with `(ds:)`: order is ignored under every profile, as the 3.3.9 manual also says.
 
 ## Watch items
 

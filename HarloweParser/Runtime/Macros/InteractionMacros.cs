@@ -68,7 +68,7 @@ namespace Harlowe.Runtime.Macros
   /// <see cref="StandardMacros"/>, the same pattern as
   /// <c>TextColorMacro</c>/<c>ForMacro</c>.
   /// </summary>
-  public class InteractionMacro : IMacro
+  public class InteractionMacro : IMacro, ITakesHookNames
   {
     private readonly string _name;
     private readonly InteractionKind _kind;
@@ -108,7 +108,7 @@ namespace Harlowe.Runtime.Macros
   /// <c>-undo</c> (errors on the first turn). Registered six times in
   /// <see cref="StandardMacros"/>.
   /// </summary>
-  public class InteractionCommandMacro : IMacro, ICommandCheck
+  public class InteractionCommandMacro : IMacro, ICommandCheck, ITakesHookNames
   {
     private readonly string _name;
     private readonly InteractionKind _kind;

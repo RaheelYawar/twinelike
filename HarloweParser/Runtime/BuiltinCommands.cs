@@ -11,6 +11,9 @@ namespace Harlowe.Runtime
     /// <summary>The changer applies to what the command prints.</summary>
     Takes,
 
+    /// <summary>The changer applies to the hooks the command reveals.</summary>
+    Reveals,
+
     /// <summary>Attaching is allowed, but the command runs as if it weren't there, even under <c>(if: false)</c>.</summary>
     Ignores,
 
@@ -40,6 +43,7 @@ namespace Harlowe.Runtime
     {
       var table = new Dictionary<string, Entry>();
       Add(table, CommandRole.Takes, "print", "display", "link-undo");
+      Add(table, CommandRole.Reveals, "show");
       Add(table, CommandRole.Ignores, "go-to", "click-goto", "click-undo",
         "mouseover-goto", "mouseover-undo", "mouseout-goto", "mouseout-undo");
       Add(table, CommandRole.Refuses, "load-game", "change", "enchant");
@@ -59,6 +63,14 @@ namespace Harlowe.Runtime
     /// <summary>The spelling reference's messages use, whichever one the author wrote.</summary>
     internal static string CanonicalName(string macroName)
       => Table.TryGetValue(MacroNames.Normalize(macroName), out var entry) ? entry.Name : macroName;
+  }
+
+  /// <summary>
+  /// A macro that takes hook names. Reference treats a hook name as unstorable,
+  /// so its <c>Any</c> signature refuses one everywhere else.
+  /// </summary>
+  internal interface ITakesHookNames
+  {
   }
 
   /// <summary>

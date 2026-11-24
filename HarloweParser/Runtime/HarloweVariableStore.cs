@@ -356,6 +356,11 @@ namespace Harlowe.Runtime
           var dstMap = new Dictionary<string, HarloweValue>(srcMap.Count);
           foreach (var kv in srcMap) dstMap[kv.Key] = DeepCopyValue(kv.Value, depth + 1);
           return HarloweValue.OfDatamap(dstMap);
+        case HarloweValueKind.Dataset:
+          var srcSet = v.AsDataset;
+          var dstSet = new List<HarloweValue>(srcSet.Count);
+          for (int i = 0; i < srcSet.Count; i++) dstSet.Add(DeepCopyValue(srcSet[i], depth + 1));
+          return HarloweValue.OfUniqueDataset(dstSet);
         default:
           // Scalars, colours, changers, lambdas, hook names: immutable, so
           // sharing the instance is safe.

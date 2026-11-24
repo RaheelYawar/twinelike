@@ -176,6 +176,10 @@ namespace Harlowe.Tokens
           int hookFront = _fronts.CloseHook(IsHookNameLeftAt(_pos + 1));
           Advance();
           EmitPaired(TokenType.HookClose, "]", hookFront, startPos, startLine, startCol);
+          // `(name|` is a hook name only directly after the `]` it closes.
+          // Anywhere else it's ordinary prose.
+          if (hookFront >= 0 && Peek(0) == '(' && IsHookNameLeftAt(_pos))
+            TryScanHookNameLeft(_pos, _line, _col);
           return;
         case '{':
           ScanCollapseOpener(startPos, startLine, startCol);
@@ -816,54 +820,77 @@ namespace Harlowe.Tokens
     }
 
     /// <summary>
-    /// Tries to consume a left-anchored hook name <c>&lt;name|</c>, which binds
-    /// to the hook on its left. The bare name (without the angle bracket or
-    /// pipe) becomes the token's <see cref="Token.Value"/>. Returns false if
-    /// the lookahead is not a letter or the trailing <c>|</c> is missing — in
-    /// which case the caller may try <see cref="TryScanHtmlTag"/>.
+    /// Tries to consume a left-anchored hook name, <c>&lt;name|</c> or the
+    /// hidden <c>(name|</c>, which binds to the hook on its left. The bare name
+    /// becomes the token's <see cref="Token.Value"/>. Returns false if there's
+    /// no name or the trailing <c>|</c> is missing, in which case the caller
+    /// may try <see cref="TryScanHtmlTag"/>.
     /// </summary>
     private bool TryScanHookNameLeft(int startPos, int startLine, int startCol)
     {
-      int look = _pos + 1;
-      if (look >= _src.Length || !char.IsLetter(_src[look])) return false;
-      int nameStart = look;
-      while (look < _src.Length && IsIdContinue(_src[look])) look++;
-      if (look >= _src.Length || _src[look] != '|') return false;
+      if (!IsHookNameLeftAt(_pos)) return false;
+      bool hidden = _src[_pos] == '(';
+      int nameStart = _pos + 1;
+      int look = nameStart;
+      while (IsHookNameChar(_src[look])) look++;
       string name = _src.Substring(nameStart, look - nameStart);
       AdvanceN(look - _pos + 1);
       Emit(TokenType.HookNameLeft, name, startPos, startLine, startCol);
+      _tokens[_tokens.Count - 1].IsHidden = hidden;
       return true;
     }
 
-    /// <summary>True if a <c>&lt;name|</c> begins at <paramref name="pos"/>. Pure lookahead with the same shape <see cref="TryScanHookNameLeft"/> consumes.</summary>
+    /// <summary>True if <c>&lt;name|</c> or <c>(name|</c> begins at <paramref name="pos"/>: reference's <c>hookTagBack</c>.</summary>
     private bool IsHookNameLeftAt(int pos)
     {
-      if (pos >= _src.Length || _src[pos] != '<') return false;
+      if (pos >= _src.Length || (_src[pos] != '<' && _src[pos] != '(')) return false;
       int look = pos + 1;
-      if (look >= _src.Length || !char.IsLetter(_src[look])) return false;
-      while (look < _src.Length && IsIdContinue(_src[look])) look++;
-      return look < _src.Length && _src[look] == '|';
+      while (look < _src.Length && IsHookNameChar(_src[look])) look++;
+      return look > pos + 1 && look < _src.Length && _src[look] == '|';
     }
 
     /// <summary>
-    /// Tries to consume a right-anchored hook name <c>|name&gt;</c>, which binds
-    /// to the hook on its right. The bare name becomes the token's
-    /// <see cref="Token.Value"/>. Returns false if the lookahead is not a
-    /// letter or the trailing <c>&gt;</c> is missing — in which case the
-    /// caller treats <c>|</c> as text.
+    /// Tries to consume a right-anchored hook name, <c>|name&gt;</c> or the
+    /// hidden <c>|name)</c>, which binds to the hook on its right. The bare name
+    /// becomes the token's <see cref="Token.Value"/>. Reference's <c>|name)</c>
+    /// includes the <c>[</c> that follows, so without one it stays prose.
+    /// Returns false when this isn't a name, and the caller treats <c>|</c> as
+    /// text.
     /// </summary>
     private bool TryScanHookNameRight(int startPos, int startLine, int startCol)
     {
-      int look = _pos + 1;
-      if (look >= _src.Length || !char.IsLetter(_src[look])) return false;
-      int nameStart = look;
-      while (look < _src.Length && IsIdContinue(_src[look])) look++;
-      if (look >= _src.Length || _src[look] != '>') return false;
+      int nameStart = _pos + 1;
+      int look = nameStart;
+      while (look < _src.Length && IsHookNameChar(_src[look])) look++;
+      if (look == nameStart || look >= _src.Length) return false;
+      bool hidden = _src[look] == ')';
+      if (!hidden && _src[look] != '>') return false;
+      if (hidden && (look + 1 >= _src.Length || _src[look + 1] != '[')) return false;
       string name = _src.Substring(nameStart, look - nameStart);
       AdvanceN(look - _pos + 1);
       Emit(TokenType.HookNameRight, name, startPos, startLine, startCol);
+      _tokens[_tokens.Count - 1].IsHidden = hidden;
       return true;
     }
+
+    /// <summary>
+    /// Reference's <c>anyLetter</c> class in <c>ts/markup/patterns.ts</c>, which
+    /// hook names are made of: ASCII word characters, <c>-</c>, the Latin-1
+    /// letters, four Hungarian letters and any surrogate. Written with numeric
+    /// code points so nothing in this file depends on its encoding.
+    /// </summary>
+    private static bool IsHookNameChar(char c)
+    {
+      int u = c;
+      return IsWordChar(c) || u == '-'
+        || (u >= 0x00C0 && u <= 0x00DE) || (u >= 0x00DF && u <= 0x00FF)
+        || u == 0x0150 || u == 0x0170 || u == 0x0151 || u == 0x0171
+        || (u >= 0xD800 && u <= 0xDFFF);
+    }
+
+    /// <summary>JavaScript's <c>\w</c>, which is ASCII only.</summary>
+    private static bool IsWordChar(char c)
+      => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
 
     /// <summary>
     /// Tries to consume a raw HTML tag (<c>&lt;tag…&gt;</c>, <c>&lt;/tag&gt;</c>,
@@ -1394,18 +1421,22 @@ namespace Harlowe.Tokens
     /// Tries to consume a hook reference of the form <c>?name</c> — a value used
     /// inside an expression to target a named hook (or a built-in like
     /// <c>?passage</c>/<c>?link</c>). The leading <c>?</c> is dropped from the
-    /// emitted token's <see cref="Token.Value"/>. Requires a letter immediately
-    /// after the <c>?</c>; a bare <c>?</c> returns false so the caller skips it.
-    /// Only reached in expression context — in body prose a <c>?</c> is plain
-    /// text.
+    /// emitted token's <see cref="Token.Value"/>. Follows reference's
+    /// <c>hookName</c> pattern, <c>\?(anyLetter+)\b</c>: the longest run of name
+    /// characters that ends at a word boundary. Without one, this returns false
+    /// so the caller skips the <c>?</c>. Only reached in expression context — in
+    /// body prose a <c>?</c> is plain text.
     /// </summary>
     private bool TryScanHookRef(int startPos, int startLine, int startCol)
     {
-      if (_pos + 1 >= _src.Length || !char.IsLetter(_src[_pos + 1])) return false;
-      Advance(); // consume '?'
-      int nameStart = _pos;
-      while (_pos < _src.Length && IsIdContinue(_src[_pos])) Advance();
-      Emit(TokenType.HookRef, _src.Substring(nameStart, _pos - nameStart), startPos, startLine, startCol);
+      int nameStart = _pos + 1;
+      int end = nameStart;
+      while (end < _src.Length && IsHookNameChar(_src[end])) end++;
+      while (end > nameStart && IsWordChar(_src[end - 1]) == (end < _src.Length && IsWordChar(_src[end]))) end--;
+      if (end == nameStart) return false;
+      string name = _src.Substring(nameStart, end - nameStart);
+      AdvanceN(end - _pos);
+      Emit(TokenType.HookRef, name, startPos, startLine, startCol);
       return true;
     }
 

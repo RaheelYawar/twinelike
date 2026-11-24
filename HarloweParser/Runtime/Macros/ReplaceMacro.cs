@@ -11,7 +11,7 @@ namespace Harlowe.Runtime.Macros
   /// prose. A target that hasn't been rendered yet (declared after this macro)
   /// matches nothing, so nothing happens — Harlowe behaves the same way.
   /// </summary>
-  public class ReplaceMacro : IMacro
+  public class ReplaceMacro : IMacro, ITakesHookNames
   {
     public string Name => "replace";
     public int MinArgs => 1;

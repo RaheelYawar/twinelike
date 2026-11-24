@@ -63,6 +63,13 @@ namespace Harlowe.Runtime
     public Func<string, bool> PassageExists;
 
     /// <summary>
+    /// Looks up a passage by name for <c>(passage:)</c>. Set by
+    /// <see cref="StorySession"/>; null in standalone tests with no story, where
+    /// the macro reports that the passage doesn't exist.
+    /// </summary>
+    public Func<string, HarlowePassage> FindPassage;
+
+    /// <summary>
     /// The in-prose error for a navigation target that doesn't exist, or null
     /// when <paramref name="passageName"/> is fine — the shared gate every
     /// navigation site (<c>(goto:)</c>, <c>(link-goto:)</c>, the
@@ -258,6 +265,9 @@ namespace Harlowe.Runtime
     /// <summary>The fixed cost of one nested render, so that tiny passages can't recurse almost for free.</summary>
     internal const int NestedRenderOverhead = 256;
 
+    /// <summary>What one pass of a <c>(for:)</c> loop costs. A render can make a quarter of a million of them, which covers one loop over the longest <c>(range:)</c>.</summary>
+    internal const int LoopIterationCost = 16;
+
     /// <summary>Budget spent so far. <see cref="StorySession"/> resets it at the start of each dispatch; each render has a fresh context.</summary>
     internal int NestedRenderCost;
 
@@ -329,6 +339,13 @@ namespace Harlowe.Runtime
       NestedRenderCost += (int)cost;
       return true;
     }
+
+    /// <summary>How much of <see cref="NestedRenderBudget"/> this render has left.</summary>
+    internal int RemainingRenderBudget => NestedRenderBudget - NestedRenderCost;
+
+    /// <summary>Charges work that has already been done, up to what's left of the budget.</summary>
+    internal void SpendUpTo(long cost)
+      => NestedRenderCost += (int)Math.Min(cost, RemainingRenderBudget);
 
     /// <summary>The in-prose error for a render that has used up <see cref="NestedRenderBudget"/> or <see cref="TargetWalkBudget"/>.</summary>
     internal const string OverBudgetMessage = "this render has displayed or printed too much nested content";

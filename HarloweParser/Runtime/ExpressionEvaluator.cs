@@ -126,9 +126,6 @@ namespace Harlowe.Runtime
         case "turns":
           _result = _context != null ? _context.Turns : HarloweValue.OfError("'turns' is unavailable outside a story session");
           break;
-        case "passage":
-          _result = _context != null ? _context.Passage : HarloweValue.OfError("'passage' is unavailable outside a story session");
-          break;
         default:
           _result = HarloweValue.OfError($"unknown identifier '{node.Name}'");
           break;
@@ -355,7 +352,7 @@ namespace Harlowe.Runtime
     /// </summary>
     private HarloweValue StoreTyped(TypedVarValue typed, HarloweValue value)
     {
-      if (!Matches(value, typed.Datatype))
+      if (!Matches(value, typed.Datatype, _registry?.Context))
         return HarloweValue.OfError($"I can't put {value.ObjectName} into {typed.VariableSource} because it doesn't match {typed.VariableSource}'s datatype, {typed.Datatype.ObjectName}.");
 
       var type = typed.Datatype;
@@ -402,7 +399,7 @@ namespace Harlowe.Runtime
           if (_store.Get(name, isTemporary) != null)
             return HarloweValue.OfError($"I can't alter {variable} because it's been restricted to a constant value.");
         }
-        else if (!Matches(value, restriction))
+        else if (!Matches(value, restriction, _registry?.Context))
         {
           return HarloweValue.OfError($"I can't set {variable} to {value.ObjectName} because it's been restricted to {restriction.ToSource()}-type data.");
         }
@@ -429,7 +426,7 @@ namespace Harlowe.Runtime
       return value;
     }
 
-    /// <summary>A typed variable name can't be kept in a variable, even inside a collection. Returns reference's error, or null.</summary>
+    /// <summary>A typed variable name or hook name can't be kept in a variable, even inside a collection. Returns reference's error, or null.</summary>
     private static HarloweValue UnstorableError(HarloweValue value)
     {
       var unstorable = FindUnstorable(value, 0);
@@ -445,12 +442,21 @@ namespace Harlowe.Runtime
       switch (value.Kind)
       {
         case HarloweValueKind.TypedVar:
+        case HarloweValueKind.HookName:
           return value;
         case HarloweValueKind.Array:
           var items = value.AsArray;
           for (int i = 0; i < items.Count; i++)
           {
             var found = FindUnstorable(items[i], depth + 1);
+            if (found != null) return found;
+          }
+          return null;
+        case HarloweValueKind.Dataset:
+          var members = value.AsDataset;
+          for (int i = 0; i < members.Count; i++)
+          {
+            var found = FindUnstorable(members[i], depth + 1);
             if (found != null) return found;
           }
           return null;
@@ -979,9 +985,9 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
-    /// Appends the items of a spread operand: an array's elements or a string's
-    /// code points (JS spreads strings by code point). Datasets don't exist
-    /// here yet, and spread datatypes (<c>...num</c>) are a separate feature.
+    /// Appends the items of a spread operand: an array's elements, a dataset's
+    /// values in sorted order, or a string's code points (JS spreads strings by
+    /// code point). A datatype becomes its spread form, like <c>...num</c>.
     /// Returns the error, or null.
     /// </summary>
     private HarloweValue SpreadInto(IExpressionNode operand, List<HarloweValue> into)
@@ -992,6 +998,9 @@ namespace Harlowe.Runtime
       {
         case HarloweValueKind.Array:
           into.AddRange(value.AsArray);
+          return null;
+        case HarloweValueKind.Dataset:
+          into.AddRange(Datasets.SpreadOrder(value.AsDataset));
           return null;
         case HarloweValueKind.String:
           var characters = CodePoints.Split(value.AsString);
@@ -1215,7 +1224,7 @@ namespace Harlowe.Runtime
         var typedValue = EvaluateTypedVar(typedPattern);
         if (typedValue.IsError) return typedValue;
         var typed = typedValue.AsTypedVar;
-        if (!Matches(source, typed.Datatype)) return TypedMismatchError(typed, source);
+        if (!Matches(source, typed.Datatype, _registry?.Context)) return TypedMismatchError(typed, source);
         bindings.Add(new PatternBinding { DestNode = typedPattern.Right, Value = source, SrcSteps = srcSteps, Typed = typed });
         return null;
       }
@@ -1265,7 +1274,7 @@ namespace Harlowe.Runtime
               if (spreadType.Kind == HarloweValueKind.Datatype)
               {
                 var runType = HarloweValue.OfDatatype(spreadType.AsDatatype.AsSpread());
-                while (valueIndex < arr.Count && Matches(arr[valueIndex], runType)) valueIndex++;
+                while (valueIndex < arr.Count && Matches(arr[valueIndex], runType, _registry?.Context)) valueIndex++;
                 continue;
               }
             }
@@ -1302,9 +1311,11 @@ namespace Harlowe.Runtime
 
       var expected = Evaluate(pattern);
       if (expected.IsError) return expected;
-      bool tooDeep = false;
-      bool matched = MatchesRecur(expected, source, 0, ref tooDeep);
-      if (tooDeep) return HarloweValue.OfError(TooDeepMessage);
+      var context = _registry?.Context;
+      var work = new MatchWork(context);
+      bool matched = MatchesRecur(expected, source, 0, work);
+      work.Charge(context);
+      if (work.TooDeep) return HarloweValue.OfError(TooDeepMessage);
       if (!matched)
         return HarloweValue.OfError($"I tried to unpack, but {expected.ToSource()} in the pattern didn't match {source.ToSource()}.");
       return null;
@@ -1325,7 +1336,7 @@ namespace Harlowe.Runtime
       var arr = source.AsArray;
 
       int start = valueIndex;
-      while (valueIndex < arr.Count && Matches(arr[valueIndex], rest.Datatype)) valueIndex++;
+      while (valueIndex < arr.Count && Matches(arr[valueIndex], rest.Datatype, _registry?.Context)) valueIndex++;
 
       var slice = arr.GetRange(start, valueIndex - start);
       var arrayType = HarloweValue.OfArray(new List<HarloweValue> { HarloweValue.OfDatatype(rest.Datatype.AsDatatype.AsSpread()) });
@@ -1490,6 +1501,28 @@ namespace Harlowe.Runtime
             step.FromEndOrdinal = fromEndOrdinal;
             child = isString ? IndexString(container.AsString, index) : container.AsArray[index - 1];
             break;
+          }
+          case HarloweValueKind.Dataset:
+          {
+            // Only its length can be read, and that can't be deleted.
+            string name;
+            if (accessor is IdentifierNode id) name = id.Name;
+            else
+            {
+              var keyValue = Evaluate(accessor);
+              if (keyValue.IsError) return keyValue;
+              name = keyValue.Kind == HarloweValueKind.String ? keyValue.AsString : null;
+            }
+            if (name != "length") return DatasetPropertyError();
+            child = HarloweValue.OfNumber(container.AsDataset.Count);
+            if (isLast)
+            {
+              deletable = false;
+              value = child;
+              return null;
+            }
+            container = child;
+            continue;
           }
           case HarloweValueKind.Colour:
           {
@@ -1738,10 +1771,10 @@ namespace Harlowe.Runtime
     /// and collection types using <c>doNotCoerce</c> — both operands must have
     /// the same kind, but each kind has its own meaning of <c>+</c>:
     /// arithmetic for numbers, concatenation for strings and arrays, RHS-wins
-    /// merge for datamaps, logical OR for booleans, changer composition for
-    /// changers, additive blending for colours. The combinations we don't
-    /// support yet (Set, Gradient, HookName) require value types we don't have;
-    /// they fall through to the type-mismatch error.
+    /// merge for datamaps, union for datasets, logical OR for booleans, changer
+    /// composition for changers, additive blending for colours. The combinations
+    /// we don't support yet (Gradient, HookName) fall through to the
+    /// type-mismatch error.
     /// </summary>
     private static HarloweValue OpAdd(HarloweValue left, HarloweValue right)
     {
@@ -1776,6 +1809,8 @@ namespace Harlowe.Runtime
           foreach (var kv in right.AsDatamap) merged[kv.Key] = kv.Value;
           return HarloweValue.OfDatamap(merged);
         }
+        case HarloweValueKind.Dataset:
+          return Datasets.Union(left, right);
         case HarloweValueKind.Changer:
         {
           return HarloweValue.OfChanger(ComposeChangers(left.AsChanger, right.AsChanger));
@@ -1792,9 +1827,8 @@ namespace Harlowe.Runtime
     /// all instances of": <c>String - String</c> deletes every occurrence of
     /// the RHS substring, <c>Array - Array</c> filters out elements that
     /// appear anywhere in the RHS (by <c>is</c>-equality, our
-    /// <see cref="HarloweValue.Equals"/>). <c>Set - Set</c> is the set
-    /// difference; we don't have a Set value type yet, so that case falls
-    /// through to the type-mismatch error.
+    /// <see cref="HarloweValue.Equals"/>), and <c>Dataset - Dataset</c> is the
+    /// set difference.
     ///
     /// <para>Note the reference comment: "Subtracting 1 element from an array
     /// requires it be wrapped in an (a:) macro." Authors write
@@ -1835,6 +1869,8 @@ namespace Harlowe.Runtime
           }
           return HarloweValue.OfArray(kept);
         }
+        case HarloweValueKind.Dataset:
+          return Datasets.Difference(left, right);
         default:
           return HarloweValue.OfError($"- does not apply to {left.Kind} and {right.Kind}");
       }
@@ -1861,6 +1897,10 @@ namespace Harlowe.Runtime
         case HarloweValueKind.Array:
           var arr = container.AsArray;
           for (int i = 0; i < arr.Count; i++) if (arr[i].Equals(item)) return HarloweValue.OfBool(true);
+          return HarloweValue.OfBool(false);
+        case HarloweValueKind.Dataset:
+          var set = container.AsDataset;
+          for (int i = 0; i < set.Count; i++) if (set[i].Equals(item)) return HarloweValue.OfBool(true);
           return HarloweValue.OfBool(false);
         case HarloweValueKind.String:
           if (item.Kind != HarloweValueKind.String) return HarloweValue.OfError($"a String cannot contain a {item.Kind}");
@@ -1904,26 +1944,69 @@ namespace Harlowe.Runtime
     /// </summary>
     private const int MaxMatchDepth = 256;
 
-    private const string TooDeepMessage = "I was given a value nested too deeply to compare.";
+    private const string TooDeepMessage = "I was given values too large or nested too deeply to compare.";
+
+    /// <summary>
+    /// The most comparisons one <c>matches</c> makes, counting each ordering of a
+    /// dataset it tries. Reference tries every ordering and locks up well before
+    /// ten values, so this turns that hang into an in-prose error.
+    /// </summary>
+    private const long MaxMatchSteps = 4000000;
+
+    /// <summary>Comparisons that cost one unit of the render's budget, so that long <c>matches</c> in a loop can't run for minutes.</summary>
+    private const int MatchStepsPerBudgetUnit = 16;
+
+    /// <summary>What a <c>matches</c> may still compare once the render's budget is spent, so ordinary small checks keep working.</summary>
+    private const long MinMatchSteps = 4096;
+
+    /// <summary>The running count of one <c>matches</c>, limited by what the render can still afford.</summary>
+    private sealed class MatchWork
+    {
+      private readonly long _limit;
+
+      /// <summary>Set when the values were nested too deeply, or took too many comparisons.</summary>
+      public bool TooDeep;
+
+      public long Steps;
+
+      public MatchWork(MacroContext context)
+      {
+        long affordable = context == null ? MaxMatchSteps : context.RemainingRenderBudget * (long)MatchStepsPerBudgetUnit;
+        _limit = System.Math.Max(MinMatchSteps, System.Math.Min(MaxMatchSteps, affordable));
+      }
+
+      public bool Step()
+      {
+        if (++Steps <= _limit) return true;
+        TooDeep = true;
+        return false;
+      }
+
+      public void Charge(MacroContext context) => context?.SpendUpTo(Steps / MatchStepsPerBudgetUnit);
+    }
+
+    /// <summary><c>matches</c> as a plain test. Values too deep or too large to compare don't match.</summary>
+    internal static bool Matches(HarloweValue left, HarloweValue right, MacroContext context)
+    {
+      var work = new MatchWork(context);
+      bool matched = MatchesRecur(left, right, 0, work);
+      work.Charge(context);
+      return matched && !work.TooDeep;
+    }
 
     /// <summary>
     /// The <c>matches</c>/<c>does not match</c> operator sites: runs the walk
-    /// and turns a depth blow-out into an in-prose error rather than a bool.
-    /// The <c>(unpack:)</c> pattern check does the same two steps inline,
+    /// and turns a depth or size blow-out into an in-prose error rather than a
+    /// bool. The <c>(unpack:)</c> pattern check does the same steps inline,
     /// since its non-match is an error with its own wording.
     /// </summary>
-    /// <summary><c>matches</c> as a plain test. A value too deep to compare doesn't match.</summary>
-    internal static bool Matches(HarloweValue left, HarloweValue right)
+    private HarloweValue OpMatchesValue(HarloweValue left, HarloweValue right, bool negate)
     {
-      bool tooDeep = false;
-      return MatchesRecur(left, right, 0, ref tooDeep);
-    }
-
-    private static HarloweValue OpMatchesValue(HarloweValue left, HarloweValue right, bool negate)
-    {
-      bool tooDeep = false;
-      bool matched = MatchesRecur(left, right, 0, ref tooDeep);
-      if (tooDeep) return HarloweValue.OfError(TooDeepMessage);
+      var context = _registry?.Context;
+      var work = new MatchWork(context);
+      bool matched = MatchesRecur(left, right, 0, work);
+      work.Charge(context);
+      if (work.TooDeep) return HarloweValue.OfError(TooDeepMessage);
       return HarloweValue.OfBool(negate ? !matched : matched);
     }
 
@@ -1943,20 +2026,24 @@ namespace Harlowe.Runtime
     /// implemented here. A typed variable in a pattern matches by its type, and
     /// a spread datatype (<c>...num</c>) spans a run of array positions.</para>
     /// </summary>
-    private static bool MatchesRecur(HarloweValue left, HarloweValue right, int depth, ref bool tooDeep)
+    private static bool MatchesRecur(HarloweValue left, HarloweValue right, int depth, MatchWork work)
     {
-      if (depth >= MaxMatchDepth) { tooDeep = true; return false; }
+      if (!work.Step()) return false;
+      if (depth >= MaxMatchDepth) { work.TooDeep = true; return false; }
 
-      if (left.Kind == HarloweValueKind.TypedVar) return MatchesRecur(left.AsTypedVar.Datatype, right, depth + 1, ref tooDeep);
-      if (right.Kind == HarloweValueKind.TypedVar) return MatchesRecur(left, right.AsTypedVar.Datatype, depth + 1, ref tooDeep);
+      if (left.Kind == HarloweValueKind.TypedVar) return MatchesRecur(left.AsTypedVar.Datatype, right, depth + 1, work);
+      if (right.Kind == HarloweValueKind.TypedVar) return MatchesRecur(left, right.AsTypedVar.Datatype, depth + 1, work);
 
       if (left.Kind == HarloweValueKind.Datatype && left.AsDatatype.IsTypeOf(right)) return true;
       if (right.Kind == HarloweValueKind.Datatype && right.AsDatatype.IsTypeOf(left)) return true;
 
       if (left.Kind == HarloweValueKind.Array && right.Kind == HarloweValueKind.Array)
       {
-        return MatchesArrays(left.AsArray, right.AsArray, depth, ref tooDeep);
+        return MatchesArrays(left.AsArray, right.AsArray, depth, work);
       }
+
+      if (left.Kind == HarloweValueKind.Dataset && right.Kind == HarloweValueKind.Dataset)
+        return MatchesDatasets(left.AsDataset, right.AsDataset, depth, work);
 
       if (left.Kind == HarloweValueKind.Datamap && right.Kind == HarloweValueKind.Datamap)
       {
@@ -1970,7 +2057,7 @@ namespace Harlowe.Runtime
         foreach (var kv in lm)
         {
           if (!rm.TryGetValue(kv.Key, out var rv)) return false;
-          if (!MatchesRecur(kv.Value, rv, depth + 1, ref tooDeep)) return false;
+          if (!MatchesRecur(kv.Value, rv, depth + 1, work)) return false;
         }
         return true;
       }
@@ -1987,29 +2074,119 @@ namespace Harlowe.Runtime
     /// run at all. Both sides have to be used up, so a spread left over when the
     /// other side runs out fails the match.
     /// </summary>
-    private static bool MatchesArrays(List<HarloweValue> left, List<HarloweValue> right, int depth, ref bool tooDeep)
+    private static bool MatchesArrays(List<HarloweValue> left, List<HarloweValue> right, int depth, MatchWork work)
     {
       int l = 0, r = 0;
       while (l < left.Count && r < right.Count)
       {
         if (IsSpreadDatatype(left[l]))
         {
-          while (r < right.Count && MatchesRecur(left[l], right[r], depth + 1, ref tooDeep)) r++;
+          while (r < right.Count && MatchesRecur(left[l], right[r], depth + 1, work)) r++;
           l++;
         }
         else if (IsSpreadDatatype(right[r]))
         {
-          while (l < left.Count && MatchesRecur(left[l], right[r], depth + 1, ref tooDeep)) l++;
+          while (l < left.Count && MatchesRecur(left[l], right[r], depth + 1, work)) l++;
           r++;
         }
         else
         {
-          if (!MatchesRecur(left[l], right[r], depth + 1, ref tooDeep)) return false;
+          if (!MatchesRecur(left[l], right[r], depth + 1, work)) return false;
           l++;
           r++;
         }
       }
       return l >= left.Count && r >= right.Count;
+    }
+
+    /// <summary>
+    /// Whether some ordering of <paramref name="right"/> matches
+    /// <paramref name="left"/> as an array: reference's
+    /// <c>permutations(...r).some(r =&gt; matches(l, r))</c>. With no datatype
+    /// anywhere that's the same values, and with no spread datatype it's a
+    /// one-to-one pairing. Neither needs every ordering. With a spread, the
+    /// orderings are tried in turn, within <see cref="MaxMatchSteps"/>.
+    /// </summary>
+    private static bool MatchesDatasets(List<HarloweValue> left, List<HarloweValue> right, int depth, MatchWork work)
+    {
+      // A dataset level takes several calls where an array takes one, so it
+      // counts for as many against the depth limit.
+      depth += 3;
+      if (!HasSpreadDatatype(left) && !HasSpreadDatatype(right))
+      {
+        if (left.Count != right.Count) return false;
+        if (!Datasets.HoldsDatatype(left) && !Datasets.HoldsDatatype(right)) return Datasets.SameMembers(left, right);
+        return PairsUp(left, right, depth, work);
+      }
+
+      // Heap's algorithm, as reference's `permutations` uses.
+      var order = new List<HarloweValue>(right);
+      if (MatchesArrays(left, order, depth, work)) return true;
+      var counters = new int[order.Count];
+      int i = 1;
+      while (i < order.Count && !work.TooDeep)
+      {
+        if (counters[i] >= i)
+        {
+          counters[i] = 0;
+          i++;
+          continue;
+        }
+        int swap = i % 2 == 1 ? counters[i] : 0;
+        var held = order[i];
+        order[i] = order[swap];
+        order[swap] = held;
+        counters[i]++;
+        i = 1;
+        if (!work.Step()) return false;
+        if (MatchesArrays(left, order, depth, work)) return true;
+      }
+      return false;
+    }
+
+    private static bool HasSpreadDatatype(List<HarloweValue> items)
+    {
+      for (int i = 0; i < items.Count; i++)
+        if (IsSpreadDatatype(items[i])) return true;
+      return false;
+    }
+
+    /// <summary>
+    /// Whether each left value can be paired with its own right value that it
+    /// matches: a maximum bipartite matching by augmenting paths.
+    /// </summary>
+    private static bool PairsUp(List<HarloweValue> left, List<HarloweValue> right, int depth, MatchWork work)
+    {
+      var partner = new int[right.Count];
+      for (int i = 0; i < partner.Length; i++) partner[i] = -1;
+      for (int l = 0; l < left.Count; l++)
+      {
+        var visited = new bool[right.Count];
+        if (!TryPair(l, left, right, partner, visited, 0, depth, work)) return false;
+      }
+      return !work.TooDeep;
+    }
+
+    private static bool TryPair(int l, List<HarloweValue> left, List<HarloweValue> right, int[] partner, bool[] visited,
+        int pathLength, int depth, MatchWork work)
+    {
+      // Each step of an augmenting path is a call, so a long one could overflow the stack.
+      if (pathLength >= MaxMatchDepth) { work.TooDeep = true; return false; }
+      for (int r = 0; r < right.Count; r++)
+      {
+        if (visited[r]) continue;
+        bool matched = MatchesRecur(left[l], right[r], depth + 1, work);
+        if (work.TooDeep) return false;
+        if (!matched) continue;
+        visited[r] = true;
+        if (partner[r] < 0 || TryPair(partner[r], left, right, partner, visited, pathLength + 1, depth, work))
+        {
+          partner[r] = l;
+          return true;
+        }
+        if (work.TooDeep) return false;
+      }
+      return false;
     }
 
     private static HarloweValue TypeError(string op, HarloweValue offender)
@@ -2032,10 +2209,15 @@ namespace Harlowe.Runtime
       var key = Evaluate(accessor);
       if (key.IsError) return key;
       if (key.Kind == HarloweValueKind.String
-          && (container.Kind == HarloweValueKind.CustomMacro || container.Kind == HarloweValueKind.TypedVar))
+          && (container.Kind == HarloweValueKind.CustomMacro || container.Kind == HarloweValueKind.TypedVar
+              || container.Kind == HarloweValueKind.Dataset))
         return ResolveIdentifierAccessor(container, key.AsString);
       return ResolveValueAccessor(container, key);
     }
+
+    /// <summary>Reference's wording for reading anything but a dataset's length. Its <c>some</c> and <c>all</c> determiners aren't implemented here.</summary>
+    private static HarloweValue DatasetPropertyError()
+      => HarloweValue.OfError("You can only access the 'length' of a dataset. You can't access specific individual data values from datasets.");
 
     private HarloweValue ResolveIdentifierAccessor(HarloweValue container, string name)
     {
@@ -2053,6 +2235,9 @@ namespace Harlowe.Runtime
           if (name == "name") return HarloweValue.OfString(container.AsTypedVar.Name);
           if (name == "datatype") return container.AsTypedVar.DatatypeProperty;
           return HarloweValue.OfError($"a typed variable name has no property '{name}'");
+        case HarloweValueKind.Dataset:
+          if (name == "length") return HarloweValue.OfNumber(container.AsDataset.Count);
+          return DatasetPropertyError();
         case HarloweValueKind.Datamap:
           if (container.AsDatamap.TryGetValue(name, out var v)) return v;
           return HarloweValue.OfError($"datamap has no key '{name}'");
@@ -2119,6 +2304,8 @@ namespace Harlowe.Runtime
           if (key.Kind != HarloweValueKind.Number)
             return HarloweValue.OfError($"string index must be a Number, not a {key.Kind}");
           return IndexString(container.AsString, key.AsNumber);
+        case HarloweValueKind.Dataset:
+          return DatasetPropertyError();
         default:
           return HarloweValue.OfError($"a {container.Kind} has no properties");
       }

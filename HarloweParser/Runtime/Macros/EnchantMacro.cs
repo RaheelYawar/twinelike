@@ -12,7 +12,7 @@ namespace Harlowe.Runtime.Macros
   /// <c>(change:)</c>. <c>(enchant: ?page, …)</c> is the documented
   /// whole-passage styling idiom. Produces no visible output of its own.
   /// </summary>
-  public class EnchantMacro : IMacro, ICommandCheck
+  public class EnchantMacro : IMacro, ICommandCheck, ITakesHookNames
   {
     public string Name => "enchant";
     public int MinArgs => 2;

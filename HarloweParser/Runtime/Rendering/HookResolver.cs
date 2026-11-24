@@ -38,16 +38,32 @@ namespace Harlowe.Runtime.Rendering
     {
       var matches = new List<RenderNode>();
       if (tree == null || name == null) return matches;
+      CollectMatches(tree, name.Name ?? string.Empty, matches);
+      return ApplySteps(matches, name.Steps);
+    }
 
-      string n = name.Name ?? string.Empty;
-      if (string.Equals(n, "passage", StringComparison.OrdinalIgnoreCase)
-          || string.Equals(n, "page", StringComparison.OrdinalIgnoreCase))
+    /// <summary>
+    /// As <see cref="Resolve(RenderNode, HookNameValue)"/> over several trees,
+    /// taken in order as one document, so an ordinal step counts across them.
+    /// </summary>
+    internal static IReadOnlyList<RenderNode> Resolve(List<RenderNode> trees, HookNameValue name)
+    {
+      var matches = new List<RenderNode>();
+      if (name == null) return matches;
+      for (int i = 0; i < trees.Count; i++) CollectMatches(trees[i], name.Name ?? string.Empty, matches);
+      return ApplySteps(matches, name.Steps);
+    }
+
+    /// <summary>Compared as reference's <c>insensitiveName</c> does, ignoring case, dashes and underscores.</summary>
+    private static void CollectMatches(RenderNode tree, string n, List<RenderNode> matches)
+    {
+      if (MacroNames.SameName(n, "passage") || MacroNames.SameName(n, "page"))
       {
         // ?passage and ?page both select the passage root. A cross-passage
         // ?page scope (header/footer enchantment) is a later concern.
         matches.Add(tree);
       }
-      else if (string.Equals(n, "link", StringComparison.OrdinalIgnoreCase))
+      else if (MacroNames.SameName(n, "link"))
       {
         // Passage links and live (link:)-family labels — reference's ?Link
         // matches created <tw-link> elements too. A consumed single-use label
@@ -58,10 +74,8 @@ namespace Harlowe.Runtime.Rendering
       else
       {
         Collect(tree, node => node is RenderHookNode hook
-          && string.Equals(hook.Name ?? string.Empty, n, StringComparison.OrdinalIgnoreCase), matches);
+          && hook.Name != null && MacroNames.SameName(hook.Name, n), matches);
       }
-
-      return ApplySteps(matches, name.Steps);
     }
 
     /// <summary>

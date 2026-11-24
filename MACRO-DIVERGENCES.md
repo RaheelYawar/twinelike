@@ -13,9 +13,9 @@ for the save-model slice (which lands `(history:)` semantics).
 
 - **High severity (0 active, 6 fixed)**: silent wrong result or breaks documented Harlowe idioms.
 - **Medium severity (0 active, 10 fixed, 1 reclassified)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
-- **Low severity (12 active, 2 fixed)**: documented as deliberate or marginal.
+- **Low severity (17 active, 2 fixed)**: documented as deliberate or marginal.
 
-**12 active, all low-severity** — #26 (deliberate: a printed array renders each
+**17 active, all low-severity** — #26 (deliberate: a printed array renders each
 item separately, so markup can't span items), #17 (load-guard vs intra-turn `(goto:)`), #18
 (stacked-interaction nesting order), #21 (deliberate: out-of-range array sets
 error rather than growing sparse holes), #23 (deliberate: a `via`-lambda's RNG
@@ -26,7 +26,12 @@ mapping, so `ß` is neither), #28 (deliberate: custom macro recursion stops at
 this library's stack-safe limits), #29 (deliberate: `(partial:)` doesn't copy
 the target's signature), #30 (deliberate: `(for:)+(output:)` works), #31
 (deliberate: markup in a code hook can't pair with markup outside the macro),
-#32 (a revision in a macro body whose target comes later does nothing).
+#32 (a revision in a macro body whose target comes later does nothing), #33
+(a revision, `(for:)` or link changer attached to `(show:)` has no effect), #34
+(a dataset's spread order is approximate for accented text and hex strings),
+#35 (deliberate: limits on `(for:)` passes, `(range:)` length and print depth),
+#36 (a run of spaces in a hand-edited tags attribute adds no empty tags), #37 (a
+visible hook revising itself while it renders keeps its later content).
 
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
 items are kept and marked rather than renumbered. "Reclassified" means the
@@ -790,6 +795,26 @@ Reference lexes a passage with one stack of open markers, so a closer inside a c
 ### 32. A revision in a macro body with a later target does nothing (found in the custom macro review, 2026-11-22)
 
 `(set: $m to (macro: [(replace: ?a)[new](output-data: 1)]))($m:)|a>[x]` renders `1newx` in real 3.3.9, printing the hook beside the call even though `?a` isn't on the page yet. Here it renders `1x`, as the same `(replace:)` outside a macro does in both. A target already on the page behaves the same in both.
+
+### 33. A revision, `(for:)` or link changer attached to `(show:)` has no effect (found in the `(show:)` slice, 2026-11-23)
+
+A changer written before `(show:)` styles the hook it reveals, and a false condition stops it, as in real 3.3.9. Reference also passes the rest of the changer into the reveal, so `|a)[_i](for: each _i, 1, 2)(show: ?a)` shows `2`, the last pass, and `(click-replace: ?c)(show: ?a)` arms a click. Here those show the hook once, with no loop variable and no click. `(link:)` before `(show:)` throws an internal error in real 3.3.9, so nothing can depend on it.
+
+### 34. A dataset's spread order is approximate for accented text and hex strings (found in the dataset slice, 2026-11-23)
+
+Spreading a dataset sorts it with `NaturalOrder`, the same comparison `startup` passages use, which covers ASCII exactly. Real 3.3.9 uses the browser's English collator, so `(a: ...(ds: "é", "e", "z"))` is `e,é,z` there and `e,z,é` here, because other letters sort after `z`. It also reads `"0x10"` as the number 16, and date-shaped strings as dates, which aren't implemented here.
+
+### 35. Limits on `(for:)` passes, `(range:)` length and print depth (deliberate; found in the `(range:)` slice, 2026-11-23)
+
+One render can make a quarter of a million `(for:)` passes, one `(range:)` can hold 200,000 numbers, and a value can print 256 levels deep. Past any of these it's an in-prose error. Real 3.3.9 sets no limit of its own: `(range:)` worked at 100,000 and failed with a JavaScript stack error at 150,000, printing managed 300 levels and failed at 5,000, and a 3,000 by 3,000 loop was still running when the test stopped it after 3 seconds. Here a stuck render or stack overflow would take the host game down with it.
+
+### 36. A run of spaces in a hand-edited tags attribute adds no empty tags (found in the `(passage:)` review, 2026-11-23)
+
+Reference splits the `tags` attribute on each whitespace character, so `tags="a  b"` gives `(passage:)` three tags, the middle one empty. Here it gives two, because `HarlowePassage.Tags` promises hosts a list with no empty entries. Matching reference under that promise would mean keeping the raw attribute beside the list, a copy that goes stale when a host edits `Tags`, for something Twine doesn't write: none of the pinned exports has a run of spaces in its tags. An untagged passage does get reference's one empty tag.
+
+### 37. A visible hook revising itself while it renders keeps its later content (found in the `(show:)` review, 2026-11-23)
+
+`|o>[x(replace: ?o)[y]z]` renders `y` in real 3.3.9 and `yz` here, and the `(append:)` form renders `xzy` there and `xyz` here. The same hook revealed by `(show:)` matches 3.3.9, because its content renders into an inner node.
 
 ### 25. The `lowercase` / `uppercase` datatypes don't expand under case mapping (deliberate; found in the Datatype slice review, 2026-07-26)
 

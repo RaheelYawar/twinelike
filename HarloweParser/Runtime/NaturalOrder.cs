@@ -24,9 +24,42 @@ namespace Harlowe.Runtime
     private const string PunctuationOrder = "_-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$";
 
     public static int Compare(string left, string right)
+      => CompareChunks(Chunks((left ?? string.Empty).Trim()), Chunks((right ?? string.Empty).Trim()));
+
+    /// <summary>
+    /// The positions of <paramref name="keys"/> in sorted order, with equal keys
+    /// keeping their order, as JavaScript's sort does. A merge sort, because
+    /// <see cref="Compare"/> isn't guaranteed consistent across mixed numbers and
+    /// text and <see cref="List{T}.Sort()"/> can throw on a comparison that isn't.
+    /// </summary>
+    internal static int[] SortedIndices(string[] keys)
     {
-      var a = Chunks((left ?? string.Empty).Trim());
-      var b = Chunks((right ?? string.Empty).Trim());
+      var chunks = new List<string>[keys.Length];
+      for (int i = 0; i < keys.Length; i++) chunks[i] = Chunks((keys[i] ?? string.Empty).Trim());
+      var order = new int[keys.Length];
+      for (int i = 0; i < order.Length; i++) order[i] = i;
+      var buffer = new int[keys.Length];
+      for (int width = 1; width < order.Length; width *= 2)
+      {
+        for (int start = 0; start < order.Length; start += 2 * width)
+        {
+          int middle = Math.Min(start + width, order.Length);
+          int end = Math.Min(start + 2 * width, order.Length);
+          int l = start, r = middle, at = start;
+          while (l < middle && r < end)
+            buffer[at++] = CompareChunks(chunks[order[r]], chunks[order[l]]) < 0 ? order[r++] : order[l++];
+          while (l < middle) buffer[at++] = order[l++];
+          while (r < end) buffer[at++] = order[r++];
+        }
+        var swap = order;
+        order = buffer;
+        buffer = swap;
+      }
+      return order;
+    }
+
+    private static int CompareChunks(List<string> a, List<string> b)
+    {
       int count = Math.Max(a.Count, b.Count);
       for (int i = 0; i < count; i++)
       {

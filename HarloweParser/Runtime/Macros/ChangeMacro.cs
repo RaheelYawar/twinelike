@@ -11,7 +11,7 @@ namespace Harlowe.Runtime.Macros
   /// affected (use <c>(enchant:)</c> for that). Produces no visible output of
   /// its own.
   /// </summary>
-  public class ChangeMacro : IMacro, ICommandCheck
+  public class ChangeMacro : IMacro, ICommandCheck, ITakesHookNames
   {
     public string Name => "change";
     public int MinArgs => 2;

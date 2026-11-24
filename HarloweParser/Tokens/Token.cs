@@ -33,6 +33,9 @@ namespace Harlowe.Tokens
     /// </summary>
     public int Partner = -1;
 
+    /// <summary>True on a hook name written with a parenthesis, <c>|name)</c> or <c>(name|</c>, which marks the hook as hidden.</summary>
+    public bool IsHidden;
+
     /// <summary>
     /// Constructs a token with its category, value, and source position. All
     /// fields are public for direct mutation, but tokenizers should treat

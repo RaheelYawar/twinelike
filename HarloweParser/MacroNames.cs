@@ -37,6 +37,27 @@ namespace Harlowe
     /// Check this before <see cref="Normalize"/>, which would strip a leading
     /// underscore and turn <c>(_a:)</c> into a call to <c>(a:)</c>.
     /// </summary>
+    /// <summary>
+    /// True when two names are the same under <see cref="Normalize"/>, without
+    /// building either: reference's <c>insensitiveName</c>, which also decides
+    /// which hook a <c>?name</c> means.
+    /// </summary>
+    internal static bool SameName(string a, string b)
+    {
+      a = a ?? string.Empty;
+      b = b ?? string.Empty;
+      int i = 0, j = 0;
+      while (true)
+      {
+        while (i < a.Length && (a[i] == '-' || a[i] == '_')) i++;
+        while (j < b.Length && (b[j] == '-' || b[j] == '_')) j++;
+        if (i == a.Length || j == b.Length) return i == a.Length && j == b.Length;
+        if (char.ToLowerInvariant(a[i]) != char.ToLowerInvariant(b[j])) return false;
+        i++;
+        j++;
+      }
+    }
+
     public static bool IsCustomCall(string name)
       => !string.IsNullOrEmpty(name) && (name[0] == '$' || name[0] == '_');
   }

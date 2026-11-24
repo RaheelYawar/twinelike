@@ -10,7 +10,7 @@ namespace Harlowe.Runtime.Macros
   /// among rendered prose. See <see cref="ReplaceMacro"/> for the shared
   /// revision semantics.
   /// </summary>
-  public class PrependMacro : IMacro
+  public class PrependMacro : IMacro, ITakesHookNames
   {
     public string Name => "prepend";
     public int MinArgs => 1;

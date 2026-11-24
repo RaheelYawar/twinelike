@@ -122,7 +122,7 @@ namespace Harlowe.Runtime.Macros
   /// the target's type signature, so a call missing a required value is reported
   /// by the target macro when it runs.
   /// </summary>
-  public class PartialMacro : IMacro
+  public class PartialMacro : IMacro, ITakesHookNames
   {
     /// <summary>Partials of partials call and print recursively, so a story can't be allowed to stack them without limit.</summary>
     private const int MaxChain = 64;
