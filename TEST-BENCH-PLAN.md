@@ -8,13 +8,13 @@ The unit tests all pass, but they only check behaviour someone already thought t
 
 | Measure | Result |
 |---|---|
-| Reference Harlowe's own specs that can run without a browser | 7,001 checks from 1,599 of its 2,699 tests. **4,379 pass (62.5%)** under the Harlowe 4 profile and 4,373 under Harlowe 3. Real Harlowe 3.3.9 passes 6,732 (96.2%) |
+| Reference Harlowe's own specs that can run without a browser | 7,001 checks from 1,599 of its 2,699 tests. **4,525 pass (64.6%)** under the Harlowe 4 profile and 4,519 under Harlowe 3. Real Harlowe 3.3.9 passes 6,732 (96.2%) |
 | Public Harlowe 3.3 stories on GitHub, counted by pattern | 156 stories, about 30,800 macro calls. **74 (47%)** call only macros we implement, and about 25% of calls hit a macro we lack |
 | MIT/CC0 Harlowe 3.3.9 stories, played by seeded random walks | 8 stories. **2 play with no in-prose errors**, and those two make only 2 macro calls between them |
 | Walks recorded on real Harlowe 3.3.9 and replayed on Twinelike | **All 41 Service Suspended passages match**. Files-005 matches its first passage and stops at timed macros in its second |
 | Generated markup snippets on both engines | **99.98% of about 103,000 comparable snippets match** |
 
-So no story with real macro use plays cleanly yet, a story with no errors can still show the wrong text, and the results change what to build next. Custom macros, `startup` passages, `(range:)`, `(passage:)`, `(show:)` and `(ds:)` now run, so the most errors in the playthroughs come from `(track:)`, `(passages:)`, `(hide:)`, `(input:)`, `(t8n:)` and `(cond:)`. We still don't run `header` or `footer` passages. By number of stories, the most-used missing macros are `(box:)` 27, `(live:)` 23, `(prompt:)` 16, `(stop:)` 14, `(css:)` 11 and `(track:)` 10.
+So no story with real macro use plays cleanly yet, a story with no errors can still show the wrong text, and the results change what to build next. Custom macros, `startup` passages, `(range:)`, `(passage:)`, `(passages:)`, `(show:)`, `(hide:)`, `(ds:)`, `(cond:)`, transitions and number names in datamaps now run, so the missing macros hit most in the playthroughs are `(track:)`, `(input:)`, `(input-box:)`, `(link-show:)`, `(visited:)` and `(box:)`. We still don't run `header` or `footer` passages. By number of stories, the most-used missing macros are `(box:)` 27, `(live:)` 23, `(prompt:)` 16, `(stop:)` 14, `(css:)` 11 and `(track:)` 10.
 
 **Not yet verified:** no Unity, Godot or Phaser host has been built or run. Phase 0b exists to settle that before anything depends on it.
 
@@ -65,8 +65,8 @@ Every story file is pinned to a commit and a SHA-256, recorded with its licence 
 | Early in the Morning | `CristopherB14/createYourStory` @ `a952615872d4` | MIT | `earlyInTheMorning.html` | 34 | 0 | 34 / 34 | Nothing |
 | Ethics in Science | `PyrrhicShadow/Pyrrhic-s-Twinery` @ `131fb674d68c` | MIT | `twine/EthicsInScience.html` | 19 | 57 | 7 / 5 | `(event:)`, `(visited:)`, parse errors |
 | Lamplight | `IkeaSourPatches/Lamplight` @ `9f3915f69a81` | MIT | `index.html` | 11 | 301 | 1 / 0 | `(button:)`, `(input-box:)`, `(css:)` |
-| harlowe-demo | `jreamy/harlowe-demo` @ `5cecb9546973` | MIT | `game.twee` | 9 | 350 | 5 / 3 | Number keys in `(dm:)`, `(live:)`, `(stop:)` |
-| Sand-dancer, redux | `jgheithcock/sand-dancer` @ `fc7847d909c4` | CC0, see below | `Sand-Dancer.twee` | 76 | 1,700 | 6 / 1 | `(passages:)`, `(hide:)`, `(t8n:)`, parse errors |
+| harlowe-demo | `jreamy/harlowe-demo` @ `5cecb9546973` | MIT | `game.twee` | 9 | 350 | 5 / 4 | `(live:)`, `(stop:)` |
+| Sand-dancer, redux | `jgheithcock/sand-dancer` @ `fc7847d909c4` | CC0, see below | `Sand-Dancer.twee` | 76 | 1,700 | 6 / 4 | `(link-show:)`, `(box:)`, parse errors |
 
 "Reached" counts passages the walks visit, and "clean" those that never showed an error. Counts come from the published HTML where a story has both forms, and its Twee source stays a second corpus entry that exercises `TweeReader`.
 

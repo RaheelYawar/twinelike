@@ -34,6 +34,10 @@ namespace Harlowe.Runtime
     /// <summary>True if a macro with this name is registered (case/dash-insensitive). Used by the body renderer to disambiguate command macros from "macro-shaped" prose.</summary>
     public bool Contains(string name) => _macros.ContainsKey(MacroNames.Normalize(name));
 
+    /// <summary>The spelling the macro <paramref name="name"/> calls was registered under, such as <c>text-style</c> for <c>(TEXT_STYLE:)</c>. The name itself when nothing is registered.</summary>
+    internal string RegisteredName(string name)
+      => _macros.TryGetValue(MacroNames.Normalize(name), out var macro) && !string.IsNullOrEmpty(macro.Name) ? macro.Name : name;
+
     /// <summary>Every registered macro name in <see cref="MacroNames.Normalize"/>d form — the lookup keys.</summary>
     public IEnumerable<string> RegisteredNames => _macros.Keys;
 
@@ -120,7 +124,7 @@ namespace Harlowe.Runtime
       => normalizedName == "macro" || normalizedName == "partial" || normalizedName == "a"
         || normalizedName == "array" || normalizedName == "dm" || normalizedName == "datamap";
 
-    private static string OrdinalSuffix(int n)
+    internal static string OrdinalSuffix(int n)
     {
       int hundreds = n % 100;
       if (hundreds >= 11 && hundreds <= 13) return "th";

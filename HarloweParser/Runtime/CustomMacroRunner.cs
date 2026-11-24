@@ -80,7 +80,7 @@ namespace Harlowe.Runtime
       else
       {
         result = registry.Invoke(macro.PartialName, all, context);
-        ExpressionEvaluator.StampChangerSource(result, macro.PartialName, all);
+        ExpressionEvaluator.StampChangerSource(result, registry.RegisteredName(macro.PartialName), all);
       }
       return result.IsError
         ? HarloweValue.OfError($"An error occurred while running the (partial:)-created macro, {macro.ObjectName}:\n{result.ErrorMessage}")

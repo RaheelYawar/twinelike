@@ -699,12 +699,29 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
-    public void Property_Datamap_NumericKey_Errors()
+    public void Property_Datamap_MissingNumberKey_Errors()
     {
       var v = EvalP("(dm: \"n\", \"B\")'s 5");
       Assert.True(v.IsError);
-      Assert.Contains("String", v.ErrorMessage);
+      Assert.Equal("datamap has no key (5)", v.ErrorMessage);
     }
+
+    [Fact]
+    public void Property_Datamap_NumberKey_Reads()
+    {
+      Assert.Equal("a", EvalP("(dm: 1, \"a\")'s 1").AsString);
+      Assert.Equal("a", EvalP("(dm: 1, \"a\")'s (1)").AsString);
+      Assert.Equal("a", EvalP("(dm: 0, \"a\")'s (-0)").AsString);
+      Assert.Equal("a", EvalP("(1) of (dm: 1, \"a\")").AsString);
+    }
+
+    [Theory]
+    [InlineData("(dm: 1, \"a\")'s \"1\"", "You mustn't use both the string \"1\" and the number 1 as data names in the same datamap.")]
+    [InlineData("(dm: \"1\", \"a\")'s 1", "You mustn't use both the number 1 and the string \"1\" as data names in the same datamap.")]
+    [InlineData("(dm: 1, \"a\")'s (true)", "Only strings and numbers can be used as data names for a datamap, not the boolean value 'true'.")]
+    [InlineData("(dm: 1, \"a\")'s 1st", "datamap has no key '1st'")]
+    public void Property_Datamap_NameRules(string source, string message)
+      => Assert.Equal(message, EvalP(source).ErrorMessage);
 
     [Fact]
     public void Property_Of_DatamapReversed()
@@ -976,7 +993,7 @@ namespace Harlowe.Tests.Runtime
     }
 
     private static HarloweValue OneKeyMap(string key, double value)
-      => HarloweValue.OfDatamap(new Dictionary<string, HarloweValue> { [key] = HarloweValue.OfNumber(value) });
+      => HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue> { [key] = HarloweValue.OfNumber(value) });
 
     [Fact]
     public void Contains_Array_FindsElement()
@@ -1003,11 +1020,14 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
-    public void Contains_Datamap_NonStringKey_Errors()
+    public void Contains_Datamap_LooksForAnyValue()
     {
-      var v = Eval("$dm contains 5", StoreWith("dm", OneKeyMap("hp", 10)));
-      Assert.True(v.IsError);
-      Assert.Contains("Datamap key must be a String", v.ErrorMessage);
+      // Reference compares each name with `is`, so a value of another type is just absent.
+      var store = StoreWith("dm", OneKeyMap("hp", 10));
+      Assert.False(Eval("$dm contains 5", store).AsBool);
+      Assert.False(Eval("$dm contains true", store).AsBool);
+      Assert.True(EvalP("(dm: 1, \"a\") contains 1").AsBool);
+      Assert.False(EvalP("(dm: 1, \"a\") contains \"1\"").AsBool);
     }
 
     // passage is not an identifier ---------------------------------------------
@@ -1205,9 +1225,22 @@ namespace Harlowe.Tests.Runtime
     public void PropertyAssign_Datamap_NonStringComputedKey_Errors()
     {
       var store = StoreWith("dm", OneKeyMap("hp", 10));
-      var v = EvalP("$dm's (5) to 1", store);
-      Assert.True(v.IsError);
-      Assert.Equal("the datamap can only have string data names, not a Number.", v.ErrorMessage);
+      Assert.Equal("A datamap can only have string data names, not the number 5.", EvalP("$dm's (5) to 1", store).ErrorMessage);
+      Assert.Equal("Only strings and numbers can be used as data names for a datamap, not the boolean value 'true'.",
+        EvalP("$dm's (true) to 1", store).ErrorMessage);
+    }
+
+    [Fact]
+    public void PropertyAssign_Datamap_NumberKeyCantBeWrittenThrough()
+    {
+      // Reference's canSet refuses a number name at every level of the chain.
+      var store = StoreWith("dm", HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>
+      {
+        [DataName.Of(1)] = OneKeyMap("hp", 10),
+      }));
+      Assert.Equal("A datamap can only have string data names, not the number 1.", EvalP("$dm's (1)'s hp to 1", store).ErrorMessage);
+      Assert.Equal("datamap has no key (2)", EvalP("$dm's (2)'s hp to 1", store).ErrorMessage);
+      Assert.Equal(10, Eval("$dm's (1)'s hp", store).AsNumber);
     }
 
     [Fact]
@@ -1385,9 +1418,9 @@ namespace Harlowe.Tests.Runtime
     public void PropertyAssign_CopyOnWrite_UntouchedSiblingsShareReferences()
     {
       var store = new HarloweVariableStore();
-      var hero = new Dictionary<string, HarloweValue> { ["hp"] = HarloweValue.OfNumber(10) };
-      var villain = new Dictionary<string, HarloweValue> { ["hp"] = HarloweValue.OfNumber(20) };
-      store.Set("chars", false, HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      var hero = new Dictionary<DataName, HarloweValue> { ["hp"] = HarloweValue.OfNumber(10) };
+      var villain = new Dictionary<DataName, HarloweValue> { ["hp"] = HarloweValue.OfNumber(20) };
+      store.Set("chars", false, HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>
       {
         ["hero"] = HarloweValue.OfDatamap(hero),
         ["villain"] = HarloweValue.OfDatamap(villain)
@@ -1614,7 +1647,7 @@ namespace Harlowe.Tests.Runtime
     public void Move_DatamapKey_Removed()
     {
       var store = new HarloweVariableStore();
-      store.Set("dm", false, HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      store.Set("dm", false, HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>
       {
         ["hp"] = HarloweValue.OfNumber(10),
         ["mp"] = HarloweValue.OfNumber(5)
@@ -1732,13 +1765,13 @@ namespace Harlowe.Tests.Runtime
     public void Move_NestedSource_SiblingsShared()
     {
       var store = new HarloweVariableStore();
-      var hero = new Dictionary<string, HarloweValue>
+      var hero = new Dictionary<DataName, HarloweValue>
       {
         ["hp"] = HarloweValue.OfNumber(10),
         ["mp"] = HarloweValue.OfNumber(4)
       };
-      var villain = new Dictionary<string, HarloweValue> { ["hp"] = HarloweValue.OfNumber(20) };
-      store.Set("chars", false, HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      var villain = new Dictionary<DataName, HarloweValue> { ["hp"] = HarloweValue.OfNumber(20) };
+      store.Set("chars", false, HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>
       {
         ["hero"] = HarloweValue.OfDatamap(hero),
         ["villain"] = HarloweValue.OfDatamap(villain)
@@ -2102,7 +2135,7 @@ namespace Harlowe.Tests.Runtime
     public void MovePattern_DatamapKeys_Removed()
     {
       var store = new HarloweVariableStore();
-      store.Set("stats", false, HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      store.Set("stats", false, HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>
       {
         ["Maths"] = HarloweValue.OfNumber(12),
         ["Science"] = HarloweValue.OfNumber(8),
@@ -2121,12 +2154,12 @@ namespace Harlowe.Tests.Runtime
     public void MovePattern_ChainSource_DeletesNestedSlot()
     {
       var store = new HarloweVariableStore();
-      var hero = new Dictionary<string, HarloweValue>
+      var hero = new Dictionary<DataName, HarloweValue>
       {
         ["hp"] = HarloweValue.OfNumber(10),
         ["mp"] = HarloweValue.OfNumber(4)
       };
-      store.Set("chars", false, HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      store.Set("chars", false, HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>
       {
         ["hero"] = HarloweValue.OfDatamap(hero)
       }));

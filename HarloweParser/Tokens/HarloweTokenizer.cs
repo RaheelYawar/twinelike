@@ -699,6 +699,13 @@ namespace Harlowe.Tokens
         ScanNumberLiteral(startPos, startLine, startCol);
         return;
       }
+      // A number can start at its decimal point, `.5`, as reference's number
+      // and time rules allow. `...` is the spread operator, matched above.
+      if (c == '.' && IsAsciiDigit(Peek(1)) && (_pos == 0 || !IsWordChar(_src[_pos - 1])))
+      {
+        ScanNumberLiteral(startPos, startLine, startCol);
+        return;
+      }
 
       if (char.IsLetter(c))
       {
@@ -708,6 +715,14 @@ namespace Harlowe.Tokens
 
       if (TryScanSymbolOperator(startPos, startLine, startCol)) return;
 
+      // A dot that isn't part of a number or `...` matches no reference rule,
+      // so `(print: 1.)` is an error there rather than a 1.
+      if (c == '.')
+      {
+        Advance();
+        Emit(TokenType.Error, "\".\" isn't valid Harlowe syntax for the inside of a macro call.", startPos, startLine, startCol);
+        return;
+      }
       Advance();
     }
 
@@ -891,6 +906,16 @@ namespace Harlowe.Tokens
     /// <summary>JavaScript's <c>\w</c>, which is ASCII only.</summary>
     private static bool IsWordChar(char c)
       => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+
+    /// <summary>The length of an <c>s</c> or <c>ms</c> time unit at <paramref name="at"/> that ends at a word boundary, or 0.</summary>
+    private int TimeUnitLength(int at)
+    {
+      int len = 0;
+      if (at < _src.Length && (_src[at] == 'm' || _src[at] == 'M')) len = 1;
+      if (at + len >= _src.Length || (_src[at + len] != 's' && _src[at + len] != 'S')) return 0;
+      len++;
+      return at + len < _src.Length && IsWordChar(_src[at + len]) ? 0 : len;
+    }
 
     /// <summary>
     /// Tries to consume a raw HTML tag (<c>&lt;tag…&gt;</c>, <c>&lt;/tag&gt;</c>,
@@ -1087,6 +1112,18 @@ namespace Harlowe.Tokens
       {
         Advance();
         while (_pos < _src.Length && IsAsciiDigit(_src[_pos])) Advance();
+      }
+      // A time, reference 3.3.9's cssTime rule: `2s` and `500ms`, either case,
+      // followed by a word boundary, where the number may end at its point
+      // (`1.s`). The parser turns it into milliseconds.
+      int point = _pos < _src.Length && _src[_pos] == '.' && _pos > start && IsAsciiDigit(_src[_pos - 1]) ? 1 : 0;
+      int unit = TimeUnitLength(_pos + point);
+      if (unit > 0) AdvanceN(point);
+      if (unit > 0)
+      {
+        AdvanceN(unit);
+        Emit(TokenType.NumberLiteral, _src.Substring(start, _pos - start), startPos, startLine, startCol);
+        return;
       }
       // Optional exponent: [eE][+-]?[0-9]+. Reference Harlowe's number pattern
       // (the `number` rule in ts/markup/patterns.ts) permits exponents, and
@@ -1486,7 +1523,9 @@ namespace Harlowe.Tokens
         }
       }
 
-      if (_pos + 2 < _src.Length && _src[_pos] == '.' && _src[_pos + 1] == '.' && _src[_pos + 2] == '.')
+      // Reference's spread is `\.\.\.(?!\.)`, so `....` starts with a stray dot.
+      if (_pos + 2 < _src.Length && _src[_pos] == '.' && _src[_pos + 1] == '.' && _src[_pos + 2] == '.'
+          && (_pos + 3 >= _src.Length || _src[_pos + 3] != '.'))
       {
         AdvanceN(3);
         Emit(TokenType.Operator, "...", startPos, startLine, startCol);

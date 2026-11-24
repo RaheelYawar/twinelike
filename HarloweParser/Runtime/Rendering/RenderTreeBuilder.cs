@@ -97,12 +97,13 @@ namespace Harlowe.Runtime.Rendering
     {
       var node = new RenderLinkNode { Target = target };
       Current.Children.Add(node);
+      RenderNodes.StartBuilding(node);
       _stack.Push(node);
     }
 
     public void EndLink()
     {
-      if (_stack.Count > 1) _stack.Pop();
+      if (_stack.Count > 1) RenderNodes.FinishBuilding(_stack.Pop());
     }
 
     public void Error(string message) => Current.Children.Add(new RenderErrorNode { Message = message });
@@ -140,13 +141,14 @@ namespace Harlowe.Runtime.Rendering
     {
       var node = new RenderHookNode { Name = name, Anchor = anchor, Hidden = hidden };
       Current.Children.Add(node);
+      RenderNodes.StartBuilding(node);
       _stack.Push(node);
     }
 
     /// <summary>Close the most recently opened hook scope.</summary>
     public void EndHook()
     {
-      if (_stack.Count > 1) _stack.Pop();
+      if (_stack.Count > 1) RenderNodes.FinishBuilding(_stack.Pop());
     }
 
     /// <summary>

@@ -69,6 +69,9 @@ namespace Harlowe.Runtime
     /// </summary>
     public Func<string, HarlowePassage> FindPassage;
 
+    /// <summary>Every passage in the story, in story order. Backs <c>(passages:)</c>.</summary>
+    public Func<IEnumerable<HarlowePassage>> AllPassages;
+
     /// <summary>
     /// The in-prose error for a navigation target that doesn't exist, or null
     /// when <paramref name="passageName"/> is fine — the shared gate every

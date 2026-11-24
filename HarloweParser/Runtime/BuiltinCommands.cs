@@ -46,7 +46,7 @@ namespace Harlowe.Runtime
       Add(table, CommandRole.Reveals, "show");
       Add(table, CommandRole.Ignores, "go-to", "click-goto", "click-undo",
         "mouseover-goto", "mouseover-undo", "mouseout-goto", "mouseout-undo");
-      Add(table, CommandRole.Refuses, "load-game", "change", "enchant");
+      Add(table, CommandRole.Refuses, "load-game", "change", "enchant", "hide");
       Add(table, CommandRole.Operation, "set", "put", "move", "unpack");
       return table;
     }

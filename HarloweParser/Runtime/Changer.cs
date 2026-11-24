@@ -58,6 +58,10 @@ namespace Harlowe.Runtime
     public static Changer FromStyle(StyleSpec style)
       => new Changer(new List<IChangerPatch> { new StylePatch { Style = style ?? new StyleSpec() } });
 
+    /// <summary>A changer setting the transition fields given in <paramref name="fields"/>, merged with any others in the same composition.</summary>
+    public static Changer FromTransition(StyleSpec fields)
+      => new Changer(new List<IChangerPatch> { new TransitionPatch { Fields = fields ?? new StyleSpec() } });
+
     /// <summary>
     /// Construct a changer that wraps a hook in a per-item iteration. The
     /// renderer reads the descriptor's <see cref="IterationSpec"/> and runs
@@ -229,10 +233,13 @@ namespace Harlowe.Runtime
     /// composed conditional (<see cref="ConditionalPatch"/>) suppressed the hook,
     /// in which case nothing renders and nothing registers. The renderer feeds
     /// this into the <c>(else:)</c> pairing (reference's <c>lastHookShown</c>).</para>
+    ///
+    /// <para><paramref name="aroundLink"/> says the hook is a passage link, where
+    /// a <c>(transition-time:)</c> on its own still reaches the host.</para>
     /// </summary>
-    public bool Apply(IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx = null)
+    public bool Apply(IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx = null, bool aroundLink = false)
     {
-      var descriptor = BuildDescriptor();
+      var descriptor = BuildDescriptor(aroundLink);
 
       // A conditional in the composition disabled the hook: render nothing,
       // register nothing — (if: false) + (click: ?a) must not arm a click.
@@ -553,7 +560,7 @@ namespace Harlowe.Runtime
     /// <summary>Builds this changer's style layers around <paramref name="target"/> and returns the outermost, or <paramref name="target"/> itself when there are none. Doesn't place the result in the tree.</summary>
     private RenderNode WrapInStyles(RenderNode target, Enchantment source)
     {
-      var styles = BuildStyles();
+      var styles = BuildStyles(aroundLink: target is RenderLinkNode);
       RenderNode wrapped = target;
       for (int i = styles.Count - 1; i >= 0; i--)
       {
@@ -565,19 +572,38 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>Run every patch against a fresh descriptor — the single place the patch list is folded, shared by <see cref="Apply"/> and <see cref="BuildStyles"/>.</summary>
-    private HookDescriptor BuildDescriptor()
+    private HookDescriptor BuildDescriptor(bool aroundLink = false)
     {
       var descriptor = new HookDescriptor();
       for (int i = 0; i < _patches.Count; i++) _patches[i].Apply(descriptor);
+      // Reference wraps the hook's contents in its transition container, inside
+      // every other style, and only when a transition is named: a time or delay
+      // on its own changes nothing. Around a passage link a time on its own
+      // still counts, because (transition-time:) also sets how long the passage
+      // transition takes.
+      var t = descriptor.Transition;
+      if (t != null && (t.Transition != null || t.TransitionDepart != null || t.TransitionArrive != null
+          || (aroundLink && t.TransitionTime != null)))
+        descriptor.Styles.Add(t);
       return descriptor;
+    }
+
+    /// <summary>True when the composition has a <c>(transition:)</c>, which reference refuses on a passage link.</summary>
+    internal bool HasHookTransition
+    {
+      get
+      {
+        var descriptor = BuildDescriptor();
+        return descriptor.Transition != null && descriptor.Transition.Transition != null;
+      }
     }
 
     /// <summary>Build the descriptor and return its style layers — the shared front of <see cref="ApplyTo"/> / <see cref="ApplyToNode"/>, also read by <see cref="InteractionPass"/> for armed-region styling. Empty when a composed conditional disabled the descriptor, so <c>(change: ?x, (if: false) + (colour: red))</c> applies nothing.</summary>
     internal List<StyleSpec> GetStyleLayers() => BuildStyles();
 
-    private List<StyleSpec> BuildStyles()
+    private List<StyleSpec> BuildStyles(bool aroundLink = false)
     {
-      var descriptor = BuildDescriptor();
+      var descriptor = BuildDescriptor(aroundLink);
       if (!descriptor.Enabled) descriptor.Styles.Clear();
       return descriptor.Styles;
     }

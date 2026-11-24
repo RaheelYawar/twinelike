@@ -79,6 +79,33 @@ namespace Harlowe.Runtime
   }
 
   /// <summary>
+  /// Patch produced by the <c>(transition:)</c> family. Each sets one
+  /// transition field, merged into the descriptor's single transition layer, so
+  /// <c>(t8n: "fade") + (t8n-time: 2s)</c> is one layer with both and
+  /// <c>(t8n: "fade") + (t8n: "pulse")</c> pulses.
+  /// </summary>
+  public class TransitionPatch : IChangerPatch
+  {
+    /// <summary>The fields this patch sets. Its other fields are unset.</summary>
+    public StyleSpec Fields;
+
+    public void Apply(HookDescriptor descriptor)
+    {
+      var t = descriptor.Transition ?? (descriptor.Transition = new StyleSpec());
+      if (Fields.Transition != null) t.Transition = Fields.Transition;
+      if (Fields.TransitionTime != null) t.TransitionTime = Fields.TransitionTime;
+      if (Fields.TransitionDelay != null) t.TransitionDelay = Fields.TransitionDelay;
+      if (Fields.TransitionSkip != null) t.TransitionSkip = Fields.TransitionSkip;
+      if (Fields.TransitionDepart != null) t.TransitionDepart = Fields.TransitionDepart;
+      if (Fields.TransitionArrive != null) t.TransitionArrive = Fields.TransitionArrive;
+    }
+
+    public override bool Equals(object obj) => obj is TransitionPatch other && object.Equals(Fields, other.Fields);
+
+    public override int GetHashCode() => Fields?.GetHashCode() ?? 0;
+  }
+
+  /// <summary>
   /// Patch produced by <c>(hidden:)</c>: the hook doesn't render until
   /// <c>(show:)</c> reveals it. Reference's <c>d =&gt; {d.enabled = false}</c>.
   /// </summary>

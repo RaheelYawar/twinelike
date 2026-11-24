@@ -13,9 +13,9 @@ for the save-model slice (which lands `(history:)` semantics).
 
 - **High severity (0 active, 6 fixed)**: silent wrong result or breaks documented Harlowe idioms.
 - **Medium severity (0 active, 10 fixed, 1 reclassified)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
-- **Low severity (17 active, 2 fixed)**: documented as deliberate or marginal.
+- **Low severity (18 active, 2 fixed)**: documented as deliberate or marginal.
 
-**17 active, all low-severity** — #26 (deliberate: a printed array renders each
+**18 active, all low-severity** — #26 (deliberate: a printed array renders each
 item separately, so markup can't span items), #17 (load-guard vs intra-turn `(goto:)`), #18
 (stacked-interaction nesting order), #21 (deliberate: out-of-range array sets
 error rather than growing sparse holes), #23 (deliberate: a `via`-lambda's RNG
@@ -31,7 +31,8 @@ the target's signature), #30 (deliberate: `(for:)+(output:)` works), #31
 (a dataset's spread order is approximate for accented text and hex strings),
 #35 (deliberate: limits on `(for:)` passes, `(range:)` length and print depth),
 #36 (a run of spaces in a hand-edited tags attribute adds no empty tags), #37 (a
-visible hook revising itself while it renders keeps its later content).
+visible hook revising itself while it renders keeps its later content), #38 (a
+hook hiding itself, or copied while hidden, can come back different).
 
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
 items are kept and marked rather than renumbered. "Reclassified" means the
@@ -815,6 +816,10 @@ Reference splits the `tags` attribute on each whitespace character, so `tags="a 
 ### 37. A visible hook revising itself while it renders keeps its later content (found in the `(show:)` review, 2026-11-23)
 
 `|o>[x(replace: ?o)[y]z]` renders `y` in real 3.3.9 and `yz` here, and the `(append:)` form renders `xzy` there and `xyz` here. The same hook revealed by `(show:)` matches 3.3.9, because its content renders into an inner node.
+
+### 38. A hook hiding itself, or copied while hidden, can come back different (found in the `(hide:)` slice, 2026-11-23)
+
+Reference renders a hook's content before running its macros, so `(hide:)` inside the hook it names takes the whole content out at once. Here the hook is hidden when it finishes rendering, so the result shows the same, but a macro after the `(hide:)` still sees the content on the page: `|a>[x(hide: ?a)(replace: "x")[y]](show: ?a)` shows `xy` in real 3.3.9 and `y` here. Copies differ too. When a revision copies a hook that hides itself, each copy here keeps its own content, so `|o>[]|q>[](append: ?o, ?q)[|a>[x](hide: ?a)]` followed by `(show: ?a's 1st)` shows `x` and `(show: ?a)` shows `xx`, where 3.3.9 shows `xx` and `x`.
 
 ### 25. The `lowercase` / `uppercase` datatypes don't expand under case mapping (deliberate; found in the Datatype slice review, 2026-07-26)
 

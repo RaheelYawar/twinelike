@@ -190,7 +190,9 @@ namespace Harlowe.Runtime
     /// </summary>
     private void FollowChanger(Changer changer, string macroName)
     {
-      string name = macroName ?? changer.FrontMacroName;
+      // Errors name the changer as reference does, by the main name of the
+      // macro that made it, so (either: (colour: red)) is a (text-colour:) one.
+      string name = MacroNames.CanonicalChangerName(changer.FrontMacroName ?? (macroName != null ? _registry.RegisteredName(macroName) : null));
       if (_siblings == null)
       {
         _output.Error(UnattachedChangerError(name));
@@ -341,7 +343,15 @@ namespace Harlowe.Runtime
           adjacent.Attach = changer => RunCommand(command, changer);
           break;
         case CommandKind.Link:
-          adjacent.Attach = changer => ApplyToCommand(changer, renderer => renderer.Visit(command.Link));
+          adjacent.Attach = changer =>
+          {
+            // Reference's (link-goto:) refuses a hook transition, which would
+            // have no effect on a passage link, and shows only the error.
+            if (changer.HasHookTransition)
+              _output.Error("Please attach (transition-depart:) or (transition-arrive:) to a passage link, not (transition:).");
+            else
+              ApplyToCommand(changer, renderer => renderer.Visit(command.Link), aroundLink: true);
+          };
           break;
         case CommandKind.Builtin:
           var role = BuiltinCommands.RoleOf(command.BuiltinName);
@@ -386,7 +396,7 @@ namespace Harlowe.Runtime
     /// the command's place as the macro's result, with nothing to show, because
     /// a built-in command has no hook for it to capture.
     /// </summary>
-    private void ApplyToCommand(Changer changer, System.Action<BodyRenderer> run)
+    private void ApplyToCommand(Changer changer, System.Action<BodyRenderer> run, bool aroundLink = false)
     {
       if (changer.HasOutputPatch)
       {
@@ -395,7 +405,7 @@ namespace Harlowe.Runtime
       }
       bool insideCollapse = _collapseDepth > 0;
       var command = new CommandRun(run);
-      changer.Apply(_output, target => RenderHookInto(command, target, insideCollapse), _context);
+      changer.Apply(_output, target => RenderHookInto(command, target, insideCollapse), _context, aroundLink);
     }
 
     /// <summary>
@@ -797,7 +807,7 @@ namespace Harlowe.Runtime
       // and dropped, so they skip the cost of building one.
       if (result != null && result.Kind == HarloweValueKind.Changer
           && (result.AsChanger.HasOutputPatch || PlusFollows()))
-        ExpressionEvaluator.StampChangerSource(result, node.Name, args);
+        ExpressionEvaluator.StampChangerSource(result, _registry.RegisteredName(node.Name), args);
       FinishExpression(result, node.AttachedHook, node.HookGap, node.Name);
     }
 

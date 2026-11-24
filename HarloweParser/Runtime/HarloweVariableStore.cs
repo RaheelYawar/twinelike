@@ -353,7 +353,7 @@ namespace Harlowe.Runtime
           return HarloweValue.OfArray(dstArr);
         case HarloweValueKind.Datamap:
           var srcMap = v.AsDatamap;
-          var dstMap = new Dictionary<string, HarloweValue>(srcMap.Count);
+          var dstMap = new Dictionary<DataName, HarloweValue>(srcMap.Count);
           foreach (var kv in srcMap) dstMap[kv.Key] = DeepCopyValue(kv.Value, depth + 1);
           return HarloweValue.OfDatamap(dstMap);
         case HarloweValueKind.Dataset:

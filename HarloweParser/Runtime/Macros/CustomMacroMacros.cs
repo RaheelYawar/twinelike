@@ -176,7 +176,13 @@ namespace Harlowe.Runtime.Macros
       if (args[0].Kind != HarloweValueKind.Changer || args[1].Kind != HarloweValueKind.CodeHook
           || args[2].Kind != HarloweValueKind.Datamap)
         return HarloweValue.OfError("this saved custom command is malformed");
-      return HarloweValue.OfCommand(CommandValue.ForHook(args[0].AsChanger, args[1].AsCodeHook, args[2].AsDatamap));
+      var temps = new Dictionary<string, HarloweValue>(args[2].AsDatamap.Count);
+      foreach (var kv in args[2].AsDatamap)
+      {
+        if (kv.Key.IsNumber) return HarloweValue.OfError("this saved custom command is malformed");
+        temps[kv.Key.Text] = kv.Value;
+      }
+      return HarloweValue.OfCommand(CommandValue.ForHook(args[0].AsChanger, args[1].AsCodeHook, temps));
     }
   }
 }

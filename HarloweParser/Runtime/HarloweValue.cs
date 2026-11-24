@@ -9,7 +9,7 @@ namespace Harlowe.Runtime
   /// A tagged-union runtime value. <see cref="Kind"/> tells you which variant is
   /// in play; <see cref="Raw"/> holds the boxed payload (a <see cref="double"/>,
   /// <see cref="string"/>, <see cref="bool"/>, <c>List&lt;HarloweValue&gt;</c>,
-  /// <c>Dictionary&lt;string, HarloweValue&gt;</c>, or an error message
+  /// <c>Dictionary&lt;DataName, HarloweValue&gt;</c>, or an error message
   /// <see cref="string"/>). The shape mirrors <see cref="Ast.Expression.LiteralNode"/>'s
   /// Kind+object pair so the evaluator can copy a literal in one line.
   ///
@@ -51,7 +51,7 @@ namespace Harlowe.Runtime
     public static HarloweValue OfString(string s) => new HarloweValue(HarloweValueKind.String, s ?? string.Empty);
     public static HarloweValue OfBool(bool b) => new HarloweValue(HarloweValueKind.Bool, b);
     public static HarloweValue OfArray(List<HarloweValue> items) => new HarloweValue(HarloweValueKind.Array, items ?? new List<HarloweValue>());
-    public static HarloweValue OfDatamap(Dictionary<string, HarloweValue> map) => new HarloweValue(HarloweValueKind.Datamap, map ?? new Dictionary<string, HarloweValue>());
+    public static HarloweValue OfDatamap(Dictionary<DataName, HarloweValue> map) => new HarloweValue(HarloweValueKind.Datamap, map ?? new Dictionary<DataName, HarloweValue>());
     public static HarloweValue OfError(string message) => new HarloweValue(HarloweValueKind.Error, message ?? string.Empty);
     public static HarloweValue OfChanger(Changer changer) => new HarloweValue(HarloweValueKind.Changer, changer ?? throw new ArgumentNullException(nameof(changer)));
     public static HarloweValue OfLambda(LambdaValue lambda) => new HarloweValue(HarloweValueKind.Lambda, lambda ?? throw new ArgumentNullException(nameof(lambda)));
@@ -91,7 +91,7 @@ namespace Harlowe.Runtime
     public string AsString => (string)Raw;
     public bool AsBool => (bool)Raw;
     public List<HarloweValue> AsArray => (List<HarloweValue>)Raw;
-    public Dictionary<string, HarloweValue> AsDatamap => (Dictionary<string, HarloweValue>)Raw;
+    public Dictionary<DataName, HarloweValue> AsDatamap => (Dictionary<DataName, HarloweValue>)Raw;
     public string ErrorMessage => (string)Raw;
     public Changer AsChanger => (Changer)Raw;
     public LambdaValue AsLambda => (LambdaValue)Raw;
@@ -157,7 +157,7 @@ namespace Harlowe.Runtime
         case HarloweValueKind.Dataset:
           return DatasetsEqual((List<HarloweValue>)raw, (List<HarloweValue>)other.Raw, depth);
         case HarloweValueKind.Datamap:
-          return DatamapsEqual((Dictionary<string, HarloweValue>)raw, (Dictionary<string, HarloweValue>)other.Raw, depth);
+          return DatamapsEqual((Dictionary<DataName, HarloweValue>)raw, (Dictionary<DataName, HarloweValue>)other.Raw, depth);
         case HarloweValueKind.Error:
           return (string)raw == (string)other.Raw;
         case HarloweValueKind.Changer:
@@ -219,7 +219,7 @@ namespace Harlowe.Runtime
           h = (h * 397) ^ ((List<HarloweValue>)Raw).Count;
           break;
         case HarloweValueKind.Datamap:
-          h = (h * 397) ^ ((Dictionary<string, HarloweValue>)Raw).Count;
+          h = (h * 397) ^ ((Dictionary<DataName, HarloweValue>)Raw).Count;
           break;
         case HarloweValueKind.Error: h = (h * 397) ^ ((string)Raw).GetHashCode(); break;
         case HarloweValueKind.Changer: h = (h * 397) ^ ((Changer)Raw).GetHashCode(); break;
@@ -271,7 +271,7 @@ namespace Harlowe.Runtime
       return true;
     }
 
-    private static bool DatamapsEqual(Dictionary<string, HarloweValue> a, Dictionary<string, HarloweValue> b, int depth)
+    private static bool DatamapsEqual(Dictionary<DataName, HarloweValue> a, Dictionary<DataName, HarloweValue> b, int depth)
     {
       if (a.Count != b.Count) return false;
       foreach (var kv in a)
@@ -374,7 +374,7 @@ namespace Harlowe.Runtime
     /// (<c>toSource</c> + re-<c>eval</c> in <c>varscope.ts</c>). Number →
     /// <see cref="FormatNumber"/>, String → a quoted literal, Bool → <c>true</c>/
     /// <c>false</c>, Array → <c>(a:…)</c>, Datamap → <c>(dm:"k",v,…)</c> (keys
-    /// ordinal-sorted for determinism; round-trip is order-independent), Lambda /
+    /// sorted for determinism, number names first; round-trip is order-independent), Lambda /
     /// HookName → the printed expression, Changer → its stamped
     /// <see cref="Changer.Source"/>.
     ///
@@ -416,7 +416,7 @@ namespace Harlowe.Runtime
         case HarloweValueKind.Array:
           return ArrayToSource((List<HarloweValue>)Raw, depth);
         case HarloweValueKind.Datamap:
-          return DatamapToSource((Dictionary<string, HarloweValue>)Raw, depth);
+          return DatamapToSource((Dictionary<DataName, HarloweValue>)Raw, depth);
         case HarloweValueKind.Dataset:
           return DatasetToSource((List<HarloweValue>)Raw, depth);
         case HarloweValueKind.Changer:
@@ -471,20 +471,27 @@ namespace Harlowe.Runtime
       return sb.Append(')').ToString();
     }
 
-    private static string DatamapToSource(Dictionary<string, HarloweValue> map, int depth)
+    private static string DatamapToSource(Dictionary<DataName, HarloweValue> map, int depth)
     {
-      var keys = new List<string>(map.Count);
-      foreach (var kv in map) keys.Add(kv.Key);
-      keys.Sort(StringComparer.Ordinal);
+      var keys = SortedNames(map);
       var sb = new StringBuilder("(dm:");
       for (int i = 0; i < keys.Count; i++)
       {
         if (i > 0) sb.Append(',');
+        string ks = keys[i].ToSource();
         string vs = map[keys[i]].ToSource(depth + 1);
-        if (vs == null) return null;
-        sb.Append(Twee.MarkupPrinter.StringLiteral(keys[i])).Append(',').Append(vs);
+        if (ks == null || vs == null) return null;
+        sb.Append(ks).Append(',').Append(vs);
       }
       return sb.Append(')').ToString();
+    }
+
+    private static List<DataName> SortedNames(Dictionary<DataName, HarloweValue> map)
+    {
+      var keys = new List<DataName>(map.Count);
+      foreach (var kv in map) keys.Add(kv.Key);
+      keys.Sort(DataName.Compare);
+      return keys;
     }
 
     private static string HookNameToSource(HookNameValue hn)
@@ -526,7 +533,7 @@ namespace Harlowe.Runtime
         case HarloweValueKind.Dataset:
           return depth >= MaxPrintDepth ? "..." : JoinArray((List<HarloweValue>)Raw, depth);
         case HarloweValueKind.Datamap:
-          return depth >= MaxPrintDepth ? "..." : JoinDatamap((Dictionary<string, HarloweValue>)Raw, depth);
+          return depth >= MaxPrintDepth ? "..." : JoinDatamap((Dictionary<DataName, HarloweValue>)Raw, depth);
         case HarloweValueKind.Error:
           return (string)Raw;
         case HarloweValueKind.Changer:
@@ -534,7 +541,7 @@ namespace Harlowe.Runtime
           // Reference prints changers as "[A (if:) changer]" (changer.ts's
           // print()); unstamped changers have no creation source to name.
           string front = ((Changer)Raw).FrontMacroName;
-          return front != null ? "[A (" + front + ":) changer]" : "[A changer]";
+          return front != null ? "[A (" + MacroNames.CanonicalChangerName(front) + ":) changer]" : "[A changer]";
         }
         case HarloweValueKind.Lambda:
           return string.Empty;
@@ -579,11 +586,11 @@ namespace Harlowe.Runtime
           case HarloweValueKind.String: return "the string \"" + (string)Raw + "\"";
           case HarloweValueKind.Bool: return "the boolean value '" + ((bool)Raw ? "true" : "false") + "'";
           case HarloweValueKind.Array: return ((List<HarloweValue>)Raw).Count == 0 ? "an empty array" : "an array";
-          case HarloweValueKind.Datamap: return ((Dictionary<string, HarloweValue>)Raw).Count == 0 ? "an empty datamap" : "a datamap";
+          case HarloweValueKind.Datamap: return ((Dictionary<DataName, HarloweValue>)Raw).Count == 0 ? "an empty datamap" : "a datamap";
           case HarloweValueKind.Dataset: return ((List<HarloweValue>)Raw).Count == 0 ? "an empty dataset" : "a dataset";
           case HarloweValueKind.Changer:
             string front = ((Changer)Raw).FrontMacroName;
-            return front != null ? "a (" + front + ":) changer" : "a changer";
+            return front != null ? "a (" + MacroNames.CanonicalChangerName(front) + ":) changer" : "a changer";
           case HarloweValueKind.Lambda: return "a lambda";
           case HarloweValueKind.HookName: return "the hook name ?" + ((HookNameValue)Raw).Name;
           case HarloweValueKind.Colour: return "a colour";
@@ -609,19 +616,17 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
-    /// Serialize a datamap as <c>key:value,key:value</c>. Keys are emitted in
-    /// ordinal sort order so the rendered text is stable across runtimes —
-    /// <see cref="Dictionary{TKey, TValue}"/> enumeration order is
+    /// Serialize a datamap as <c>key:value,key:value</c>. Keys are emitted
+    /// sorted, number names first, so the rendered text is stable across
+    /// runtimes — <see cref="Dictionary{TKey, TValue}"/> enumeration order is
     /// "insertion-order in practice but not contractually guaranteed," and
     /// Mono / Unity IL2CPP have been observed to diverge from CoreCLR. The
     /// equality path is order-independent, so this only affects user-visible
     /// rendering.
     /// </summary>
-    private static string JoinDatamap(Dictionary<string, HarloweValue> map, int depth)
+    private static string JoinDatamap(Dictionary<DataName, HarloweValue> map, int depth)
     {
-      var keys = new List<string>(map.Count);
-      foreach (var kv in map) keys.Add(kv.Key);
-      keys.Sort(System.StringComparer.Ordinal);
+      var keys = SortedNames(map);
 
       var sb = new StringBuilder();
       for (int i = 0; i < keys.Count; i++)

@@ -31,6 +31,14 @@ namespace Harlowe.Runtime
     public List<StyleSpec> Styles = new List<StyleSpec>();
 
     /// <summary>
+    /// The transition fields the <c>(transition:)</c> family set, merged into one
+    /// layer, later values winning, as reference keeps them on one descriptor.
+    /// Joins <see cref="Styles"/> as the innermost layer once every patch has
+    /// run, if it names a transition. Null when none was given.
+    /// </summary>
+    public StyleSpec Transition;
+
+    /// <summary>
     /// When set, the renderer iterates the hook contents once per item,
     /// binding <see cref="IterationParamName"/> (and the <c>it</c> slot) to
     /// each item in turn. Null for non-loop changers.

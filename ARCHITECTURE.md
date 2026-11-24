@@ -99,7 +99,7 @@ flowchart LR
 
 **Later channels are optional features.** Each is a capability interface plus a *lowering* to core channels, so a host only receives event kinds it opted into. An adapter opts in by implementing the interface; a host walking `Entries` has no adapter to inspect, so it sets `StorySession.OutputFeatures`. Without `ILinkLabelOutput`, a structured label flattens to one `Link`: its styling, armed regions and HTML are dropped and its errors move to just after the link. One internal `OutputFeatureAdapter` makes every forward-or-lower decision, because a wrapper per feature would hide a host's support for the others. For the same reason, a host's own wrapping adapter must implement and forward a capability interface, or the output behind it gets the lowered form.
 
-**Style is semantic, not HTML.** A `StyleSpec` describes one styling layer with named flags (`Bold`/`Italic`/`Underline`/`Strikethrough`) and value fields (`Color`/`BackgroundColor`/`FontFamily`/`FontSize`). You map it to whatever your renderer accepts — TextMeshPro tags for Unity, BBCode for Godot, ANSI for a terminal, HTML for a browser. The library never bakes in HTML.
+**Style is semantic, not HTML.** A `StyleSpec` describes one styling layer with named flags (`Bold`/`Italic`/`Underline`/`Strikethrough`) and value fields (`Color`/`BackgroundColor`/`FontFamily`/`FontSize`). You map it to whatever your renderer accepts — TextMeshPro tags for Unity, BBCode for Godot, ANSI for a terminal, HTML for a browser. The library never bakes in HTML. Transitions arrive the same way, as the `Transition*` fields of a hook's innermost layer: the name of how it should appear, with times in milliseconds, or around a passage link, how the passage should leave and the next arrive. Harlowe's transitions last 800 ms unless the story sets a time.
 
 For browser hosts, `HtmlRenderOutput` is a built-in adapter that wraps an inner `IRenderOutput` and translates style events to HTML on the way through — replay a render's `Entries` into it, or use it as a reference impl when writing your own:
 
@@ -384,6 +384,8 @@ flowchart LR
 
 The library never assumes HTML. Engine integrations consume `PushStyle(StyleSpec)`/`PopStyle()` and translate to whatever shape their text renderer wants.
 
+Transitions are the exception to one layer per changer. Each `(transition:)`-family changer sets fields on the descriptor's one transition layer, later values winning, and that layer goes innermost, inside every other style, once the whole composition has run. It's added only when it names a transition, since a time or delay on its own does nothing to a hook in reference. Around a passage link a time on its own is kept, because it also sets how long the passage transition takes.
+
 ## HarloweValue tagged union
 
 | Kind | Raw payload | Notes |
@@ -392,7 +394,7 @@ The library never assumes HTML. Engine integrations consume `PushStyle(StyleSpec
 | `String` | `string` | |
 | `Bool` | `bool` | The only truthy kind; everything else is falsy regardless of contents. |
 | `Array` | `List<HarloweValue>` | Deep-copied by the variable store on snapshot. |
-| `Datamap` | `Dictionary<string, HarloweValue>` | Same. |
+| `Datamap` | `Dictionary<DataName, HarloweValue>` | Same. A `DataName` is a string or a number; a string converts implicitly. |
 | `Dataset` | `List<HarloweValue>` | Unique values in the order added, which is how it prints. `...` sorts it, and `is` ignores order. |
 | `Changer` | `Changer` instance | Empty `ToHarloweString` so `(print:)` doesn't dump internals. |
 | `Error` | `string` (message) | Short-circuits every operator; surfaces through `IRenderOutput.Error`. |
@@ -404,7 +406,7 @@ Equality is structural and recurses into arrays + datamaps. Errors propagate thr
 | Adding... | Touches |
 |---|---|
 | **A new value-producing macro** (e.g., `(upper:)`) | Subclass `IMacro` in `Runtime/Macros/`, register in `StandardMacros.RegisterAll`. |
-| **A new changer macro** (e.g., `(text-color:)`) | Same, but return a `Changer.FromStyle(new StyleSpec { Color = ... })`. Engine integrations decide rendering. |
+| **A new changer macro** (e.g., `(text-color:)`) | Same, but return a `Changer.FromStyle(new StyleSpec { Color = ... })`. Engine integrations decide rendering. A transition field goes through `Changer.FromTransition` instead, so it merges into the one transition layer. |
 | **A new `HarloweValue` kind** | Extend `HarloweValueKind` enum, add factory + accessor on `HarloweValue`, update `Equals`/`GetHashCode`/`ToHarloweString`/`IsTruthy`. |
 | **A new body AST node** | Add the class under `Ast/Body/`, add `Visit` to `IBodyVisitor`, implement on every visitor (`BodyRenderer`, `MarkupPrinter`, `BranchCollector`). Body parser needs a recognizer. |
 | **A new expression AST node** | Same, against `IExpressionVisitor` (only `ExpressionEvaluator` and `MarkupPrinter`). |

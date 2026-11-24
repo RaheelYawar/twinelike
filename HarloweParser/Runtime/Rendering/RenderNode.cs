@@ -99,12 +99,22 @@ namespace Harlowe.Runtime.Rendering
   /// the content is plain text, else as an <see cref="ILinkLabelOutput.BeginLink"/>
   /// / <see cref="ILinkLabelOutput.EndLink"/> bracket around the content's events.
   /// </summary>
-  public class RenderLinkNode : RenderNode, IRenderContainer
+  public class RenderLinkNode : RenderNode, IRenderContainer, IHideable
   {
     /// <summary>The passage-name reference the link navigates to.</summary>
     public string Target;
 
     public List<RenderNode> Children { get; } = new List<RenderNode>();
+
+    /// <summary>Set while <c>(hide: ?link)</c> has this link's label hidden, which leaves an empty link, as in reference. See <see cref="RenderHookNode.Hidden"/>.</summary>
+    internal HiddenHookContent Hidden;
+
+    private bool _pendingHide;
+    private bool _building;
+
+    HiddenHookContent IHideable.HiddenContent { get => Hidden; set => Hidden = value; }
+    bool IHideable.PendingHide { get => _pendingHide; set => _pendingHide = value; }
+    bool IHideable.Building { get => _building; set => _building = value; }
 
     /// <summary>
     /// Display-text convenience over <see cref="Children"/>: get flattens every
@@ -138,10 +148,31 @@ namespace Harlowe.Runtime.Rendering
 
     public override RenderNode Clone()
     {
-      var copy = new RenderLinkNode { Target = Target };
+      var copy = new RenderLinkNode { Target = Target, Hidden = Hidden?.ForCopy() };
       RenderNodes.CloneInto(Children, copy.Children);
       return copy;
     }
+  }
+
+  /// <summary>
+  /// A node <c>(hide:)</c> can take content out of: a hook, a link, or the
+  /// passage. Reference hides any element its hook names select the same way.
+  /// </summary>
+  internal interface IHideable : IRenderContainer
+  {
+    /// <summary>What <c>(show:)</c> will put back or render. Null while it's showing.</summary>
+    HiddenHookContent HiddenContent { get; set; }
+
+    /// <summary>
+    /// Set when <c>(hide:)</c> named this node while it was still being built.
+    /// Reference renders a hook's whole content before running its macros, so a
+    /// hook hidden from inside hides everything in it, including what comes
+    /// after the <c>(hide:)</c>; here it's hidden when it's finished.
+    /// </summary>
+    bool PendingHide { get; set; }
+
+    /// <summary>True while a builder is still writing this node's content, whichever builder runs the <c>(hide:)</c>.</summary>
+    bool Building { get; set; }
   }
 
   /// <summary>An in-prose error message. Flushes to <see cref="IRenderOutput.Error"/>.</summary>
@@ -223,7 +254,7 @@ namespace Harlowe.Runtime.Rendering
   /// <see cref="Children"/>, matching the pre-refactor renderer where a hook
   /// produced no output of its own.
   /// </summary>
-  public class RenderHookNode : RenderNode, IRenderContainer
+  public class RenderHookNode : RenderNode, IRenderContainer, IHideable
   {
     /// <summary>The hook's name without delimiters; <c>null</c> for anonymous hooks.</summary>
     public string Name;
@@ -296,11 +327,18 @@ namespace Harlowe.Runtime.Rendering
     /// </summary>
     internal HiddenHookContent Hidden;
 
+    private bool _pendingHide;
+    private bool _building;
+
+    HiddenHookContent IHideable.HiddenContent { get => Hidden; set => Hidden = value; }
+    bool IHideable.PendingHide { get => _pendingHide; set => _pendingHide = value; }
+    bool IHideable.Building { get => _building; set => _building = value; }
+
     public List<RenderNode> Children { get; } = new List<RenderNode>();
 
     public override RenderNode Clone()
     {
-      var copy = new RenderHookNode { Name = Name, Anchor = Anchor, SourceEnchantment = SourceEnchantment, SourceRegionId = SourceRegionId, RevealRegionId = RevealRegionId, LabelRegionId = LabelRegionId, Whitespace = Whitespace, Hidden = Hidden };
+      var copy = new RenderHookNode { Name = Name, Anchor = Anchor, SourceEnchantment = SourceEnchantment, SourceRegionId = SourceRegionId, RevealRegionId = RevealRegionId, LabelRegionId = LabelRegionId, Whitespace = Whitespace, Hidden = Hidden?.ForCopy() };
       RenderNodes.CloneInto(Children, copy.Children);
       return copy;
     }
@@ -314,6 +352,22 @@ namespace Harlowe.Runtime.Rendering
 
     /// <summary>The size of the hook's content, charged to the nested-render budget each time it's revealed.</summary>
     public int Cost;
+
+    /// <summary>
+    /// For a hook <c>(hide:)</c> hid: its content as it was, put back as it is
+    /// rather than rendered again. Reference keeps the detached elements in the
+    /// same <c>hidden</c> data. Null for a hook hidden before it rendered.
+    /// </summary>
+    public List<RenderNode> Detached;
+
+    /// <summary>The content for a copy of the hook, which needs its own nodes so each copy can be shown on its own.</summary>
+    public HiddenHookContent ForCopy()
+    {
+      if (Detached == null) return this;
+      var nodes = new List<RenderNode>(Detached.Count);
+      RenderNodes.CloneInto(Detached, nodes);
+      return new HiddenHookContent { Detached = nodes };
+    }
   }
 
   /// <summary>
@@ -344,13 +398,23 @@ namespace Harlowe.Runtime.Rendering
   }
 
   /// <summary>Top of a passage render. The tree a <see cref="RenderTreeBuilder"/> produces.</summary>
-  public class RenderRoot : RenderNode, IRenderContainer
+  public class RenderRoot : RenderNode, IRenderContainer, IHideable
   {
     public List<RenderNode> Children { get; } = new List<RenderNode>();
 
+    /// <summary>Set while <c>(hide: ?passage)</c> has the passage hidden. See <see cref="RenderHookNode.Hidden"/>.</summary>
+    internal HiddenHookContent Hidden;
+
+    private bool _pendingHide;
+    private bool _building;
+
+    HiddenHookContent IHideable.HiddenContent { get => Hidden; set => Hidden = value; }
+    bool IHideable.PendingHide { get => _pendingHide; set => _pendingHide = value; }
+    bool IHideable.Building { get => _building; set => _building = value; }
+
     public override RenderNode Clone()
     {
-      var copy = new RenderRoot();
+      var copy = new RenderRoot { Hidden = Hidden?.ForCopy() };
       RenderNodes.CloneInto(Children, copy.Children);
       return copy;
     }
@@ -359,6 +423,35 @@ namespace Harlowe.Runtime.Rendering
   /// <summary>Shared helpers for working with lists of <see cref="RenderNode"/>.</summary>
   public static class RenderNodes
   {
+    /// <summary>
+    /// What <c>(hide:)</c> does to a hook or the passage: its content comes out
+    /// of the page, kept for <c>(show:)</c> to put back, and the empty node
+    /// stays, so revisions can still fill it. A node that's already hidden is
+    /// left alone, as in reference.
+    /// </summary>
+    internal static void Hide(IHideable node)
+    {
+      if (node == null || node.HiddenContent != null) return;
+      node.HiddenContent = new HiddenHookContent { Detached = new List<RenderNode>(node.Children) };
+      node.Children.Clear();
+    }
+
+    /// <summary>Marks <paramref name="node"/> as being built, which delays a <c>(hide:)</c> of it until <see cref="FinishBuilding"/>.</summary>
+    internal static void StartBuilding(IRenderContainer node)
+    {
+      if (node is IHideable hideable) hideable.Building = true;
+    }
+
+    /// <summary>The end of <see cref="StartBuilding"/>: a <c>(hide:)</c> that named the node meanwhile takes effect now.</summary>
+    internal static void FinishBuilding(IRenderContainer node)
+    {
+      if (!(node is IHideable hideable)) return;
+      hideable.Building = false;
+      if (!hideable.PendingHide) return;
+      hideable.PendingHide = false;
+      Hide(hideable);
+    }
+
     /// <summary>Deep-clone every node in <paramref name="source"/> into <paramref name="destination"/>.</summary>
     public static void CloneInto(List<RenderNode> source, List<RenderNode> destination)
     {

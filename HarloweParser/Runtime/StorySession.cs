@@ -275,7 +275,7 @@ namespace Harlowe.Runtime
     {
       get
       {
-        var map = new Dictionary<string, HarloweValue>();
+        var map = new Dictionary<DataName, HarloweValue>();
         map["name"] = HarloweValue.OfString(_currentPassage ?? string.Empty);
         map["tags"] = HarloweValue.OfArray(BuildTags());
         return HarloweValue.OfDatamap(map);
@@ -893,6 +893,7 @@ namespace Harlowe.Runtime
       ctx.MaxRenderDepth = () => MaxDisplayDepth;
       ctx.PassageExists = name => _story.GetPassage(name) != null;
       ctx.FindPassage = name => _story.GetPassage(name);
+      ctx.AllPassages = () => _story.Passages;
       ctx.CanUndo = () => _past.Count > 0;
       ctx.SaveGame = (s, fn) => SaveGame(s, fn);
       ctx.SavedGames = SavedGames;
@@ -907,9 +908,12 @@ namespace Harlowe.Runtime
       var builder = new Rendering.RenderTreeBuilder();
       ctx.LiveRoot = builder.Root;
       var renderer = new BodyRenderer(builder, _registry, ctx);
+      // While the passage renders, a (hide: ?passage) waits for it to finish.
+      Rendering.RenderNodes.StartBuilding(builder.Root);
       if (depth == 0 && (_past.Count == 0 || !_startupHasRun)) RenderStartupPassages(renderer);
       _startupHasRun = true;
       renderer.Render(passage.Ast);
+      Rendering.RenderNodes.FinishBuilding(builder.Root);
       // Before any early return below: an abandoned render's ids stay spent.
       _nextRegionIndex = ctx.NextRegionIndex;
 

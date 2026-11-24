@@ -61,7 +61,7 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void OfDatamap_StoresPayload()
     {
-      var map = new Dictionary<string, HarloweValue> { ["a"] = HarloweValue.OfNumber(1) };
+      var map = new Dictionary<DataName, HarloweValue> { ["a"] = HarloweValue.OfNumber(1) };
       var v = HarloweValue.OfDatamap(map);
       Assert.Equal(HarloweValueKind.Datamap, v.Kind);
       Assert.Same(map, v.AsDatamap);
@@ -86,7 +86,7 @@ namespace Harlowe.Tests.Runtime
       Assert.False(HarloweValue.OfString("non-empty").IsTruthy);
       Assert.False(HarloweValue.OfString("").IsTruthy);
       Assert.False(HarloweValue.OfArray(new List<HarloweValue>()).IsTruthy);
-      Assert.False(HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>()).IsTruthy);
+      Assert.False(HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>()).IsTruthy);
       Assert.False(HarloweValue.OfError("x").IsTruthy);
     }
 
@@ -143,17 +143,17 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void Equals_DatamapsStructurallyOrderInsensitive()
     {
-      var a = HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      var a = HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>
       {
         ["x"] = HarloweValue.OfNumber(1),
         ["y"] = HarloweValue.OfNumber(2)
       });
-      var b = HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      var b = HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>
       {
         ["y"] = HarloweValue.OfNumber(2),
         ["x"] = HarloweValue.OfNumber(1)
       });
-      var c = HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      var c = HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>
       {
         ["x"] = HarloweValue.OfNumber(1),
         ["y"] = HarloweValue.OfNumber(3)
@@ -274,7 +274,7 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void ToHarloweString_DatamapKeyValuePairs()
     {
-      var map = HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      var map = HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>
       {
         ["a"] = HarloweValue.OfNumber(1),
         ["b"] = HarloweValue.OfString("z")
@@ -291,7 +291,7 @@ namespace Harlowe.Tests.Runtime
       // contractually guaranteed" — Mono/IL2CPP have been observed to diverge.
       // Insert in reverse-alphabetical order; expect alphabetical output so
       // the rendered string is stable across runtimes.
-      var map = HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      var map = HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>
       {
         ["zebra"] = HarloweValue.OfNumber(1),
         ["apple"] = HarloweValue.OfNumber(2),
@@ -368,7 +368,7 @@ namespace Harlowe.Tests.Runtime
       Assert.Equal(Arr().GetHashCode(), Arr().GetHashCode());
 
       HarloweValue Map() => HarloweValue.OfDatamap(
-        new Dictionary<string, HarloweValue> { ["a"] = HarloweValue.OfNumber(1) });
+        new Dictionary<DataName, HarloweValue> { ["a"] = HarloweValue.OfNumber(1) });
       Assert.Equal(Map().GetHashCode(), Map().GetHashCode());
 
       Assert.Equal(HarloweValue.OfError("boom").GetHashCode(),

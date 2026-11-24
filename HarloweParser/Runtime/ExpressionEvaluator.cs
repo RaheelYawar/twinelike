@@ -603,7 +603,7 @@ namespace Harlowe.Runtime
     {
       public HarloweValue Container;
       public WriteKind Kind;
-      public string Key;
+      public DataName Key;
       public int Index;
       public bool IsAppend;
 
@@ -671,22 +671,18 @@ namespace Harlowe.Runtime
           case HarloweValueKind.Datamap:
           {
             var map = container.AsDatamap;
-            string key;
-            if (accessor is IdentifierNode id) key = id.Name;
-            else
-            {
-              var keyValue = Evaluate(accessor);
-              if (keyValue.IsError) return keyValue;
-              if (keyValue.Kind != HarloweValueKind.String)
-                return isLast
-                  ? HarloweValue.OfError($"the datamap can only have string data names, not a {keyValue.Kind}.")
-                  : HarloweValue.OfError($"datamap key must be a String, not a {keyValue.Kind}");
-              key = keyValue.AsString;
-            }
+            var keyValue = accessor is IdentifierNode id ? HarloweValue.OfString(id.Name) : Evaluate(accessor);
+            if (keyValue.IsError) return keyValue;
+            var nameError = CheckDataName(container, keyValue, out var key);
+            if (nameError != null) return nameError;
             bool exists = map.TryGetValue(key, out var existing);
             // A missing key errors mid-chain but is created by the final
             // write (reference: plain Map.set).
-            if (!exists && !isLast) return HarloweValue.OfError($"datamap has no key '{key}'");
+            if (!exists && !isLast) return MissingDataName(key);
+            // Reference's canSet, which it applies at every level: a number
+            // name can be read, but nothing can be written through one.
+            if (key.IsNumber)
+              return HarloweValue.OfError($"{Capitalised(container.ObjectName)} can only have string data names, not {keyValue.ObjectName}.");
             step.Kind = WriteKind.DatamapKey;
             step.Key = key;
             if (exists) child = existing;
@@ -819,7 +815,7 @@ namespace Harlowe.Runtime
         {
           case WriteKind.DatamapKey:
           {
-            var map = new Dictionary<string, HarloweValue>(step.Container.AsDatamap);
+            var map = new Dictionary<DataName, HarloweValue>(step.Container.AsDatamap);
             map[step.Key] = child;
             child = HarloweValue.OfDatamap(map);
             break;
@@ -1296,11 +1292,10 @@ namespace Harlowe.Runtime
           {
             var keyValue = Evaluate(args[i]);
             if (keyValue.IsError) return keyValue;
-            if (keyValue.Kind != HarloweValueKind.String)
-              return HarloweValue.OfError($"datamap key must be a String, not a {keyValue.Kind}");
-            string key = keyValue.AsString;
+            var nameError = CheckDataName(source, keyValue, out var key);
+            if (nameError != null) return nameError;
             if (!map.TryGetValue(key, out var child))
-              return HarloweValue.OfError($"I can't unpack this datamap because it needs a '{key}' data name.");
+              return HarloweValue.OfError($"I can't unpack this datamap because it needs a {DescribeName(key)} data name.");
             var childSteps = ExtendSteps(srcSteps, new WriteStep { Container = source, Kind = WriteKind.DatamapKey, Key = key });
             var err = Destructure(args[i + 1], child, childSteps, bindings);
             if (err != null) return err;
@@ -1425,18 +1420,12 @@ namespace Harlowe.Runtime
           case HarloweValueKind.Datamap:
           {
             var map = container.AsDatamap;
-            string key;
-            if (accessor is IdentifierNode id) key = id.Name;
-            else
-            {
-              var keyValue = Evaluate(accessor);
-              if (keyValue.IsError) return keyValue;
-              if (keyValue.Kind != HarloweValueKind.String)
-                return HarloweValue.OfError($"datamap key must be a String, not a {keyValue.Kind}");
-              key = keyValue.AsString;
-            }
+            var keyValue = accessor is IdentifierNode id ? HarloweValue.OfString(id.Name) : Evaluate(accessor);
+            if (keyValue.IsError) return keyValue;
+            var nameError = CheckDataName(container, keyValue, out var key);
+            if (nameError != null) return nameError;
             if (!map.TryGetValue(key, out child))
-              return HarloweValue.OfError($"datamap has no key '{key}'");
+              return MissingDataName(key);
             step.Kind = WriteKind.DatamapKey;
             step.Key = key;
             break;
@@ -1578,7 +1567,9 @@ namespace Harlowe.Runtime
         HarloweValue child = null;
         if (step.Kind == WriteKind.DatamapKey)
         {
-          if (container.Kind != HarloweValueKind.Datamap) return false;
+          // Reference's delete() refuses a number name at any level, as its
+          // set() does, and (move:) ignores the refusal.
+          if (container.Kind != HarloweValueKind.Datamap || step.Key.IsNumber) return false;
           if (!container.AsDatamap.TryGetValue(step.Key, out child) && !deepest) return false;
         }
         else
@@ -1617,7 +1608,7 @@ namespace Harlowe.Runtime
         {
           case WriteKind.DatamapKey:
           {
-            var map = new Dictionary<string, HarloweValue>(step.Container.AsDatamap);
+            var map = new Dictionary<DataName, HarloweValue>(step.Container.AsDatamap);
             if (deepest) map.Remove(step.Key);
             else map[step.Key] = child;
             child = HarloweValue.OfDatamap(map);
@@ -1693,7 +1684,9 @@ namespace Harlowe.Runtime
       }
 
       _result = _macros.Invoke(node.Name, args) ?? HarloweValue.OfError($"macro '{node.Name}' returned no value");
-      StampChangerSource(_result, node.Name, args);
+      // Stamped with the registered spelling, so (TEXT_STYLE:) prints and is
+      // named in errors as (text-style:), as reference names its changers.
+      StampChangerSource(_result, _registry?.RegisteredName(node.Name) ?? node.Name, args);
     }
 
     /// <summary>
@@ -1805,7 +1798,8 @@ namespace Harlowe.Runtime
         {
           // Start with LHS entries; overwrite with RHS entries so RHS wins on
           // key collision (matches reference's Map(l) then r.forEach(set)).
-          var merged = new Dictionary<string, HarloweValue>(left.AsDatamap);
+          // No name check, as in reference, so 1 and "1" can end up together.
+          var merged = new Dictionary<DataName, HarloweValue>(left.AsDatamap);
           foreach (var kv in right.AsDatamap) merged[kv.Key] = kv.Value;
           return HarloweValue.OfDatamap(merged);
         }
@@ -1906,8 +1900,11 @@ namespace Harlowe.Runtime
           if (item.Kind != HarloweValueKind.String) return HarloweValue.OfError($"a String cannot contain a {item.Kind}");
           return HarloweValue.OfBool(container.AsString.Contains(item.AsString));
         case HarloweValueKind.Datamap:
-          if (item.Kind != HarloweValueKind.String) return HarloweValue.OfError($"a Datamap key must be a String, not a {item.Kind}");
-          return HarloweValue.OfBool(container.AsDatamap.ContainsKey(item.AsString));
+          // Reference compares each name with `is`, so any value can be looked
+          // for, and only a string or number can be found.
+          if (item.Kind == HarloweValueKind.String) return HarloweValue.OfBool(container.AsDatamap.ContainsKey(DataName.Of(item.AsString)));
+          if (item.Kind == HarloweValueKind.Number) return HarloweValue.OfBool(container.AsDatamap.ContainsKey(DataName.Of(item.AsNumber)));
+          return HarloweValue.OfBool(false);
         default:
           return HarloweValue.OfError($"contains does not apply to {container.Kind}");
       }
@@ -2239,8 +2236,7 @@ namespace Harlowe.Runtime
           if (name == "length") return HarloweValue.OfNumber(container.AsDataset.Count);
           return DatasetPropertyError();
         case HarloweValueKind.Datamap:
-          if (container.AsDatamap.TryGetValue(name, out var v)) return v;
-          return HarloweValue.OfError($"datamap has no key '{name}'");
+          return ReadDataName(container, HarloweValue.OfString(name));
         case HarloweValueKind.Array:
           if (name == "length") return HarloweValue.OfNumber(container.AsArray.Count);
           if (name == "random")
@@ -2292,10 +2288,7 @@ namespace Harlowe.Runtime
       switch (container.Kind)
       {
         case HarloweValueKind.Datamap:
-          if (key.Kind != HarloweValueKind.String)
-            return HarloweValue.OfError($"datamap key must be a String, not a {key.Kind}");
-          if (container.AsDatamap.TryGetValue(key.AsString, out var v)) return v;
-          return HarloweValue.OfError($"datamap has no key '{key.AsString}'");
+          return ReadDataName(container, key);
         case HarloweValueKind.Array:
           if (key.Kind != HarloweValueKind.Number)
             return HarloweValue.OfError($"array index must be a Number, not a {key.Kind}");
@@ -2310,6 +2303,45 @@ namespace Harlowe.Runtime
           return HarloweValue.OfError($"a {container.Kind} has no properties");
       }
     }
+
+    private static HarloweValue ReadDataName(HarloweValue map, HarloweValue key)
+    {
+      var nameError = CheckDataName(map, key, out var name);
+      if (nameError != null) return nameError;
+      if (map.AsDatamap.TryGetValue(name, out var v)) return v;
+      return MissingDataName(name);
+    }
+
+    /// <summary>
+    /// Reference's <c>isValidDatamapName</c>. A datamap's data names are
+    /// strings and numbers, and a string that JavaScript reads as a number
+    /// can't be used beside that number: once <c>1</c> is a name, <c>"1"</c>
+    /// can be neither read nor added, and the other way round. Returns the
+    /// error, or null with <paramref name="name"/> set.
+    /// </summary>
+    internal static HarloweValue CheckDataName(HarloweValue map, HarloweValue key, out DataName name)
+    {
+      if (key.Kind == HarloweValueKind.String) name = DataName.Of(key.AsString);
+      else if (key.Kind == HarloweValueKind.Number) name = DataName.Of(key.AsNumber);
+      else
+      {
+        name = default(DataName);
+        return HarloweValue.OfError($"Only strings and numbers can be used as data names for {map.ObjectName}, not {key.ObjectName}.");
+      }
+      if (name.TryGetCounterpart(out var other) && map.AsDatamap.ContainsKey(other))
+        return HarloweValue.OfError($"You mustn't use both {name.ObjectName} and {other.ObjectName} as data names in the same datamap.");
+      return null;
+    }
+
+    private static HarloweValue MissingDataName(DataName name)
+      => HarloweValue.OfError($"datamap has no key {DescribeName(name)}");
+
+    /// <summary>How reference names a data name in an error: <c>'name'</c>, or <c>(2)</c> for a number.</summary>
+    private static string DescribeName(DataName name)
+      => name.IsNumber ? "(" + name.Text + ")" : "'" + name.Text + "'";
+
+    private static string Capitalised(string s)
+      => string.IsNullOrEmpty(s) ? s : char.ToUpperInvariant(s[0]) + s.Substring(1);
 
     // Harlowe arrays/strings are 1-based; non-integer or out-of-range indices error.
     private static HarloweValue IndexArray(List<HarloweValue> arr, double idx)

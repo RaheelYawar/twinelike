@@ -479,6 +479,22 @@ namespace Harlowe.Parsing
     /// expected to validate the surrounding token stream and avoid feeding us
     /// junk.
     /// </summary>
+    /// <summary>A number literal's value. A time is in milliseconds, so <c>2s</c> is 2000, as reference's cssTime rule makes it.</summary>
+    private static double ParseNumber(string text)
+    {
+      int end = text.Length;
+      double scale = 1;
+      if (end > 0 && (text[end - 1] == 's' || text[end - 1] == 'S'))
+      {
+        end--;
+        if (end > 0 && (text[end - 1] == 'm' || text[end - 1] == 'M')) end--;
+        else scale = 1000;
+      }
+      string digits = text.Substring(0, end);
+      if (digits.EndsWith(".", System.StringComparison.Ordinal)) digits = digits.Substring(0, digits.Length - 1);
+      return double.Parse(digits, CultureInfo.InvariantCulture) * scale;
+    }
+
     private IExpressionNode ParseAtom(TokenCursor cursor)
     {
       var t = cursor.Current;
@@ -489,7 +505,7 @@ namespace Harlowe.Parsing
           return new LiteralNode
           {
             Kind = LiteralKind.Number,
-            Value = double.Parse(t.Value, CultureInfo.InvariantCulture)
+            Value = ParseNumber(t.Value)
           };
 
         case TokenType.StringLiteral:

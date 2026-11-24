@@ -286,7 +286,7 @@ namespace Harlowe.Tests.Runtime
     public void Snapshot_DeepCopiesDatamaps()
     {
       var store = new HarloweVariableStore();
-      var map = new Dictionary<string, HarloweValue> { ["x"] = HarloweValue.OfNumber(1) };
+      var map = new Dictionary<DataName, HarloweValue> { ["x"] = HarloweValue.OfNumber(1) };
       store.Set("m", isTemporary: false, value: HarloweValue.OfDatamap(map));
 
       var snap = store.Snapshot();
@@ -305,7 +305,7 @@ namespace Harlowe.Tests.Runtime
     {
       var store = new HarloweVariableStore();
       var nested = new List<HarloweValue> { HarloweValue.OfNumber(1) };
-      var map = new Dictionary<string, HarloweValue> { ["xs"] = HarloweValue.OfArray(nested) };
+      var map = new Dictionary<DataName, HarloweValue> { ["xs"] = HarloweValue.OfArray(nested) };
       store.Set("m", isTemporary: false, value: HarloweValue.OfDatamap(map));
 
       var snap = store.Snapshot();

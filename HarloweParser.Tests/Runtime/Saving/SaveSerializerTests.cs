@@ -90,7 +90,7 @@ namespace Harlowe.Tests.Runtime.Saving
     [Fact]
     public void Colour_InsideCollection_RoundTrips()
     {
-      var map = new System.Collections.Generic.Dictionary<string, HarloweValue>
+      var map = new System.Collections.Generic.Dictionary<DataName, HarloweValue>
       {
         { "sky", HarloweValue.OfColour(new ColourValue(25, 127, 230)) },
       };
@@ -154,7 +154,7 @@ namespace Harlowe.Tests.Runtime.Saving
     [Fact]
     public void Datamap_RoundTrips_KeysSortedAndStructurallyEqual()
     {
-      var map = new System.Collections.Generic.Dictionary<string, HarloweValue>
+      var map = new System.Collections.Generic.Dictionary<DataName, HarloweValue>
       {
         { "banana", HarloweValue.OfNumber(2) },
         { "apple", HarloweValue.OfNumber(1) },
@@ -168,7 +168,7 @@ namespace Harlowe.Tests.Runtime.Saving
     [Fact]
     public void EmptyDatamap_RoundTrips()
     {
-      var v = HarloweValue.OfDatamap(new System.Collections.Generic.Dictionary<string, HarloweValue>());
+      var v = HarloweValue.OfDatamap(new System.Collections.Generic.Dictionary<DataName, HarloweValue>());
       Assert.Equal("(dm:)", v.ToSource());
       Assert.Equal(v, RoundTrip(v));
     }

@@ -213,7 +213,7 @@ namespace Harlowe.Runtime
            style.Color != null || style.BackgroundColor != null
         || style.BackgroundImage != null || style.FontFamily != null
         || style.FontSize != null || style.Opacity != null
-        || style.Alignment != null
+        || style.Alignment != null || HasTransition(style)
         || (style.Effects != null && style.Effects.Count > 0);
 
       if (!hasNonFlag)
@@ -239,7 +239,7 @@ namespace Harlowe.Runtime
     /// </summary>
     private static string BuildSpanTag(StyleSpec style)
     {
-      var sb = new StringBuilder("span style=\"");
+      var sb = new StringBuilder();
       bool first = true;
 
       if (style.Color != null) AppendCss(sb, ref first, "color", style.Color, preEscaped: false);
@@ -284,8 +284,29 @@ namespace Harlowe.Runtime
         for (int i = 0; i < style.Effects.Count; i++)
           AppendEffect(sb, ref first, style.Effects[i]);
       }
-      sb.Append("\"");
+      sb.Insert(0, first ? "span" : "span style=\"");
+      if (!first) sb.Append("\"");
+      // Transitions need a script or stylesheet to play, so they're only named
+      // here, as reference's <tw-transition-container data-t8n> names them.
+      AppendData(sb, "data-t8n", style.Transition);
+      AppendData(sb, "data-t8n-time", Milliseconds(style.TransitionTime));
+      AppendData(sb, "data-t8n-delay", Milliseconds(style.TransitionDelay));
+      AppendData(sb, "data-t8n-skip", Milliseconds(style.TransitionSkip));
+      AppendData(sb, "data-t8n-depart", style.TransitionDepart);
+      AppendData(sb, "data-t8n-arrive", style.TransitionArrive);
       return sb.ToString();
+    }
+
+    private static bool HasTransition(StyleSpec style)
+      => style.Transition != null || style.TransitionTime != null || style.TransitionDelay != null
+        || style.TransitionSkip != null || style.TransitionDepart != null || style.TransitionArrive != null;
+
+    private static string Milliseconds(double? ms)
+      => ms == null ? null : HarloweValue.FormatNumber(ms.Value);
+
+    private static void AppendData(StringBuilder sb, string name, string value)
+    {
+      if (value != null) sb.Append(' ').Append(name).Append("=\"").Append(EscapeAttribute(value)).Append('"');
     }
 
     private static void AppendCss(StringBuilder sb, ref bool first, string prop, string value, bool preEscaped)

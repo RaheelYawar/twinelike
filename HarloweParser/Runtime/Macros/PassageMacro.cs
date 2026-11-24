@@ -44,13 +44,18 @@ namespace Harlowe.Runtime.Macros
       var passage = context.FindPassage?.Invoke(name);
       if (passage == null)
         return HarloweValue.OfError($"There's no passage named '{name}' in this story.");
+      return Describe(passage);
+    }
 
+    /// <summary>The datamap <c>(passage:)</c> and <c>(passages:)</c> give for <paramref name="passage"/>, made fresh each time so changing it changes nothing else.</summary>
+    internal static HarloweValue Describe(HarlowePassage passage)
+    {
       var tags = new List<HarloweValue>();
       if (passage.Tags != null)
         for (int i = 0; i < passage.Tags.Count; i++) tags.Add(HarloweValue.OfString(passage.Tags[i]));
       if (tags.Count == 0) tags.Add(HarloweValue.OfString(string.Empty));
 
-      return HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      return HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>
       {
         { "name", HarloweValue.OfString(passage.Name) },
         { "source", HarloweValue.OfString(passage.RawBody) },
