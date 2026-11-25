@@ -214,7 +214,7 @@ namespace Harlowe.Tests.Runtime.Macros
     {
       var session = Session("(for: each _i, ...(range: 1, 600))[(live: 1s)[x]]");
       var result = session.Render();
-      Assert.Contains(result.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error && e.Content.Contains("too many (live:) hooks"));
+      Assert.Contains(result.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error && e.Content.Contains("too many (live:) and (after:) hooks"));
     }
 
     [Fact]

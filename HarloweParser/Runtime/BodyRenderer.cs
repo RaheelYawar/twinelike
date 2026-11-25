@@ -410,7 +410,7 @@ namespace Harlowe.Runtime
         CaptureOutput(changer, new HookNode { Children = new List<IBodyNode>() });
         return;
       }
-      if (changer.LiveDelay != null)
+      if (changer.Live != null)
       {
         // Reference's own refusal, and the command doesn't run.
         _output.Error("I currently can't attach (live:) or (event:) macros to commands - only hooks.");
@@ -925,10 +925,10 @@ namespace Harlowe.Runtime
         return;
       }
 
-      var live = changer.LiveDelay;
+      var live = changer.Live;
       if (live != null)
       {
-        PlantLiveHook(changer, hook as HookNode, live.Value);
+        PlantLiveHook(changer, hook as HookNode, live);
         // Reference's live descriptor is disabled, which only a conditional's
         // own name lets reach the (else:) pairing.
         UpdateConditionalPairing(macroName, false);
@@ -1001,14 +1001,14 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
-    /// A hook with <c>(live:)</c> attached. It's planted empty and hidden, so
-    /// <c>(show:)</c> and revisions can still reach it, and registered for
-    /// <see cref="StorySession.Tick"/> to render once its delay has passed,
-    /// with the temp variables in view here and the rest of the changer. A
-    /// live hook in a custom macro's body never renders, as reference's
-    /// <c>inDOM</c> check stops one whose section isn't on the page.
+    /// A hook with <c>(live:)</c> or <c>(after:)</c> attached. It's planted
+    /// empty and hidden, so <c>(show:)</c> and revisions can still reach it,
+    /// and registered for <see cref="StorySession.Tick"/> to render when its
+    /// time comes, with the temp variables in view here and the rest of the
+    /// changer. A live hook in a custom macro's body never renders, as
+    /// reference's <c>inDOM</c> check stops one whose section isn't on the page.
     /// </summary>
-    private void PlantLiveHook(Changer changer, HookNode hook, double delay)
+    private void PlantLiveHook(Changer changer, HookNode hook, LiveSpec live)
     {
       if (hook == null || !(_output is Rendering.RenderTreeBuilder builder)) return;
       builder.BeginHook(hook.Name, hook.Anchor, HiddenContentFor(hook, null));
@@ -1017,7 +1017,7 @@ namespace Harlowe.Runtime
       if (_context.CurrentCustomMacro != null) return;
       if (_context.LiveHooks.Count >= MacroContext.MaxLiveHooks)
       {
-        _output.Error($"There are too many (live:) hooks running on this passage. Only {MacroContext.MaxLiveHooks} can run at once.");
+        _output.Error($"There are too many (live:) and (after:) hooks running on this passage. Only {MacroContext.MaxLiveHooks} can run at once.");
         return;
       }
 
@@ -1028,8 +1028,10 @@ namespace Harlowe.Runtime
       _context.LiveHooks.Add(new LiveHook
       {
         Node = node,
-        Delay = delay,
-        Remaining = delay,
+        Delay = live.Delay,
+        Remaining = live.Delay,
+        After = live.After,
+        Skip = live.Skip,
         Render = (target, root) =>
         {
           var roots = new List<Rendering.RenderNode> { root };

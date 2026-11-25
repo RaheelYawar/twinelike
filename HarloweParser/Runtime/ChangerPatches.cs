@@ -111,11 +111,27 @@ namespace Harlowe.Runtime
     /// <summary>Milliseconds between renders, 0 for every frame.</summary>
     public double Delay;
 
-    public void Apply(HookDescriptor descriptor) => descriptor.Live = Delay;
+    public void Apply(HookDescriptor descriptor) => descriptor.Live = new LiveSpec { Delay = Delay };
 
     public override bool Equals(object obj) => obj is LivePatch other && other.Delay.Equals(Delay);
 
     public override int GetHashCode() => Delay.GetHashCode() ^ 0x1ee7;
+  }
+
+  /// <summary>Patch produced by <c>(after:)</c>. Reference's <c>d.data.live = {event}</c>, whose event fires once <c>time</c> is past the delay.</summary>
+  public class AfterPatch : IChangerPatch
+  {
+    /// <summary>The <c>time</c>, in milliseconds since the passage was entered, after which the hook renders.</summary>
+    public double Delay;
+
+    /// <summary>Milliseconds taken off the delay on each frame a key or button is held, 0 for none.</summary>
+    public double Skip;
+
+    public void Apply(HookDescriptor descriptor) => descriptor.Live = new LiveSpec { After = Delay, Skip = Skip };
+
+    public override bool Equals(object obj) => obj is AfterPatch other && other.Delay.Equals(Delay) && other.Skip.Equals(Skip);
+
+    public override int GetHashCode() => (Delay.GetHashCode() * 397) ^ Skip.GetHashCode() ^ 0xaf7e;
   }
 
   /// <summary>

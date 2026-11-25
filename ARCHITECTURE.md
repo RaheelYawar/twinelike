@@ -132,7 +132,7 @@ The session runs on a `Moment[]` timeline — completed turns behind, the live t
 
 Two additive extensions let a host read state and keep its own per-turn data. Both are invisible to story code and change nothing about Harlowe semantics.
 
-- **Time.** The story's clock moves only when the host calls `StorySession.Tick(elapsedMilliseconds)`, once a frame from a game loop. `time` reads it, so it's 0 while a passage first renders, and each call is one frame for the passage's `(live:)` hooks, which render once their delay has passed. `Tick` returns the page when one rendered and null otherwise, and `HasLiveHooks` says whether there's anything to tick for. What a live render changes isn't part of a save, as with a click.
+- **Time.** The story's clock moves only when the host calls `StorySession.Tick(elapsedMilliseconds, inputHeld)`, once a frame from a game loop, with `inputHeld` true while the player holds any key, mouse button or touch. `time` reads the clock, so it's 0 while a passage first renders, and each call is one frame for the passage's `(live:)` hooks, which render once their delay has passed, and its `(after:)` hooks, which render once `time` passes theirs. A held input speeds an `(after:)` up when it asks for that. `Tick` returns the page when one rendered and null otherwise, and `HasLiveHooks` says whether there's anything to tick for. What a live render changes isn't part of a save, as with a click.
 - **Variable reads.** `TryGetVariable(name, out value)` (with or without the `$`) and `GetVariableNames()` read the story (`$`) namespace. Values are deep copies and reads have no side effects (no `it` update, no delta, no RNG draw). There is deliberately no host write: a write from outside the story wouldn't be recorded as part of a turn, so undo and saves couldn't reproduce it. The reads see the live store — the state on screen after `Render`/`Goto`/`DispatchEvent`, and a restored turn's *start* between `Undo`/`Redo`/`LoadGame` and the next `Render`.
 - **Turn data.** `TurnData` is an opaque string on the present turn's `Moment`, for whatever the host wants to remember about that turn; the runtime never reads it. Because it lives on the moment, the timeline carries it for free — undo/redo move it, a `Goto` after an undo discards the abandoned branch's data with the branch, and save/load round-trip it. `GetTimeline()` returns a detached list of every turn (resting passage + data), oldest first, excluding the redo future. Blobs are stamped with the lowest version that can represent them: version 2 only when some saved turn carries turn data, so a session that never sets it writes byte-identical version-1 blobs that older builds still load.
 
@@ -264,7 +264,7 @@ classDiagram
     +Render() RenderResult
     +Goto(name) RenderResult
     +DispatchEvent(regionId) RenderResult
-    +Tick(elapsedMs) RenderResult
+    +Tick(elapsedMs, inputHeld) RenderResult
     +Undo() bool
     +Redo() bool
     +SaveGame(slot, filename) bool

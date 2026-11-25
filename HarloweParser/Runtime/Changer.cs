@@ -248,15 +248,16 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
-    /// A <c>(live:)</c> hook's render when its time comes: the rest of the
-    /// changer applies, and the hook shows even if a condition in it was false,
-    /// as reference's <c>runLiveHook</c> forces its descriptor enabled.
+    /// A <c>(live:)</c> or <c>(after:)</c> hook's render when its time comes:
+    /// the rest of the changer applies, and the hook shows even if a condition
+    /// in it was false, as reference's <c>runLiveHook</c> forces its descriptor
+    /// enabled.
     /// </summary>
     internal void ApplyLive(IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx)
       => Execute(BuildDescriptor(), output, renderHook, ctx);
 
-    /// <summary>The <c>(live:)</c> delay in milliseconds, 0 for every frame, or null when the changer has none.</summary>
-    internal double? LiveDelay => BuildDescriptor().Live;
+    /// <summary>What the changer's <c>(live:)</c> or <c>(after:)</c> asks for, or null when it has neither.</summary>
+    internal LiveSpec Live => BuildDescriptor().Live;
 
     private static bool Execute(HookDescriptor descriptor, IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx)
     {

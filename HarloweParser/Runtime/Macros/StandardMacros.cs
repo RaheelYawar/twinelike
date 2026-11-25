@@ -167,6 +167,7 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new ShowMacro());
       registry.Register(new HideMacro());
       registry.Register(new LiveMacro());
+      registry.Register(new AfterMacro());
       registry.Register(new StopMacro());
     }
   }

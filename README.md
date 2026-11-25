@@ -184,7 +184,8 @@ A story keeps the semantics of the Harlowe major it declares. `format-version` s
 | `(if:)`, `(unless:)`, `(else-if:)`, `(else:)` | ✓ |
 | `(random:)`, `(either:)`, `(history:)` | ✓ |
 | `(save-game:)`, `(load-game:)`, `(saved-games:)` | ✓ |
-| `(a:)`, `(dm:)`, `(modulo:)`, `(text:)`, `(num:)` | ✓ |
+| `(a:)`, `(dm:)`, `(ds:)`, `(range:)`, `(modulo:)`, `(text:)`, `(num:)`, `(cond:)` | ✓ |
+| `(dm-names:)`, `(dm-values:)`, `(dm-entries:)`, `(passage:)`, `(passages:)` | ✓ |
 | `(rgb:)`, `(rgba:)`, `(hsl:)`, `(hsla:)` (`lch`/`oklch`/`mix`/`complement` pending) | ⚠ |
 | `(round:)`, `(min:)`, `(max:)`, `(floor:)`, `(ceil:)`, `(trunc:)`, `(abs:)`, `(sign:)` (`sqrt`/`pow`/`log`/trig pending) | ⚠ |
 | `(uppercase:)`, `(lowercase:)`, `(upperfirst:)`, `(lowerfirst:)`, `(substring:)`, `(words:)`, `(str-reversed:)`, `(str-repeated:)`, `(str-nth:)` | ✓ |
@@ -203,8 +204,10 @@ A story keeps the semantics of the Harlowe major it declares. `format-version` s
 | `(mouseout:)` and `-replace`/`-append`/`-prepend`/`-goto`/`-undo` variants | ✓ |
 | `(link:)`, `(link-replace:)`, `(link-reveal:)`, `(link-append:)`, `(link-repeat:)`, `(link-rerun:)`, `(link-goto:)`, `(link-undo:)` | ✓ |
 | `(link-reveal-goto:)`, `(link-show:)`, `(cycling-link:)`, `(link-fullscreen:)`, `(link-storylet:)` | ✗ |
-| `(live:)`, `(event:)`, `(trigger:)` | ✗ |
-| `(t8n:)`, `(transition:)`, transition modifiers | ✗ |
+| `(live:)`, `(stop:)`, `(after:)` — on the host's clock, through `StorySession.Tick` | ✓ |
+| `(event:)`, `(more:)`, `(trigger:)` | ✗ |
+| `(hidden:)`, `(show:)`, `(hide:)` | ✓ |
+| `(transition:)` / `(t8n:)`, `(transition-time:)`, `-delay`, `-skip`, `-depart`, `-arrive` (`(animate:)` pending) | ⚠ |
 | Custom macros: `(macro:)`, `(output:)`, `(output-data:)`, `(error:)`, `(partial:)`, `($name:)` calls, typed variables, code hooks, `startup` passages | ✓ |
 | Storylets | ✗ |
 

@@ -39,12 +39,11 @@ namespace Harlowe.Runtime
     public StyleSpec Transition;
 
     /// <summary>
-    /// The <c>(live:)</c> delay in milliseconds, 0 to render every frame. The
-    /// hook doesn't show when it's written; the session renders it once the
-    /// delay has passed, and again after each delay until <c>(stop:)</c> runs
-    /// in it. Null for an ordinary hook.
+    /// What a <c>(live:)</c> or <c>(after:)</c> changer asks for. The hook
+    /// doesn't show when it's written, and <see cref="StorySession.Tick"/>
+    /// renders it later. Null for an ordinary hook.
     /// </summary>
-    public double? Live;
+    public LiveSpec Live;
 
     /// <summary>
     /// When set, the renderer iterates the hook contents once per item,
@@ -88,6 +87,26 @@ namespace Harlowe.Runtime
     public override bool Equals(object obj) => obj is OutputPatch;
 
     public override int GetHashCode() => typeof(OutputPatch).GetHashCode();
+  }
+
+  /// <summary>
+  /// What a <c>(live:)</c> or <c>(after:)</c> changer leaves on a descriptor,
+  /// reference's <c>d.data.live</c>. Each replaces the whole field, so in a
+  /// composition of the two the later one wins, as in reference.
+  /// </summary>
+  public sealed class LiveSpec
+  {
+    /// <summary><c>(live:)</c>'s milliseconds between renders, 0 for every frame.</summary>
+    public double Delay;
+
+    /// <summary>
+    /// <c>(after:)</c>'s time: the hook renders once, on the first frame
+    /// <c>time</c> is past it. Null for <c>(live:)</c>.
+    /// </summary>
+    public double? After;
+
+    /// <summary><c>(after:)</c>'s second number: milliseconds taken off <see cref="After"/> on each frame a key or button is held.</summary>
+    public double Skip;
   }
 
   /// <summary>

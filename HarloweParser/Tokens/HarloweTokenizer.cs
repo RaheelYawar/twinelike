@@ -1696,12 +1696,10 @@ namespace Harlowe.Tokens
     /// which also matches non-ASCII decimal digits (Arabic-Indic U+0660–0669,
     /// fullwidth U+FF10–FF19, Devanagari, …). Harlowe's number grammar is
     /// ASCII-only (the <c>\d</c> in reference's <c>ts/markup/patterns.ts</c>),
-    /// and letting a non-ASCII digit reach a <see cref="TokenType.NumberLiteral"/>
-    /// token would make the parser's <c>double.Parse(…, InvariantCulture)</c>
-    /// throw a <c>FormatException</c> — which escapes the loaders (they catch
-    /// only <c>HarloweParseException</c>) and aborts the whole story load,
-    /// violating the in-prose-errors-never-exceptions policy. With this gate the
-    /// digit falls through to identifier/text handling instead.
+    /// and the parser reads a <see cref="TokenType.NumberLiteral"/> it can't
+    /// parse as a value too large for a double, so a non-ASCII digit reaching
+    /// one would silently become Infinity. With this gate the digit falls
+    /// through to identifier/text handling instead.
     /// </summary>
     private static bool IsAsciiDigit(char c) => c >= '0' && c <= '9';
 

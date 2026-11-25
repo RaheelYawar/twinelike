@@ -1181,8 +1181,11 @@ namespace Harlowe.Runtime
       _registry.EvaluationDepth = 0;
     }
 
-    /// <summary>True while the passage has a <c>(live:)</c> hook running, which only <see cref="Tick"/> moves on.</summary>
+    /// <summary>True while the passage has a <c>(live:)</c> or <c>(after:)</c> hook waiting, which only <see cref="Tick(double, bool)"/> moves on.</summary>
     public bool HasLiveHooks => _liveContext != null && _liveContext.LiveHooks.Count > 0;
+
+    /// <summary>One frame with no key or button held. See <see cref="Tick(double, bool)"/>.</summary>
+    public RenderResult Tick(double elapsedMilliseconds) => Tick(elapsedMilliseconds, false);
 
     /// <summary>
     /// Moves the story's clock on by <paramref name="elapsedMilliseconds"/>, as
@@ -1190,12 +1193,19 @@ namespace Harlowe.Runtime
     /// only advances here, and it's 0 while a passage first renders, as in
     /// reference.
     ///
-    /// <para>Each call is one frame for the passage's <c>(live:)</c> hooks, as
-    /// each animation frame is for reference's <c>runLiveHook</c>: a hook starts
-    /// counting on the first frame after it's made, and once its delay has
-    /// passed it renders, replacing what it showed, and starts counting again,
-    /// so it renders at most once a frame. A render that runs <c>(stop:)</c>
-    /// ends it. A live hook whose node was replaced keeps rendering off the page,
+    /// <para>Each call is one frame for the passage's <c>(live:)</c> and
+    /// <c>(after:)</c> hooks, as each animation frame is for reference's
+    /// <c>runLiveHook</c>. A <c>(live:)</c> hook starts counting on the first
+    /// frame after it's made, and once its delay has passed it renders,
+    /// replacing what it showed, and starts counting again, so it renders at
+    /// most once a frame. A render that runs <c>(stop:)</c> ends it. An
+    /// <c>(after:)</c> hook renders once, on the first frame after it's made
+    /// that <c>time</c> is past its delay. Pass <paramref name="inputHeld"/>
+    /// when the player holds any key, mouse button or touch during the frame,
+    /// which takes an <c>(after:)</c> hook's second number off its delay, as
+    /// reference's <c>anyInputDown</c> does.</para>
+    ///
+    /// <para>A live hook whose node was replaced keeps rendering off the page,
     /// as reference's does, so its macros still run. Returns the page after the
     /// renders, or null when no hook rendered. A <c>(goto:)</c> or
     /// <c>(load-game:)</c> in a live hook navigates, and returns that page.</para>
@@ -1203,7 +1213,7 @@ namespace Harlowe.Runtime
     /// <para>As with <see cref="DispatchEvent"/>, what a live render changes
     /// isn't part of a save, which reproduces the turn by rendering it again.</para>
     /// </summary>
-    public RenderResult Tick(double elapsedMilliseconds)
+    public RenderResult Tick(double elapsedMilliseconds, bool inputHeld)
     {
       if (double.IsNaN(elapsedMilliseconds) || elapsedMilliseconds < 0) elapsedMilliseconds = 0;
       _clockMs += elapsedMilliseconds;
@@ -1217,10 +1227,21 @@ namespace Harlowe.Runtime
       {
         var hook = live[i];
         if (hook.Stopped) continue;
-        if (!hook.Started) hook.Started = true;
-        else hook.Remaining -= elapsedMilliseconds;
-        if (hook.Remaining > 0) continue;
-        hook.Remaining = hook.Delay;
+        if (hook.After != null)
+        {
+          // Reference's (after:) event filter, run every frame: a held key or
+          // button takes the skip off the delay, then the hook fires once time
+          // is past it.
+          if (inputHeld && hook.Skip > 0) hook.After -= hook.Skip;
+          if (!(_clockMs - _passageStartMs > hook.After.Value)) continue;
+        }
+        else
+        {
+          if (!hook.Started) hook.Started = true;
+          else hook.Remaining -= elapsedMilliseconds;
+          if (hook.Remaining > 0) continue;
+          hook.Remaining = hook.Delay;
+        }
 
         ResetBudgets();
         int stopsBefore = _liveContext.StopsRun;
@@ -1230,7 +1251,7 @@ namespace Harlowe.Runtime
         hook.Node.Children.Clear();
         hook.Render(hook.Node, _liveRoot);
         rendered = true;
-        if (_liveContext.StopsRun != stopsBefore)
+        if (hook.After != null || _liveContext.StopsRun != stopsBefore)
         {
           hook.Stopped = true;
           _liveContext.LiveHooks.Remove(hook);

@@ -479,7 +479,14 @@ namespace Harlowe.Parsing
     /// expected to validate the surrounding token stream and avoid feeding us
     /// junk.
     /// </summary>
-    /// <summary>A number literal's value. A time is in milliseconds, so <c>2s</c> is 2000, as reference's cssTime rule makes it.</summary>
+    /// <summary>
+    /// A number literal's value. A time is in milliseconds, so <c>2s</c> is
+    /// 2000, as reference's cssTime rule makes it. The tokenizer only lets ASCII
+    /// number shapes through, so the one way parsing fails is a value too large
+    /// for a double, like <c>1e999</c>. JavaScript reads that as Infinity, and
+    /// so does .NET Core, but .NET Framework refuses it, which would abort the
+    /// story's load.
+    /// </summary>
     private static double ParseNumber(string text)
     {
       int end = text.Length;
@@ -492,7 +499,9 @@ namespace Harlowe.Parsing
       }
       string digits = text.Substring(0, end);
       if (digits.EndsWith(".", System.StringComparison.Ordinal)) digits = digits.Substring(0, digits.Length - 1);
-      return double.Parse(digits, CultureInfo.InvariantCulture) * scale;
+      if (!double.TryParse(digits, NumberStyles.Float, CultureInfo.InvariantCulture, out double value))
+        value = double.PositiveInfinity;
+      return value * scale;
     }
 
     private IExpressionNode ParseAtom(TokenCursor cursor)

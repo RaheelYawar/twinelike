@@ -189,10 +189,10 @@ namespace Harlowe.Runtime
     /// </summary>
     public List<Interaction> Interactions = new List<Interaction>();
 
-    /// <summary>The passage's running <c>(live:)</c> hooks, which <see cref="StorySession.Tick"/> renders as time passes. Fresh per render.</summary>
+    /// <summary>The passage's waiting <c>(live:)</c> and <c>(after:)</c> hooks, which <see cref="StorySession.Tick(double, bool)"/> renders as time passes. Fresh per render.</summary>
     internal List<LiveHook> LiveHooks = new List<LiveHook>();
 
-    /// <summary>How many <c>(live:)</c> hooks one passage can have running. Reference sets no limit, but each one runs every frame, and a live hook that makes another each time would make them without end.</summary>
+    /// <summary>How many <c>(live:)</c> and <c>(after:)</c> hooks one passage can have waiting. Reference sets no limit, but each one runs every frame, and a live hook that makes another each time would make them without end.</summary>
     internal const int MaxLiveHooks = 500;
 
     /// <summary>How many <c>(stop:)</c> commands have run, which tells a live render whether one ran in it.</summary>
