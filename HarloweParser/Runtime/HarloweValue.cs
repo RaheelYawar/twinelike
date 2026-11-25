@@ -373,8 +373,8 @@ namespace Harlowe.Runtime
     /// save/load primitive, matching reference's source-based variable store
     /// (<c>toSource</c> + re-<c>eval</c> in <c>varscope.ts</c>). Number →
     /// <see cref="FormatNumber"/>, String → a quoted literal, Bool → <c>true</c>/
-    /// <c>false</c>, Array → <c>(a:…)</c>, Datamap → <c>(dm:"k",v,…)</c> (keys
-    /// sorted for determinism, number names first; round-trip is order-independent), Lambda /
+    /// <c>false</c>, Array → <c>(a:…)</c>, Datamap → <c>(dm:"k",v,…)</c> (names
+    /// in reference's order, natural with equal names reversed), Lambda /
     /// HookName → the printed expression, Changer → its stamped
     /// <see cref="Changer.Source"/>.
     ///
@@ -471,9 +471,14 @@ namespace Harlowe.Runtime
       return sb.Append(')').ToString();
     }
 
+    /// <summary>
+    /// In reference <c>toSource</c>'s order, natural order with names that sort
+    /// as equal reversed, so a datamap read back from a save holds its names in
+    /// the order it would there.
+    /// </summary>
     private static string DatamapToSource(Dictionary<DataName, HarloweValue> map, int depth)
     {
-      var keys = SortedNames(map);
+      var keys = NaturalOrder.DatamapNames(map, equalNamesReversed: true);
       var sb = new StringBuilder("(dm:");
       for (int i = 0; i < keys.Count; i++)
       {

@@ -71,7 +71,7 @@ namespace Harlowe.Runtime
       return false;
     }
 
-    /// <summary>Orders numbers before strings, numbers by value and strings ordinally, so a datamap prints and saves the same way on every runtime.</summary>
+    /// <summary>Orders numbers before strings, numbers by value and strings ordinally, so a printed datamap reads the same on every runtime.</summary>
     internal static int Compare(DataName a, DataName b)
     {
       if (a.IsNumber != b.IsNumber) return a.IsNumber ? -1 : 1;

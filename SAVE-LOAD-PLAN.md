@@ -138,8 +138,8 @@ the session-level `Redo`/`FastForward`.
 - **`HarloweValue.ToSource()`** — value → Harlowe source. Number→`FormatNumber`,
   String→a quoted literal via `MarkupPrinter`'s string-literal escaping (quotes,
   backslashes, and newlines re-lex safely), Bool→`true`/`false`, Array→`(a:…)`, Datamap→`(dm:…)`
-  (keys sorted, matching reference's `mapEntriesSorter` — fidelity/determinism;
-  round-trip is order-independent), Lambda→`MarkupPrinter` on its retained
+  (names in reference's `mapEntriesSorter` order, natural with names that sort
+  as equal reversed, so a loaded datamap holds its names as reference's would), Lambda→`MarkupPrinter` on its retained
   `LambdaNode`; HookName→synthesise a `HookRefNode` from the value's
   `Name`+`Steps` (it carries no node; copy the `IReadOnlyList<HookRefStep>` into
   `HookRefNode`'s `List`) then `MarkupPrinter`; Changer→its stamped source. The

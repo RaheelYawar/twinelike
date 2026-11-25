@@ -36,6 +36,16 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new AMacro());
       registry.Register(new RangeMacro());
       registry.Register(new DmMacro());
+      // "data-names" also covers reference's "datanames", which normalizes the same.
+      registry.Register(new DatamapListMacro("dm-names", DatamapListMacro.Part.Names));
+      registry.Register(new DatamapListMacro("datamap-names", DatamapListMacro.Part.Names));
+      registry.Register(new DatamapListMacro("data-names", DatamapListMacro.Part.Names));
+      registry.Register(new DatamapListMacro("dm-values", DatamapListMacro.Part.Values));
+      registry.Register(new DatamapListMacro("datamap-values", DatamapListMacro.Part.Values));
+      registry.Register(new DatamapListMacro("data-values", DatamapListMacro.Part.Values));
+      registry.Register(new DatamapListMacro("dm-entries", DatamapListMacro.Part.Entries));
+      registry.Register(new DatamapListMacro("datamap-entries", DatamapListMacro.Part.Entries));
+      registry.Register(new DatamapListMacro("data-entries", DatamapListMacro.Part.Entries));
       registry.Register(new DatasetMacro("ds"));
       registry.Register(new DatasetMacro("dataset"));
       registry.Register(new PassageMacro());

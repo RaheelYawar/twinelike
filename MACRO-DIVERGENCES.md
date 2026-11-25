@@ -28,7 +28,7 @@ the target's signature), #30 (deliberate: `(for:)+(output:)` works), #31
 (deliberate: markup in a code hook can't pair with markup outside the macro),
 #32 (a revision in a macro body whose target comes later does nothing), #33
 (a revision, `(for:)` or link changer attached to `(show:)` has no effect), #34
-(a dataset's spread order is approximate for accented text and hex strings),
+(natural order is approximate for accented text and hex strings),
 #35 (deliberate: limits on `(for:)` passes, `(range:)` length, print depth and live hooks),
 #36 (a run of spaces in a hand-edited tags attribute adds no empty tags), #38 (a
 hook hiding itself, or copied while hidden, can come back different), #39
@@ -804,9 +804,9 @@ Reference lexes a passage with one stack of open markers, so a closer inside a c
 
 A changer written before `(show:)` styles the hook it reveals, and a false condition stops it, as in real 3.3.9. Reference also passes the rest of the changer into the reveal, so `|a)[_i](for: each _i, 1, 2)(show: ?a)` shows `2`, the last pass, and `(click-replace: ?c)(show: ?a)` arms a click. Here those show the hook once, with no loop variable and no click. `(link:)` before `(show:)` throws an internal error in real 3.3.9, so nothing can depend on it.
 
-### 34. A dataset's spread order is approximate for accented text and hex strings (found in the dataset slice, 2026-11-23)
+### 34. Natural order is approximate for accented text and hex strings (found in the dataset slice, 2026-11-23)
 
-Spreading a dataset sorts it with `NaturalOrder`, the same comparison `startup` passages use, which covers ASCII exactly. Real 3.3.9 uses the browser's English collator, so `(a: ...(ds: "é", "e", "z"))` is `e,é,z` there and `e,z,é` here, because other letters sort after `z`. It also reads `"0x10"` as the number 16, and date-shaped strings as dates, which aren't implemented here.
+Spreading a dataset, `(passages:)`, the order `startup` passages run in, and `(dm-names:)`, `(dm-values:)` and `(dm-entries:)` all sort with `NaturalOrder`, which covers ASCII exactly. Real 3.3.9 uses the browser's English collator, so `(a: ...(ds: "é", "e", "z"))` is `e,é,z` there and `e,z,é` here, because other letters sort after `z`. It also reads `"0x10"` as the number 16, so `(dm-names:)` puts `"0x9"` before `"0x10"`, and reads date-shaped strings as dates. Neither is implemented here.
 
 ### 35. Limits on `(for:)` passes, `(range:)` length, print depth and live hooks (deliberate; found in the `(range:)` slice, 2026-11-23)
 

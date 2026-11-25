@@ -165,6 +165,27 @@ namespace Harlowe.Tests.Runtime.Saving
       Assert.Equal(v, RoundTrip(v));
     }
 
+    [Theory]
+    [InlineData("(dm: '1',1,'1.0',2)", "(dm:\"1.0\",2,\"1\",1)")]
+    [InlineData("(dm: 'b',1,'B',2,'a',3, 2,'n', 10,'m')", "(dm:2,\"n\",10,\"m\",\"a\",3,\"b\",1,\"B\",2)")]
+    [InlineData("(dm: 'x',1, '1',2, '1.0',3, 'y',4, '1.00',5)", "(dm:\"1.00\",5,\"1.0\",3,\"1\",2,\"x\",1,\"y\",4)")]
+    [InlineData("(a: (dm: 'b', (dm: ' a', 1, 'a', 2)))", "(a:(dm:\"b\",(dm:\"a\",2,\" a\",1)))")]
+    public void Datamap_WritesNamesInReferenceOrder(string value, string expected)
+    {
+      // Real 3.3.9's (source:) of each value: natural order, with names that
+      // sort as equal reversed, which is the order a loaded datamap holds them in.
+      Assert.Equal(expected, Deser(value).ToSource());
+    }
+
+    [Fact]
+    public void Datamap_ReadBackHoldsNamesInTheSavedOrder()
+    {
+      var back = RoundTrip(Deser("(dm: '1',1,'1.0',2)"));
+      var names = new System.Collections.Generic.List<string>();
+      foreach (var pair in back.AsDatamap) names.Add(pair.Key.Text);
+      Assert.Equal(new[] { "1.0", "1" }, names);
+    }
+
     [Fact]
     public void EmptyDatamap_RoundTrips()
     {

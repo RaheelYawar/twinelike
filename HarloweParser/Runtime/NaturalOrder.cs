@@ -58,6 +58,27 @@ namespace Harlowe.Runtime
       return order;
     }
 
+    /// <summary>
+    /// A datamap's names in natural order. Names that sort as equal, such as
+    /// <c>"1"</c> and <c>"1.0"</c>, keep the datamap's order, or come out
+    /// reversed with <paramref name="equalNamesReversed"/>. Reference's
+    /// <c>(dm-entries:)</c> and its datamap <c>toSource</c> reverse them: their
+    /// comparator, <c>[a[0],b[0]].sort(NaturalSort(`en`))[0] === a[0] ? -1 : 1</c>,
+    /// never returns 0, and V8's sort always passes it the later item first.
+    /// </summary>
+    internal static List<DataName> DatamapNames(Dictionary<DataName, HarloweValue> map, bool equalNamesReversed)
+    {
+      var names = new List<DataName>(map.Count);
+      foreach (var pair in map) names.Add(pair.Key);
+      if (equalNamesReversed) names.Reverse();
+      var keys = new string[names.Count];
+      for (int i = 0; i < keys.Length; i++) keys[i] = names[i].Text;
+      var order = SortedIndices(keys);
+      var sorted = new List<DataName>(order.Length);
+      for (int i = 0; i < order.Length; i++) sorted.Add(names[order[i]]);
+      return sorted;
+    }
+
     private static int CompareChunks(List<string> a, List<string> b)
     {
       int count = Math.Max(a.Count, b.Count);
