@@ -9,7 +9,7 @@ namespace Harlowe.Runtime
   /// </summary>
   public interface IEvaluationContext
   {
-    /// <summary>Milliseconds the current passage has been on screen, as a Number value.</summary>
+    /// <summary>Milliseconds the current passage has been on screen, as a Number value. A session counts the time the host has passed to <see cref="StorySession.Tick"/>.</summary>
     HarloweValue Time { get; }
 
     /// <summary>How many times the current passage has been entered, as a Number value. Backs both <c>visit</c> and <c>visits</c> identifiers (Harlowe treats them as synonyms).</summary>

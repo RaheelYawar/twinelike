@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using Harlowe.Runtime.Macros;
 
 namespace Harlowe.Runtime
@@ -58,7 +57,11 @@ namespace Harlowe.Runtime
     private readonly List<Moment> _past;
     private Moment _present;
     private readonly List<Moment> _future;
-    private readonly Stopwatch _passageTimer;
+    // The session's clock, in milliseconds, which only the host moves, through
+    // Tick. 	ime and (live:) both read it, so a story's timing follows the
+    // host's frames and a replay is exact.
+    private double _clockMs;
+    private double _passageStartMs;
 
     // One RNG for the whole session, threaded into every MacroContext so every
     // (random:)/(either:) draw forms a single continuous stream (a fresh instance
@@ -206,8 +209,7 @@ namespace Harlowe.Runtime
       _store = new HarloweVariableStore();
       _past = new List<Moment>();
       _future = new List<Moment>();
-      _passageTimer = Stopwatch.StartNew();
-      _rng = rng;
+     _rng = rng;
 
       var startPassage = story.GetStartPassage();
       var startName = startPassage != null ? startPassage.Name : string.Empty;
@@ -220,8 +222,8 @@ namespace Harlowe.Runtime
 
     // IEvaluationContext ---------------------------------------------------
 
-    /// <summary>Milliseconds elapsed since the current passage was entered.</summary>
-    public HarloweValue Time => HarloweValue.OfNumber(_passageTimer.ElapsedMilliseconds);
+    /// <summary>Milliseconds of <see cref="Tick"/> time since the current passage was entered. 0 while it first renders, as in reference.</summary>
+    public HarloweValue Time => HarloweValue.OfNumber(_clockMs - _passageStartMs);
 
     /// <summary>
     /// How many times the current passage has been entered this session, including
@@ -750,7 +752,7 @@ namespace Harlowe.Runtime
       _loadedGame = false;
       _liveRoot = null;
       _liveContext = null;
-      _passageTimer.Restart();
+      _passageStartMs = _clockMs;
     }
 
     /// <summary>
@@ -831,7 +833,7 @@ namespace Harlowe.Runtime
     {
       _currentPassage = passageName ?? string.Empty;
       _store.BeginPassage();
-      _passageTimer.Restart();
+      _passageStartMs = _clockMs;
     }
 
     private RenderResult RenderInternal(int depth)
@@ -1059,11 +1061,7 @@ namespace Harlowe.Runtime
       // would let a long-lived passage run out after enough clicks. The target
       // lookups below aren't charged to it: an event makes a fixed few of them
       // however the story is written, unlike the macros its hook runs.
-      _liveContext.NestedRenderCost = 0;
-      _liveContext.ResetTargetWalk(_liveRoot);
-      _liveContext.RenderNesting = 0;
-      _liveContext.DisplayDepth = 0;
-      _registry.EvaluationDepth = 0;
+      ResetBudgets();
 
       // Render the deferred hook into a detached subtree using the live
       // context — so inner (click:)/(enchant:)/(replace:) calls inside the
@@ -1187,6 +1185,104 @@ namespace Harlowe.Runtime
         return Goto(target);
       }
 
+      return BuildResultFromLiveTree();
+    }
+
+    /// <summary>Gives a dispatch or live render its own budgets, rather than what's left of the render's.</summary>
+    private void ResetBudgets()
+    {
+      _liveContext.NestedRenderCost = 0;
+      _liveContext.ResetTargetWalk(_liveRoot);
+      _liveContext.RenderNesting = 0;
+      _liveContext.DisplayDepth = 0;
+      _registry.EvaluationDepth = 0;
+    }
+
+    /// <summary>True while the passage has a <c>(live:)</c> hook running, which only <see cref="Tick"/> moves on.</summary>
+    public bool HasLiveHooks => _liveContext != null && _liveContext.LiveHooks.Count > 0;
+
+    /// <summary>
+    /// Moves the story's clock on by <paramref name="elapsedMilliseconds"/>, as
+    /// a host's frame loop does each frame. <c>time</c> reads this clock, so it
+    /// only advances here, and it's 0 while a passage first renders, as in
+    /// reference.
+    ///
+    /// <para>Each call is one frame for the passage's <c>(live:)</c> hooks, as
+    /// each animation frame is for reference's <c>runLiveHook</c>: a hook starts
+    /// counting on the first frame after it's made, and once its delay has
+    /// passed it renders, replacing what it showed, and starts counting again,
+    /// so it renders at most once a frame. A render that runs <c>(stop:)</c>
+    /// ends it. A live hook whose node was replaced keeps rendering off the page,
+    /// as reference's does, so its macros still run. Returns the page after the
+    /// renders, or null when no hook rendered. A <c>(goto:)</c> or
+    /// <c>(load-game:)</c> in a live hook navigates, and returns that page.</para>
+    ///
+    /// <para>As with <see cref="DispatchEvent"/>, what a live render changes
+    /// isn't part of a save, which reproduces the turn by rendering it again.</para>
+    /// </summary>
+    public RenderResult Tick(double elapsedMilliseconds)
+    {
+      if (double.IsNaN(elapsedMilliseconds) || elapsedMilliseconds < 0) elapsedMilliseconds = 0;
+      _clockMs += elapsedMilliseconds;
+      if (!HasLiveHooks || _liveRoot == null) return null;
+
+      // Hooks made by this frame's renders wait for the next frame, as a new
+      // animation frame request does.
+      var live = new List<LiveHook>(_liveContext.LiveHooks);
+      bool rendered = false;
+      for (int i = 0; i < live.Count; i++)
+      {
+        var hook = live[i];
+        if (hook.Stopped) continue;
+        if (!hook.Started) hook.Started = true;
+        else hook.Remaining -= elapsedMilliseconds;
+        if (hook.Remaining > 0) continue;
+        hook.Remaining = hook.Delay;
+
+        ResetBudgets();
+        int stopsBefore = _liveContext.StopsRun;
+        var targets = new List<Rendering.RenderNode>();
+        Rendering.RenderNodes.CollectWhere(_liveRoot,
+          n => n is Rendering.RenderHookNode h && h.LiveId == hook.Id, targets);
+        if (targets.Count == 0) targets.Add(hook.Node);
+        for (int t = 0; t < targets.Count && !_liveContext.NavigationHalt; t++)
+        {
+          var node = (Rendering.RenderHookNode)targets[t];
+          node.Hidden = null;
+          node.Children.Clear();
+          Rendering.RenderNodes.StartBuilding(node);
+          hook.Render(node, _liveRoot);
+          Rendering.RenderNodes.FinishBuilding(node);
+        }
+        rendered = true;
+        if (_liveContext.StopsRun != stopsBefore)
+        {
+          hook.Stopped = true;
+          _liveContext.LiveHooks.Remove(hook);
+        }
+        if (_liveContext.NavigationHalt) break;
+      }
+      if (!rendered) return null;
+
+      // The same passes, and the same navigation order, as a dispatch.
+      if (_liveContext.UsesCollapsedWhitespace) Rendering.WhitespaceCollapser.Apply(_liveRoot);
+      InteractionPass.Update(_liveRoot, _liveContext.Interactions, _liveContext.ClickHandlers, _liveContext);
+      EnchantmentPass.Update(_liveRoot, _liveContext.Enchantments, _liveContext);
+      _nextRegionIndex = _liveContext.NextRegionIndex;
+
+      if (_liveContext.PendingLoad != null)
+      {
+        var loaded = _liveContext.PendingLoad;
+        _liveContext.PendingLoad = null;
+        InstallTimeline(loaded.Past, loaded.Present);
+        return RenderInternal(0);
+      }
+      if (_liveContext.PendingGoto != null)
+      {
+        var target = _liveContext.PendingGoto;
+        _liveContext.PendingGoto = null;
+        return Goto(target);
+      }
       return BuildResultFromLiveTree();
     }
 

@@ -105,6 +105,19 @@ namespace Harlowe.Runtime
     public override int GetHashCode() => Fields?.GetHashCode() ?? 0;
   }
 
+  /// <summary>Patch produced by <c>(live:)</c>. Reference's <c>d.data.live = {delay}</c>.</summary>
+  public class LivePatch : IChangerPatch
+  {
+    /// <summary>Milliseconds between renders, 0 for every frame.</summary>
+    public double Delay;
+
+    public void Apply(HookDescriptor descriptor) => descriptor.Live = Delay;
+
+    public override bool Equals(object obj) => obj is LivePatch other && other.Delay.Equals(Delay);
+
+    public override int GetHashCode() => Delay.GetHashCode() ^ 0x1ee7;
+  }
+
   /// <summary>
   /// Patch produced by <c>(hidden:)</c>: the hook doesn't render until
   /// <c>(show:)</c> reveals it. Reference's <c>d =&gt; {d.enabled = false}</c>.

@@ -73,6 +73,9 @@ namespace Harlowe.Runtime.Rendering
 
     private IRenderContainer Current => _stack.Peek();
 
+    /// <summary>The container being written into, such as a hook just opened.</summary>
+    internal IRenderContainer CurrentContainer => Current;
+
     public void Text(string content)
     {
       // Coalesce consecutive prose into a single text node. The tokenizer

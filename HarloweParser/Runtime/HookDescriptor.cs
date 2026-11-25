@@ -39,6 +39,14 @@ namespace Harlowe.Runtime
     public StyleSpec Transition;
 
     /// <summary>
+    /// The <c>(live:)</c> delay in milliseconds, 0 to render every frame. The
+    /// hook doesn't show when it's written; the session renders it once the
+    /// delay has passed, and again after each delay until <c>(stop:)</c> runs
+    /// in it. Null for an ordinary hook.
+    /// </summary>
+    public double? Live;
+
+    /// <summary>
     /// When set, the renderer iterates the hook contents once per item,
     /// binding <see cref="IterationParamName"/> (and the <c>it</c> slot) to
     /// each item in turn. Null for non-loop changers.

@@ -403,6 +403,12 @@ namespace Harlowe.Runtime
         CaptureOutput(changer, new HookNode { Children = new List<IBodyNode>() });
         return;
       }
+      if (changer.LiveDelay != null)
+      {
+        // Reference's own refusal, and the command doesn't run.
+        _output.Error("I currently can't attach (live:) or (event:) macros to commands - only hooks.");
+        return;
+      }
       bool insideCollapse = _collapseDepth > 0;
       var command = new CommandRun(run);
       changer.Apply(_output, target => RenderHookInto(command, target, insideCollapse), _context, aroundLink);
@@ -904,6 +910,16 @@ namespace Harlowe.Runtime
         return;
       }
 
+      var live = changer.LiveDelay;
+      if (live != null)
+      {
+        PlantLiveHook(changer, hook as HookNode, live.Value);
+        // Reference's live descriptor is disabled, which only a conditional's
+        // own name lets reach the (else:) pairing.
+        UpdateConditionalPairing(macroName, false);
+        return;
+      }
+
       if (hook is HookNode written && written.IsHidden)
       {
         ApplyToHiddenHook(changer, written, macroName);
@@ -960,6 +976,59 @@ namespace Harlowe.Runtime
       if (!(_output is Rendering.RenderTreeBuilder builder)) return;
       builder.BeginHook(named.Name, named.Anchor, HiddenContentFor(named, shownThrough));
       builder.EndHook();
+    }
+
+    /// <summary>
+    /// A hook with <c>(live:)</c> attached. It's planted empty and hidden, so
+    /// <c>(show:)</c> and revisions can still reach it, and registered for
+    /// <see cref="StorySession.Tick"/> to render once its delay has passed,
+    /// with the temp variables in view here and the rest of the changer. A
+    /// live hook in a custom macro's body never renders, as reference's
+    /// <c>inDOM</c> check stops one whose section isn't on the page.
+    /// </summary>
+    private void PlantLiveHook(Changer changer, HookNode hook, double delay)
+    {
+      if (hook == null || !(_output is Rendering.RenderTreeBuilder builder)) return;
+      builder.BeginHook(hook.Name, hook.Anchor, HiddenContentFor(hook, null));
+      var node = (Rendering.RenderHookNode)builder.CurrentContainer;
+      builder.EndHook();
+      if (_context.CurrentCustomMacro != null) return;
+      if (_context.LiveHooks.Count >= MacroContext.MaxLiveHooks)
+      {
+        _output.Error($"There are too many (live:) hooks running on this passage. Only {MacroContext.MaxLiveHooks} can run at once.");
+        return;
+      }
+
+      node.LiveId = _context.AllocateLiveId();
+      var scopes = _context.Store.CaptureScopeChain();
+      var body = new HookNode { Children = hook.Children };
+      var registry = _registry;
+      var context = _context;
+      _context.LiveHooks.Add(new LiveHook
+      {
+        Id = node.LiveId,
+        Node = node,
+        Delay = delay,
+        Remaining = delay,
+        Render = (target, root) =>
+        {
+          var roots = new List<Rendering.RenderNode> { root };
+          bool insideCollapse = Rendering.RenderNodes.IsInsideCollapse(roots, target, out var owner);
+          var into = new Rendering.RenderTreeBuilder(target, owner ?? root);
+          var renderer = new BodyRenderer(into, registry, context) { _collapseDepth = insideCollapse ? 1 : 0 };
+          var priorOutput = context.Output;
+          context.Output = into;
+          try
+          {
+            using (context.Store.EnterScopeChain(scopes))
+              changer.ApplyLive(into, output => renderer.RenderHookInto(body, output, insideCollapse), context);
+          }
+          finally
+          {
+            context.Output = priorOutput;
+          }
+        },
+      });
     }
 
     /// <summary>

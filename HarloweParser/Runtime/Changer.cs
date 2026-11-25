@@ -244,6 +244,22 @@ namespace Harlowe.Runtime
       // A conditional in the composition disabled the hook: render nothing,
       // register nothing — (if: false) + (click: ?a) must not arm a click.
       if (!descriptor.Enabled) return false;
+      return Execute(descriptor, output, renderHook, ctx);
+    }
+
+    /// <summary>
+    /// A <c>(live:)</c> hook's render when its time comes: the rest of the
+    /// changer applies, and the hook shows even if a condition in it was false,
+    /// as reference's <c>runLiveHook</c> forces its descriptor enabled.
+    /// </summary>
+    internal void ApplyLive(IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx)
+      => Execute(BuildDescriptor(), output, renderHook, ctx);
+
+    /// <summary>The <c>(live:)</c> delay in milliseconds, 0 for every frame, or null when the changer has none.</summary>
+    internal double? LiveDelay => BuildDescriptor().Live;
+
+    private static bool Execute(HookDescriptor descriptor, IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx)
+    {
 
       // Interaction, Revision, and Iteration are mutually-exclusive ways of
       // consuming the hook (wrap-and-defer, splice-elsewhere, loop-in-place);

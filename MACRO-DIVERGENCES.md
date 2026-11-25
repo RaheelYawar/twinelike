@@ -13,9 +13,9 @@ for the save-model slice (which lands `(history:)` semantics).
 
 - **High severity (0 active, 6 fixed)**: silent wrong result or breaks documented Harlowe idioms.
 - **Medium severity (0 active, 10 fixed, 1 reclassified)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
-- **Low severity (18 active, 2 fixed)**: documented as deliberate or marginal.
+- **Low severity (20 active, 2 fixed)**: documented as deliberate or marginal.
 
-**18 active, all low-severity** — #26 (deliberate: a printed array renders each
+**20 active, all low-severity** — #26 (deliberate: a printed array renders each
 item separately, so markup can't span items), #17 (load-guard vs intra-turn `(goto:)`), #18
 (stacked-interaction nesting order), #21 (deliberate: out-of-range array sets
 error rather than growing sparse holes), #23 (deliberate: a `via`-lambda's RNG
@@ -29,10 +29,12 @@ the target's signature), #30 (deliberate: `(for:)+(output:)` works), #31
 #32 (a revision in a macro body whose target comes later does nothing), #33
 (a revision, `(for:)` or link changer attached to `(show:)` has no effect), #34
 (a dataset's spread order is approximate for accented text and hex strings),
-#35 (deliberate: limits on `(for:)` passes, `(range:)` length and print depth),
+#35 (deliberate: limits on `(for:)` passes, `(range:)` length, print depth and live hooks),
 #36 (a run of spaces in a hand-edited tags attribute adds no empty tags), #37 (a
 visible hook revising itself while it renders keeps its later content), #38 (a
-hook hiding itself, or copied while hidden, can come back different).
+hook hiding itself, or copied while hidden, can come back different), #39
+(`time` moves by frames, and a live hook inside `{…}` trims a trailing space),
+#40 (a revision's own content can't revise its target first).
 
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
 items are kept and marked rather than renumbered. "Reclassified" means the
@@ -805,9 +807,9 @@ A changer written before `(show:)` styles the hook it reveals, and a false condi
 
 Spreading a dataset sorts it with `NaturalOrder`, the same comparison `startup` passages use, which covers ASCII exactly. Real 3.3.9 uses the browser's English collator, so `(a: ...(ds: "é", "e", "z"))` is `e,é,z` there and `e,z,é` here, because other letters sort after `z`. It also reads `"0x10"` as the number 16, and date-shaped strings as dates, which aren't implemented here.
 
-### 35. Limits on `(for:)` passes, `(range:)` length and print depth (deliberate; found in the `(range:)` slice, 2026-11-23)
+### 35. Limits on `(for:)` passes, `(range:)` length, print depth and live hooks (deliberate; found in the `(range:)` slice, 2026-11-23)
 
-One render can make a quarter of a million `(for:)` passes, one `(range:)` can hold 200,000 numbers, and a value can print 256 levels deep. Past any of these it's an in-prose error. Real 3.3.9 sets no limit of its own: `(range:)` worked at 100,000 and failed with a JavaScript stack error at 150,000, printing managed 300 levels and failed at 5,000, and a 3,000 by 3,000 loop was still running when the test stopped it after 3 seconds. Here a stuck render or stack overflow would take the host game down with it.
+One render can make a quarter of a million `(for:)` passes, one `(range:)` can hold 200,000 numbers, a value can print 256 levels deep, and a passage can have 500 `(live:)` hooks running. Past any of these it's an in-prose error. Real 3.3.9 sets no limit of its own: `(range:)` worked at 100,000 and failed with a JavaScript stack error at 150,000, printing managed 300 levels and failed at 5,000, and a 3,000 by 3,000 loop was still running when the test stopped it after 3 seconds. Here a stuck render or stack overflow would take the host game down with it.
 
 ### 36. A run of spaces in a hand-edited tags attribute adds no empty tags (found in the `(passage:)` review, 2026-11-23)
 
@@ -816,6 +818,14 @@ Reference splits the `tags` attribute on each whitespace character, so `tags="a 
 ### 37. A visible hook revising itself while it renders keeps its later content (found in the `(show:)` review, 2026-11-23)
 
 `|o>[x(replace: ?o)[y]z]` renders `y` in real 3.3.9 and `yz` here, and the `(append:)` form renders `xzy` there and `xyz` here. The same hook revealed by `(show:)` matches 3.3.9, because its content renders into an inner node.
+
+### 40. A revision's own content can't revise its target first (found playing harlowe-demo, 2026-11-24)
+
+Reference renders a revision's content into its target and then runs the macros in it, so a revision inside that content lands on top: `|a>[x](replace: ?a)[(replace: ?a)[y]z]` shows `y` in real 3.3.9 and `z` here, and `(replace: ?a)[w(append: ?a)[y]z]` shows `wzy` there and `wz` here. Here the content renders aside and is spliced in last, over whatever the inner revision did, and a hook inside it can't be targeted until it's spliced. Reference also only lets the inner revision reach hooks before it in the page, so with `?b` after `?a`, `(replace: ?a)[(replace: ?b)[y]z]` leaves `?b` alone there and replaces it here. It ends harlowe-demo's walks at its first battle menu, which its state machine draws this way.
+
+### 39. `time` moves by frames, and a live hook inside `{…}` trims a trailing space (found in the `(live:)` slice, 2026-11-24)
+
+`time` reads the clock the host moves with `StorySession.Tick`, so between two frames it doesn't change, where reference reads the browser's clock, which does. A click 6 ms after a frame reads the frame's time here. Separately, reference collapses a live hook's later renders on their own, and puts back a trailing space when more text follows in the `{…}` span, even text it emptied earlier, so `{(live: 100ms)[ (set: $n to it + 1) $n ]}` shows `1 ` in real 3.3.9 and `1` here. Without `(live:)` both show `1`.
 
 ### 38. A hook hiding itself, or copied while hidden, can come back different (found in the `(hide:)` slice, 2026-11-23)
 

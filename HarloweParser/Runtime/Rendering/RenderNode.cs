@@ -312,6 +312,13 @@ namespace Harlowe.Runtime.Rendering
     public string LabelRegionId;
 
     /// <summary>
+    /// Set on a hook a <c>(live:)</c> changer is attached to: the id of the
+    /// <see cref="LiveHook"/> that renders into it. <see cref="Clone"/> copies
+    /// it, so a copy a revision made is rendered too.
+    /// </summary>
+    internal string LiveId;
+
+    /// <summary>
     /// How <see cref="WhitespaceCollapser"/> treats this hook's content. A
     /// <c>{…}</c> span is an anonymous hook marked
     /// <see cref="WhitespaceMode.Collapse"/>; printed values and displayed
@@ -338,7 +345,7 @@ namespace Harlowe.Runtime.Rendering
 
     public override RenderNode Clone()
     {
-      var copy = new RenderHookNode { Name = Name, Anchor = Anchor, SourceEnchantment = SourceEnchantment, SourceRegionId = SourceRegionId, RevealRegionId = RevealRegionId, LabelRegionId = LabelRegionId, Whitespace = Whitespace, Hidden = Hidden?.ForCopy() };
+      var copy = new RenderHookNode { Name = Name, Anchor = Anchor, SourceEnchantment = SourceEnchantment, SourceRegionId = SourceRegionId, RevealRegionId = RevealRegionId, LabelRegionId = LabelRegionId, LiveId = LiveId, Whitespace = Whitespace, Hidden = Hidden?.ForCopy() };
       RenderNodes.CloneInto(Children, copy.Children);
       return copy;
     }
