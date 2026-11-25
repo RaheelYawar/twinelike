@@ -724,17 +724,18 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
-    public void Dispatch_ClickInsideMultiTargetReplace_RevealsInEveryClone()
+    public void Dispatch_ClickInsideMultiTargetReplace_RevealsInTheClickedCopy()
     {
-      // Two ?t matches → the revision splices two clones of the deferred
-      // content, each carrying an anchor clone with the same tag. The reveal
-      // fills every tagged anchor — reference's per-target render.
+      // Two ?t matches → each renders its own copy of the content, as in
+      // reference, so each arms its own click with its own anchor, and one
+      // click reveals one copy. Real 3.3.9 shows the same for
+      // |a>[x]|a>[y](replace: ?a)[(click: ?b)[u]]|b>[B]: uB.
       var session = Session("|t>[x]|t>[y](replace: ?t)[(click: ?a)[X]]|a>[A]");
       var initial = session.Render();
       Assert.Equal("A", initial.Text);
 
       var after = session.DispatchEvent(FirstRegionId(initial));
-      Assert.Equal("XXA", after.Text);
+      Assert.Equal("XA", after.Text);
     }
 
     [Fact]

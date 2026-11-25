@@ -198,11 +198,6 @@ namespace Harlowe.Runtime
     /// <summary>How many <c>(stop:)</c> commands have run, which tells a live render whether one ran in it.</summary>
     internal int StopsRun;
 
-    private int _nextLiveId;
-
-    /// <summary>A fresh id tagging a <c>(live:)</c> hook's node, so copies made by revisions are found too.</summary>
-    internal string AllocateLiveId() => "live-" + _nextLiveId++;
-
     /// <summary>
     /// The armed interactions keyed by <see cref="InteractiveRegion"/> id — a
     /// pure index into <see cref="Interactions"/> holding only the entries
@@ -219,12 +214,20 @@ namespace Harlowe.Runtime
     /// The live render tree the session is building or has built. Macros that
     /// target rendered content (<c>(replace:)</c>, <c>(change:)</c>,
     /// <c>(click:)</c>, …) resolve against this rather than the current
-    /// renderer's output, so a deferred-hook render whose own
-    /// <see cref="IRenderOutput"/> is a detached builder still targets the
+    /// renderer's output, so a custom macro's body, whose own
+    /// <see cref="IRenderOutput"/> is a sealed builder, still targets the
     /// passage's live tree. Null when there is no render tree (a plain
     /// <see cref="BufferedRenderOutput"/> in a standalone unit test).
     /// </summary>
     public RenderRoot LiveRoot;
+
+    /// <summary>
+    /// True while the passage itself renders, startup and header passages
+    /// included, and false for clicks, live hooks and anything else after it.
+    /// Reference renders a passage detached from the page, and while it is, a
+    /// revision only reaches targets before its own hook.
+    /// </summary>
+    internal bool RenderingPassage;
 
     /// <summary>
     /// Resolves the render tree that tree-targeting macros (<c>(replace:)</c>,
@@ -232,8 +235,8 @@ namespace Harlowe.Runtime
     /// <see cref="LiveRoot"/> if set, otherwise the root of
     /// <paramref name="output"/> when it is itself a
     /// <see cref="RenderTreeBuilder"/>. Preferring <see cref="LiveRoot"/> lets a
-    /// deferred-dispatch hook (whose own output is a detached builder) still
-    /// target the passage's live tree. Null-safe in <paramref name="ctx"/> so a
+    /// custom macro's body (whose own output is a sealed builder) still target
+    /// the passage's live tree. Null-safe in <paramref name="ctx"/> so a
     /// pure revision changer may pass a null context; returns null when there
     /// is no tree to target (a plain buffer). Centralized here so every
     /// tree-targeting path shares one rule.
@@ -344,9 +347,9 @@ namespace Harlowe.Runtime
     internal void ExitCustomMacro() => RenderNesting--;
 
     /// <summary>
-    /// Charges a revision's clone of <paramref name="cost"/> units (see
-    /// <see cref="Rendering.RenderNodes.SpliceCost"/>) to the same budget, or
-    /// returns false when it doesn't fit. Without this, a passage that displays
+    /// Charges <paramref name="cost"/> units, such as the size of one
+    /// revision target's rendering (see <see cref="Rendering.RenderNodes.SpliceCost"/>),
+    /// to the same budget, or returns false when it doesn't fit. Without this, a passage that displays
     /// itself inside an <c>(append:)</c> stays within the render count while
     /// its tree grows exponentially.
     /// </summary>

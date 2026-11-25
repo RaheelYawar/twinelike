@@ -186,7 +186,7 @@ namespace Harlowe.Runtime
     /// Field-by-field copy. The copy's <see cref="Effects"/> is the fresh
     /// empty list the field initializer produced; items are appended one at a
     /// time so the copy and the original have independent lists. Used by the
-    /// render tree when it clones a styling layer for splicing.
+    /// render tree when it stamps a styling layer onto a node.
     /// </summary>
     public StyleSpec Clone()
     {

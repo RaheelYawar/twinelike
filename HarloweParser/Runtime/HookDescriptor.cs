@@ -56,8 +56,8 @@ namespace Harlowe.Runtime
     /// <summary>
     /// When non-empty, the changer is a revision changer (<c>(replace:)</c> /
     /// <c>(append:)</c> / <c>(prepend:)</c>): instead of rendering its hook
-    /// inline, the renderer renders it into a detached subtree and splices that
-    /// into the targeted nodes already present in the render tree. One entry
+    /// inline, the renderer renders it into each of the targeted nodes already
+    /// present in the render tree. One entry
     /// per target — the macros are variadic (<c>(replace: ?a, "text")</c>), and
     /// composed revision changers accumulate here rather than overwrite,
     /// mirroring reference's <c>desc.newTargets</c> list of

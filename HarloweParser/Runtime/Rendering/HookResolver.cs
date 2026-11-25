@@ -54,28 +54,73 @@ namespace Harlowe.Runtime.Rendering
       return ApplySteps(matches, name.Steps);
     }
 
+    /// <summary>
+    /// As <see cref="Resolve(RenderNode, HookNameValue)"/>, then without the
+    /// matches that come after <paramref name="position"/> in page order: what
+    /// follows its subtree, leaving its ancestors and its own content. This is
+    /// reference's filter on a revision's targets while the passage renders,
+    /// which runs after the ordinal steps have picked, so <c>?a's last</c> can
+    /// pick a later hook and come to nothing. One walk does both. A position
+    /// not in <paramref name="tree"/> filters nothing.
+    /// </summary>
+    internal static IReadOnlyList<RenderNode> ResolveBefore(RenderNode tree, HookNameValue name, RenderNode position)
+    {
+      var matches = new List<RenderNode>();
+      if (tree == null || name == null) return matches;
+      var order = new Dictionary<RenderNode, int>();
+      int counter = 0, positionEnd = -1;
+      CollectOrdered(tree, MatcherFor(name.Name ?? string.Empty, tree), position, matches, order, ref counter, ref positionEnd);
+      var picked = ApplySteps(matches, name.Steps);
+      if (positionEnd < 0 || picked.Count == 0) return picked;
+      var before = new List<RenderNode>(picked.Count);
+      for (int i = 0; i < picked.Count; i++)
+        if (order[picked[i]] <= positionEnd) before.Add(picked[i]);
+      return before;
+    }
+
+    private static void CollectOrdered(RenderNode node, Func<RenderNode, bool> predicate, RenderNode position,
+      List<RenderNode> into, Dictionary<RenderNode, int> order, ref int counter, ref int positionEnd)
+    {
+      if (node == null) return;
+      int index = counter++;
+      if (predicate(node))
+      {
+        into.Add(node);
+        order[node] = index;
+      }
+      if (node is IRenderContainer container)
+      {
+        var children = container.Children;
+        for (int i = 0; i < children.Count; i++) CollectOrdered(children[i], predicate, position, into, order, ref counter, ref positionEnd);
+      }
+      if (ReferenceEquals(node, position)) positionEnd = counter - 1;
+    }
+
     /// <summary>Compared as reference's <c>insensitiveName</c> does, ignoring case, dashes and underscores.</summary>
     private static void CollectMatches(RenderNode tree, string n, List<RenderNode> matches)
     {
       if (MacroNames.SameName(n, "passage") || MacroNames.SameName(n, "page"))
       {
-        // ?passage and ?page both select the passage root. A cross-passage
-        // ?page scope (header/footer enchantment) is a later concern.
-        matches.Add(tree);
+        if (tree != null) matches.Add(tree);
+        return;
       }
-      else if (MacroNames.SameName(n, "link"))
-      {
-        // Passage links and live (link:)-family labels — reference's ?Link
-        // matches created <tw-link> elements too. A consumed single-use label
-        // has its tag cleared by the dispatch, so it stops matching here.
-        Collect(tree, node => node is RenderLinkNode
-          || (node is RenderHookNode hook && hook.LabelRegionId != null), matches);
-      }
-      else
-      {
-        Collect(tree, node => node is RenderHookNode hook
-          && hook.Name != null && MacroNames.SameName(hook.Name, n), matches);
-      }
+      Collect(tree, MatcherFor(n, tree), matches);
+    }
+
+    private static Func<RenderNode, bool> MatcherFor(string n, RenderNode tree)
+    {
+      // ?passage and ?page both select the passage root, which is where the
+      // walk starts. A cross-passage ?page scope is a later concern.
+      if (MacroNames.SameName(n, "passage") || MacroNames.SameName(n, "page"))
+        return node => ReferenceEquals(node, tree);
+      // Passage links and live (link:)-family labels — reference's ?Link
+      // matches created <tw-link> elements too. A consumed single-use label
+      // has its tag cleared by the dispatch, so it stops matching here.
+      if (MacroNames.SameName(n, "link"))
+        return node => node is RenderLinkNode
+          || (node is RenderHookNode hook && hook.LabelRegionId != null);
+      return node => node is RenderHookNode hook
+        && hook.Name != null && MacroNames.SameName(hook.Name, n);
     }
 
     /// <summary>

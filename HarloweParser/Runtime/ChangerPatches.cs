@@ -176,9 +176,9 @@ namespace Harlowe.Runtime
   /// argument (the macros are variadic) and <em>appends</em> them to the
   /// descriptor's list rather than overwriting — reference pushes onto
   /// <c>desc.newTargets</c>, deduplicating identical (target, mode) pairs so
-  /// <c>(replace: ?1) + (replace: ?1, ?2)</c> splices <c>?1</c> once. The
-  /// renderer then splices the changer's rendered hook into every targeted
-  /// tree node instead of rendering it inline.
+  /// <c>(replace: ?1) + (replace: ?1, ?2)</c> revises <c>?1</c> once. The
+  /// renderer then renders the changer's hook into every targeted tree node
+  /// instead of inline.
   /// </summary>
   public class RevisionPatch : IChangerPatch
   {

@@ -65,7 +65,9 @@ namespace Harlowe.Tests.Runtime
     {
       var result = RenderWithin20Seconds(Story(("Start", body)));
 
-      Assert.Contains("too much nested content", Errors(result));
+      // Each copy renders in its target, so an inner (replace:) can empty its
+      // own copy, and the recursion may reach the depth limit before the budget.
+      Assert.Matches("too much nested content|recursion limit reached", Errors(result));
       Assert.InRange(result.Text.Length, 0, 4_000_000);
     }
 

@@ -109,14 +109,13 @@ namespace Harlowe.Runtime.Macros
         // What a revision put here goes. A (click:) anchor stays armed.
         hook.Children.RemoveAll(node => !(node is RenderHookNode inner && inner.RevealRegionId != null));
 
+        // The hook is this builder's base, built until FinishBase.
         var builder = new RenderTreeBuilder(hook, owner);
-        // The hook is this builder's base, which it never opens or closes.
-        RenderNodes.StartBuilding(hook);
         int layers = styles?.Count ?? 0;
         for (int i = 0; i < layers; i++) builder.PushStyle(styles[i]);
         content.Render(builder, insideCollapse);
         for (int i = 0; i < layers; i++) builder.PopStyle();
-        RenderNodes.FinishBuilding(hook);
+        builder.FinishBase();
       }
       finally
       {
@@ -166,7 +165,7 @@ namespace Harlowe.Runtime.Macros
           if (!(targets[t] is IHideable node)) continue;
           // ?passage is the page, not the content a click is still building.
           if (node is RenderRoot && !ReferenceEquals(node, context.LiveRoot)) continue;
-          if (node.Building) node.PendingHide = node.HiddenContent == null;
+          if (node.Writer != null) node.PendingHide = node.HiddenContent == null;
           else RenderNodes.Hide(node);
         }
       }

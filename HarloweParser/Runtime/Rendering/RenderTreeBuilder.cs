@@ -26,23 +26,55 @@ namespace Harlowe.Runtime.Rendering
   public class RenderTreeBuilder : ILinkLabelOutput
   {
     private readonly RenderRoot _root;
-    private readonly Stack<IRenderContainer> _stack = new Stack<IRenderContainer>();
+
+    // The open containers, innermost last. A list rather than a stack, because
+    // a revision of a node still being written swaps that node's entry.
+    private readonly List<IRenderContainer> _stack = new List<IRenderContainer>();
+
+    // Each placeholder this builder writes into, with the node it stands in.
+    private Dictionary<IRenderContainer, IRenderContainer> _placeholders;
+
+    // Whether the base was already being built when this builder took it on.
+    private readonly bool _baseWasBuilding;
+
+    // How many entries at the bottom of the stack are the base and the layers
+    // a revision opens on it before its content: its styles, its whitespace
+    // layer and its own hook. Content directly in those is directly in the
+    // base, as reference inserts it straight into the target.
+    private int _layers = 1;
+
+    /// <summary>Set just before a revision's own hook renders here, so the hook it opens counts as a layer.</summary>
+    internal bool NextHookIsLayer;
 
     public RenderTreeBuilder()
     {
       _root = new RenderRoot();
-      _stack.Push(_root);
+      _stack.Add(_root);
     }
 
     /// <summary>
     /// A builder that writes straight into an existing node of the tree under
     /// <paramref name="root"/>, so macros running in that content can see and
-    /// target the rest of the page.
+    /// target the rest of the page. The node counts as being built until
+    /// <see cref="FinishBase"/>.
     /// </summary>
     internal RenderTreeBuilder(IRenderContainer into, RenderRoot root)
     {
       _root = root ?? new RenderRoot();
-      _stack.Push(into);
+      _stack.Add(into);
+      _baseWasBuilding = into is IHideable hideable && hideable.Writer != null;
+      if (!_baseWasBuilding) RenderNodes.StartBuilding(into, this);
+    }
+
+    /// <summary>
+    /// A builder for a revision's placeholder: it writes into
+    /// <paramref name="placeholder"/>, which stands in <paramref name="target"/>.
+    /// </summary>
+    internal static RenderTreeBuilder ForPlaceholder(RenderHookNode placeholder, IRenderContainer target, RenderRoot root)
+    {
+      var builder = new RenderTreeBuilder(placeholder, root);
+      builder._placeholders = new Dictionary<IRenderContainer, IRenderContainer> { [placeholder] = target };
+      return builder;
     }
 
     /// <summary>The tree built so far. Mutated in place by later sub-slices' revision macros.</summary>
@@ -71,10 +103,105 @@ namespace Harlowe.Runtime.Rendering
           $"RenderTreeBuilder is unbalanced: {_stack.Count - 1} container(s) still open");
     }
 
-    private IRenderContainer Current => _stack.Peek();
+    private IRenderContainer Current => _stack[_stack.Count - 1];
 
     /// <summary>The container being written into, such as a hook just opened.</summary>
     internal IRenderContainer CurrentContainer => Current;
+
+    /// <summary>
+    /// Closes the innermost container. One that stood in for a node being
+    /// revised is unwrapped back into it if it's still there, and then the node
+    /// itself is finished, so a <c>(hide:)</c> of it waiting meanwhile happens.
+    /// </summary>
+    private IRenderContainer Pop()
+    {
+      var node = _stack[_stack.Count - 1];
+      _stack.RemoveAt(_stack.Count - 1);
+      if (_layers > _stack.Count) _layers = _stack.Count;
+      FinishContainer(node);
+      return node;
+    }
+
+    /// <summary>Counts everything open now as the base's layers, such as a revision's styles.</summary>
+    internal void MarkLayers() => _layers = _stack.Count;
+
+    /// <summary>Counts the container just opened as a layer, when it sits directly on the layers.</summary>
+    internal void ExtendLayers()
+    {
+      if (_stack.Count - 1 == _layers) _layers++;
+    }
+
+    private void FinishContainer(IRenderContainer node)
+    {
+      RenderNodes.FinishBuilding(node);
+      if (_placeholders == null || !_placeholders.TryGetValue(node, out var stoodIn)) return;
+      _placeholders.Remove(node);
+      RenderNodes.Unwrap(stoodIn, (RenderNode)node);
+      FinishContainer(stoodIn);
+    }
+
+    /// <summary>
+    /// The end of writing the base this builder started with: it's finished as
+    /// if it had been closed, unless another builder was already building it.
+    /// </summary>
+    internal void FinishBase()
+    {
+      while (_stack.Count > 1) Pop();
+      var node = _stack[0];
+      if (_placeholders != null && _placeholders.TryGetValue(node, out var stoodIn))
+      {
+        // A placeholder base unwraps into its target, which this builder never
+        // started, so only the placeholder itself is finished.
+        RenderNodes.FinishBuilding(node);
+        _placeholders.Remove(node);
+        RenderNodes.Unwrap(stoodIn, (RenderNode)node);
+        if (!_baseWasBuilding && stoodIn is IHideable moved && ReferenceEquals(moved.Writer, this)) FinishContainer(stoodIn);
+        return;
+      }
+      if (!_baseWasBuilding) RenderNodes.FinishBuilding(node);
+    }
+
+    /// <summary>
+    /// Before a revision of <paramref name="node"/>, which this builder is
+    /// still writing: what's written so far moves into a placeholder that
+    /// stays in the node, hooks still open in it included, and the rest of the
+    /// node's content goes there too. Reference has already inserted a hook's
+    /// whole text when a revision in it runs, so the revision lands after or
+    /// before all of it, or clears all of it.
+    /// </summary>
+    internal void MoveAside(IHideable node)
+    {
+      int at = _stack.IndexOf(node);
+      if (at < 0) return;
+      var placeholder = new RenderHookNode();
+      placeholder.Children.AddRange(node.Children);
+      node.Children.Clear();
+      node.Children.Add(placeholder);
+      _stack[at] = placeholder;
+      RenderNodes.StartBuilding(placeholder, this);
+      if (_placeholders == null) _placeholders = new Dictionary<IRenderContainer, IRenderContainer>();
+      _placeholders[placeholder] = node;
+    }
+
+    /// <summary>
+    /// True when what this builder writes next is directly in a placeholder
+    /// a revision has taken off its target. Reference inserts a revision's
+    /// content as the target's own children, so emptying the target separates
+    /// each from its neighbours, and a changer there can no longer find its
+    /// hook. The layers the revision opened before its content don't count as
+    /// a level, since reference has no element for them. Anything the content
+    /// opens does, a hook, a link, a span or inline formatting, because its
+    /// own children stay together.
+    /// </summary>
+    internal bool WritesIntoCutContent()
+    {
+      if (_placeholders == null) return false;
+      var top = _stack[_stack.Count - 1];
+      if (_placeholders.TryGetValue(top, out var stoodIn)) return !stoodIn.Children.Contains((RenderNode)top);
+      var bottom = _stack[0];
+      if (_stack.Count <= _layers && _placeholders.TryGetValue(bottom, out stoodIn)) return !stoodIn.Children.Contains((RenderNode)bottom);
+      return false;
+    }
 
     public void Text(string content)
     {
@@ -100,13 +227,13 @@ namespace Harlowe.Runtime.Rendering
     {
       var node = new RenderLinkNode { Target = target };
       Current.Children.Add(node);
-      RenderNodes.StartBuilding(node);
-      _stack.Push(node);
+      RenderNodes.StartBuilding(node, this);
+      _stack.Add(node);
     }
 
     public void EndLink()
     {
-      if (_stack.Count > 1) RenderNodes.FinishBuilding(_stack.Pop());
+      if (_stack.Count > 1) Pop();
     }
 
     public void Error(string message) => Current.Children.Add(new RenderErrorNode { Message = message });
@@ -121,14 +248,14 @@ namespace Harlowe.Runtime.Rendering
       // and RunInteraction all share this invariant for free.
       var node = new RenderStyleNode { Style = style?.Clone() };
       Current.Children.Add(node);
-      _stack.Push(node);
+      _stack.Add(node);
     }
 
     public void PopStyle()
     {
       // Defensive: never pop past the root. Well-formed render paths always
       // balance push/pop, so this guard should never fire.
-      if (_stack.Count > 1) _stack.Pop();
+      if (_stack.Count > 1) Pop();
     }
 
     /// <summary>
@@ -144,14 +271,19 @@ namespace Harlowe.Runtime.Rendering
     {
       var node = new RenderHookNode { Name = name, Anchor = anchor, Hidden = hidden };
       Current.Children.Add(node);
-      RenderNodes.StartBuilding(node);
-      _stack.Push(node);
+      RenderNodes.StartBuilding(node, this);
+      _stack.Add(node);
+      if (NextHookIsLayer)
+      {
+        NextHookIsLayer = false;
+        ExtendLayers();
+      }
     }
 
     /// <summary>Close the most recently opened hook scope.</summary>
     public void EndHook()
     {
-      if (_stack.Count > 1) RenderNodes.FinishBuilding(_stack.Pop());
+      if (_stack.Count > 1) Pop();
     }
 
     /// <summary>
@@ -163,7 +295,7 @@ namespace Harlowe.Runtime.Rendering
     {
       var node = new RenderHookNode { Whitespace = mode };
       Current.Children.Add(node);
-      _stack.Push(node);
+      _stack.Add(node);
     }
 
     /// <summary>
@@ -173,7 +305,7 @@ namespace Harlowe.Runtime.Rendering
     public void EndWhitespace()
     {
       if (_stack.Count <= 1) return;
-      var node = _stack.Pop();
+      var node = Pop();
       if (node.Children.Count > 0 || !(node is RenderNode empty)) return;
       var siblings = Current.Children;
       int at = siblings.LastIndexOf(empty);
@@ -187,8 +319,7 @@ namespace Harlowe.Runtime.Rendering
     /// attached-hook element (<c>desc.enabled = false</c> leaves an empty
     /// <c>&lt;tw-hook&gt;</c> in the DOM), which
     /// <see cref="StorySession.DispatchEvent"/> fills with the deferred hook's
-    /// render when the region fires — found by tag, so it works even when this
-    /// builder is detached and the anchor reaches the live tree as a clone.
+    /// render when the region fires, found in the live tree by tag.
     /// Anonymous, so no <c>?name</c> query can match it while empty.
     /// </summary>
     public RenderHookNode PlantAnchor(string revealRegionId)
@@ -229,12 +360,12 @@ namespace Harlowe.Runtime.Rendering
     {
       var node = new RenderInteractiveNode { Region = region };
       Current.Children.Add(node);
-      _stack.Push(node);
+      _stack.Add(node);
     }
 
     public void EndInteractive()
     {
-      if (_stack.Count > 1) _stack.Pop();
+      if (_stack.Count > 1) Pop();
     }
   }
 }

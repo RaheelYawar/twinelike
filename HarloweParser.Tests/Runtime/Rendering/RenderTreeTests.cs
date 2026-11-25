@@ -242,24 +242,26 @@ namespace Harlowe.Tests.Runtime.Rendering
       Assert.IsType<RenderTextNode>(Assert.Single(builder.Root.Children));
     }
 
-    // --- Clone independence ---
+    // --- Style independence ---
 
     [Fact]
-    public void StyleNode_Clone_IsolatesStyleMutation()
+    public void Builder_PushStyle_StampsItsOwnCopy()
     {
-      // The render tree clones nodes when revision macros splice into multiple
-      // targets. If clones shared the StyleSpec reference, mutating one node's
-      // style would silently change every clone of it.
-      var original = new RenderStyleNode { Style = new StyleSpec { Bold = true } };
-      original.Style.Effects.Add(TextEffect.Mark);
-      var clone = (RenderStyleNode)original.Clone();
+      // A changer pushes the same StyleSpec into every target it renders, so a
+      // node sharing it would change every other node when one is restyled.
+      var style = new StyleSpec { Bold = true };
+      style.Effects.Add(TextEffect.Mark);
+      var builder = new RenderTreeBuilder();
+      ((IRenderOutput)builder).PushStyle(style);
+      ((IRenderOutput)builder).PopStyle();
+      var node = (RenderStyleNode)builder.Root.Children[0];
 
-      original.Style.Bold = false;
-      original.Style.Effects.Add(TextEffect.Shadow);
+      style.Bold = false;
+      style.Effects.Add(TextEffect.Shadow);
 
-      Assert.True(clone.Style.Bold);
-      Assert.Single(clone.Style.Effects);
-      Assert.Equal(TextEffect.Mark, clone.Style.Effects[0]);
+      Assert.True(node.Style.Bold);
+      Assert.Single(node.Style.Effects);
+      Assert.Equal(TextEffect.Mark, node.Style.Effects[0]);
     }
 
     [Fact]
@@ -283,22 +285,6 @@ namespace Harlowe.Tests.Runtime.Rendering
 
       var ex = Assert.Throws<System.InvalidOperationException>(() => builder.AssertBalanced());
       Assert.Contains("1 container", ex.Message);
-    }
-
-    [Fact]
-    public void InteractiveNode_Clone_IsolatesRegionMutation()
-    {
-      var original = new RenderInteractiveNode
-      {
-        Region = new InteractiveRegion { Id = "r-1", Kind = InteractionKind.Click }
-      };
-      var clone = (RenderInteractiveNode)original.Clone();
-
-      original.Region.Id = "r-mutated";
-      original.Region.Kind = InteractionKind.MouseOver;
-
-      Assert.Equal("r-1", clone.Region.Id);
-      Assert.Equal(InteractionKind.Click, clone.Region.Kind);
     }
 
     // --- Link container (BeginLink/EndLink) ---
@@ -346,33 +332,13 @@ namespace Harlowe.Tests.Runtime.Rendering
     }
 
     [Fact]
-    public void LinkNode_TextProperty_FlattensDescendants_AndClones()
+    public void LinkNode_TextProperty_FlattensDescendants()
     {
       var link = new RenderLinkNode { Target = "P2", Text = "Go" };
       var style = new RenderStyleNode { Style = new StyleSpec { Bold = true } };
       style.Children.Add(new RenderTextNode { Content = " on" });
       link.Children.Add(style);
       Assert.Equal("Go on", link.Text);
-
-      var clone = (RenderLinkNode)link.Clone();
-      ((RenderTextNode)link.Children[0]).Content = "mutated";
-      Assert.Equal("Go on", clone.Text);
-      Assert.Equal("P2", clone.Target);
-    }
-
-    [Fact]
-    public void Clone_CoversHtmlErrorAndRootNodes()
-    {
-      var root = new RenderRoot();
-      root.Children.Add(new RenderHtmlNode { RawHtml = "<hr>" });
-      root.Children.Add(new RenderErrorNode { Message = "boom" });
-
-      var copy = (RenderRoot)root.Clone();
-      ((RenderHtmlNode)root.Children[0]).RawHtml = "mutated";
-      ((RenderErrorNode)root.Children[1]).Message = "mutated";
-
-      Assert.Equal("<hr>", ((RenderHtmlNode)copy.Children[0]).RawHtml);
-      Assert.Equal("boom", ((RenderErrorNode)copy.Children[1]).Message);
     }
 
     [Fact]

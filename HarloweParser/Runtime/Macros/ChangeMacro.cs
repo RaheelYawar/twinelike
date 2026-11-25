@@ -26,8 +26,8 @@ namespace Harlowe.Runtime.Macros
       if (error != null) return error;
 
       // Resolve against the session's live tree rather than the current
-      // renderer's output, so a (change:) inside a deferred dispatch hook
-      // (whose output is a detached builder) still targets the live tree.
+      // renderer's output, so a (change:) inside a custom macro's body
+      // (whose output is a sealed builder) still targets the live tree.
       // Without a live tree (a plain buffer unit test) — no-op. A null source
       // leaves the wraps untagged, so the enchant pass's disenchant sweep
       // never unwinds them — one-shot semantics.

@@ -13,9 +13,9 @@ for the save-model slice (which lands `(history:)` semantics).
 
 - **High severity (0 active, 6 fixed)**: silent wrong result or breaks documented Harlowe idioms.
 - **Medium severity (0 active, 10 fixed, 1 reclassified)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
-- **Low severity (20 active, 2 fixed)**: documented as deliberate or marginal.
+- **Low severity (21 active, 4 fixed)**: documented as deliberate or marginal.
 
-**20 active, all low-severity** — #26 (deliberate: a printed array renders each
+**21 active, all low-severity** — #26 (deliberate: a printed array renders each
 item separately, so markup can't span items), #17 (load-guard vs intra-turn `(goto:)`), #18
 (stacked-interaction nesting order), #21 (deliberate: out-of-range array sets
 error rather than growing sparse holes), #23 (deliberate: a `via`-lambda's RNG
@@ -30,11 +30,12 @@ the target's signature), #30 (deliberate: `(for:)+(output:)` works), #31
 (a revision, `(for:)` or link changer attached to `(show:)` has no effect), #34
 (a dataset's spread order is approximate for accented text and hex strings),
 #35 (deliberate: limits on `(for:)` passes, `(range:)` length, print depth and live hooks),
-#36 (a run of spaces in a hand-edited tags attribute adds no empty tags), #37 (a
-visible hook revising itself while it renders keeps its later content), #38 (a
+#36 (a run of spaces in a hand-edited tags attribute adds no empty tags), #38 (a
 hook hiding itself, or copied while hidden, can come back different), #39
 (`time` moves by frames, and a live hook inside `{…}` trims a trailing space),
-#40 (a revision's own content can't revise its target first).
+#41 (a revision's later copies aren't there yet while an earlier copy runs),
+#42 (overlapping revision targets run the content twice in either order), #43
+(`(for:)` with a click or hover changer is an error).
 
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
 items are kept and marked rather than renumbered. "Reclassified" means the
@@ -815,13 +816,13 @@ One render can make a quarter of a million `(for:)` passes, one `(range:)` can h
 
 Reference splits the `tags` attribute on each whitespace character, so `tags="a  b"` gives `(passage:)` three tags, the middle one empty. Here it gives two, because `HarlowePassage.Tags` promises hosts a list with no empty entries. Matching reference under that promise would mean keeping the raw attribute beside the list, a copy that goes stale when a host edits `Tags`, for something Twine doesn't write: none of the pinned exports has a run of spaces in its tags. An untagged passage does get reference's one empty tag.
 
-### 37. A visible hook revising itself while it renders keeps its later content (found in the `(show:)` review, 2026-11-23)
+### 37. A visible hook revising itself while it renders keeps its later content — ✅ FIXED (2026-11-24)
 
-`|o>[x(replace: ?o)[y]z]` renders `y` in real 3.3.9 and `yz` here, and the `(append:)` form renders `xzy` there and `xyz` here. The same hook revealed by `(show:)` matches 3.3.9, because its content renders into an inner node.
+**Resolved.** A revision of a hook still being written first moves what's written so far aside, into a placeholder in the hook, so the revision lands after, before or over all of it, as in reference, where the hook's whole text is in place before its macros run. `|o>[x(replace: ?o)[y]z]` renders `y` and the `(append:)` form `xzy`, as in real 3.3.9, and so do `(replace: ?passage)[x]y` (`x`) and `w(append: ?passage)[x]y` (`wyx`).
 
-### 40. A revision's own content can't revise its target first (found playing harlowe-demo, 2026-11-24)
+### 40. A revision's own content can't revise its target first — ✅ FIXED (2026-11-24)
 
-Reference renders a revision's content into its target and then runs the macros in it, so a revision inside that content lands on top: `|a>[x](replace: ?a)[(replace: ?a)[y]z]` shows `y` in real 3.3.9 and `z` here, and `(replace: ?a)[w(append: ?a)[y]z]` shows `wzy` there and `wz` here. Here the content renders aside and is spliced in last, over whatever the inner revision did, and a hook inside it can't be targeted until it's spliced. Reference also only lets the inner revision reach hooks before it in the page, so with `?b` after `?a`, `(replace: ?a)[(replace: ?b)[y]z]` leaves `?b` alone there and replaces it here. It ends harlowe-demo's walks at its first battle menu, which its state machine draws this way.
+**Resolved.** A revision renders its content into a placeholder in each of its targets and then runs it, as reference's `ChangeDescriptor.render` inserts it before `Section.execute` runs it, so a revision inside that content lands on top, each target gets its own rendering, with its own side effects, clicks and links, and a hook in the content can be targeted at once. While the passage renders, a revision only reaches what's before it, after any ordinal has picked; a changer left in content a revision emptied does nothing; and `(for:)` combines with a revision. Clicks, live hooks and `(show:)` render the same way. 76 of 82 measured cases match real 3.3.9, the rest being #38, #41, #42 and #43; harlowe-demo's battles now get past their first menu.
 
 ### 39. `time` moves by frames, and a live hook inside `{…}` trims a trailing space (found in the `(live:)` slice, 2026-11-24)
 
@@ -829,7 +830,19 @@ Reference renders a revision's content into its target and then runs the macros 
 
 ### 38. A hook hiding itself, or copied while hidden, can come back different (found in the `(hide:)` slice, 2026-11-23)
 
-Reference renders a hook's content before running its macros, so `(hide:)` inside the hook it names takes the whole content out at once. Here the hook is hidden when it finishes rendering, so the result shows the same, but a macro after the `(hide:)` still sees the content on the page: `|a>[x(hide: ?a)(replace: "x")[y]](show: ?a)` shows `xy` in real 3.3.9 and `y` here. Copies differ too. When a revision copies a hook that hides itself, each copy here keeps its own content, so `|o>[]|q>[](append: ?o, ?q)[|a>[x](hide: ?a)]` followed by `(show: ?a's 1st)` shows `x` and `(show: ?a)` shows `xx`, where 3.3.9 shows `xx` and `x`.
+Reference renders a hook's content before running its macros, so `(hide:)` inside the hook it names takes the whole content out at once. Here the hook is hidden when it finishes rendering, so the result shows the same, but a macro after the `(hide:)` still sees the content on the page: `|a>[x(hide: ?a)(replace: "x")[y]](show: ?a)` shows `xy` in real 3.3.9 and `y` here. Copies differ too. When a revision's content holds a hook that hides itself, each target's copy renders in turn here, so the first copy's `(hide:)` can't see the second (#41): `|o>[]|q>[](append: ?o, ?q)[|a>[x](hide: ?a)]` followed by `(show: ?a's 1st)` shows `x` and `(show: ?a)` shows `xx`, where 3.3.9 shows `xx` and `x`.
+
+### 41. A revision's later copies aren't there yet while an earlier copy runs (found in the revision slice, 2026-11-24)
+
+Reference inserts a revision's content into every target before running any of it, so an earlier copy's macros can see and reach a later copy's text and unrun hooks. Here each copy renders in turn, so a later one is still an empty placeholder. While the passage renders, a revision can't reach a later copy anyway, so this only shows after it, or with macros that aren't revisions: `|a>[x]|a>[y](link: 'go')[(replace: ?a)[|c>[w](append: ?c)[q]]]` shows `wqqqwq` in real 3.3.9 after the click, and `wqqwq` here. Matching it would mean rendering every copy's text before running any copy's macros, which the renderer can't separate.
+
+### 42. Overlapping revision targets run the content twice in either order (found in the revision slice, 2026-11-24)
+
+With the `x` inside `?a`, `(set: $n to 0)|a>[x](replace: ?a, "x")[(set: $n to it + 1)]$n` shows `2` in real 3.3.9 and here, but `(replace: "x", ?a)` shows `1` there and `2` here. Reference's result depends on whether the copy for the inner target is inserted before or after the outer target is emptied; here every copy runs, on the page or off it.
+
+### 43. `(for:)` with a click or hover changer is an error (found in the revision slice, 2026-11-24)
+
+`|a>[x](for: each _i, 1, 2)+(click: ?a)[_i]` is an in-prose error here. Real 3.3.9 arms the click once per pass, and a single click reveals every pass: `x12`. Here a click reveals one region per click, so this needs one click to fire several interactions, unlike #18's stacking.
 
 ### 25. The `lowercase` / `uppercase` datatypes don't expand under case mapping (deliberate; found in the Datatype slice review, 2026-07-26)
 

@@ -74,9 +74,9 @@ namespace Harlowe.Runtime
     /// <summary>
     /// Construct a revision changer (<c>(replace:)</c> / <c>(append:)</c> /
     /// <c>(prepend:)</c>) over one spec per target — the macros are variadic.
-    /// When applied, the changer renders its hook into a detached subtree once
-    /// and splices clones into every node each target resolves to in the live
-    /// render tree, instead of rendering inline — see <see cref="Apply"/>.
+    /// When applied, the changer renders its hook into every node each target
+    /// resolves to in the live render tree, instead of rendering inline — see
+    /// <see cref="Apply"/>.
     /// </summary>
     public static Changer FromRevision(List<RevisionSpec> revisions)
       => new Changer(new List<IChangerPatch> { new RevisionPatch { Revisions = revisions } });
@@ -206,14 +206,14 @@ namespace Harlowe.Runtime
     /// Build the descriptor from this changer's patches and execute against
     /// it. <paramref name="renderHook"/> renders the attached hook's content
     /// into whatever <see cref="IRenderOutput"/> it is handed — usually
-    /// <paramref name="output"/> itself, but for a revision changer a detached
-    /// builder, so the source can be spliced rather than shown inline.
+    /// <paramref name="output"/> itself, but for a revision changer a builder
+    /// for each target's placeholder.
     ///
     /// <list type="bullet">
-    /// <item><b>Revision</b> (<see cref="RevisionSpec"/> list): render the hook
-    /// into a detached subtree once, resolve each target against the live
-    /// render tree, and splice a clone into every match. Takes precedence over
-    /// iteration/styles on the same descriptor.</item>
+    /// <item><b>Revision</b> (<see cref="RevisionSpec"/> list): resolve every
+    /// target against the live render tree, then render the hook into a
+    /// placeholder in each (<see cref="RenderInPlace"/>). With iteration, once
+    /// per pass.</item>
     /// <item><b>Iteration</b> (<see cref="IterationSpec"/>): loop, binding
     /// parameter + <c>it</c> per item and emitting the style wrappers around
     /// each iteration's hook render.</item>
@@ -261,16 +261,13 @@ namespace Harlowe.Runtime
     private static bool Execute(HookDescriptor descriptor, IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx)
     {
 
-      // Interaction, Revision, and Iteration are mutually-exclusive ways of
-      // consuming the hook (wrap-and-defer, splice-elsewhere, loop-in-place);
-      // this engine executes exactly one. Composing two — e.g. (replace: ?x) +
-      // (for: each _i, ...) — used to silently drop the lower-priority one.
-      // Surface an in-prose error instead so the author sees the unsupported
-      // combination rather than half of it. (Styles compose with any single
-      // one of the three and are unaffected.)
+      // An interaction defers the hook, which a revision or a (for:) can't
+      // follow, so composing one with either is an in-prose error rather than
+      // half of it. A (for:) with a revision runs the revision once per pass,
+      // as reference's renderInto loops over its loop variables. (Styles
+      // compose with anything.)
       int exclusiveCount = (descriptor.Interaction != null ? 1 : 0)
-                         + (descriptor.Revisions.Count > 0 ? 1 : 0)
-                         + (descriptor.Iteration != null ? 1 : 0);
+                         + (descriptor.Revisions.Count > 0 || descriptor.Iteration != null ? 1 : 0);
       if (exclusiveCount > 1)
       {
         output.Error("changers can't be combined here: (click:)/revision/(for:) each consume the hook differently");
@@ -281,10 +278,6 @@ namespace Harlowe.Runtime
       {
         RunInteraction(descriptor, output, renderHook, ctx);
       }
-      else if (descriptor.Revisions.Count > 0)
-      {
-        RunRevision(descriptor, output, renderHook, ctx);
-      }
       else if (descriptor.Iteration != null)
       {
         if (ctx == null)
@@ -293,6 +286,10 @@ namespace Harlowe.Runtime
           return true;
         }
         RunIteration(descriptor, output, renderHook, ctx);
+      }
+      else if (descriptor.Revisions.Count > 0)
+      {
+        RunRevision(descriptor, output, renderHook, ctx);
       }
       else
       {
@@ -328,7 +325,11 @@ namespace Harlowe.Runtime
           System.IDisposable storyBinding = null;
           if (iter.ParamIsTemporary) ctx.Store.SetInCurrentScope(iter.ParamName, true, item);
           else storyBinding = ctx.Store.PushBinding(iter.ParamName, false, item);
-          using (storyBinding) RunStyles(d.Styles, output, renderHook);
+          using (storyBinding)
+          {
+            if (d.Revisions.Count > 0) RunRevision(d, output, renderHook, ctx);
+            else RunStyles(d.Styles, output, renderHook);
+          }
         }
       }
     }
@@ -341,33 +342,34 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
-    /// Execute a revision changer. The hook content is rendered into a detached
-    /// <see cref="RenderTreeBuilder"/> — with any composed style layers wrapped
-    /// around it — then spliced into every node the target resolves to in the
-    /// live render tree. Targeting prefers <see cref="MacroContext.LiveRoot"/>
-    /// so a dispatch-time deferred render (whose own output is a detached
-    /// builder, not the live tree) still mutates the right tree; it falls back
-    /// to the output's root if no context is supplied. A target not in the
-    /// live tree (declared after this macro on the main render, or absent
-    /// entirely) means no match and the source is simply not shown —
-    /// Harlowe no-ops the same way. Each match gets its own deep clone of the
-    /// source so the tree stays a tree.
+    /// Execute a revision changer, following reference's
+    /// <c>ChangeDescriptor.render</c>. Every target of every argument is
+    /// resolved first, in the live tree (<see cref="MacroContext.LiveRoot"/>, or
+    /// the output's root with no context), and then
+    /// <see cref="RenderInPlace"/> renders the hook into each one. A target
+    /// that isn't there means nothing renders, as in reference.
+    ///
+    /// <para>While the passage renders, a revision written into the page only
+    /// reaches what's before its own position, after any ordinal has picked
+    /// (reference's <c>before</c> filter, which applies while the passage is
+    /// detached). A custom macro body isn't on the page, and reference's
+    /// filter there compares nodes from separate trees, which Chromium orders
+    /// by memory address: hooks made with the passage come earlier and are
+    /// reached, and the wraps a text search has just made come later and
+    /// aren't, so a string target from a body reaches nothing.</para>
     /// </summary>
     private static void RunRevision(HookDescriptor d, IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx)
     {
-      // Render the source into a detached subtree, styles wrapping the content.
-      var detached = new RenderTreeBuilder();
-      for (int i = 0; i < d.Styles.Count; i++) detached.PushStyle(d.Styles[i]);
-      renderHook?.Invoke(detached);
-      for (int i = d.Styles.Count - 1; i >= 0; i--) detached.PopStyle();
-      var source = detached.Root.Children;
-
       var liveRoot = MacroContext.ResolveLiveRoot(ctx, output);
       if (liveRoot == null) return;
 
-      // One splice pass per spec, in argument/composition order — reference
-      // processes desc.newTargets the same way, each {target, append} pair
-      // resolved and revised independently.
+      var writer = output as RenderTreeBuilder;
+      bool writesPage = writer != null && ReferenceEquals(writer.Root, liveRoot);
+      bool passage = ctx != null && ctx.RenderingPassage;
+      var position = passage && writesPage ? writer.CurrentContainer as RenderNode : null;
+      bool stringsReachNothing = passage && !writesPage && ctx.CurrentCustomMacro != null;
+
+      var targets = new List<RevisionTarget>();
       for (int s = 0; s < d.Revisions.Count; s++)
       {
         var rev = d.Revisions[s];
@@ -377,34 +379,124 @@ namespace Harlowe.Runtime
           return;
         }
 
-        IReadOnlyList<RenderNode> targets;
         if (rev.HookTarget != null)
         {
-          targets = HookResolver.Resolve(liveRoot, rev.HookTarget);
+          var found = position != null
+            ? HookResolver.ResolveBefore(liveRoot, rev.HookTarget, position)
+            : HookResolver.Resolve(liveRoot, rev.HookTarget);
+          for (int i = 0; i < found.Count; i++)
+            if (found[i] is IRenderContainer container) targets.Add(new RevisionTarget(container, rev.Mode));
         }
-        else if (rev.StringTarget != null)
+        else if (rev.StringTarget != null && !stringsReachNothing)
         {
-          var wraps = TextOccurrenceFinder.FindAndWrap(liveRoot, rev.StringTarget);
-          var list = new List<RenderNode>(wraps.Count);
-          for (int i = 0; i < wraps.Count; i++) list.Add(wraps[i]);
-          targets = list;
+          var wraps = TextOccurrenceFinder.FindAndWrap(liveRoot, rev.StringTarget, position);
+          for (int i = 0; i < wraps.Count; i++) targets.Add(new RevisionTarget(wraps[i], rev.Mode));
         }
-        else
+      }
+      RenderInPlace(targets, d.Styles, renderHook, liveRoot, ctx);
+    }
+
+    /// <summary>Where one rendering of a revision's or a reveal's content goes, and how.</summary>
+    internal struct RevisionTarget
+    {
+      public readonly IRenderContainer Target;
+      public readonly RevisionMode Mode;
+
+      public RevisionTarget(IRenderContainer target, RevisionMode mode)
+      {
+        Target = target;
+        Mode = mode;
+      }
+    }
+
+    /// <summary>
+    /// Renders <paramref name="renderHook"/> into each target, as reference
+    /// inserts a revision's content into every target before running any of
+    /// it. Each target first gets an empty placeholder: the only child for
+    /// <see cref="RevisionMode.Replace"/>, the last for
+    /// <see cref="RevisionMode.Append"/>, the first for
+    /// <see cref="RevisionMode.Prepend"/>. A target still being written has
+    /// what's written so far moved aside first. Then each placeholder gets its
+    /// own rendering, with <paramref name="styles"/> inside it, the ones on the
+    /// page in page order and then any already off it, and unwraps into its
+    /// target if it's still there.
+    ///
+    /// <para>So a revision in the content lands on top of it, and after an
+    /// inner <c>(replace:)</c> the rest of the content goes nowhere. Each
+    /// rendering is charged a fixed cost before it starts and its size after
+    /// it finishes, and the budget error, once reached, takes the place of
+    /// the rest.</para>
+    /// </summary>
+    internal static void RenderInPlace(List<RevisionTarget> targets, List<StyleSpec> styles, System.Action<IRenderOutput> renderHook, RenderRoot liveRoot, MacroContext ctx)
+    {
+      if (targets.Count == 0) return;
+
+      var placeholders = new List<RenderNode>(targets.Count);
+      for (int i = 0; i < targets.Count; i++)
+      {
+        var target = targets[i].Target;
+        if (target is IHideable hideable && hideable.Writer != null) hideable.Writer.MoveAside(hideable);
+        var placeholder = new RenderHookNode();
+        switch (targets[i].Mode)
         {
-          continue;
+          case RevisionMode.Replace:
+            target.Children.Clear();
+            target.Children.Add(placeholder);
+            break;
+          case RevisionMode.Append:
+            target.Children.Add(placeholder);
+            break;
+          case RevisionMode.Prepend:
+            target.Children.Insert(0, placeholder);
+            break;
+        }
+        placeholders.Add(placeholder);
+      }
+
+      // Finding the page order is one more search of the page, charged like
+      // the others. Past the budget the targets keep their own order.
+      List<int> order;
+      if (placeholders.Count > 1 && (ctx == null || ctx.TrySpendOnTargetWalk(liveRoot)))
+        order = RenderNodes.PageOrder(liveRoot, placeholders);
+      else
+      {
+        order = new List<int>(placeholders.Count);
+        for (int i = 0; i < placeholders.Count; i++) order.Add(i);
+      }
+      for (int k = 0; k < order.Count; k++)
+      {
+        if (ctx != null && ctx.RenderBlocked) return;
+        var placeholder = (RenderHookNode)placeholders[order[k]];
+        var builder = RenderTreeBuilder.ForPlaceholder(placeholder, targets[order[k]].Target, liveRoot);
+        // Revisions nested in revisions recurse through here, so the stack is
+        // checked as a custom macro's is, with reference's depth wording.
+        if (!CustomMacroRunner.HasStackRoom())
+        {
+          builder.Error("Printing this expression may have trapped me in an infinite loop.");
+          builder.FinishBase();
+          return;
+        }
+        if (ctx != null && !ctx.TrySpendOnSplice(MacroContext.LoopIterationCost))
+        {
+          builder.Error(MacroContext.OverBudgetMessage);
+          builder.FinishBase();
+          return;
         }
 
-        long cost = RenderNodes.SpliceCost(source);
-        for (int i = 0; i < targets.Count; i++)
+        int layers = styles?.Count ?? 0;
+        for (int i = 0; i < layers; i++) builder.PushStyle(styles[i]);
+        builder.MarkLayers();
+        renderHook?.Invoke(builder);
+        for (int i = 0; i < layers; i++) builder.PopStyle();
+
+        bool fits = ctx == null || ctx.TrySpendOnSplice(RenderNodes.SpliceCost(placeholder.Children));
+        if (!fits)
         {
-          if (!(targets[i] is IRenderContainer container)) continue;
-          if (ctx != null && !ctx.TrySpendOnSplice(cost))
-          {
-            output.Error(MacroContext.OverBudgetMessage);
-            return;
-          }
-          RenderNodes.Splice(container, source, rev.Mode);
+          placeholder.Children.Clear();
+          placeholder.Children.Add(new RenderErrorNode { Message = MacroContext.OverBudgetMessage });
         }
+        builder.FinishBase();
+        if (!fits) return;
       }
     }
 
@@ -423,8 +515,7 @@ namespace Harlowe.Runtime
     /// hook at the current output position, tagged with the region id — the
     /// reveal anchor the dispatch fills with the deferred hook's render,
     /// mirroring reference's hidden attached-hook element. The dispatch finds
-    /// it by tag (clones inherit it), so an anchor planted in a detached
-    /// builder and spliced into the live tree still reveals. The composed
+    /// it in the live tree by tag. The composed
     /// style layers wrap that deferred render, not the armed region
     /// (reference applies the descriptor's styles at the event's
     /// <c>renderInto</c>); the armed region is styled by the macro's optional

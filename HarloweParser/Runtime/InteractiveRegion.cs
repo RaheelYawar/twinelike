@@ -42,7 +42,7 @@ namespace Harlowe.Runtime
     /// <summary>Which interaction kind fires this region.</summary>
     public InteractionKind Kind;
 
-    /// <summary>Field-by-field copy. Used by the render tree when it clones an interactive node so cloned regions are independently observable from the original.</summary>
+    /// <summary>Field-by-field copy, independently observable from the original.</summary>
     public InteractiveRegion Clone() => new InteractiveRegion { Id = Id, Kind = Kind };
   }
 }

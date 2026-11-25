@@ -50,14 +50,23 @@ namespace Harlowe.Runtime.Rendering
     /// needle, or a null tree, yields an empty list and leaves the tree
     /// untouched.
     /// </summary>
-    public static IReadOnlyList<RenderHookNode> FindAndWrap(RenderNode tree, string needle)
+    public static IReadOnlyList<RenderHookNode> FindAndWrap(RenderNode tree, string needle) => FindAndWrap(tree, needle, null);
+
+    /// <summary>
+    /// As <see cref="FindAndWrap(RenderNode, string)"/>, but only in the text
+    /// up to the end of <paramref name="limit"/>'s content, for a revision
+    /// that can only reach what's before it. A null limit, or one not in the
+    /// tree, limits nothing.
+    /// </summary>
+    internal static IReadOnlyList<RenderHookNode> FindAndWrap(RenderNode tree, string needle, RenderNode limit)
     {
       var wraps = new List<RenderHookNode>();
       if (tree == null || string.IsNullOrEmpty(needle)) return wraps;
 
       // The flat text-node stream, reference's `dom.textNodes()`.
       var slots = new List<Slot>();
-      Collect(tree, slots);
+      bool reachedLimit = false;
+      Collect(tree, slots, limit, ref reachedLimit);
 
       var contents = new string[slots.Count];
       var flat = new StringBuilder();
@@ -161,17 +170,18 @@ namespace Harlowe.Runtime.Rendering
     }
 
     /// <summary>Collects every text node under <paramref name="node"/> with its parent, depth-first document order.</summary>
-    private static void Collect(RenderNode node, List<Slot> slots)
+    private static void Collect(RenderNode node, List<Slot> slots, RenderNode limit, ref bool reachedLimit)
     {
       if (!(node is IRenderContainer container)) return;
       var children = container.Children;
-      for (int i = 0; i < children.Count; i++)
+      for (int i = 0; i < children.Count && !reachedLimit; i++)
       {
         if (children[i] is RenderTextNode t)
           slots.Add(new Slot { Parent = container, Node = t });
         else
-          Collect(children[i], slots);
+          Collect(children[i], slots, limit, ref reachedLimit);
       }
+      if (ReferenceEquals(node, limit)) reachedLimit = true;
     }
 
   }

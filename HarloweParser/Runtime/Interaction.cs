@@ -18,13 +18,11 @@ namespace Harlowe.Runtime
   /// Armed entries are indexed by region id in
   /// <see cref="MacroContext.ClickHandlers"/>; when the host reports an event,
   /// <see cref="StorySession.DispatchEvent"/> renders
-  /// <see cref="RenderDeferredHook"/> into a detached builder (wrapped in
-  /// <see cref="Styles"/>), then either fills the reveal anchor(s) tagged
-  /// <see cref="RenderHookNode.RevealRegionId"/> (plain macros) or splices into
-  /// every target using <see cref="Mode"/> (combos — string-occurrence targets
-  /// found by their <see cref="RenderHookNode.SourceRegionId"/> tag).
-  /// Tag-based resolution means a node that reached the tree as a clone still
-  /// resolves. Single-use unless <see cref="Once"/> is false
+  /// <see cref="RenderDeferredHook"/> (wrapped in <see cref="Styles"/>) into
+  /// the reveal anchor tagged <see cref="RenderHookNode.RevealRegionId"/>
+  /// (plain macros) or into every target using <see cref="Mode"/> (combos —
+  /// string-occurrence targets found by their
+  /// <see cref="RenderHookNode.SourceRegionId"/> tag). Single-use unless <see cref="Once"/> is false
   /// (<c>(click-rerun:)</c>).
   /// </para>
   /// </summary>
@@ -160,11 +158,10 @@ namespace Harlowe.Runtime
         if (interaction == null) continue;
 
         // A (link:)-family interaction is self-armed: its target is the label
-        // it planted, resolved by tag so a label that reached the tree as a
-        // clone still arms. Otherwise: string occurrences are wrapped fresh
-        // (StripWraps unwound the previous pass's), tagged with the region id
-        // so the next strip finds them — and so the dispatch can resolve a
-        // combo's splice targets by tag.
+        // it planted, resolved by tag. Otherwise: string occurrences are
+        // wrapped fresh (StripWraps unwound the previous pass's), tagged with
+        // the region id so the next strip finds them — and so the dispatch can
+        // resolve a combo's targets by tag.
         IReadOnlyList<RenderNode> targets;
         if (interaction.LabelTarget)
         {

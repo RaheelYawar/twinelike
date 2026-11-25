@@ -398,6 +398,13 @@ namespace Harlowe.Runtime
     /// </summary>
     private void ApplyToCommand(Changer changer, System.Action<BodyRenderer> run, bool aroundLink = false)
     {
+      // As in ApplyChangerHook: the command runs on its own.
+      if (WritesIntoCutContent)
+      {
+        run(this);
+        return;
+      }
+
       if (changer.HasOutputPatch)
       {
         CaptureOutput(changer, new HookNode { Children = new List<IBodyNode>() });
@@ -904,6 +911,14 @@ namespace Harlowe.Runtime
     /// </summary>
     private void ApplyChangerHook(Changer changer, IBodyNode hook, string macroName)
     {
+      // In content a revision has emptied out of its target, reference's
+      // changer can't find its hook any more, which still renders on its own.
+      if (WritesIntoCutContent)
+      {
+        hook.Accept(this);
+        return;
+      }
+
       if (changer.HasOutputPatch)
       {
         CaptureOutput(changer, hook);
@@ -933,6 +948,13 @@ namespace Harlowe.Runtime
       if (!shown) PlantHiddenHook(hook);
       UpdateConditionalPairing(macroName, shown);
     }
+
+    /// <summary>
+    /// True when this renderer writes directly into content that a revision
+    /// has taken off its target, so a changer here has lost its hook. See
+    /// <see cref="Rendering.RenderTreeBuilder.WritesIntoCutContent"/>.
+    /// </summary>
+    private bool WritesIntoCutContent => _output is Rendering.RenderTreeBuilder builder && builder.WritesIntoCutContent();
 
     /// <summary>
     /// A changer attached to a hook written hidden, measured on 3.3.9. The hook
@@ -999,14 +1021,12 @@ namespace Harlowe.Runtime
         return;
       }
 
-      node.LiveId = _context.AllocateLiveId();
       var scopes = _context.Store.CaptureScopeChain();
       var body = new HookNode { Children = hook.Children };
       var registry = _registry;
       var context = _context;
       _context.LiveHooks.Add(new LiveHook
       {
-        Id = node.LiveId,
         Node = node,
         Delay = delay,
         Remaining = delay,
@@ -1026,6 +1046,7 @@ namespace Harlowe.Runtime
           finally
           {
             context.Output = priorOutput;
+            into.FinishBase();
           }
         },
       });
@@ -1240,13 +1261,14 @@ namespace Harlowe.Runtime
     /// Render <paramref name="hook"/> into <paramref name="target"/>. When the
     /// target is this renderer's own output, reuse this renderer; otherwise
     /// spin up a sub-renderer sharing the registry and context. The latter is
-    /// how a revision changer renders its hook into a detached tree — see
-    /// <see cref="Changer.Apply"/> — without touching the live output.
+    /// how a revision changer renders its hook into each target's placeholder,
+    /// and a click its deferred hook. The whitespace layer and the hook's own
+    /// node it opens there count as that builder's layers.
     ///
     /// <para>Whitespace follows where the hook was <em>written</em>, wherever
     /// it lands (reference's "lexical rather than dynamic position"). A hook
-    /// written inside <c>{…}</c> collapses even when spliced outside it, and
-    /// one written outside keeps its whitespace when spliced into a span.</para>
+    /// written inside <c>{…}</c> collapses even when rendered outside it, and
+    /// one written outside keeps its whitespace when rendered into a span.</para>
     /// </summary>
     private void RenderHookInto(IBodyNode hook, IRenderOutput target, bool insideCollapse)
     {
@@ -1255,14 +1277,23 @@ namespace Harlowe.Runtime
 
       var renderer = new BodyRenderer(target, _registry, _context) { _collapseDepth = insideCollapse ? 1 : 0 };
       var builder = target as Rendering.RenderTreeBuilder;
-      if (builder == null || (!insideCollapse && !_context.UsesCollapsedWhitespace))
+      if (builder == null)
       {
         hook.Accept(renderer);
         return;
       }
-      builder.BeginWhitespace(insideCollapse ? Rendering.WhitespaceMode.Collapse : Rendering.WhitespaceMode.Preserve);
+      // The whitespace layer and the hook's own node are layers of whatever
+      // this renders into, not content: reference has no element for either.
+      bool marked = !insideCollapse && !_context.UsesCollapsedWhitespace;
+      if (!marked)
+      {
+        builder.BeginWhitespace(insideCollapse ? Rendering.WhitespaceMode.Collapse : Rendering.WhitespaceMode.Preserve);
+        builder.ExtendLayers();
+      }
+      builder.NextHookIsLayer = hook is HookNode;
       hook.Accept(renderer);
-      builder.EndWhitespace();
+      builder.NextHookIsLayer = false;
+      if (!marked) builder.EndWhitespace();
     }
 
     /// <summary>

@@ -905,17 +905,20 @@ namespace Harlowe.Runtime
 
       // Render into a tree, then flush the finished tree to the buffer the
       // RenderResult is built from. The tree is kept alive on the session so
-      // DispatchEvent can mutate it (splice click-deferred content, re-run
+      // DispatchEvent can mutate it (render click-deferred content, re-run
       // enchantments) without re-rendering the whole passage.
       var builder = new Rendering.RenderTreeBuilder();
       ctx.LiveRoot = builder.Root;
       var renderer = new BodyRenderer(builder, _registry, ctx);
-      // While the passage renders, a (hide: ?passage) waits for it to finish.
-      Rendering.RenderNodes.StartBuilding(builder.Root);
+      // While the passage renders, a (hide: ?passage) waits for it to finish,
+      // and revisions only reach what's before them.
+      Rendering.RenderNodes.StartBuilding(builder.Root, builder);
+      ctx.RenderingPassage = true;
       if (depth == 0 && (_past.Count == 0 || !_startupHasRun)) RenderStartupPassages(renderer);
       _startupHasRun = true;
       renderer.Render(passage.Ast);
-      Rendering.RenderNodes.FinishBuilding(builder.Root);
+      ctx.RenderingPassage = false;
+      builder.FinishBase();
       // Before any early return below: an abandoned render's ids stay spent.
       _nextRegionIndex = ctx.NextRegionIndex;
 
@@ -1010,8 +1013,8 @@ namespace Harlowe.Runtime
     /// handler — rendering the deferred prose (wrapped in its composed styles)
     /// and either <em>revealing</em> it at the macro's own position (plain
     /// <c>(click:)</c>-family macros fill their planted anchor, reference's
-    /// hidden attached-hook model) or splicing it into the targeted nodes via
-    /// the same revision machinery <c>(replace:)</c> uses (the
+    /// hidden attached-hook model) or rendering it into the targeted nodes the
+    /// way <c>(replace:)</c> does (the
     /// <c>-replace</c>/<c>-append</c>/<c>-prepend</c> combos) — then re-runs
     /// the interaction + enchantment passes and returns a fresh
     /// <see cref="RenderResult"/> reflecting the updated live tree. Single-use
@@ -1063,84 +1066,64 @@ namespace Harlowe.Runtime
       // however the story is written, unlike the macros its hook runs.
       ResetBudgets();
 
-      // Render the deferred hook into a detached subtree using the live
-      // context — so inner (click:)/(enchant:)/(replace:) calls inside the
-      // deferred hook register against the live session state (e.g. a nested
-      // (click:) appends to _liveContext.Interactions and is picked up below).
-      // The composed style layers wrap the render: (b)+(click: ?a)[x] bolds
-      // the revealed x, matching reference's renderInto of the descriptor.
-      var detached = new Rendering.RenderTreeBuilder();
-      var styles = fired.Styles;
-      if (styles != null)
-        for (int i = 0; i < styles.Count; i++) detached.PushStyle(styles[i]);
-      // The hook runs with the temp variables it could see when it was armed.
-      using (fired.TempScopes != null ? _liveContext.Store.EnterScopeChain(fired.TempScopes) : null)
-        fired.RenderDeferredHook?.Invoke(detached);
-      if (styles != null)
-        for (int i = styles.Count - 1; i >= 0; i--) detached.PopStyle();
-      var source = detached.Root.Children;
-
+      // The deferred hook renders into each place it goes, using the live
+      // context, so inner (click:)/(enchant:)/(replace:) calls register against
+      // the live session state and its content is on the page while its
+      // macros run, as reference renders into the target. The composed style
+      // layers wrap each rendering: (b)+(click: ?a)[x] bolds the revealed x.
+      var places = new List<Changer.RevisionTarget>();
       if (fired.Mode != null)
       {
-        // Combo: splice the source into every target. A hook-name query is
-        // re-resolved fresh, matching Harlowe's "?name is a query" rule; a
-        // string target's occurrence wraps are found by their region-id tag —
-        // a wrap that left the tree (e.g. replaced by a via-lambda error) is
-        // simply not found, and one that arrived as a clone still is. The
-        // consumed region's leftover wrap is harmless: the interaction pass
+        // Combo: every target. A hook-name query is re-resolved fresh,
+        // matching Harlowe's "?name is a query" rule; a string target's
+        // occurrence wraps are found by their region-id tag, and one that left
+        // the tree (e.g. replaced by a via-lambda error) is simply not found.
+        // The consumed region's leftover wrap is harmless: the interaction pass
         // strips all wraps next.
-        IReadOnlyList<Rendering.RenderNode> targets;
+        var targets = new List<Rendering.RenderNode>();
         if (fired.Target != null)
-        {
-          targets = Rendering.HookResolver.Resolve(_liveRoot, fired.Target);
-        }
+          targets.AddRange(Rendering.HookResolver.Resolve(_liveRoot, fired.Target));
         else
-        {
-          var wraps = new List<Rendering.RenderNode>();
           Rendering.RenderNodes.CollectWhere(_liveRoot,
-            n => n is Rendering.RenderHookNode h && h.SourceRegionId == regionId, wraps);
-          targets = wraps;
-        }
+            n => n is Rendering.RenderHookNode h && h.SourceRegionId == regionId, targets);
         for (int i = 0; i < targets.Count; i++)
-        {
           if (targets[i] is Rendering.IRenderContainer container)
-            SpliceWithinBudget(container, source, fired.Mode.Value);
-        }
+            places.Add(new Changer.RevisionTarget(container, fired.Mode.Value));
       }
       else
       {
         // Plain macro or (link:)-family changer: the deferred hook shows at
-        // the macro's own position — every anchor tagged with this region id.
-        // Tag search (clones inherit the tag) rather than a held node
-        // reference, so an anchor whose macro ran inside a revision-deferred
-        // render — spliced into the live tree as a clone — still reveals; one
-        // that never reached the live tree is simply not found, and nothing
-        // shows (reference's removed-hidden-hook behaviour). The interaction's
-        // RevealMode decides the splice: Append accumulates/fills (plain
-        // click, (link-reveal:), (link-repeat:)), Replace overwrites the
-        // previous run — and, for (link-replace:), the label nested inside
-        // the anchor ((click-rerun:), (link-rerun:)).
+        // the macro's own position, the anchor tagged with this region id. The
+        // interaction's RevealMode decides how: Append accumulates (plain
+        // click, (link-reveal:), (link-repeat:)), and Replace overwrites the
+        // previous run, along with the label nested inside the anchor for
+        // (link-replace:) ((click-rerun:), (link-rerun:)). An anchor that has
+        // left the page still gets its content, out of sight, as reference
+        // renders into the detached hook, so its macros still run.
         var anchors = new List<Rendering.RenderNode>();
         Rendering.RenderNodes.CollectWhere(_liveRoot,
           n => n is Rendering.RenderHookNode h && h.RevealRegionId == regionId, anchors);
         for (int i = 0; i < anchors.Count; i++)
-        {
           if (anchors[i] is Rendering.IRenderContainer anchor)
-            SpliceWithinBudget(anchor, source, fired.RevealMode);
-        }
+            places.Add(new Changer.RevisionTarget(anchor, fired.RevealMode));
+        if (places.Count == 0)
+          places.Add(new Changer.RevisionTarget(new Rendering.RenderHookNode(), fired.RevealMode));
+      }
+      // The hook runs with the temp variables it could see when it was armed.
+      using (fired.TempScopes != null ? _liveContext.Store.EnterScopeChain(fired.TempScopes) : null)
+        Changer.RenderInPlace(places, fired.Styles, fired.RenderDeferredHook, _liveRoot, _liveContext);
 
-        // A consumed link-changer's label reverts to plain prose: clear the
-        // tag so ?link stops matching it and no pass re-arms a spent link
-        // (reference unwraps the <tw-link> on click). Surviving repeat/rerun
-        // labels keep theirs.
-        if (fired.LabelTarget && fired.Once)
-        {
-          var labels = new List<Rendering.RenderNode>();
-          Rendering.RenderNodes.CollectWhere(_liveRoot,
-            n => n is Rendering.RenderHookNode h && h.LabelRegionId == regionId, labels);
-          for (int i = 0; i < labels.Count; i++)
-            ((Rendering.RenderHookNode)labels[i]).LabelRegionId = null;
-        }
+      // A consumed link-changer's label reverts to plain prose: clear the tag
+      // so ?link stops matching it and no pass re-arms a spent link (reference
+      // unwraps the <tw-link> on click). Surviving repeat/rerun labels keep
+      // theirs.
+      if (fired.Mode == null && fired.LabelTarget && fired.Once)
+      {
+        var labels = new List<Rendering.RenderNode>();
+        Rendering.RenderNodes.CollectWhere(_liveRoot,
+          n => n is Rendering.RenderHookNode h && h.LabelRegionId == regionId, labels);
+        for (int i = 0; i < labels.Count; i++)
+          ((Rendering.RenderHookNode)labels[i]).LabelRegionId = null;
       }
 
       // Re-run both passes (strip + re-apply — idempotent). The interaction
@@ -1241,19 +1224,11 @@ namespace Harlowe.Runtime
 
         ResetBudgets();
         int stopsBefore = _liveContext.StopsRun;
-        var targets = new List<Rendering.RenderNode>();
-        Rendering.RenderNodes.CollectWhere(_liveRoot,
-          n => n is Rendering.RenderHookNode h && h.LiveId == hook.Id, targets);
-        if (targets.Count == 0) targets.Add(hook.Node);
-        for (int t = 0; t < targets.Count && !_liveContext.NavigationHalt; t++)
-        {
-          var node = (Rendering.RenderHookNode)targets[t];
-          node.Hidden = null;
-          node.Children.Clear();
-          Rendering.RenderNodes.StartBuilding(node);
-          hook.Render(node, _liveRoot);
-          Rendering.RenderNodes.FinishBuilding(node);
-        }
+        // The node it was planted as, on the page or off it: a revision never
+        // copies it, since each target renders its own.
+        hook.Node.Hidden = null;
+        hook.Node.Children.Clear();
+        hook.Render(hook.Node, _liveRoot);
         rendered = true;
         if (_liveContext.StopsRun != stopsBefore)
         {
@@ -1284,15 +1259,6 @@ namespace Harlowe.Runtime
         return Goto(target);
       }
       return BuildResultFromLiveTree();
-    }
-
-    /// <summary>Splices a dispatch's content into one target, or shows the budget error there if it no longer fits.</summary>
-    private void SpliceWithinBudget(Rendering.IRenderContainer target, List<Rendering.RenderNode> source, RevisionMode mode)
-    {
-      if (_liveContext.TrySpendOnSplice(Rendering.RenderNodes.SpliceCost(source)))
-        Rendering.RenderNodes.Splice(target, source, mode);
-      else
-        target.Children.Add(new Rendering.RenderErrorNode { Message = MacroContext.OverBudgetMessage });
     }
 
     /// <summary>

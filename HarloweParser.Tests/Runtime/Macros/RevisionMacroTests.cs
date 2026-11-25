@@ -277,15 +277,16 @@ namespace Harlowe.Tests.Runtime.Macros
       Assert.Contains(buf.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error);
     }
 
-    [Fact]
-    public void Revision_ComposedWithIteration_EmitsErrorNotSilentDrop()
+    [Theory]
+    [InlineData("|x>[old](replace: ?x)+(for: each _i, 1, 2, 3)[_i]", "3")]
+    [InlineData("|x>[old](for: each _i, 1, 2, 3)+(append: ?x)[_i]", "old123")]
+    public void Revision_ComposedWithIteration_RunsOncePerPass(string source, string expected)
     {
-      // (replace: ?x) + (for: ...) combines two mutually-exclusive
-      // hook-consuming changers. The engine runs only one; rather than silently
-      // dropping the (for:) loop, it surfaces an in-prose error.
-      var buf = Render("|x>[old](replace: ?x)+(for: each _i, 1, 2, 3)[_i]", out _);
-      Assert.Contains(buf.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error
-                                     && e.Content.Contains("can't be combined"));
+      // Reference's renderInto loops over the (for:) variables, each pass
+      // applying the revision. Real 3.3.9 shows 2 and x12 for the two-item forms.
+      var buf = Render(source, out _);
+      Assert.DoesNotContain(buf.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error);
+      Assert.Equal(expected, buf.Text);
     }
 
     // --- Changer primitive ---

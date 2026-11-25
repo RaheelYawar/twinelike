@@ -28,12 +28,6 @@ namespace Harlowe.Runtime.Rendering
   /// </summary>
   public abstract class RenderNode
   {
-    /// <summary>
-    /// Deep copy of this node (and, for containers, its whole subtree). Revision
-    /// macros splice a rendered source subtree into every match of a target;
-    /// each match gets its own copy so the tree stays a tree, never a DAG.
-    /// </summary>
-    public abstract RenderNode Clone();
   }
 
   /// <summary>A render node that holds ordered child nodes.</summary>
@@ -78,16 +72,12 @@ namespace Harlowe.Runtime.Rendering
       if (_appended == null) _appended = new System.Text.StringBuilder(_content);
       _appended.Append(text);
     }
-
-    public override RenderNode Clone() => new RenderTextNode { Content = Content };
   }
 
   /// <summary>Raw author HTML pass-through. Flushes to <see cref="IRenderOutput.Html"/>.</summary>
   public class RenderHtmlNode : RenderNode
   {
     public string RawHtml;
-
-    public override RenderNode Clone() => new RenderHtmlNode { RawHtml = RawHtml };
   }
 
   /// <summary>
@@ -110,11 +100,11 @@ namespace Harlowe.Runtime.Rendering
     internal HiddenHookContent Hidden;
 
     private bool _pendingHide;
-    private bool _building;
+    private RenderTreeBuilder _writer;
 
     HiddenHookContent IHideable.HiddenContent { get => Hidden; set => Hidden = value; }
     bool IHideable.PendingHide { get => _pendingHide; set => _pendingHide = value; }
-    bool IHideable.Building { get => _building; set => _building = value; }
+    RenderTreeBuilder IHideable.Writer { get => _writer; set => _writer = value; }
 
     /// <summary>
     /// Display-text convenience over <see cref="Children"/>: get flattens every
@@ -145,13 +135,6 @@ namespace Harlowe.Runtime.Rendering
         else if (children[i] is IRenderContainer c) AppendText(c, sb);
       }
     }
-
-    public override RenderNode Clone()
-    {
-      var copy = new RenderLinkNode { Target = Target, Hidden = Hidden?.ForCopy() };
-      RenderNodes.CloneInto(Children, copy.Children);
-      return copy;
-    }
   }
 
   /// <summary>
@@ -171,16 +154,18 @@ namespace Harlowe.Runtime.Rendering
     /// </summary>
     bool PendingHide { get; set; }
 
-    /// <summary>True while a builder is still writing this node's content, whichever builder runs the <c>(hide:)</c>.</summary>
-    bool Building { get; set; }
+    /// <summary>
+    /// The builder still writing this node's content, whichever builder runs
+    /// the <c>(hide:)</c>, or null once it's finished. A revision of the node
+    /// asks this builder to move what it has written aside first.
+    /// </summary>
+    RenderTreeBuilder Writer { get; set; }
   }
 
   /// <summary>An in-prose error message. Flushes to <see cref="IRenderOutput.Error"/>.</summary>
   public class RenderErrorNode : RenderNode
   {
     public string Message;
-
-    public override RenderNode Clone() => new RenderErrorNode { Message = Message };
   }
 
   /// <summary>
@@ -191,10 +176,8 @@ namespace Harlowe.Runtime.Rendering
   public class RenderStyleNode : RenderNode, IRenderContainer
   {
     /// <summary>
-    /// The style layer. <see cref="StyleSpec"/> is public-mutable, so
-    /// <see cref="Clone"/> deep-copies it to keep the clone and original
-    /// independently observable — without that, mutating one node's style
-    /// would change every node ever cloned from it.
+    /// The style layer. <see cref="StyleSpec"/> is public-mutable, so the
+    /// builder stamps a copy of the changer's, and no other node shares it.
     /// </summary>
     public StyleSpec Style;
 
@@ -219,18 +202,6 @@ namespace Harlowe.Runtime.Rendering
     public string SourceRegionId;
 
     public List<RenderNode> Children { get; } = new List<RenderNode>();
-
-    public override RenderNode Clone()
-    {
-      var copy = new RenderStyleNode
-      {
-        Style = Style?.Clone(),
-        SourceEnchantment = SourceEnchantment,
-        SourceRegionId = SourceRegionId
-      };
-      RenderNodes.CloneInto(Children, copy.Children);
-      return copy;
-    }
   }
 
   /// <summary>How a <see cref="RenderHookNode"/> takes part in collapsing whitespace.</summary>
@@ -287,14 +258,11 @@ namespace Harlowe.Runtime.Rendering
     /// <summary>
     /// Set when this node is the <em>reveal anchor</em> a plain
     /// <c>(click:)</c>-family macro planted at its own position: the region id
-    /// whose dispatch fills this node with the deferred hook's render.
-    /// <see cref="RenderNode.Clone"/> copies it, and the dispatch resolves the
-    /// anchor by <em>searching the live tree for this tag</em> rather than by
-    /// node reference — so an anchor that reaches the tree as a clone (its
-    /// macro ran inside a revision-deferred render that was spliced) still
-    /// receives its reveal. Deliberately distinct from
-    /// <see cref="SourceRegionId"/>: anchors are permanent structure and must
-    /// survive <see cref="InteractionPass.StripWraps"/>.
+    /// whose dispatch fills this node with the deferred hook's render. The
+    /// dispatch finds the anchor by <em>searching the live tree for this tag</em>,
+    /// so one that has left the page isn't filled there. Deliberately distinct
+    /// from <see cref="SourceRegionId"/>: anchors are permanent structure and
+    /// must survive <see cref="InteractionPass.StripWraps"/>.
     /// </summary>
     public string RevealRegionId;
 
@@ -303,20 +271,12 @@ namespace Harlowe.Runtime.Rendering
     /// planted (the created link's text — reference's rendered
     /// <c>&lt;tw-link&gt;</c>): the region id whose interaction arms this
     /// node's children each pass. Permanent structure like
-    /// <see cref="RevealRegionId"/> — survives strips, copied by <c>Clone</c>,
-    /// resolved by tag; also what makes the label match <c>?link</c>. The
+    /// <see cref="RevealRegionId"/> — survives strips, resolved by tag; also what makes the label match <c>?link</c>. The
     /// dispatch clears it when a single-use link is consumed, so a spent
     /// <c>(link-reveal:)</c> label reverts to plain prose (reference unwraps
     /// the element).
     /// </summary>
     public string LabelRegionId;
-
-    /// <summary>
-    /// Set on a hook a <c>(live:)</c> changer is attached to: the id of the
-    /// <see cref="LiveHook"/> that renders into it. <see cref="Clone"/> copies
-    /// it, so a copy a revision made is rendered too.
-    /// </summary>
-    internal string LiveId;
 
     /// <summary>
     /// How <see cref="WhitespaceCollapser"/> treats this hook's content. A
@@ -328,27 +288,19 @@ namespace Harlowe.Runtime.Rendering
 
     /// <summary>
     /// Set while this hook is hidden: what <c>(show:)</c> will render into it.
-    /// Reference's <c>hidden</c> and <c>originalSource</c> element data. Copied
-    /// by <see cref="Clone"/>, so each copy of a hidden hook is revealed on its
-    /// own. Revision macros can still put content in a hidden hook.
+    /// Reference's <c>hidden</c> and <c>originalSource</c> element data.
+    /// Revision macros can still put content in a hidden hook.
     /// </summary>
     internal HiddenHookContent Hidden;
 
     private bool _pendingHide;
-    private bool _building;
+    private RenderTreeBuilder _writer;
 
     HiddenHookContent IHideable.HiddenContent { get => Hidden; set => Hidden = value; }
     bool IHideable.PendingHide { get => _pendingHide; set => _pendingHide = value; }
-    bool IHideable.Building { get => _building; set => _building = value; }
+    RenderTreeBuilder IHideable.Writer { get => _writer; set => _writer = value; }
 
     public List<RenderNode> Children { get; } = new List<RenderNode>();
-
-    public override RenderNode Clone()
-    {
-      var copy = new RenderHookNode { Name = Name, Anchor = Anchor, SourceEnchantment = SourceEnchantment, SourceRegionId = SourceRegionId, RevealRegionId = RevealRegionId, LabelRegionId = LabelRegionId, LiveId = LiveId, Whitespace = Whitespace, Hidden = Hidden?.ForCopy() };
-      RenderNodes.CloneInto(Children, copy.Children);
-      return copy;
-    }
   }
 
   /// <summary>What a hidden hook shows when it's revealed.</summary>
@@ -366,15 +318,6 @@ namespace Harlowe.Runtime.Rendering
     /// same <c>hidden</c> data. Null for a hook hidden before it rendered.
     /// </summary>
     public List<RenderNode> Detached;
-
-    /// <summary>The content for a copy of the hook, which needs its own nodes so each copy can be shown on its own.</summary>
-    public HiddenHookContent ForCopy()
-    {
-      if (Detached == null) return this;
-      var nodes = new List<RenderNode>(Detached.Count);
-      RenderNodes.CloneInto(Detached, nodes);
-      return new HiddenHookContent { Detached = nodes };
-    }
   }
 
   /// <summary>
@@ -388,20 +331,9 @@ namespace Harlowe.Runtime.Rendering
   /// </summary>
   public class RenderInteractiveNode : RenderNode, IRenderContainer
   {
-    /// <summary>
-    /// The bracketing region. Deep-copied on <see cref="Clone"/> for the same
-    /// reason <see cref="RenderStyleNode.Style"/> is — the value class is
-    /// public-mutable.
-    /// </summary>
+    /// <summary>The bracketing region.</summary>
     public InteractiveRegion Region;
     public List<RenderNode> Children { get; } = new List<RenderNode>();
-
-    public override RenderNode Clone()
-    {
-      var copy = new RenderInteractiveNode { Region = Region?.Clone() };
-      RenderNodes.CloneInto(Children, copy.Children);
-      return copy;
-    }
   }
 
   /// <summary>Top of a passage render. The tree a <see cref="RenderTreeBuilder"/> produces.</summary>
@@ -413,18 +345,11 @@ namespace Harlowe.Runtime.Rendering
     internal HiddenHookContent Hidden;
 
     private bool _pendingHide;
-    private bool _building;
+    private RenderTreeBuilder _writer;
 
     HiddenHookContent IHideable.HiddenContent { get => Hidden; set => Hidden = value; }
     bool IHideable.PendingHide { get => _pendingHide; set => _pendingHide = value; }
-    bool IHideable.Building { get => _building; set => _building = value; }
-
-    public override RenderNode Clone()
-    {
-      var copy = new RenderRoot { Hidden = Hidden?.ForCopy() };
-      RenderNodes.CloneInto(Children, copy.Children);
-      return copy;
-    }
+    RenderTreeBuilder IHideable.Writer { get => _writer; set => _writer = value; }
   }
 
   /// <summary>Shared helpers for working with lists of <see cref="RenderNode"/>.</summary>
@@ -443,34 +368,61 @@ namespace Harlowe.Runtime.Rendering
       node.Children.Clear();
     }
 
-    /// <summary>Marks <paramref name="node"/> as being built, which delays a <c>(hide:)</c> of it until <see cref="FinishBuilding"/>.</summary>
-    internal static void StartBuilding(IRenderContainer node)
+    /// <summary>Marks <paramref name="node"/> as being built by <paramref name="writer"/>, which delays a <c>(hide:)</c> of it until <see cref="FinishBuilding"/>.</summary>
+    internal static void StartBuilding(IRenderContainer node, RenderTreeBuilder writer)
     {
-      if (node is IHideable hideable) hideable.Building = true;
+      if (node is IHideable hideable) hideable.Writer = writer;
     }
 
     /// <summary>The end of <see cref="StartBuilding"/>: a <c>(hide:)</c> that named the node meanwhile takes effect now.</summary>
     internal static void FinishBuilding(IRenderContainer node)
     {
       if (!(node is IHideable hideable)) return;
-      hideable.Building = false;
+      hideable.Writer = null;
       if (!hideable.PendingHide) return;
       hideable.PendingHide = false;
       Hide(hideable);
     }
 
-    /// <summary>Deep-clone every node in <paramref name="source"/> into <paramref name="destination"/>.</summary>
-    public static void CloneInto(List<RenderNode> source, List<RenderNode> destination)
+    /// <summary>
+    /// The indexes of <paramref name="nodes"/> in the order they sit under
+    /// <paramref name="root"/>, followed by those that aren't under it, in
+    /// their own order.
+    /// </summary>
+    internal static List<int> PageOrder(IRenderContainer root, List<RenderNode> nodes)
     {
-      for (int i = 0; i < source.Count; i++) destination.Add(source[i].Clone());
+      var wanted = new Dictionary<RenderNode, int>(nodes.Count);
+      for (int i = 0; i < nodes.Count; i++) wanted[nodes[i]] = i;
+      var order = new List<int>(nodes.Count);
+      var seen = new bool[nodes.Count];
+      if (root != null) CollectOrder(root, wanted, order, seen);
+      for (int i = 0; i < nodes.Count; i++)
+        if (!seen[i]) order.Add(i);
+      return order;
     }
 
-    /// <summary>Return a fresh list holding deep clones of every node in <paramref name="source"/>.</summary>
-    public static List<RenderNode> CloneAll(List<RenderNode> source)
+    private static void CollectOrder(IRenderContainer container, Dictionary<RenderNode, int> wanted, List<int> order, bool[] seen)
     {
-      var copy = new List<RenderNode>(source.Count);
-      CloneInto(source, copy);
-      return copy;
+      var children = container.Children;
+      for (int i = 0; i < children.Count && order.Count < seen.Length; i++)
+      {
+        if (wanted.TryGetValue(children[i], out int index) && !seen[index])
+        {
+          seen[index] = true;
+          order.Add(index);
+        }
+        if (children[i] is IRenderContainer inner) CollectOrder(inner, wanted, order, seen);
+      }
+    }
+
+    /// <summary>Replaces <paramref name="node"/> with its children when it's directly in <paramref name="container"/>, and does nothing otherwise.</summary>
+    internal static void Unwrap(IRenderContainer container, RenderNode node)
+    {
+      var children = container.Children;
+      int at = children.IndexOf(node);
+      if (at < 0) return;
+      children.RemoveAt(at);
+      if (node is IRenderContainer inner) children.InsertRange(at, inner.Children);
     }
 
     /// <summary>The work one search of <paramref name="node"/>'s subtree costs, as charged by <see cref="MacroContext.TrySpendOnTargetWalk"/>.</summary>
@@ -495,11 +447,11 @@ namespace Harlowe.Runtime.Rendering
     }
 
     /// <summary>
-    /// The work one splice of <paramref name="nodes"/> costs: a unit per node
-    /// plus one per character it holds. Revisions clone their source into every
-    /// target, so a recursive story can grow the tree far faster than it
-    /// renders, and this is what <see cref="MacroContext.TrySpendOnSplice"/>
-    /// charges for it.
+    /// The size of <paramref name="nodes"/>: a unit per node plus one per
+    /// character it holds. A revision renders its content once per target, so
+    /// a recursive story can grow the tree far faster than its source, and
+    /// this is what <see cref="MacroContext.TrySpendOnSplice"/> charges for
+    /// each rendering.
     /// </summary>
     internal static long SpliceCost(List<RenderNode> nodes)
     {
@@ -516,32 +468,6 @@ namespace Harlowe.Runtime.Rendering
         if (nodes[i] is IRenderContainer container) cost += SpliceCost(container.Children);
       }
       return cost;
-    }
-
-    /// <summary>
-    /// Splice deep clones of <paramref name="source"/> into
-    /// <paramref name="target"/>'s children per <paramref name="mode"/>:
-    /// <see cref="RevisionMode.Replace"/> clears the target first; append /
-    /// prepend add at the end / start. The single revision-splice primitive
-    /// shared by <c>(replace:)</c>/<c>(append:)</c>/<c>(prepend:)</c> and the
-    /// click/hover dispatch path, so both stay in lockstep.
-    /// </summary>
-    public static void Splice(IRenderContainer target, List<RenderNode> source, RevisionMode mode)
-    {
-      var copy = CloneAll(source);
-      switch (mode)
-      {
-        case RevisionMode.Replace:
-          target.Children.Clear();
-          target.Children.AddRange(copy);
-          break;
-        case RevisionMode.Append:
-          target.Children.AddRange(copy);
-          break;
-        case RevisionMode.Prepend:
-          target.Children.InsertRange(0, copy);
-          break;
-      }
     }
 
     /// <summary>
@@ -579,8 +505,7 @@ namespace Harlowe.Runtime.Rendering
     /// <paramref name="match"/> returns true. How the dispatch resolves nodes
     /// by tag — reveal anchors by <see cref="RenderHookNode.RevealRegionId"/>,
     /// string-occurrence wraps by <see cref="RenderHookNode.SourceRegionId"/> —
-    /// where a held node reference would go stale the moment a splice clones
-    /// the subtree.
+    /// so only what's still on the page is found.
     /// </summary>
     public static void CollectWhere(IRenderContainer container, Func<RenderNode, bool> match, List<RenderNode> results)
     {

@@ -388,6 +388,8 @@ The library never assumes HTML. Engine integrations consume `PushStyle(StyleSpec
 
 Transitions are the exception to one layer per changer. Each `(transition:)`-family changer sets fields on the descriptor's one transition layer, later values winning, and that layer goes innermost, inside every other style, once the whole composition has run. It's added only when it names a transition, since a time or delay on its own does nothing to a hook in reference. Around a passage link a time on its own is kept, because it also sets how long the passage transition takes.
 
+Revision changers ((replace:), (append:), (prepend:)) render into their targets rather than at the hook, as reference does: every target is resolved first, each gets an empty placeholder (the only child, the last or the first), and then each placeholder gets its own rendering of the hook, so side effects run once per target and a revision inside the content lands on top of it. Clicks reveal through the same routine. A target still being written has what's written so far moved into a placeholder first, and while the passage renders a revision only reaches what's before it in the page.
+
 ## HarloweValue tagged union
 
 | Kind | Raw payload | Notes |

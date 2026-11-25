@@ -33,7 +33,7 @@ namespace Harlowe.Runtime
     /// doesn't implement the check, <see cref="MaxEvaluationDepth"/> and the
     /// render nesting limit still apply.
     /// </summary>
-    private static bool HasStackRoom()
+    internal static bool HasStackRoom()
     {
       try
       {
