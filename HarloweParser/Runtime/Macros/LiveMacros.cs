@@ -6,7 +6,7 @@ namespace Harlowe.Runtime.Macros
   /// <c>(live: 2s)[…]</c>. A changer whose hook doesn't show when it's written,
   /// then renders once the delay has passed and again after every delay,
   /// replacing what it showed, until <c>(stop:)</c> runs in it. Time passes only
-  /// when the host calls <see cref="StorySession.Tick"/>. Reference's entry in
+  /// when the host calls <see cref="StorySession.Tick(double)"/>. Reference's entry in
   /// <c>ts/macrolib/stylechangers.ts</c>, with <c>optional(Number)</c>: no
   /// delay, or 0, renders every frame, as reference's missing delay does.
   /// </summary>

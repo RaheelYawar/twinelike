@@ -19,7 +19,7 @@ namespace Harlowe.Ast.Expression
   ///
   /// <para>
   /// Lambdas see the caller's scope at invocation time (no closure capture).
-  /// The runtime wrapper is <see cref="HarloweStory.Runtime.LambdaValue"/>, which is
+  /// The runtime wrapper is <see cref="Harlowe.Runtime.LambdaValue"/>, which is
   /// just a thin reference to this node.
   /// </para>
   /// </summary>

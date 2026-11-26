@@ -1,6 +1,6 @@
 # Test bench plan
 
-How we find out how much real Harlowe plays correctly, on every runtime we target, and stop it going backwards. Researched 2026-11-21. Phase 0a has run from prototype scripts, and nothing is in this repository yet.
+How we find out how much real Harlowe plays correctly, on every runtime we target, and stop it going backwards. Researched 2026-11-21. Phase 0a ran from prototype scripts, which moved into `tools/` on 2026-11-26 (see `tools/README.md`). That covers Layer 1's spec runner, Layer 3's harness and recorded walks, the snippet suites, and a first ratchet: per-suite match counts in `tools/cases/expected.json`, which a run may not fall below. The Layer 2 crawler and its invariants, per-check baselines and the engine benches are still to build.
 
 ## Where testing stands
 
@@ -51,11 +51,11 @@ The reference suite is 48 Jasmine spec files. A prototype runs them against reco
 
 The specs come from the pinned 4.0-unstable node while our target is 3.3.9, so every check runs under both profiles and only counts as a 3.3.9 requirement once it also passes on real 3.3.9. A check that holds for only one major is tagged with it, so adding Harlowe 3's unset-variable behaviour can't read as a regression in a Harlowe 4 check. `(live:)` and `(stop:)` have no reference specs, so their contracts come from observing real 3.3.9 in Layer 3.
 
-The replay has to run a test the way the reference does: `clearState()` resets the session, the debug flag follows each suite, and `print` compares text as `markupToPrint` does. The specs are third-party Zlib source, so the extracted data is regenerated from the pinned archive and verified by SHA-256. Only check IDs and statuses are committed. The 1,100 tests with no portable check go in a committed ledger of why each stopped, mostly at a DOM query (887) or a timer (97), and those needing only clicks and visible text become Layer 3 scenarios.
+The replay has to run a test the way the reference does: `clearState()` resets the session, the debug flag follows each suite, and `print` compares text as `markupToPrint` does. The specs are third-party Zlib source, so the extracted data is regenerated from the pinned reference and never committed. The archive is downloaded by hand, so it's pinned by its Mercurial node rather than a hash, and extraction stops if `.hg_archival.txt` names another. A per-check baseline would commit only check IDs and statuses. The 1,100 tests with no portable check go in a committed ledger of why each stopped, mostly at a DOM query (887) or a timer (97), and those needing only clicks and visible text become Layer 3 scenarios.
 
 ### Layer 2: story corpus
 
-Every story file is pinned to a commit and a SHA-256, recorded with its licence and copyright notice in `TestBench/corpus.json`, and fetched into a gitignored cache, so third-party content stays out of this repository. All 11 files below were checked byte for byte against GitHub at these commits.
+Every story file is pinned to a commit and a SHA-256, recorded with its licence and copyright notice in `tools/pins.json`, and fetched into a gitignored cache, so third-party content stays out of this repository. All 11 files below were checked byte for byte against GitHub at these commits.
 
 | Story | Repo @ commit | Licence | Files | Passages | Macro calls | Reached / clean | Blocked by |
 |---|---|---|---|---|---|---|---|
@@ -92,12 +92,12 @@ A Node harness builds each story with Twine's own `harlowe-3.3.9/format.js`, pin
 
 - **Text** is the text inside `tw-passage`, minus the sidebar, with `<br>` as a newline and `script` removed, the same normalisation as the reference's `markupToPrint`, with errors removed. Our `Html` entries reduce to text the same way.
 - **Choices** are anything the player can trigger, as one segment kind in document order that carries its event (`click`, `mouseover` or `mouseout`), and a step fires that event. On the page that's `tw-link` and elements with an `enchantment-link`, `-clickblock`, `-mouseover`, `-mouseoverblock`, `-mouseout` or `-mouseoutblock` class, and in `RenderResult` it's `Link` and `BeginInteractive`. One kind is deliberate: Harlowe draws `(link:)` as `tw-link`, where we use an interactive region. External URLs compare as text, and a choice nested inside another is `unsupported`.
-- **Broken links** are their own segment: `tw-broken-link` on the page, and our label-plus-error pair on our side, which doesn't count as an error.
+- **Broken links** are their own segment: `tw-broken-link` on the page, and our label-plus-error pair on our side. The comparison counts the broken link as an error on the real side too, so the two agree.
 - **Destinations** aren't in the DOM, because 3.3.9 keeps a link's target in internal data. A target is checked when a scenario follows the link, by the next step's passage name.
 - **Passage name** comes from 3.3.9's internal `State` object. Harlowe evaluates story scripts inside its own module scope, so the test build adds one story script that hands `State` to the harness, and `format.js` and the story's passages stay unchanged. `sessionStorage` won't do, because `(redirect:)` doesn't update it.
 - **Errors** are compared by count, not wording, because our messages differ on purpose.
 - **Randomness.** `MulberryRng` matched the generator in the 3.3.9 build on all 200 draws compared. `new StorySession(story, 42)` is seed `"42"` at position 0, and the same story script calls `State.setSeed("42")` before the first passage, so no library change is needed. Stories that call `(seed:)` themselves are `unsupported` until we implement it. `(shuffled:)`, which we lack, and the per-match rewind in divergence #23 consume draws differently and shift everything after them, so they're `unsupported` until aligned.
-- **Time.** Playwright's clock API controls the browser's, stepping in increments of 16 ms or less so animation-frame loops run. `time` needs an injectable clock on our side, reset on each passage, and every step pumps frames until the passage, turn count and page stop changing, because `(go-to:)`, `(redirect:)`, `(undo:)` and `(load-game:)` navigate on a later frame and can chain. A scenario records a `wait` step where a story reveals its choices on a timer, and our replay stops there until we have timed macros.
+- **Time.** Playwright's clock API controls the browser's, stepping in increments of 16 ms or less so animation-frame loops run. `time` needs an injectable clock on our side, reset on each passage, and every step pumps frames until the passage, turn count and page stop changing, because `(go-to:)`, `(redirect:)`, `(undo:)` and `(load-game:)` navigate on a later frame and can chain. A scenario records a `wait` step where a story reveals its choices on a timer, and our replay plays the same time through `StorySession.Tick` in 16 ms frames.
 - **Unsupported at first:** any passage calling a macro we lack, stories with their own `header` or `footer` passages until we run them, and locale-dependent sort order.
 
 ### Layer 4: engine benches

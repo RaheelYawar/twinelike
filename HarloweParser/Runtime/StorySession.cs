@@ -202,6 +202,7 @@ namespace Harlowe.Runtime
 
     private StorySession(HarloweStory story, IRng rng, Saving.ISaveStorage storage)
     {
+      if (story == null) throw new ArgumentNullException(nameof(story));
       _story = story;
       _storage = storage;
       _registry = new MacroRegistry();
@@ -222,7 +223,7 @@ namespace Harlowe.Runtime
 
     // IEvaluationContext ---------------------------------------------------
 
-    /// <summary>Milliseconds of <see cref="Tick"/> time since the current passage was entered. 0 while it first renders, as in reference.</summary>
+    /// <summary>Milliseconds of <see cref="Tick(double)"/> time since the current passage was entered. 0 while it first renders, as in reference.</summary>
     public HarloweValue Time => HarloweValue.OfNumber(_clockMs - _passageStartMs);
 
     /// <summary>
@@ -654,12 +655,12 @@ namespace Harlowe.Runtime
     /// throwaway store and RNG, not the live ones — so a tampered blob's source
     /// (a <c>$x to 5</c> assignment, a <c>(random:)</c> draw) can't mutate session
     /// state or advance the shared stream, keeping a failed load truly atomic.
-    /// Legitimate saved source never needs the live store: <see cref="HarloweValue.ToSource"/>
+    /// Legitimate saved source never needs the live store: <see cref="HarloweValue.ToSource()"/>
     /// emits only self-contained literals and macro calls.
     ///
     /// <para><b>Pinned to <see cref="HarloweProfile.SaveFormat"/>, not the
     /// story's profile</b> — deliberately differing from the render context.
-    /// Saved value source is engine-emitted by <see cref="HarloweValue.ToSource"/>,
+    /// Saved value source is engine-emitted by <see cref="HarloweValue.ToSource()"/>,
     /// so author compatibility policy has no bearing on it; following the
     /// story would silently re-lex existing saves under different rules the
     /// moment an author bumped <c>format-version</c> in Twine.</para>

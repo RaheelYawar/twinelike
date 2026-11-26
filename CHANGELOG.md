@@ -49,6 +49,7 @@ Save/load, an undo/redo timeline with reproducible randomness, the `(link:)` fam
 - **`(dm-names:)`, `(dm-values:)` and `(dm-entries:)`**, with their `data-` and `datamap-` aliases. Each gives an array in the natural order of the datamap's names: the names, the values, or a `(dm: "name", …, "value", …)` per pair.
 - **Number names in datamaps.** `(dm: 25, "Pikachu")'s (25)` works, as in real Harlowe, which also refuses a string beside the number it reads as, like `1` and `"1"`. A number name can be read but not set, and `(move:)` copies one without deleting it. Joining datamaps with `+` doesn't check names, so `1` and `"1"` can end up together, as they can in reference.
 - **Host variable reads.** `StorySession.TryGetVariable(name, out value)` (with or without the `$`) and `GetVariableNames()` read story variables for the host. Reads are side-effect free and return deep copies, so they can't change story state, undo, or saves.
+- **Doc comments ship.** `twinelike.xml` comes with the DLL in the NuGet package and the release zip, so an IDE shows the API's documentation.
 
 ### Changed
 
@@ -82,10 +83,12 @@ Save/load, an undo/redo timeline with reproducible randomness, the `(link:)` fam
 - **`?link` is a real target.** Styling and arming wrap around the link; `(replace:/append:/prepend: ?link)` render into its label; string targets match inside labels.
 - **Composing incompatible changers errors** in-prose instead of silently dropping one side (a click or hover with a revision or `(for:)`), and a bare unattached changer in prose (e.g. `(if: $x)` with no hook) is an in-prose error, as in reference.
 - **Consecutive text nodes coalesce** into single `Text` events — string-target matching works across what used to be node boundaries, and output granularity is coarser.
-- **`--` is comment markup only for stories declaring Harlowe 4.** The `--` comment family shipped against Harlowe 4.0 semantics, which made the em-dash idiom (`it was -- and remains -- fine`) comment out the rest of the line for *every* story — and since 4.0 is unreleased, every real story is 3.x. Stories declaring a 3.x `format-version` now render such prose whole, and `5--3` is again `8`. Stories declaring 4.x, or declaring nothing, keep the comment behaviour.
+- **Misuse fails clearly.** `new StorySession(null)` and `new HarloweStory((string)null)` throw `ArgumentNullException`, and `AddPassage` says when a passage has no name or reuses one, leaving the passage unchanged. `HarloweExpressionParser.RightAssociativeOps` is no longer public, so a host can't change how every story parses.
+- **`--` is comment markup only for stories declaring Harlowe 4.** The `--` comment family shipped against Harlowe 4.0 semantics, which made the em-dash idiom (`it was -- and remains -- fine`) comment out the rest of the line for *every* story — and since 4.0 is unreleased, every real story is 3.x. Stories declaring a 3.x `format-version` now render such prose whole, and `5--3` is again `8`. Stories declaring 4.x keep the comment behaviour, and a story declaring no version runs under Harlowe 3, since guessing 4 would delete the prose after every `--`.
 
 ### Fixed
 
+- **A `(show:)` of thousands of hooks no longer stalls the host.** Each hook it reveals searched the whole page uncharged, so on a page that printed itself one click took half a minute. Each search now counts toward the render's page-search budget, and a page that runs out shows an in-prose error.
 - **A number literal too big for a double no longer stops a story loading on .NET Framework.** `1e999` threw out of the loader there. It now reads as Infinity, as it does in JavaScript and on .NET Core.
 - **Printing a very deeply nested value no longer kills the host.** A loop wrapping a variable in `(a:)` tens of thousands of times overflowed the stack when it was printed. Past 256 levels it's now an in-prose error.
 - **Twee round-trip data loss.** Passage names containing `[`/`]`/`{`/`}` now escape on write and unescape on read (per the Twee 3 spec); a leading UTF-8 BOM no longer hides the first passage; a content passage named `StoryTitle`/`StoryData` no longer collides with the metadata sigils; a story title starting with `::` round-trips.

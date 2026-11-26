@@ -1,0 +1,1 @@
+["|a)[x(replace: ?a)[y]z](show: ?a)","|a)[x(append: ?a)[y]z](show: ?a)","|a)[x(prepend: ?a)[y]z](show: ?a)","|a)[(replace: ?a)[y]z](show: ?a)","|a)[x(replace: ?a)[y]](show: ?a)","|o>[x(replace: ?o)[y]z]","|o>[x(append: ?o)[y]z]","|a)[x|b>[w](replace: ?b)[y]z](show: ?a)","|a)[x(replace: \"x\")[y]z](show: ?a)"]

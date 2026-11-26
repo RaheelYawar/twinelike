@@ -23,7 +23,7 @@ namespace Harlowe.Runtime
   /// </para>
   ///
   /// <para>
-  /// The <paramref name="pos"/> parameter on each entry point is the
+  /// The <c>pos</c> parameter on each entry point is the
   /// 1-indexed iteration position. Callers supply <c>i + 1</c> from their
   /// item loop. The binding exposes <c>pos</c> as an identifier inside the
   /// lambda clause body, matching reference Harlowe (see the <c>pos</c>

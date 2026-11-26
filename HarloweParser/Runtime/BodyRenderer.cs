@@ -1200,7 +1200,7 @@ namespace Harlowe.Runtime
     /// <summary>
     /// A hook with <c>(live:)</c> or <c>(after:)</c> attached. It's planted
     /// empty and hidden, so <c>(show:)</c> and revisions can still reach it,
-    /// and registered for <see cref="StorySession.Tick"/> to render when its
+    /// and registered for <see cref="StorySession.Tick(double)"/> to render when its
     /// time comes, with the temp variables in view here and the rest of the
     /// changer. A live hook in a custom macro's body never renders, as
     /// reference's <c>inDOM</c> check stops one whose section isn't on the page.

@@ -243,7 +243,7 @@ namespace Harlowe.Runtime
   /// Patch produced by the click/hover macros (<c>(click:)</c>,
   /// <c>(mouseover-append:)</c>, …). Sets the descriptor's interaction spec —
   /// the changer then wraps the targeted nodes in
-  /// <see cref="RenderInteractiveNode"/>s and registers a deferred handler
+  /// <see cref="Rendering.RenderInteractiveNode"/>s and registers a deferred handler
   /// the session fires on <see cref="StorySession.DispatchEvent"/>.
   /// </summary>
   public class InteractionPatch : IChangerPatch

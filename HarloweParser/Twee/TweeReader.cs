@@ -75,6 +75,9 @@ namespace Harlowe.Twee
     /// tokenized under — read in source order, a trailing metadata block would
     /// arrive after the passages it governs.</para>
     /// </summary>
+    /// <exception cref="HarloweParseException">Two passages share a name, or
+    /// <c>:: StoryData</c> isn't a JSON object. A passage whose markup doesn't
+    /// parse never throws; it renders an in-prose error.</exception>
     public HarloweStory Read(string source)
     {
       var story = new HarloweStory();
@@ -159,7 +162,8 @@ namespace Harlowe.Twee
         try { story.AddPassage(passage); }
         catch (System.ArgumentException ex)
         {
-          // Dictionary.Add throws ArgumentException on duplicate name. Convert
+          // AddPassage refuses a duplicate name with an ArgumentException (the
+          // pids here are sequential, so it's the only refusal possible). Convert
           // to the loader's canonical bad-input exception so consumers can
           // catch a single type for "this Twee file is broken."
           throw new HarloweParseException(

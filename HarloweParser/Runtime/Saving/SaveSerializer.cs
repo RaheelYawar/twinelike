@@ -21,7 +21,7 @@ namespace Harlowe.Runtime.Saving
     /// <summary>
     /// Value → Harlowe source, or <c>null</c> when the value has no source form — a
     /// non-finite number, an <see cref="HarloweValueKind.Error"/>, or a Changer whose
-    /// source was never stamped (see <see cref="HarloweValue.ToSource"/>). A caller
+    /// source was never stamped (see <see cref="HarloweValue.ToSource()"/>). A caller
     /// fails the save loudly on null rather than emitting unparseable source.
     /// </summary>
     public static string Serialise(HarloweValue value) => value?.ToSource();
@@ -43,7 +43,7 @@ namespace Harlowe.Runtime.Saving
     /// invoked; its single argument is the value expression.</para>
     ///
     /// <para>Re-lexed under <see cref="HarloweProfile.SaveFormat"/>, never the
-    /// story's profile: the source came from <see cref="HarloweValue.ToSource"/>,
+    /// story's profile: the source came from <see cref="HarloweValue.ToSource()"/>,
     /// so it is engine-emitted and author compatibility policy has no bearing
     /// on it. A blob must read back the same way it was written, whatever
     /// major the story later declares.</para>

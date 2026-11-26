@@ -101,7 +101,7 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
-    /// Does <paramref name="value"/> belong to the named type? Reference's
+    /// Does a value belong to the named type? Reference's
     /// <c>typeIndex</c> table in <c>ts/datatypes/datatype.ts</c>, kept as a table
     /// here too so "which names are implemented" is a readable list rather than
     /// something you derive by diffing a switch against

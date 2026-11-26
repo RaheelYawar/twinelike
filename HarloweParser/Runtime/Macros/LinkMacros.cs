@@ -109,7 +109,7 @@ namespace Harlowe.Runtime.Macros
   /// undoes the current turn when activated — the label-only sibling of the
   /// <c>(link:)</c> changers, dispatched through the same undo branch as
   /// <c>(click-undo:)</c>. When there is no past turn, renders the optional
-  /// <paramref name="alt"/> text instead (or nothing) — reference shows the
+  /// <c>alt</c> text instead (or nothing) — reference shows the
   /// second string rather than erroring, unlike <c>(click-undo:)</c>.
   /// </summary>
   public class LinkUndoMacro : IMacro, ICommandCheck

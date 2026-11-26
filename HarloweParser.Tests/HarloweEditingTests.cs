@@ -80,11 +80,44 @@ namespace Harlowe.Tests
     }
 
     [Fact]
-    public void AddPassage_DuplicateName_Throws()
+    public void AddPassage_DuplicateName_ThrowsAndLeavesThePassageAlone()
     {
       var story = new HarloweStory();
       story.AddPassage(MakePassage("First"));
-      Assert.Throws<System.ArgumentException>(() => story.AddPassage(MakePassage("First")));
+      // No Ast, so AddPassage would parse the body if it got that far.
+      var dup = new HarlowePassage { Name = "First", RawBody = "(set: $x to 1)" };
+      var ex = Assert.Throws<System.ArgumentException>(() => story.AddPassage(dup));
+      Assert.Contains("a passage named 'First' already exists", ex.Message);
+      Assert.Null(dup.Pid);
+      Assert.Null(dup.Ast);
+      Assert.Equal(1, story.PassageCount);
+    }
+
+    [Fact]
+    public void AddPassage_NoName_ThrowsAndLeavesThePassageAlone()
+    {
+      var story = new HarloweStory();
+      var p = new HarlowePassage { RawBody = "(set: $x to 1)" };
+      var ex = Assert.Throws<System.ArgumentException>(() => story.AddPassage(p));
+      Assert.Contains("the passage has no name", ex.Message);
+      Assert.Equal("passage", ex.ParamName);
+      Assert.Null(p.Pid);
+      Assert.Null(p.Ast);
+      Assert.Equal(0, story.PassageCount);
+    }
+
+    [Fact]
+    public void NullArguments_ThrowArgumentNullException()
+    {
+      Assert.Equal("passage", Assert.Throws<System.ArgumentNullException>(() => new HarloweStory().AddPassage(null)).ParamName);
+      Assert.Equal("htmlText", Assert.Throws<System.ArgumentNullException>(() => new HarloweStory((string)null)).ParamName);
+      Assert.Equal("story", Assert.Throws<System.ArgumentNullException>(() => new StorySession(null)).ParamName);
+    }
+
+    [Fact]
+    public void HtmlWithoutStoryData_ThrowsHarloweParseException()
+    {
+      Assert.Throws<HarloweParseException>(() => new HarloweStory("<html><body>not a story</body></html>"));
     }
 
     [Fact]

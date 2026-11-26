@@ -1,0 +1,1 @@
+[{"source":"|a>[x]|a>[y](replace: ?a)[(append: ?a)[q]]","steps":[20]},{"source":"|a>[x]|a>[y](append: ?a)[(append: ?a)[q]]","steps":[20]},{"source":"|a>[x]|a>[y](replace: ?a)[(replace: ?a)[q]z]","steps":[20]},{"source":"|a>[x]|a>[y](replace: ?a)[(print: ?a's 2nd's length)]","steps":[20]},{"source":"|a>[x]|a>[y](replace: ?a)[p(replace: 'p')[r]]","steps":[20]}]

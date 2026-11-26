@@ -1,0 +1,73 @@
+{
+  "about": "Third-party inputs the bench fetches into tools/.cache and checks by SHA-256. None of them is committed. A story's walks are seeded random walks recorded on real Harlowe; default false keeps a story out of runs unless it's named.",
+  "harlowe": {
+    "file": "harlowe-3.3.9/format.js",
+    "url": "https://raw.githubusercontent.com/klembot/twinejs/2.12.1/public/story-formats/harlowe-3.3.9/format.js",
+    "sha256": "803a0d9d4fb8c3c1c99eaf16f37db6feaad72e36fc7e5f6c5a168465419895f3",
+    "licence": "Zlib",
+    "about": "Harlowe 3.3.9, as Twine 2.12.1 ships it."
+  },
+  "reference": {
+    "dir": "references/harlowe-branch-default/harlowe-branch-default",
+    "node": "facd4762815b17e1de9cb2e2a6c47cd223d23858",
+    "licence": "Zlib",
+    "about": "Reference Harlowe's source on branch default, whose Jasmine specs the specs suite extracts. Its host blocks scripted downloads, so it's downloaded by hand and unpacked here; .hg_archival.txt names the node."
+  },
+  "stories": [
+    {
+      "id": "harlowe-demo", "repo": "jreamy/harlowe-demo", "commit": "5cecb95469733e5e70090816a07d5a04dbda8cd1", "path": "game.twee",
+      "sha256": "04210c0b39726d1ef42e1d59ba70a938d96f725541805562da7be2e153eb2e9f", "licence": "MIT", "copyright": "Copyright (c) 2025 Jack Reamy",
+      "default": true, "walks": { "count": 10, "steps": 80, "seed": 500 }
+    },
+    {
+      "id": "service-suspended", "repo": "Znboston/service-suspended", "commit": "658b967ca7d10afeeffa9f27f3ace9d7215c7c46", "path": "project-1/docs/Service Suspended.html",
+      "sha256": "6e9e4939044c5d467836617b9626794b7f0035abaf5c9a4aa16dbec645a6a112", "licence": "MIT", "copyright": "Copyright (c) 2026 Eswar Chandra Talasila",
+      "default": true, "walks": { "count": 10, "steps": 45, "seed": 1001 }
+    },
+    {
+      "id": "service-suspended-twee", "repo": "Znboston/service-suspended", "commit": "658b967ca7d10afeeffa9f27f3ace9d7215c7c46", "path": "project-1/src/Service Suspended.twee",
+      "sha256": "a73c540a4daacb9aaecff739ab66bf5d94443d904c003902b9c4bc11aece7880", "licence": "MIT", "copyright": "Copyright (c) 2026 Eswar Chandra Talasila",
+      "default": true
+    },
+    {
+      "id": "files-005", "repo": "nuuj-lord/Files-005", "commit": "ef9cca3631640bdb2b8eea6ab9d677c11899859f", "path": "index.html",
+      "sha256": "94d1b9196a799a040a4e4c2570ad4ab8deca0b09bea7d853d660942950493505", "licence": "MIT", "copyright": "Copyright (c) 2026 nuuj-lord",
+      "default": true, "walks": { "count": 6, "steps": 45, "seed": 1001 }
+    },
+    {
+      "id": "files-005-twee", "repo": "nuuj-lord/Files-005", "commit": "ef9cca3631640bdb2b8eea6ab9d677c11899859f", "path": "source-code.twee",
+      "sha256": "f658659ecfe5d115b9d0f382e7435876be3a5b117836874937d3bdbf1aca732d", "licence": "MIT", "copyright": "Copyright (c) 2026 nuuj-lord",
+      "default": true
+    },
+    {
+      "id": "early-in-the-morning", "repo": "CristopherB14/createYourStory", "commit": "a952615872d4f0d91f33007de5f7b99d1a1d7305", "path": "earlyInTheMorning.html",
+      "sha256": "e62716cee1c9ee98efbdca4863431480ee9a26c676b1aa3ecd0d80dee2f792a1", "licence": "MIT", "copyright": "Copyright (c) 2025 CristopherB14",
+      "default": true
+    },
+    {
+      "id": "ethics-in-science", "repo": "PyrrhicShadow/Pyrrhic-s-Twinery", "commit": "131fb674d68c4561985339123bc55333e59c819b", "path": "twine/EthicsInScience.html",
+      "sha256": "40e897b8b4e64027abe10f8e019fe06f0264b4e4cf9dffa50d21162013d95428", "licence": "MIT", "copyright": "Copyright (c) 2023 Jake Kao",
+      "default": true
+    },
+    {
+      "id": "lamplight", "repo": "IkeaSourPatches/Lamplight", "commit": "9f3915f69a81c4d7414c273cc9ed68ae162dcace", "path": "index.html",
+      "sha256": "2b2ef8e3a7568d6a1cbf0eb167b5e6872879662b99e357a01987122d266766d0", "licence": "MIT", "copyright": "Copyright (c) 2026 Gordon Ji",
+      "default": true
+    },
+    {
+      "id": "egg-exe", "repo": "henriquek-btdg/egg-exe", "commit": "31db173ae3f5d6195f43ddc38d10349f137fb3a7", "path": "index.html",
+      "sha256": "26cf5adb88766403d45cafb22ae2646b165e764c816ed9c8d861d5d99c357638", "licence": "MIT", "copyright": "Copyright (c) 2025 Henrique Teixeira Karez",
+      "default": false, "note": "Deals with mental health and self-harm: keep its text out of logs and published reports."
+    },
+    {
+      "id": "egg-exe-twee", "repo": "henriquek-btdg/egg-exe", "commit": "31db173ae3f5d6195f43ddc38d10349f137fb3a7", "path": "src/index.twee",
+      "sha256": "7fc6561bfaa68bd65e1ee77c3db39212d1c67844b9c90d2050f456805078a49c", "licence": "MIT", "copyright": "Copyright (c) 2025 Henrique Teixeira Karez",
+      "default": false, "note": "Deals with mental health and self-harm: keep its text out of logs and published reports."
+    },
+    {
+      "id": "sand-dancer", "repo": "jgheithcock/sand-dancer", "commit": "fc7847d909c42aff0a025f49467f047b07fd7756", "path": "Sand-Dancer.twee",
+      "sha256": "e8feedd4e54fd5def13c1a3b1c5fc0b31734b6ea5059f893fa8daeecdf7943c9", "licence": "CC0-1.0", "copyright": "Copyright and Related Rights (defined below) upon the creator",
+      "default": false, "note": "Ports a game by other authors, so its CC0 may not cover the prose: never redistribute it."
+    }
+  ]
+}

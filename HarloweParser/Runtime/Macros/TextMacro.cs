@@ -5,7 +5,7 @@ namespace Harlowe.Runtime.Macros
 {
   /// <summary>
   /// <c>(text: "You have ", $hp, " HP")</c> → <c>"You have 10 HP"</c>. Coerces
-  /// every argument to its <see cref="HarloweValue.ToHarloweString"/> form and
+  /// every argument to its <see cref="HarloweValue.ToHarloweString()"/> form and
   /// concatenates them with no separator. Accepts zero or more arguments
   /// (<c>(text:)</c> → <c>""</c>). Only String, Number, Boolean, and Array
   /// values are allowed — a Datamap, Changer, Lambda, etc. is rejected, matching

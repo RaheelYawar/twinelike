@@ -17,7 +17,7 @@ namespace Harlowe.Runtime.Rendering
   /// retargets onto the tree for free — a <c>PushStyle</c> from a changer
   /// becomes a <see cref="RenderStyleNode"/> with no change to the changer code.
   /// The two channels <see cref="IRenderOutput"/> can't express — hook structure
-  /// — are added as <see cref="BeginHook"/> / <see cref="EndHook"/>, which
+  /// — are added as <see cref="BeginHook(string, HookAnchor)"/> / <see cref="EndHook"/>, which
   /// <see cref="BodyRenderer"/> calls when (and only when) its output is a
   /// builder. An output that is a plain buffer simply renders hooks flat, which
   /// is the pre-refactor behaviour.
@@ -81,7 +81,7 @@ namespace Harlowe.Runtime.Rendering
     public RenderRoot Root => _root;
 
     /// <summary>
-    /// True when every <see cref="PushStyle"/>/<see cref="BeginHook"/>/<see cref="BeginInteractive"/>
+    /// True when every <see cref="PushStyle"/>/<see cref="BeginHook(string, HookAnchor)"/>/<see cref="BeginInteractive"/>
     /// emitted into this builder has been matched by a corresponding pop. The
     /// builder's pop methods deliberately no-op on imbalance to keep
     /// engine-facing flushes resilient, but tests and contributors instrumenting

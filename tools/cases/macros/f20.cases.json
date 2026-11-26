@@ -1,0 +1,1 @@
+["(set: $n to 0){ (set: $n to it + 1) $n }","(set: $n to 0){[ (set: $n to it + 1) $n ]}","{ (set: $n to 1) $n }x","{[ (set: $n to 1) $n ]}x"]

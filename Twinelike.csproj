@@ -8,11 +8,16 @@
              pipelines) when paths are referenced literally. The NuGet PackageId
              stays PascalCase "Twinelike"; package ids are case-insensitive. -->
         <AssemblyName>twinelike</AssemblyName>
-        <DefaultItemExcludes>$(DefaultItemExcludes);HarloweParser.Tests\**</DefaultItemExcludes>
+        <DefaultItemExcludes>$(DefaultItemExcludes);HarloweParser.Tests\**;tools\**</DefaultItemExcludes>
         <LangVersion>latest</LangVersion>
         <!-- Required for ILRepack: copies transitive deps (HtmlAgilityPack)
              into the output folder so the merge target can find them. -->
         <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+        <!-- twinelike.xml ships beside the DLL so hosts get the doc comments in
+             their IDE. CS1591 (public member without a comment) is off because
+             most public types are internals the host never touches. -->
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <NoWarn>$(NoWarn);CS1591</NoWarn>
     </PropertyGroup>
 
     <!-- NuGet package metadata. Run `dotnet pack -c Release` to produce a .nupkg. -->

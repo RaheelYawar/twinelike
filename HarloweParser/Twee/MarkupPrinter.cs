@@ -14,8 +14,8 @@ namespace Harlowe.Twee
   /// also useful as a debugging aid for inspecting an AST in source form.
   ///
   /// <para><b>Round-trip property.</b> For any AST produced by
-  /// <see cref="HarloweParser.Parsing.HarloweBodyParser"/> /
-  /// <see cref="HarloweParser.Parsing.HarloweExpressionParser"/>, the output
+  /// <see cref="HarloweBodyParser"/> /
+  /// <see cref="HarloweExpressionParser"/>, the output
   /// of this printer parses back to an equivalent AST. The output is
   /// canonical (no insignificant whitespace, no original formatting), not
   /// byte-identical to the source — that's what
@@ -566,7 +566,7 @@ namespace Harlowe.Twee
 
     /// <summary>
     /// Emit a string literal as a double-quoted, backslash-escaped Harlowe
-    /// string. Round-trips through <see cref="HarloweTokenizer"/> because the
+    /// string. Round-trips through <see cref="Harlowe.Tokens.HarloweTokenizer"/> because the
     /// tokenizer's escape decoder reverses every sequence we produce here.
     /// <c>\</c> and <c>"</c> get backslash escapes; <c>\n</c>/<c>\r</c>/
     /// <c>\t</c> become their named escapes so the emitted source stays on a
@@ -579,7 +579,7 @@ namespace Harlowe.Twee
     /// <summary>
     /// The standalone, instance-free form of <see cref="AppendStringLiteral"/>: a
     /// double-quoted, backslash-escaped Harlowe string literal for an arbitrary
-    /// value. Used by <see cref="HarloweValue.ToSource"/> to serialise string values
+    /// value. Used by <see cref="HarloweValue.ToSource()"/> to serialise string values
     /// (and datamap keys) round-trippably without an AST node or a printer instance.
     /// </summary>
     public static string StringLiteral(string s)

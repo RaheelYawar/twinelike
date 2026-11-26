@@ -129,7 +129,6 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
-    /// <summary>
     /// The values of a dataset grouped by content hash, for <c>is</c> to search
     /// without comparing every pair.
     /// </summary>

@@ -43,7 +43,7 @@ namespace Harlowe.Runtime
     public HarloweProfile Profile = HarloweProfile.V3;
 
     /// <summary>
-    /// Renders the named passage into <paramref name="output"/>. Returns
+    /// Renders the named passage into the given output. Returns
     /// <see cref="HarloweValue.OfString(string)"/> with an empty payload on
     /// success, or an <see cref="HarloweValueKind.Error"/> value if the
     /// passage doesn't exist. Set by <see cref="StorySession"/> before each

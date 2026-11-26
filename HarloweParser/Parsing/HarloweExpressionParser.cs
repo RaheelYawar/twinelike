@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Harlowe.Ast.Expression;
@@ -13,7 +12,7 @@ namespace Harlowe.Parsing
   /// appendix; in that table <em>lower</em> order numbers bind tighter, so
   /// order 1 (grouping) is the innermost and order 16 (<c>to</c>/<c>into</c>)
   /// is the outermost binary level. Order 17 (the comma) is not handled here —
-  /// it is the macro-argument separator owned by <see cref="ParseArgumentList"/>.
+  /// it is the macro-argument separator owned by <see cref="ParseArgumentList(TokenCursor)"/>.
   ///
   /// <para>
   /// All binary operators are treated as left-associative. <c>and</c> and
@@ -81,7 +80,7 @@ namespace Harlowe.Parsing
     /// which makes the two operators produce mirror-image trees with the
     /// same evaluated value.
     /// </summary>
-    public static readonly HashSet<string> RightAssociativeOps = new HashSet<string>
+    internal static readonly HashSet<string> RightAssociativeOps = new HashSet<string>
     {
       "of",
     };

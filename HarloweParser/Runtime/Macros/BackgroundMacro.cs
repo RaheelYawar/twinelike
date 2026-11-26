@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Harlowe.Runtime.Macros
@@ -125,10 +126,10 @@ namespace Harlowe.Runtime.Macros
     private static bool LooksLikeGradient(string s)
     {
       var lower = s.ToLowerInvariant();
-      if (lower.StartsWith("repeating-")) lower = lower.Substring("repeating-".Length);
-      return lower.StartsWith("linear-gradient(")
-          || lower.StartsWith("radial-gradient(")
-          || lower.StartsWith("conic-gradient(");
+      if (lower.StartsWith("repeating-", StringComparison.Ordinal)) lower = lower.Substring("repeating-".Length);
+      return lower.StartsWith("linear-gradient(", StringComparison.Ordinal)
+          || lower.StartsWith("radial-gradient(", StringComparison.Ordinal)
+          || lower.StartsWith("conic-gradient(", StringComparison.Ordinal);
     }
 
     /// <summary>

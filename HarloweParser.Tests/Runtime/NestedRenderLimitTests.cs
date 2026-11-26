@@ -44,6 +44,27 @@ namespace Harlowe.Tests.Runtime
       return result;
     }
 
+    [Fact]
+    public void ShowingThousandsOfHooks_IsChargedPerHook()
+    {
+      // Found by fuzzing. The page prints itself, so it holds thousands of
+      // hidden ?a hooks and 'go' links, and each hook a click reveals cost a
+      // search of the whole page: the first click took half a minute, the next
+      // longer. Charged per hook, the click stops at the page-search budget.
+      var session = new StorySession(Story(("Start", "(for: each _i, 1, 2)[|a)[_i](print: (passage:)'s source)(link: 'go')[(show: ?a)]]")));
+      RenderResult result = null;
+      var thread = new Thread(() =>
+      {
+        result = session.Render();
+        foreach (var entry in result.Entries)
+          if (entry.Kind == BufferedRenderOutput.Kind.BeginInteractive) { result = session.DispatchEvent(entry.Region.Id); break; }
+      }, 16 * 1024 * 1024) { IsBackground = true };
+      thread.Start();
+      Assert.True(thread.Join(20000), "the click did not finish");
+
+      Assert.Contains("too much nested content", Errors(result));
+    }
+
     [Theory]
     [InlineData("a(display: \"Start\")(display: \"Start\")")]
     [InlineData("(display: \"Start\")(display: \"Start\")(display: \"Start\")")]

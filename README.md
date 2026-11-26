@@ -38,6 +38,11 @@ var next = session.Goto("Forest");
 // Or, they clicked an interactive region — pass the id back:
 var after = session.DispatchEvent(regionIdFromYourUi);
 
+// Every frame, move the story's clock on. (live:), (after:) and `time` only
+// advance here. A non-null result means a timed hook changed the page.
+var ticked = session.Tick(deltaMilliseconds);
+if (ticked != null) Redraw(ticked);
+
 // Roll back to the previous passage:
 if (session.Undo()) {
   session.Render();
@@ -45,6 +50,8 @@ if (session.Undo()) {
 ```
 
 `RenderResult` carries the rendered content as both a flat `.Text` string and a list of typed `.Entries` (Text, Link, PushStyle, BeginInteractive, …). Walk the entries in your engine's renderer, or call `result.ReplayTo(output)` to stream them through an adapter implementing the `IRenderOutput` interface below.
+
+Use a session from one thread at a time. Sessions share no mutable state, so separate sessions can run on separate threads, even over one `HarloweStory`, as long as nothing edits that story while they play.
 
 ## Engine integration
 
@@ -56,8 +63,11 @@ public interface IRenderOutput
   // Prose text — already entity-decoded, post-macro evaluation.
   void Text(string content);
 
-  // Raw author-written inline HTML (e.g. <b>hello</b>). Drop, escape,
-  // or pass through depending on whether your engine wants HTML at all.
+  // Raw HTML: what the author wrote inline (e.g. <b>hello</b>), plus the
+  // structure the library emits itself — <hr> for ---, and <ul>/<ol>/<li>
+  // for lists, one tag per event. Pass author HTML through, escape or drop
+  // it, but map the structural tags to line breaks and bullets, or list
+  // items run together.
   void Html(string rawHtml);
 
   // A passage navigation link. Wire your UI's click handler to
@@ -143,7 +153,7 @@ foreach (var turn in session.GetTimeline())  // oldest first, ending with the pr
   Console.WriteLine($"{turn.PassageName}: {turn.TurnData}");
 ```
 
-A save that carries turn data is written as save-blob version 2. A session that never sets it writes exactly the same blobs as before, so builds without the feature can still load them.
+A save blob is stamped with the lowest format version that can represent it, so a session that never sets turn data writes blobs that builds without the feature can still load.
 
 ## Supported Harlowe features
 
@@ -161,7 +171,7 @@ A story keeps the semantics of the Harlowe major it declares. `format-version` s
 | Property access (`'s`, `of`, `its`) | ✓ |
 | Ordinal indexing (`1st`, `last`, `Nthlast`) | ✓ |
 | Hooks: anonymous `[…]`, `\|name>[…]`, `[…]<name\|`, unclosed `[=` | ✓ |
-| Twine links: `[[text->target]]`, `[[target<-text]]`, bare `[[name]]` | ✓ |
+| Twine links: `[[text->target]]`, `[[text\|target]]`, `[[target<-text]]`, bare `[[name]]` | ✓ |
 | Inline text styling: `''bold''`, `//italic//`, `~~strike~~`, `^^sup^^`, `*em*`, `**strong**` | ✓ |
 | Verbatim text in backticks, horizontal rules (`---`) | ✓ |
 | Bulleted and numbered lists (`* item`, `0. item`), sent as `Html` events | ✓ |
@@ -240,7 +250,7 @@ The Clearing
 {
   "ifid": "00000000-0000-0000-0000-000000000001",
   "format": "Harlowe",
-  "format-version": "3.3.8",
+  "format-version": "3.3.9",
   "start": "Clearing"
 }
 
@@ -271,7 +281,7 @@ dotnet build Twinelike.sln
 dotnet test  Twinelike.sln
 ```
 
-Library targets `netstandard2.0`. Test project multi-targets `net48` + `net8.0` (xUnit). Both TFMs exercise the same code; CI runs `net8.0` on Linux.
+Library targets `netstandard2.0`. Test project multi-targets `net48` + `net8.0` (xUnit). Both TFMs exercise the same code; CI runs `net8.0` on Linux. `node tools/bench/verify.mjs` compares the runtime with real Harlowe 3.3.9 over the recorded cases (see [`tools/README.md`](https://github.com/RaheelYawar/twinelike/blob/main/tools/README.md)).
 
 To produce the distributable DLL:
 
@@ -279,7 +289,8 @@ To produce the distributable DLL:
 # Release build merges HtmlAgilityPack into twinelike.dll via ILRepack
 # (Debug builds skip the merge for fast dev cycles).
 dotnet build Twinelike.sln -c Release
-# → bin/Release/netstandard2.0/twinelike.dll  (self-contained, ~270 KB)
+# → bin/Release/netstandard2.0/twinelike.dll  (self-contained, ~480 KB)
+#   and twinelike.xml, the doc comments for your IDE
 
 # Or for a clean publish folder:
 dotnet publish Twinelike.csproj -c Release -o ./dist/Twinelike
@@ -287,10 +298,10 @@ dotnet publish Twinelike.csproj -c Release -o ./dist/Twinelike
 
 # Or for the NuGet package:
 dotnet pack Twinelike.csproj -c Release -o ./dist
-# → dist/Twinelike.0.2.0.nupkg
+# → dist/Twinelike.<version>.nupkg
 ```
 
-Drop the produced `twinelike.dll` into Unity's `Assets/Plugins/` or reference it from any .NET project — no other DLLs required.
+Drop the produced `twinelike.dll` into Unity's `Assets/Plugins/` or reference it from any .NET project — no other DLLs required. Put `twinelike.xml` beside it to get the doc comments in your IDE.
 
 ## Architecture
 
@@ -300,7 +311,7 @@ Two parsing layers, then a runtime. Briefly:
 - **Layer 2 — Harlowe markup.** Shared between both front-ends: `HarloweTokenizer` → `HarloweBodyParser` (which hands off to `HarloweExpressionParser` at every macro) → `PassageBody` AST.
 - **Runtime.** `StorySession` owns the variable store, macro registry, and render-tree state. `BodyRenderer` walks an AST into a `RenderTreeBuilder` (an `IRenderOutput`-shaped tree-of-nodes); `RenderTreeFlusher` replays the finished tree as the flat event stream your `IRenderOutput` receives. Revision macros (`(replace:)`, `(append:)`, `(prepend:)`) mutate the tree in place; enchantment macros (`(change:)`, `(enchant:)`) re-wrap matched nodes; interaction macros (`(click:)` family) wrap targets in `InteractiveRegion` brackets and register handlers that fire on `DispatchEvent`.
 
-For implementation depth — file layout, the descriptor-patch changer model, design rationale, conventions — see [`CLAUDE.md`](https://github.com/RaheelYawar/twinelike/blob/main/CLAUDE.md).
+For implementation depth — file layout, the descriptor-patch changer model, design rationale, conventions — see [`ARCHITECTURE.md`](https://github.com/RaheelYawar/twinelike/blob/main/ARCHITECTURE.md).
 
 ## Dependencies
 
@@ -309,6 +320,8 @@ None at runtime. The shipped `twinelike.dll` is a single self-contained assembly
 ## Errors are inline, not exceptional
 
 The runtime never throws on the render hot path. A bad expression renders an inline error message at the spot it happened (delivered through `IRenderOutput.Error`) and the rest of the passage keeps rendering — mirroring Harlowe's authoring model, where one broken macro doesn't take down the whole story. Engine integrations don't need `try`/`catch` around every render call.
+
+Loading is the one place that throws, and only when the file as a whole is unusable: `new HarloweStory(html)` throws `HarloweParseException` when there's no `<tw-storydata>` element or a passage has no `name` or `pid`, both loaders throw it when two passages share a name (or, in HTML, a pid), and `TweeReader` throws it when `:: StoryData` isn't a JSON object. A passage whose markup doesn't parse never throws.
 
 ### Catching problems before the player does
 

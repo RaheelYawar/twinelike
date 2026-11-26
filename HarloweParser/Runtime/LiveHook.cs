@@ -10,7 +10,7 @@ namespace Harlowe.Runtime
   /// renders it once the delay has passed, replacing what it showed, and starts
   /// again, until a render runs <c>(stop:)</c>. An <c>(after:)</c> hook has no
   /// count: each frame it checks <c>time</c> and renders once. Here each
-  /// <see cref="StorySession.Tick"/> is a frame.
+  /// <see cref="StorySession.Tick(double)"/> is a frame.
   /// </summary>
   internal sealed class LiveHook
   {

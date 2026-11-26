@@ -40,14 +40,14 @@ namespace Harlowe.Runtime
 
     /// <summary>
     /// What a <c>(live:)</c> or <c>(after:)</c> changer asks for. The hook
-    /// doesn't show when it's written, and <see cref="StorySession.Tick"/>
+    /// doesn't show when it's written, and <see cref="StorySession.Tick(double)"/>
     /// renders it later. Null for an ordinary hook.
     /// </summary>
     public LiveSpec Live;
 
     /// <summary>
     /// When set, the renderer iterates the hook contents once per item,
-    /// binding <see cref="IterationParamName"/> (and the <c>it</c> slot) to
+    /// binding <see cref="IterationSpec.ParamName"/> (and the <c>it</c> slot) to
     /// each item in turn. Null for non-loop changers.
     /// </summary>
     public IterationSpec Iteration;
@@ -68,7 +68,7 @@ namespace Harlowe.Runtime
     /// <summary>
     /// When set, the changer is an interaction changer (<c>(click:)</c>,
     /// <c>(mouseover-append:)</c>, etc.): the renderer wraps the targeted
-    /// nodes' content in a <see cref="RenderInteractiveNode"/> and registers a
+    /// nodes' content in a <see cref="Rendering.RenderInteractiveNode"/> and registers a
     /// deferred handler that the session fires on
     /// <see cref="StorySession.DispatchEvent"/>. Null for ordinary changers.
     /// </summary>

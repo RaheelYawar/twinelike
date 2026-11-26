@@ -89,9 +89,13 @@ namespace Harlowe.Runtime.Macros
       }
     }
 
-    /// <summary>Renders one hidden hook into its node. False when the nested-render limits refused it.</summary>
+    /// <summary>Renders one hidden hook into its node. False when the nested-render or page-search limits refused it.</summary>
     private static bool RevealHook(RenderHookNode hook, List<RenderNode> roots, List<StyleSpec> styles, MacroContext context, IRenderOutput output)
     {
+      // Finding where the hook sits searches the page, once per hook revealed,
+      // so it's charged like any other search. Uncharged, a (show:) of thousands
+      // of hooks on a page that printed itself ran for minutes.
+      if (!HookArgs.SpendOnWalk(roots, context, output)) return false;
       var content = hook.Hidden;
       var refusal = context.EnterCustomMacro(content.Cost);
       if (refusal != NestedRenderRefusal.None)

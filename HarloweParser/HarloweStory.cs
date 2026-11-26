@@ -95,6 +95,12 @@ namespace Harlowe
     /// <see cref="HarlowePassage.Ast"/> tree; <see cref="HarlowePassage.Body"/>
     /// and <see cref="HarlowePassage.Branches"/> are derived views over the AST.
     /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="htmlText"/> is null.</exception>
+    /// <exception cref="HarloweParseException">The HTML has no
+    /// <c>&lt;tw-storydata&gt;</c> element, a <c>&lt;tw-passagedata&gt;</c> has
+    /// no <c>name</c> or <c>pid</c>, or two passages share a name or pid. A
+    /// passage whose markup doesn't parse never throws; it renders an in-prose
+    /// error.</exception>
     public HarloweStory(string htmlText) : this(htmlText, null) { }
 
     /// <summary>
@@ -108,8 +114,14 @@ namespace Harlowe
     /// caller could assign the property, every passage body has been
     /// tokenized. This is the only entry point that can affect them.</para>
     /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="htmlText"/> is null.</exception>
+    /// <exception cref="HarloweParseException">The HTML has no
+    /// <c>&lt;tw-storydata&gt;</c> element, a <c>&lt;tw-passagedata&gt;</c> has
+    /// no <c>name</c> or <c>pid</c>, or two passages share a name or pid.</exception>
     public HarloweStory(string htmlText, HarloweProfile profile)
     {
+      if (htmlText == null) throw new ArgumentNullException(nameof(htmlText));
+
       // Before any parsing: Parse() lexes passage bodies under Profile, and a
       // lexical switch cannot be applied retroactively.
       _profileOverride = profile;
@@ -176,16 +188,24 @@ namespace Harlowe
     /// <see cref="HarlowePassage.RawBody"/>, one and the same string) is left
     /// untouched so it round-trips intact.</para>
     /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="passage"/> is null.</exception>
+    /// <exception cref="ArgumentException">The passage has no name, or its
+    /// name or pid is already taken. The passage is left unchanged.</exception>
     public void AddPassage(HarlowePassage passage)
     {
       if (passage == null) throw new ArgumentNullException(nameof(passage));
+      if (passage.Name == null)
+        throw new ArgumentException("the passage has no name", nameof(passage));
+      if (_passages.ContainsKey(passage.Name))
+        throw new ArgumentException(
+          $"a passage named '{passage.Name}' already exists", nameof(passage));
       if (string.IsNullOrEmpty(passage.Pid))
         passage.Pid = NextAvailablePid().ToString(CultureInfo.InvariantCulture);
       else if (GetPassageByPid(passage.Pid) != null)
         throw new ArgumentException(
           $"a passage with pid '{passage.Pid}' already exists", nameof(passage));
       HydratePassageFromBody(passage);
-      _passages.Add(passage.Name, passage); // throws on duplicate name; list stays clean
+      _passages.Add(passage.Name, passage);
       _passageOrder.Add(passage.Name);
       passage.Story = this;
     }
@@ -792,7 +812,7 @@ namespace Harlowe
     /// Walks every <c>&lt;tw-passagedata&gt;</c> node, runs its inner HTML
     /// through entity decoding → tokenizer → body parser, and indexes the
     /// resulting <see cref="HarlowePassage"/> by name. <see cref="HarlowePassage.Branches"/>
-    /// is filled by collecting every <see cref="LinkNode"/> in the AST;
+    /// is filled by collecting every <see cref="Harlowe.Ast.Body.LinkNode"/> in the AST;
     /// <see cref="HarlowePassage.RawBody"/> holds the raw author source.
     ///
     /// <para>Null/missing structural pieces — no passages at all, a passage

@@ -1692,7 +1692,7 @@ namespace Harlowe.Runtime
     /// <summary>
     /// Stamp a freshly-created Changer with the Harlowe source that built it —
     /// <c>(name:arg-source,…)</c> from the call node's name and each <em>evaluated</em>
-    /// argument's <see cref="HarloweValue.ToSource"/> (reference's resolved
+    /// argument's <see cref="HarloweValue.ToSource()"/> (reference's resolved
     /// <c>params</c>). Mirrors reference's changer <c>macroName</c>+<c>params</c> →
     /// <c>TwineScript_ToSource</c>, which stamps at <em>creation</em> only: a macro can
     /// also <em>return</em> a changer it was handed — <c>(either: $a, $b)</c> — and

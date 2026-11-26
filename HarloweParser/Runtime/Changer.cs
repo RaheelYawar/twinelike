@@ -24,7 +24,7 @@ namespace Harlowe.Runtime
   /// <see cref="HtmlRenderOutput"/> for the HTML mapping.</para>
   ///
   /// <para>Changers stay opaque values — they don't render visibly on their
-  /// own. <see cref="HarloweValue.ToHarloweString"/> prints them as
+  /// own. <see cref="HarloweValue.ToHarloweString()"/> prints them as
   /// <c>[A (text-style:) changer]</c>, mirroring reference's
   /// <c>print()</c> in <c>ts/datatypes/changer.ts</c>.</para>
   /// </summary>
@@ -39,7 +39,7 @@ namespace Harlowe.Runtime
     /// sites (reference keeps <c>macroName</c>+<c>params</c> and regenerates source the
     /// same way in <c>changer.ts</c>'s <c>TwineScript_ToSource</c>). Travels with the
     /// value, so a changer read back from a <c>$var</c> keeps its creation-time source —
-    /// which is how <see cref="HarloweValue.ToSource"/> serialises it. Null when
+    /// which is how <see cref="HarloweValue.ToSource()"/> serialises it. Null when
     /// unstamped or composed from an unstamped operand: such a changer has no source
     /// form and can't be saved (the save fails loudly).
     /// </summary>
@@ -629,7 +629,7 @@ namespace Harlowe.Runtime
     /// <see cref="ApplyTo(IRenderContainer, Enchantment)"/>; a
     /// <see cref="RenderLinkNode"/> matched by <c>?link</c> — a container too,
     /// but one whose element the host renders — is wrapped <em>node-and-all</em>
-    /// in place within <paramref name="root"/> via <see cref="ApplyToNode"/>,
+    /// in place within <paramref name="root"/> via <see cref="ApplyToNode(IRenderContainer, RenderNode, Enchantment)"/>,
     /// keeping the style layer around the link the way reference wraps
     /// <c>&lt;tw-enchantment&gt;</c> around <c>&lt;tw-link&gt;</c> (and the flat
     /// <see cref="IRenderOutput.Link"/> event intact inside it). Lets
@@ -706,7 +706,7 @@ namespace Harlowe.Runtime
       }
     }
 
-    /// <summary>Build the descriptor and return its style layers — the shared front of <see cref="ApplyTo"/> / <see cref="ApplyToNode"/>, also read by <see cref="InteractionPass"/> for armed-region styling. Empty when a composed conditional disabled the descriptor, so <c>(change: ?x, (if: false) + (colour: red))</c> applies nothing.</summary>
+    /// <summary>Build the descriptor and return its style layers — the shared front of <see cref="ApplyTo"/> / <see cref="ApplyToNode(IRenderContainer, RenderNode, Enchantment)"/>, also read by <see cref="InteractionPass"/> for armed-region styling. Empty when a composed conditional disabled the descriptor, so <c>(change: ?x, (if: false) + (colour: red))</c> applies nothing.</summary>
     internal List<StyleSpec> GetStyleLayers() => BuildStyles();
 
     private List<StyleSpec> BuildStyles(bool aroundLink = false)
