@@ -37,6 +37,14 @@ namespace Harlowe.Parsing
     // rest of the sibling list.
     private UnclosedHookMarker _pendingUnclosedHook;
 
+    // Whether this level's current line began with a list marker, and how many
+    // inline formats and `{…}` spans opened since that marker are still open. A
+    // line break there ends the item, so hook attachment can't look past it,
+    // unless the macro sits inside one of those spans, which the line break
+    // belongs to instead.
+    private bool _onItemLine;
+    private int _itemSpans;
+
     public HarloweBodyParser() : this(new HarloweExpressionParser()) { }
 
     public HarloweBodyParser(IExpressionParser expressionParser)
@@ -147,6 +155,19 @@ namespace Harlowe.Parsing
     /// </summary>
     private List<IBodyNode> ParseNodes(TokenCursor cursor, TokenType? terminator)
     {
+      // Each level has its own lines: a hook's content starts on no item line.
+      bool onItemLine = _onItemLine;
+      int itemSpans = _itemSpans;
+      _onItemLine = false;
+      _itemSpans = 0;
+      var nodes = ParseLevel(cursor, terminator);
+      _onItemLine = onItemLine;
+      _itemSpans = itemSpans;
+      return nodes;
+    }
+
+    private List<IBodyNode> ParseLevel(TokenCursor cursor, TokenType? terminator)
+    {
       var nodes = new List<IBodyNode>();
       while (!cursor.IsAtEnd && !AtTerminator(cursor, terminator))
       {
@@ -168,14 +189,17 @@ namespace Harlowe.Parsing
           _pendingUnclosedHook = null;
           bool advanced = TryAdvanceToResumePoint(
             cursor, terminator, cursor.NetMacroDepthSince(startIndex));
-          nodes.Add(new ParseErrorNode
+          var error = new ParseErrorNode
           {
             Message = $"parse error{SourcePosition.AtClause(ex.Line, ex.Column)}: {ex.RawMessage ?? ex.Message}",
             Detail = ex.RawMessage ?? ex.Message,
             Line = ex.Line,
             Column = ex.Column,
             OriginalSource = cursor.SliceFrom(startPos),
-          });
+          };
+          nodes.Add(error);
+          // The resync may have taken the line break with it.
+          if (EndsWithLineBreak(error.OriginalSource)) _onItemLine = false;
           if (!advanced) break;
           // The resync may resume at an unconsumed MacroOpen; termination
           // then rests on ParseNode having consumed at least one token
@@ -186,6 +210,7 @@ namespace Harlowe.Parsing
           continue;
         }
         if (node != null) nodes.Add(node);
+        if (node is CommentNode comment && EndsWithLineBreak(comment.OriginalSource)) _onItemLine = false;
         if (_pendingUnclosedHook != null)
         {
           nodes.Add(_pendingUnclosedHook);
@@ -211,7 +236,7 @@ namespace Harlowe.Parsing
       bool hasMarker = false;
       for (int i = 0; i < nodes.Count; i++)
         if (nodes[i] is FormatDelimiterMarker || nodes[i] is CollapseMarker
-            || nodes[i] is UnclosedCollapseMarker || nodes[i] is UnclosedHookMarker)
+            || nodes[i] is UnclosedCollapseMarker || nodes[i] is UnclosedHookMarker || nodes[i] is ListMarker)
         { hasMarker = true; break; }
       if (!hasMarker) return nodes;
 
@@ -259,8 +284,103 @@ namespace Harlowe.Parsing
 
       // Whatever is still open never closed — degrade each to literal text.
       while (stack.Count > 1) FlattenAsLiteral(stack);
-      return ApplyUnclosedMarkers(root.Children);
+      return ApplyUnclosedMarkers(FoldLists(root.Children));
     }
+
+    /// <summary>
+    /// Gathers list markers and what follows them into <see cref="ListNode"/>s,
+    /// as reference's renderer marches through one token level after its lexer
+    /// has folded the paired spans. So a span crossing an item's line break
+    /// stays whole in that item, and grouping runs again inside each span.
+    /// <list type="bullet">
+    /// <item>An item runs to the next line break at its level, which the list
+    /// consumes, or to the next marker of its kind, which starts an item with
+    /// no line break before it.</item>
+    /// <item>After the line break, a marker of the same kind continues the
+    /// list. Anything else ends it.</item>
+    /// <item>A marker of the other kind inside an item is a list of its own,
+    /// with one empty item: reference renders that token alone.</item>
+    /// </list>
+    /// </summary>
+    private static List<IBodyNode> FoldLists(List<IBodyNode> nodes)
+    {
+      List<IBodyNode> result = null;
+      for (int i = 0; i < nodes.Count; i++)
+      {
+        var node = nodes[i];
+        FoldListsInside(node);
+        if (!(node is ListMarker marker))
+        {
+          result?.Add(node);
+          continue;
+        }
+
+        if (result == null) result = nodes.GetRange(0, i);
+        var list = new ListNode { Ordered = marker.Ordered, Items = new List<ListItemNode>() };
+        var item = marker.StartItem();
+        list.Items.Add(item);
+        for (i++; i < nodes.Count; i++)
+        {
+          var next = nodes[i];
+          FoldListsInside(next);
+          if (next is ListMarker other)
+          {
+            if (other.Ordered == list.Ordered)
+            {
+              item = other.StartItem();
+              list.Items.Add(item);
+            }
+            else
+            {
+              item.Children.Add(new ListNode { Ordered = other.Ordered, Items = new List<ListItemNode> { other.StartItem() } });
+            }
+            continue;
+          }
+
+          bool ends = next is NewlineNode;
+          if (ends) item.EndsLine = true;
+          else
+          {
+            item.Children.Add(next);
+            ends = EndsWithLineBreak(next);
+          }
+          if (!ends) continue;
+
+          if (i + 1 < nodes.Count && nodes[i + 1] is ListMarker following && following.Ordered == list.Ordered)
+          {
+            i++;
+            item = following.StartItem();
+            list.Items.Add(item);
+            continue;
+          }
+          break;
+        }
+        result.Add(list);
+      }
+      return result ?? nodes;
+    }
+
+    /// <summary>Groups lists inside a span the formatting fold built at this level.</summary>
+    private static void FoldListsInside(IBodyNode node)
+    {
+      if (node is FormatNode format) format.Children = FoldLists(format.Children);
+      else if (node is CollapsedNode collapsed) collapsed.Children = FoldLists(collapsed.Children);
+    }
+
+    /// <summary>
+    /// True for a node that took the line break after it: a parse error whose
+    /// recovery resynchronised past it, or a comment that eliminated it. In a
+    /// list item, either ends the item where the line break would have.
+    /// </summary>
+    private static bool EndsWithLineBreak(IBodyNode node)
+    {
+      if (node is ParseErrorNode error) return EndsWithLineBreak(error.OriginalSource);
+      if (node is CommentNode comment) return EndsWithLineBreak(comment.OriginalSource);
+      return false;
+    }
+
+    private static bool EndsWithLineBreak(string source)
+      => !string.IsNullOrEmpty(source) && source[source.Length - 1] == '\n';
 
     /// <summary>
     /// Handles one <c>{</c> or <c>}</c> during the fold. An opener starts a
@@ -312,6 +432,10 @@ namespace Harlowe.Parsing
           case CollapsedNode collapsed:
             collapsed.Children = ApplyUnclosedMarkers(collapsed.Children);
             break;
+          case ListNode list:
+            for (int k = 0; k < list.Items.Count; k++)
+              list.Items[k].Children = EmptyUnclosedMarkers(list.Items[k].Children);
+            break;
           case UnclosedCollapseMarker marker:
           {
             var result = nodes.GetRange(0, i);
@@ -332,6 +456,33 @@ namespace Harlowe.Parsing
         }
       }
       return nodes;
+    }
+
+    /// <summary>
+    /// A list item's own unclosed <c>{=</c> and <c>[=</c> markers hold nothing:
+    /// reference's list march renders each of the item's tokens alone, so the
+    /// marker's "rest of the tokens" is empty, and the rest of the item stays
+    /// the item's, shown and uncollapsed. Spans inside the item fold as usual.
+    /// </summary>
+    private static List<IBodyNode> EmptyUnclosedMarkers(List<IBodyNode> nodes)
+    {
+      var result = new List<IBodyNode>(nodes.Count);
+      for (int i = 0; i < nodes.Count; i++)
+      {
+        switch (nodes[i])
+        {
+          case UnclosedCollapseMarker marker:
+            result.Add(new CollapsedNode { UnclosedMarker = marker.Source, Children = new List<IBodyNode>() });
+            break;
+          case UnclosedHookMarker hookMarker:
+            if (!hookMarker.IsAttached) result.Add(hookMarker.Hook);
+            break;
+          default:
+            result.Add(nodes[i]);
+            break;
+        }
+      }
+      return ApplyUnclosedMarkers(result);
     }
 
     /// <summary>
@@ -366,6 +517,34 @@ namespace Harlowe.Parsing
       public void Accept(IBodyVisitor visitor) =>
         throw new System.InvalidOperationException(
           "collapse marker should have been folded away during parsing");
+    }
+
+    /// <summary>Transient stand-in for a list marker between parsing and <see cref="FoldLists"/>. Never survives a <see cref="ParseNodes"/> call.</summary>
+    private sealed class ListMarker : IBodyNode
+    {
+      public string Source;
+      public bool Ordered;
+      public int Depth;
+
+      /// <summary>Reads a marker as written: <c>*</c>s, or <c>0.</c>s, with whitespace around them.</summary>
+      public static ListMarker From(string source)
+      {
+        int at = 0;
+        while (at < source.Length && source[at] != '*' && source[at] != '0') at++;
+        bool ordered = at < source.Length && source[at] == '0';
+        int depth = 0;
+        if (ordered)
+          for (; at + 1 < source.Length && source[at] == '0' && source[at + 1] == '.'; at += 2) depth++;
+        else
+          for (; at < source.Length && source[at] == '*'; at++) depth++;
+        return new ListMarker { Source = source, Ordered = ordered, Depth = depth };
+      }
+
+      public ListItemNode StartItem() => new ListItemNode { Depth = Depth, Marker = Source, Children = new List<IBodyNode>() };
+
+      public void Accept(IBodyVisitor visitor) =>
+        throw new System.InvalidOperationException(
+          "list marker should have been folded away during parsing");
     }
 
     /// <summary>Transient stand-in for a <c>{=</c> between parsing and <see cref="ApplyUnclosedMarkers"/>. Never survives a <see cref="ParseNodes"/> call.</summary>
@@ -481,7 +660,14 @@ namespace Harlowe.Parsing
 
         case TokenType.Newline:
           cursor.Advance();
+          _onItemLine = false;
           return new NewlineNode();
+
+        case TokenType.ListMarker:
+          cursor.Advance();
+          _onItemLine = true;
+          _itemSpans = 0;
+          return ListMarker.From(t.Value);
 
         case TokenType.Variable:
           return ParseVariable(cursor, isTemporary: false);
@@ -514,6 +700,7 @@ namespace Harlowe.Parsing
           // FormatNode once the whole sibling list at this level is built.
           cursor.Advance();
           if (t.Partner < 0) return new TextNode { Content = t.Value };
+          CountItemSpan(t, cursor.Index - 1);
           return new FormatDelimiterMarker { Kind = InlineFormats.FromDelimiter(t.Value) };
 
         case TokenType.CollapseOpen:
@@ -523,12 +710,14 @@ namespace Harlowe.Parsing
           cursor.Advance();
           if (t.Partner < 0 || AtNestingLimit) return new TextNode { Content = "{" };
           _levelBraces++;
+          CountItemSpan(t, cursor.Index - 1);
           return new CollapseMarker { IsOpener = true };
 
         case TokenType.CollapseClose:
           cursor.Advance();
           if (t.Partner < 0) return new TextNode { Content = "}" };
           if (_levelBraces > 0) _levelBraces--;
+          CountItemSpan(t, cursor.Index - 1);
           return new CollapseMarker { IsOpener = false };
 
         case TokenType.CollapseUnclosed:
@@ -815,7 +1004,7 @@ namespace Harlowe.Parsing
     /// </summary>
     private void AttachOptionalHook(TokenCursor cursor, System.Action<HookNode, string> setHook)
     {
-      int offset = SkipBodyWhitespace(cursor);
+      int offset = SkipBodyWhitespace(cursor, stopAtLineBreak: _onItemLine && _itemSpans == 0);
       string gap = WhitespaceText(cursor, offset);
       if (TryAttachUnclosedHook(cursor, offset, out var unclosed))
       {
@@ -825,6 +1014,19 @@ namespace Harlowe.Parsing
       if (!IsHookAt(cursor, offset)) return;
       for (int i = 0; i <= offset; i++) cursor.Advance();
       setHook(ParseHookContents(cursor, HookAnchor.None, name: null), gap);
+    }
+
+    /// <summary>
+    /// Counts the inline formats and <c>{…}</c> spans opened since this line's
+    /// list marker and not yet closed. A paired token at <paramref name="index"/>
+    /// opens when its partner comes later. One closing a span opened before the
+    /// marker changes nothing, since the item is inside that span.
+    /// </summary>
+    private void CountItemSpan(Token t, int index)
+    {
+      if (!_onItemLine) return;
+      if (t.Partner > index) _itemSpans++;
+      else if (_itemSpans > 0) _itemSpans--;
     }
 
     /// <summary>The text of the next <paramref name="count"/> whitespace tokens, or null for none.</summary>
@@ -840,15 +1042,17 @@ namespace Harlowe.Parsing
     /// Peeks ahead past any pure-whitespace <see cref="TokenType.Text"/> tokens
     /// and <see cref="TokenType.Newline"/> tokens, returning the count. The
     /// cursor is not moved. Used to allow whitespace between a macro and its
-    /// attached hook (<c>(if: $x) [hi]</c> attaches even with the space).
+    /// attached hook (<c>(if: $x) [hi]</c> attaches even with the space). With
+    /// <paramref name="stopAtLineBreak"/>, the line break that ends a list item
+    /// stops it, as reference's renderer closes the item there.
     /// </summary>
-    private static int SkipBodyWhitespace(TokenCursor cursor)
+    private static int SkipBodyWhitespace(TokenCursor cursor, bool stopAtLineBreak)
     {
       int offset = 0;
       while (true)
       {
         var t = cursor.Peek(offset);
-        if (t.Type == TokenType.Newline) { offset++; continue; }
+        if (t.Type == TokenType.Newline && !stopAtLineBreak) { offset++; continue; }
         if (t.Type == TokenType.Text && string.IsNullOrWhiteSpace(t.Value)) { offset++; continue; }
         break;
       }

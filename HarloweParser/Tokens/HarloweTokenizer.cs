@@ -23,10 +23,6 @@ namespace Harlowe.Tokens
     private bool _inLink;
     private MarkupFronts _fronts;
 
-    // Source position right after a bullet. Block markup may follow a bullet on
-    // the same line, as it may follow a line break. A position, not a token
-    // count, because closing a verbatim span removes tokens.
-    private int _blockStartPos;
     private bool _hasVerbatim;
 
     private readonly HarloweProfile _profile;
@@ -94,7 +90,6 @@ namespace Harlowe.Tokens
       _modes.Push(new Frame { Mode = TokenizerMode.Body });
       _inLink = false;
       _fronts = new MarkupFronts();
-      _blockStartPos = -1;
       _hasVerbatim = false;
 
       while (_pos < _src.Length)
@@ -255,24 +250,25 @@ namespace Harlowe.Tokens
     /// <summary>
     /// True where a block rule may start: reference's
     /// <c>blockRuleConstraint</c> allows them at the start of the source or
-    /// straight after a line break, rule or bullet.
+    /// straight after a line break, rule or list marker.
     /// </summary>
     private bool AtBlockStart
     {
       get
       {
-        if (_tokens.Count == 0 || _pos == _blockStartPos) return true;
+        if (_tokens.Count == 0) return true;
         var last = _tokens[_tokens.Count - 1].Type;
-        return last == TokenType.Newline || last == TokenType.HorizontalRule;
+        return last == TokenType.Newline || last == TokenType.HorizontalRule || last == TokenType.ListMarker;
       }
     }
 
     /// <summary>
-    /// At a block start, consumes a horizontal rule or a bullet. The rule is
-    /// reference's <c>hr</c> pattern, <c>{ws}-{3,}{ws}(\n|$)</c>, so it owns its
-    /// line break. Lists aren't implemented, so a bullet stays literal text, but
-    /// it has to be recognised because it outranks emphasis: <c>* a *b*</c> is
-    /// one list item with <c>b</c> emphasised.
+    /// At a block start, consumes a horizontal rule or a list marker. The rule
+    /// is reference's <c>hr</c> pattern, <c>{ws}-{3,}{ws}(\n|$)</c>, so it owns
+    /// its line break. A marker is reference's <c>bulleted</c>,
+    /// <c>{ws}(\*+){mws}</c>, or <c>numbered</c>, <c>{ws}((?:0\.)+){mws}</c>. A
+    /// bullet outranks emphasis, so <c>* a *b*</c> is one item with <c>b</c>
+    /// emphasised, and <c>**a**</c>, with no space after the stars, is bold.
     /// </summary>
     private bool TryScanBlockMarkup(int startPos, int startLine, int startCol)
     {
@@ -293,19 +289,22 @@ namespace Harlowe.Tokens
         return true;
       }
 
+      int run = look;
       if (_src[look] == '*')
       {
-        int stars = look;
-        while (stars < _src.Length && _src[stars] == '*') stars++;
-        int after = SkipMarkupSpace(stars);
-        if (after == stars) return false;
-        string bullet = _src.Substring(_pos, after - _pos);
-        AdvanceN(bullet.Length);
-        Emit(TokenType.Text, bullet, startPos, startLine, startCol);
-        _blockStartPos = _pos;
-        return true;
+        while (run < _src.Length && _src[run] == '*') run++;
       }
-      return false;
+      else
+      {
+        while (run + 1 < _src.Length && _src[run] == '0' && _src[run + 1] == '.') run += 2;
+      }
+      if (run == look) return false;
+      int after = SkipMarkupSpace(run);
+      if (after == run) return false;
+      string marker = _src.Substring(_pos, after - _pos);
+      AdvanceN(marker.Length);
+      Emit(TokenType.ListMarker, marker, startPos, startLine, startCol);
+      return true;
     }
 
     /// <summary>

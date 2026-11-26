@@ -53,7 +53,8 @@ namespace Harlowe.Runtime.Rendering
       switch (node)
       {
         case RenderTextNode t:
-          output.Text(t.Content);
+          // A later render's collapse keeps emptied text nodes, as reference does.
+          if (t.Content.Length > 0) output.Text(t.Content);
           break;
         case RenderHtmlNode h:
           output.Html(h.RawHtml);

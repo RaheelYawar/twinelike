@@ -115,10 +115,10 @@ namespace Harlowe.Tests
       => Assert.Equal(expected, Render(source));
 
     [Theory]
-    [InlineData("* a *b*", "* a <i>b</i>")]
-    [InlineData("** a", "** a")]
-    [InlineData(" * a", " * a")]
-    [InlineData("x\n* a", "x\n* a")]
+    [InlineData("* a *b*", "<ul><li>a <i>b</i></li></ul>")]
+    [InlineData("** a", "<ul><ul><li>a</li></ul></ul>")]
+    [InlineData(" * a", "<ul><li>a</li></ul>")]
+    [InlineData("x\n* a", "x\n<ul><li>a</li></ul>")]
     public void Bullet_IsNotEmphasis(string source, string expected)
       => Assert.Equal(expected, Render(source));
 

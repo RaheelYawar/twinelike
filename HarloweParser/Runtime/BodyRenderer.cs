@@ -76,6 +76,29 @@ namespace Harlowe.Runtime
 
     private void RenderChildren(List<IBodyNode> children)
     {
+      // A hook rendered after the passage marks where reference's first new
+      // node ends: before a leading line break, which is a <br> there; before a
+      // leading expression's attached hook, which is its own element there;
+      // otherwise after the leading text run or construct.
+      var unit = _sentinelUnit;
+      _sentinelUnit = null;
+      int lead = -1, leadEnd = -1;
+      if (unit != null)
+      {
+        FindLead(children, out lead, out leadEnd);
+        if (lead < 0) PlantEnd(unit);
+      }
+
+      // Only a render after the passage looks back at the levels it's inside.
+      Level level = null;
+      if (_context.CollapseEachRender)
+      {
+        if (_levels.Count == 0) _levelsRoot = (_output as Rendering.RenderTreeBuilder)?.CurrentContainer;
+        level = new Level { Nodes = children, IsSpan = _nextLevelIsSpan };
+        _levels.Add(level);
+      }
+      _nextLevelIsSpan = false;
+
       var priorSiblings = _siblings;
       int priorIndex = _siblingIndex;
       var priorPlanned = _planned;
@@ -83,8 +106,15 @@ namespace Harlowe.Runtime
       _planned = null;
       for (int i = 0; i < children.Count; i++)
       {
+        if (level != null) level.Index = i;
+        if (unit != null && unit.End == null && leadEnd >= 0 && i > leadEnd) PlantEnd(unit);
         if (_context.RenderBlocked) break;
         _siblingIndex = i;
+        if (unit != null && i == lead)
+        {
+          if (children[i] is NewlineNode) PlantEnd(unit);
+          else if (children[i] is MacroNode || children[i] is VariableNode || children[i] is ChangerChainNode) _plantBeforeHook = unit;
+        }
         if (_planned != null && _planned.TryGetValue(i, out var planned))
         {
           planned?.Invoke();
@@ -93,9 +123,137 @@ namespace Harlowe.Runtime
         if (_frameBlocked && RunsCode(children[i])) continue;
         children[i].Accept(this);
       }
+      if (unit != null && unit.End == null) PlantEnd(unit);
+      if (unit != null && ReferenceEquals(_plantBeforeHook, unit)) _plantBeforeHook = null;
+      if (level != null) _levels.RemoveAt(_levels.Count - 1);
       _siblings = priorSiblings;
       _siblingIndex = priorIndex;
       _planned = priorPlanned;
+    }
+
+    // ----- Collapsing what renders after the passage -----
+
+    /// <summary>A hook rendered after the passage, collapsed on its own once it finishes.</summary>
+    private sealed class CollapseUnit
+    {
+      public Rendering.RenderHookNode Content;
+      public Rendering.RenderSentinelNode End;
+      /// <summary>Whether its content collapses, from where it was written, or null to decide by where it sits.</summary>
+      public bool? Collapses;
+    }
+
+    /// <summary>One sibling list being rendered, and the position in it.</summary>
+    private sealed class Level
+    {
+      public List<IBodyNode> Nodes;
+      public int Index;
+      public bool IsSpan;
+    }
+
+    // Whether the hook RenderHookInto is about to visit collapses, from where it
+    // was written. Null for any other hook.
+    private bool? _pendingCollapses;
+    // Handed from Visit(HookNode) to the RenderChildren call it makes.
+    private CollapseUnit _sentinelUnit;
+    // A unit whose leading expression is running: its sentinel goes before that
+    // expression's attached hook, if one renders in place.
+    private CollapseUnit _plantBeforeHook;
+    // Set by Visit(CollapsedNode) for the sibling list it renders next.
+    private bool _nextLevelIsSpan;
+    // The sibling lists this renderer is inside, outermost first, and the
+    // container the outermost one writes into.
+    private readonly List<Level> _levels = new List<Level>();
+    private Rendering.IRenderContainer _levelsRoot;
+
+    /// <summary>The first child that renders anything, and the last of the text run it begins, or both -1 for none.</summary>
+    private static void FindLead(List<IBodyNode> children, out int lead, out int leadEnd)
+    {
+      lead = leadEnd = -1;
+      for (int i = 0; i < children.Count; i++)
+      {
+        if (children[i] is CommentNode) continue;
+        lead = leadEnd = i;
+        if (children[i] is TextNode)
+          while (leadEnd + 1 < children.Count && children[leadEnd + 1] is TextNode) leadEnd++;
+        return;
+      }
+    }
+
+    private void PlantEnd(CollapseUnit unit)
+    {
+      if (unit.End == null) unit.End = (_output as Rendering.RenderTreeBuilder)?.PlantSentinel();
+    }
+
+    /// <summary>
+    /// Collapses a hook that finished rendering after the passage, as reference's
+    /// <c>Section.execute</c> collapses each render at its end, then removes its
+    /// sentinel. A render outside the page, such as one in a custom macro's body,
+    /// is left for the render that prints its output.
+    /// </summary>
+    private void FinishUnit(CollapseUnit unit, Rendering.RenderTreeBuilder builder)
+    {
+      if (_context.UsesCollapsedWhitespace && ReferenceEquals(builder.Root, _context.LiveRoot))
+      {
+        if (!Rendering.WhitespaceCollapser.CollapseRendered(builder.Root, unit.Content, unit.End, unit.Collapses,
+            PendingTextAfter(), _levelsRoot, _context))
+          _context.ShowTargetWalkRefusal(builder.Root);
+      }
+      if (unit.End != null && !Rendering.RenderNodes.RemoveDescendant(unit.Content, unit.End)
+          && !RemoveFromDetached(unit.Content.Hidden?.Detached, unit.End))
+        Rendering.RenderNodes.RemoveDescendant(builder.Root, unit.End);
+    }
+
+    /// <summary>Removes <paramref name="node"/> from content a <c>(hide:)</c> set aside, which <c>(show:)</c> would otherwise put back with it.</summary>
+    private static bool RemoveFromDetached(List<Rendering.RenderNode> detached, Rendering.RenderNode node)
+    {
+      if (detached == null) return false;
+      if (detached.Remove(node)) return true;
+      for (int i = 0; i < detached.Count; i++)
+        if (detached[i] is Rendering.IRenderContainer container && Rendering.RenderNodes.RemoveDescendant(container, node)) return true;
+      return false;
+    }
+
+    /// <summary>
+    /// Whether static text is still to come after the hook just rendered, in the
+    /// sibling lists this renderer is inside. Reference has that text on the page
+    /// already, while expressions and hooks still to run are empty elements, so
+    /// only text outside them counts.
+    /// </summary>
+    private Rendering.WhitespaceCollapser.PendingText PendingTextAfter()
+    {
+      for (int k = _levels.Count - 1; k >= 0; k--)
+      {
+        var level = _levels[k];
+        if (!HasStaticText(level.Nodes, level.Index + 1)) continue;
+        for (int j = k; j >= 0; j--)
+          if (_levels[j].IsSpan) return Rendering.WhitespaceCollapser.PendingText.InSpan;
+        return Rendering.WhitespaceCollapser.PendingText.AtRenderRoot;
+      }
+      return Rendering.WhitespaceCollapser.PendingText.None;
+    }
+
+    private static bool HasStaticText(List<IBodyNode> nodes, int from)
+    {
+      if (nodes == null) return false;
+      for (int i = from; i < nodes.Count; i++)
+      {
+        switch (nodes[i])
+        {
+          case TextNode text when !string.IsNullOrEmpty(text.Content):
+          case VerbatimNode _:
+          case ParseErrorNode _:
+            return true;
+          case FormatNode format when HasStaticText(format.Children, 0):
+            return true;
+          case CollapsedNode collapsed when HasStaticText(collapsed.Children, 0):
+            return true;
+          case ListNode list when list.Items != null:
+            foreach (var item in list.Items)
+              if (HasStaticText(item?.Children, 0)) return true;
+            break;
+        }
+      }
+      return false;
     }
 
     // Set by an (output:) outside any custom macro, for the rest of its hook or
@@ -602,6 +760,8 @@ namespace Harlowe.Runtime
     /// </summary>
     public void Visit(HookNode node)
     {
+      bool? collapses = _pendingCollapses;
+      _pendingCollapses = null;
       if (node.IsHidden)
       {
         PlantHiddenHook(node);
@@ -620,6 +780,10 @@ namespace Harlowe.Runtime
 
       var builder = _output as Rendering.RenderTreeBuilder;
       builder?.BeginHook(node.Name, node.Anchor);
+      // After the passage, every hook's render collapses on its own when it ends.
+      CollapseUnit unit = null;
+      if (builder != null && _context.CollapseEachRender)
+        unit = new CollapseUnit { Content = (Rendering.RenderHookNode)builder.CurrentContainer, Collapses = collapses };
       // A hook is its own conditional scope. Reference Harlowe renders each
       // hook in a fresh stack frame whose lastHookShown starts unset, so a
       // conditional inside a hook can neither pair with an (else:) outside it
@@ -631,11 +795,14 @@ namespace Harlowe.Runtime
       _frameBlocked = false;
       using (_context.Store.PushTempScope())
       {
+        _sentinelUnit = unit;
         if (node.Children != null) RenderChildren(node.Children);
+        _sentinelUnit = null;
       }
       _frameBlocked = priorBlocked;
       _context.LastConditional = priorConditional;
       builder?.EndHook();
+      if (unit != null) FinishUnit(unit, builder);
       _context.RenderNesting--;
     }
 
@@ -699,8 +866,9 @@ namespace Harlowe.Runtime
 
       if (_output is Rendering.RenderTreeBuilder builder)
       {
-        builder.BeginWhitespace(Rendering.WhitespaceMode.Collapse);
+        builder.BeginSpan();
         _collapseDepth++;
+        _nextLevelIsSpan = true;
         RenderChildren(node.Children);
         _collapseDepth--;
         builder.EndWhitespace();
@@ -708,7 +876,7 @@ namespace Harlowe.Runtime
       else
       {
         var local = new Rendering.RenderTreeBuilder();
-        local.BeginWhitespace(Rendering.WhitespaceMode.Collapse);
+        local.BeginSpan();
         var inner = new BodyRenderer(local, _registry, _context) { _collapseDepth = 1 };
         inner.RenderChildren(node.Children);
         local.EndWhitespace();
@@ -731,6 +899,35 @@ namespace Harlowe.Runtime
     }
 
     public void Visit(HorizontalRuleNode node) => _output.Html("<hr>");
+
+    /// <summary>
+    /// A list, as reference's renderer writes it: one <c>&lt;ul&gt;</c> or
+    /// <c>&lt;ol&gt;</c>, more opened or closed as an item's depth changes, and
+    /// each item in an <c>&lt;li&gt;</c>. Every tag is its own
+    /// <see cref="IRenderOutput.Html"/> event and they always balance, where
+    /// reference closes one level more than it opened. Items have no temp or
+    /// conditional scope of their own, so an <c>(if:)</c> in one item pairs
+    /// with an <c>(else:)</c> in the next.
+    /// </summary>
+    public void Visit(ListNode node)
+    {
+      if (node.Items == null) return;
+      string open = node.Ordered ? "<ol>" : "<ul>";
+      string close = node.Ordered ? "</ol>" : "</ul>";
+      _output.Html(open);
+      int depth = 1;
+      foreach (var item in node.Items)
+      {
+        if (item == null) continue;
+        int itemDepth = System.Math.Max(1, item.Depth);
+        for (; depth < itemDepth; depth++) _output.Html(open);
+        for (; depth > itemDepth; depth--) _output.Html(close);
+        _output.Html("<li>");
+        if (item.Children != null) RenderChildren(item.Children);
+        _output.Html("</li>");
+      }
+      for (; depth > 0; depth--) _output.Html(close);
+    }
 
     /// <summary>
     /// The <see cref="Ast.Body.InlineFormat"/> → <see cref="StyleSpec"/> mapping
@@ -1077,7 +1274,7 @@ namespace Harlowe.Runtime
             if (shownThrough != null)
               shownThrough.Apply(target, inner => renderer.RenderHookInto(body, inner, insideCollapse), context);
             else
-              body.Accept(renderer);
+              renderer.RenderHookInto(body, target, insideCollapse);
           }
         },
       };
@@ -1096,6 +1293,10 @@ namespace Harlowe.Runtime
           case HookNode hook: cost += ContentCost(hook.Children); break;
           case FormatNode format: cost += ContentCost(format.Children); break;
           case CollapsedNode collapsed: cost += ContentCost(collapsed.Children); break;
+          case ListNode list when list.Items != null:
+            for (int k = 0; k < list.Items.Count && cost < int.MaxValue; k++)
+              cost += 1 + ContentCost(list.Items[k]?.Children);
+            break;
           case MacroNode macro when macro.AttachedHook != null: cost += ContentCost(macro.AttachedHook.Children); break;
           case ChangerChainNode chain when chain.AttachedHook != null: cost += ContentCost(chain.AttachedHook.Children); break;
         }
@@ -1275,9 +1476,19 @@ namespace Harlowe.Runtime
     private void RenderHookInto(IBodyNode hook, IRenderOutput target, bool insideCollapse)
     {
       if (hook == null) return;
-      if (ReferenceEquals(target, _output)) { hook.Accept(this); return; }
+      if (ReferenceEquals(target, _output))
+      {
+        // An attached hook renders in place, as reference's own element after
+        // its expression's, so a leading expression's first node ends here.
+        if (_plantBeforeHook != null) PlantEnd(_plantBeforeHook);
+        _plantBeforeHook = null;
+        _pendingCollapses = insideCollapse;
+        hook.Accept(this);
+        _pendingCollapses = null;
+        return;
+      }
 
-      var renderer = new BodyRenderer(target, _registry, _context) { _collapseDepth = insideCollapse ? 1 : 0 };
+      var renderer = new BodyRenderer(target, _registry, _context) { _collapseDepth = insideCollapse ? 1 : 0, _pendingCollapses = insideCollapse };
       var builder = target as Rendering.RenderTreeBuilder;
       if (builder == null)
       {

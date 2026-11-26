@@ -32,10 +32,11 @@ the target's signature), #30 (deliberate: `(for:)+(output:)` works), #31
 #35 (deliberate: limits on `(for:)` passes, `(range:)` length, print depth and live hooks),
 #36 (a run of spaces in a hand-edited tags attribute adds no empty tags), #38 (a
 hook hiding itself, or copied while hidden, can come back different), #39
-(`time` moves by frames, and a live hook inside `{…}` trims a trailing space),
+(`time` moves by frames),
 #41 (a revision's later copies aren't there yet while an earlier copy runs),
 #42 (overlapping revision targets run the content twice in either order), #43
-(`(for:)` with a click or hover changer is an error).
+(`(for:)` with a click or hover changer is an error), #44 (a list inside `{…}`
+or formatting inside a list item keeps the rest of the item).
 
 Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
 items are kept and marked rather than renumbered. "Reclassified" means the
@@ -824,9 +825,11 @@ Reference splits the `tags` attribute on each whitespace character, so `tags="a 
 
 **Resolved.** A revision renders its content into a placeholder in each of its targets and then runs it, as reference's `ChangeDescriptor.render` inserts it before `Section.execute` runs it, so a revision inside that content lands on top, each target gets its own rendering, with its own side effects, clicks and links, and a hook in the content can be targeted at once. While the passage renders, a revision only reaches what's before it, after any ordinal has picked; a changer left in content a revision emptied does nothing; and `(for:)` combines with a revision. Clicks, live hooks and `(show:)` render the same way. 76 of 82 measured cases match real 3.3.9, the rest being #38, #41, #42 and #43; harlowe-demo's battles now get past their first menu.
 
-### 39. `time` moves by frames, and a live hook inside `{…}` trims a trailing space (found in the `(live:)` slice, 2026-11-24)
+### 39. `time` moves by frames (found in the `(live:)` slice, 2026-11-24)
 
-`time` reads the clock the host moves with `StorySession.Tick`, so between two frames it doesn't change, where reference reads the browser's clock, which does. A click 6 ms after a frame reads the frame's time here. Separately, reference collapses a live hook's later renders on their own, and puts back a trailing space when more text follows in the `{…}` span, even text it emptied earlier, so `{(live: 100ms)[ (set: $n to it + 1) $n ]}` shows `1 ` in real 3.3.9 and `1` here. Without `(live:)` both show `1`.
+`time` reads the clock the host moves with `StorySession.Tick`, so between two frames it doesn't change, where reference reads the browser's clock, which does. A click 6 ms after a frame reads the frame's time here.
+
+This entry also recorded a trailing space that a live hook inside `{…}` lost. That's fixed (2026-11-25). Every render after the passage, a live hook's included, now collapses on its own as it finishes, as reference's `Section.execute` does, so `{(live: 100ms)[ (set: $n to it + 1) $n ]}` shows `1 ` as in real 3.3.9. 91 of 92 measured cases with a click, tick or `(show:)` inside `{…}` match; the other is a harness artifact.
 
 ### 38. A hook hiding itself, or copied while hidden, can come back different (found in the `(hide:)` slice, 2026-11-23)
 
@@ -843,6 +846,10 @@ With the `x` inside `?a`, `(set: $n to 0)|a>[x](replace: ?a, "x")[(set: $n to it
 ### 43. `(for:)` with a click or hover changer is an error (found in the revision slice, 2026-11-24)
 
 `|a>[x](for: each _i, 1, 2)+(click: ?a)[_i]` is an in-prose error here. Real 3.3.9 arms the click once per pass, and a single click reveals every pass: `x12`. Here a click reveals one region per click, so this needs one click to fire several interactions, unlike #18's stacking.
+
+### 44. A list inside `{…}` or formatting inside a list item keeps the rest of the item (found in the list slice, 2026-11-25)
+
+Reference's renderer closes one more list level than it opened. Where an enclosing list is open in the same render, as with a list in a `{…}` span or inline formatting inside a list item, that surplus `</ul>` closes the outer list early, because none of `<tw-collapsed>`, `<b>` or `<li>` bounds an end tag's scope. So `* {` / `* b` / `} c` shows ` c` after the whole list in real 3.3.9, and `* a {x` / `* b` / `} c` / `* d` also leaves `d` as a stray item. Here the tags balance, so ` c` stays in its item. Where nothing enclosing is open, the surplus close is ignored and the results match.
 
 ### 25. The `lowercase` / `uppercase` datatypes don't expand under case mapping (deliberate; found in the Datatype slice review, 2026-07-26)
 

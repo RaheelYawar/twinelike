@@ -298,6 +298,21 @@ namespace Harlowe.Runtime.Rendering
       _stack.Add(node);
     }
 
+    /// <summary>Opens a <c>{…}</c> span written in the source. Close it with <see cref="EndWhitespace"/>.</summary>
+    internal void BeginSpan()
+    {
+      BeginWhitespace(WhitespaceMode.Collapse);
+      ((RenderHookNode)Current).IsSpan = true;
+    }
+
+    /// <summary>Adds a <see cref="RenderSentinelNode"/> at the current position, which also stops the prose before it merging with the prose after.</summary>
+    internal RenderSentinelNode PlantSentinel()
+    {
+      var node = new RenderSentinelNode();
+      Current.Children.Add(node);
+      return node;
+    }
+
     /// <summary>
     /// Close a <see cref="BeginWhitespace"/> hook, removing it when nothing was
     /// written into it, so a <c>(set:)</c> inside <c>{…}</c> leaves no trace.

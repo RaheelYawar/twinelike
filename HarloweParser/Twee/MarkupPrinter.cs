@@ -215,6 +215,30 @@ namespace Harlowe.Twee
     public void Visit(VerbatimNode node) => _sb.Append(node.Delimiter).Append(node.Text).Append(node.Delimiter);
 
     /// <summary>
+    /// Emits each item's marker as written, its content, and the line break
+    /// that ended it. A hand-built item with no marker gets the plain one for
+    /// its depth. An item that doesn't end its line is followed by the next
+    /// marker on the same line, which is how <c>* * a</c> reads back.
+    /// </summary>
+    public void Visit(ListNode node)
+    {
+      if (node.Items == null) return;
+      foreach (var item in node.Items)
+      {
+        if (item == null) continue;
+        if (item.Marker != null) _sb.Append(item.Marker);
+        else
+        {
+          for (int i = 0; i < System.Math.Max(1, item.Depth); i++) _sb.Append(node.Ordered ? "0." : "*");
+          _sb.Append(' ');
+        }
+        if (item.Children != null)
+          foreach (var child in item.Children) child.Accept(this);
+        if (item.EndsLine) _sb.Append('\n');
+      }
+    }
+
+    /// <summary>
     /// Emits the rule as written. A rule always ends its line, so a last-line
     /// rule gains a line break here: it's harmless at the end of a passage, and
     /// stops anything appended after it from turning the rule into prose.

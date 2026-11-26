@@ -970,6 +970,7 @@ namespace Harlowe.Runtime
       // Whitespace collapses before both, because reference finishes collapsing
       // before it runs updateEnchantments, so string targets see collapsed text.
       if (ctx.UsesCollapsedWhitespace) Rendering.WhitespaceCollapser.Apply(builder.Root);
+      ctx.CollapseEachRender = true;
       InteractionPass.Update(builder.Root, ctx.Interactions, ctx.ClickHandlers, ctx);
       EnchantmentPass.Update(builder.Root, ctx.Enchantments, ctx);
       _nextRegionIndex = ctx.NextRegionIndex;
@@ -1138,9 +1139,9 @@ namespace Harlowe.Runtime
       // and RNG position, so pass-time macro execution cannot clobber the
       // click's queued navigation (nor grow the lists being iterated or desync
       // the RNG); EnchantmentPassCannotMutatePendingGoto in the test suite
-      // guards that. Revealed content inside a {…} span collapses first, for the
-      // same reason as in the main render.
-      if (_liveContext.UsesCollapsedWhitespace) Rendering.WhitespaceCollapser.Apply(_liveRoot);
+      // guards that. The revealed content has already collapsed, each render on
+      // its own as it finished, as in reference, so the rest of the page keeps
+      // its spacing.
       InteractionPass.Update(_liveRoot, _liveContext.Interactions, _liveContext.ClickHandlers, _liveContext);
       EnchantmentPass.Update(_liveRoot, _liveContext.Enchantments, _liveContext);
       // The deferred hook may have armed nested interactions; keep their ids
@@ -1261,7 +1262,6 @@ namespace Harlowe.Runtime
       if (!rendered) return null;
 
       // The same passes, and the same navigation order, as a dispatch.
-      if (_liveContext.UsesCollapsedWhitespace) Rendering.WhitespaceCollapser.Apply(_liveRoot);
       InteractionPass.Update(_liveRoot, _liveContext.Interactions, _liveContext.ClickHandlers, _liveContext);
       EnchantmentPass.Update(_liveRoot, _liveContext.Enchantments, _liveContext);
       _nextRegionIndex = _liveContext.NextRegionIndex;

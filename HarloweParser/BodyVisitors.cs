@@ -50,6 +50,14 @@ namespace Harlowe
       foreach (var child in node.Children) child.Accept(this);
     }
 
+    public virtual void Visit(ListNode node)
+    {
+      if (node.Items == null) return;
+      foreach (var item in node.Items)
+        if (item?.Children != null)
+          foreach (var child in item.Children) child.Accept(this);
+    }
+
     public virtual void Visit(ChangerChainNode node)
     {
       node.Expression?.Accept(this);

@@ -443,6 +443,14 @@ namespace Harlowe.Runtime
     /// </summary>
     internal bool UsesCollapsedWhitespace;
 
+    /// <summary>
+    /// Set once the passage has rendered and had its whole-page collapse, for
+    /// the clicks and live ticks that render on the same context afterwards.
+    /// Each of those renders collapses on its own as it finishes, as reference's
+    /// <c>Section.execute</c> does, and the rest of the page is left as it is.
+    /// </summary>
+    internal bool CollapseEachRender;
+
     /// <summary>Convenience setter for <see cref="PendingGoto"/>; equivalent to <c>ctx.PendingGoto = name</c> but reads better in macro implementations.</summary>
     public void RequestGoto(string passageName) => PendingGoto = passageName;
 

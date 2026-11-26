@@ -139,6 +139,13 @@ namespace Harlowe.Tokens
     HorizontalRule,
 
     /// <summary>
+    /// A list item's marker at the start of a line: <c>*</c>s (reference's
+    /// <c>bulleted</c>) or <c>0.</c>s (<c>numbered</c>), then whitespace. The
+    /// Value holds the marker as written, whitespace on both sides included.
+    /// </summary>
+    ListMarker,
+
+    /// <summary>
     /// The <c>--</c> comment marker (reference's <c>comment</c> pattern in
     /// <c>ts/markup/patterns.ts</c>, Harlowe 4.0). Emitted in both body and
     /// expression modes; the parsers implement its "eliminate the next

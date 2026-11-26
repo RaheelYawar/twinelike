@@ -169,6 +169,15 @@ namespace Harlowe.Runtime.Rendering
   }
 
   /// <summary>
+  /// Marks, while a later render is written, where reference's first new node
+  /// ends, for <see cref="WhitespaceCollapser.CollapseRendered"/>. Removed
+  /// once that collapse runs, so no pass or host ever meets one.
+  /// </summary>
+  internal sealed class RenderSentinelNode : RenderNode
+  {
+  }
+
+  /// <summary>
   /// A styling layer. Replaces a <see cref="IRenderOutput.PushStyle"/> /
   /// content / <see cref="IRenderOutput.PopStyle"/> bracket: the flusher emits
   /// <c>PushStyle</c>, flushes <see cref="Children"/>, then <c>PopStyle</c>.
@@ -285,6 +294,14 @@ namespace Harlowe.Runtime.Rendering
     /// passages inside one are marked <see cref="WhitespaceMode.Preserve"/>.
     /// </summary>
     public WhitespaceMode Whitespace;
+
+    /// <summary>
+    /// True for a <c>{…}</c> span written in the source: reference's
+    /// <c>&lt;tw-collapsed&gt;</c> element. False for the collapsing layer a
+    /// revision or deferred hook gets from where it was written, which has no
+    /// element in reference.
+    /// </summary>
+    internal bool IsSpan;
 
     /// <summary>
     /// Set while this hook is hidden: what <c>(show:)</c> will render into it.
