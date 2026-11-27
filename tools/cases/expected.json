@@ -1,0 +1,74 @@
+{
+  "snippets": {
+    "matched": 103406,
+    "compared": 103426
+  },
+  "macros": {
+    "matched": 1010,
+    "compared": 1067
+  },
+  "custom": {
+    "matched": 675,
+    "compared": 807
+  },
+  "datamap-names": {
+    "matched": 39,
+    "compared": 44
+  },
+  "unset": {
+    "matched": 292,
+    "compared": 313
+  },
+  "lists": {
+    "matched": 133,
+    "compared": 138
+  },
+  "clicks": {
+    "matched": 86,
+    "compared": 88
+  },
+  "nav": {
+    "matched": 47,
+    "compared": 50
+  },
+  "live": {
+    "matched": 62,
+    "compared": 63
+  },
+  "after": {
+    "matched": 76,
+    "compared": 76
+  },
+  "collapse": {
+    "matched": 91,
+    "compared": 92
+  },
+  "revisions": {
+    "matched": 76,
+    "compared": 82
+  },
+  "walks:files-005": {
+    "matched": 22,
+    "compared": 28
+  },
+  "walks:harlowe-demo": {
+    "matched": 810,
+    "compared": 810
+  },
+  "walks:service-suspended": {
+    "matched": 269,
+    "compared": 269
+  },
+  "walks:synthetic": {
+    "matched": 6,
+    "compared": 6
+  },
+  "specs:3.3.9": {
+    "matched": 4527,
+    "compared": 7001
+  },
+  "specs:4.0.0": {
+    "matched": 4533,
+    "compared": 7001
+  }
+}

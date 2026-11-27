@@ -6,13 +6,12 @@ namespace Harlowe.Runtime.Macros
   /// <c>(altered: via-lambda, items...)</c>. Map operation: runs the lambda's
   /// <c>via</c> clause once per item and returns an array of transformed
   /// values. The lambda must carry a <c>via</c> clause; a <c>where</c>-only
-  /// lambda errors out in-prose. Auto-iterates a single trailing array arg
-  /// (see <see cref="FindMacro"/> for the rationale).
+  /// lambda errors out in-prose. Zero items give an empty array.
   /// </summary>
   public class AlteredMacro : IMacro
   {
     public string Name => "altered";
-    public int MinArgs => 2;
+    public int MinArgs => 1;
     public int MaxArgs => -1;
 
     public HarloweValue Invoke(List<HarloweValue> args, MacroContext context)
@@ -21,7 +20,7 @@ namespace Harlowe.Runtime.Macros
         return HarloweValue.OfError("(altered:) first argument must be a lambda");
 
       var lambda = args[0].AsLambda;
-      var items = LambdaArgs.ExpandItems(args, startIndex: 1);
+      var items = LambdaArgs.Items(args, startIndex: 1);
       var transformed = new List<HarloweValue>(items.Count);
 
       for (int i = 0; i < items.Count; i++)

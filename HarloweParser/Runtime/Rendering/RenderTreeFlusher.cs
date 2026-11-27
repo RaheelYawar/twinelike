@@ -19,14 +19,14 @@ namespace Harlowe.Runtime.Rendering
   /// </summary>
   public static class RenderTreeFlusher
   {
-    /// <summary>Flush <paramref name="root"/> into <paramref name="output"/>. Null-safe on both arguments.</summary>
+    /// <summary>Flush <paramref name="root"/> into <paramref name="output"/>. A link with a structured label arrives as a bracket when the output implements <see cref="ILinkLabelOutput"/>, and as a flat link otherwise. Null-safe on both arguments.</summary>
     public static void Flush(RenderRoot root, IRenderOutput output)
     {
       if (root == null || output == null) return;
-      FlushChildren(root.Children, output);
+      FlushChildren(root.Children, new OutputFeatureAdapter(output));
     }
 
-    private static void FlushChildren(List<RenderNode> children, IRenderOutput output)
+    private static void FlushChildren(List<RenderNode> children, ILinkLabelOutput output)
     {
       for (int i = 0; i < children.Count; i++) FlushNode(children[i], output);
     }
@@ -48,12 +48,13 @@ namespace Harlowe.Runtime.Rendering
       return true;
     }
 
-    private static void FlushNode(RenderNode node, IRenderOutput output)
+    private static void FlushNode(RenderNode node, ILinkLabelOutput output)
     {
       switch (node)
       {
         case RenderTextNode t:
-          output.Text(t.Content);
+          // A later render's collapse keeps emptied text nodes, as reference does.
+          if (t.Content.Length > 0) output.Text(t.Content);
           break;
         case RenderHtmlNode h:
           output.Html(h.RawHtml);
@@ -77,9 +78,9 @@ namespace Harlowe.Runtime.Rendering
           output.Error(e.Message);
           break;
         case RenderStyleNode s:
-          output.PushStyle(s.Style);
+          for (int i = 0; i < s.Styles.Count; i++) output.PushStyle(s.Styles[i]);
           FlushChildren(s.Children, output);
-          output.PopStyle();
+          for (int i = 0; i < s.Styles.Count; i++) output.PopStyle();
           break;
         case RenderInteractiveNode iv:
           output.BeginInteractive(iv.Region);

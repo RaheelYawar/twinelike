@@ -95,16 +95,6 @@ namespace Harlowe.Parsing
     }
 
     /// <summary>
-    /// Slice the original source from <paramref name="startPos"/> (a token's
-    /// <see cref="Token.Position"/>) up to the current cursor token's
-    /// position. Returns null when the cursor was constructed without a
-    /// source string, or when the range is out of bounds. Used by per-node
-    /// parse-error recovery to capture the broken sub-source for AST
-    /// round-tripping — tokens alone can't reconstruct it because the
-    /// tokenizer drops whitespace and punctuation that don't surface in any
-    /// <see cref="Token.Value"/>.
-    /// </summary>
-    /// <summary>
     /// Net count of <see cref="TokenType.MacroOpen"/> minus
     /// <see cref="TokenType.MacroClose"/> tokens consumed since
     /// <paramref name="startIndex"/> (a prior <see cref="Index"/>), floored at
@@ -124,6 +114,16 @@ namespace Harlowe.Parsing
       return depth;
     }
 
+    /// <summary>
+    /// Slice the original source from <paramref name="startPos"/> (a token's
+    /// <see cref="Token.Position"/>) up to the current cursor token's
+    /// position. Returns null when the cursor was constructed without a
+    /// source string, or when the range is out of bounds. Used by per-node
+    /// parse-error recovery to capture the broken sub-source for AST
+    /// round-tripping — tokens alone can't reconstruct it because the
+    /// tokenizer drops whitespace and punctuation that don't surface in any
+    /// <see cref="Token.Value"/>.
+    /// </summary>
     public string SliceFrom(int startPos)
     {
       if (_source == null) return null;

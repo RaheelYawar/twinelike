@@ -15,24 +15,31 @@ namespace Harlowe.Runtime.Macros
   /// is wired (standalone renderer tests leave <c>PassageExists</c> null), the
   /// check is skipped and the goto is recorded unconditionally.</para>
   /// </summary>
-  public class GotoMacro : IMacro
+  public class GotoMacro : IMacro, ICommandCheck
   {
     public string Name => "goto";
     public int MinArgs => 1;
     public int MaxArgs => 1;
 
+    HarloweValue ICommandCheck.Check(List<HarloweValue> args, MacroContext context)
+      => CheckTarget(args[0], context);
+
+    private static HarloweValue CheckTarget(HarloweValue target, MacroContext context)
+    {
+      if (target.Kind != HarloweValueKind.String)
+        return HarloweValue.OfError($"(goto:) requires a String, got {target.Kind}");
+      // "(goto:)" as the verb, matching reference's phrasing for the
+      // (click-goto:) family ("I can't (click-goto:) the passage …").
+      return context.MissingPassageError("(goto:)", target.AsString);
+    }
+
     public HarloweValue Invoke(List<HarloweValue> args, MacroContext context)
     {
       var v = args[0];
       if (v.IsError) return v;
-      if (v.Kind != HarloweValueKind.String)
-        return HarloweValue.OfError($"(goto:) requires a String, got {v.Kind}");
-      string target = v.AsString;
-      // "(goto:)" as the verb, matching reference's phrasing for the
-      // (click-goto:) family ("I can't (click-goto:) the passage …").
-      var missing = context.MissingPassageError("(goto:)", target);
-      if (missing != null) return missing;
-      context.RequestGoto(target);
+      var error = CheckTarget(v, context);
+      if (error != null) return error;
+      context.RequestGoto(v.AsString);
       return null;
     }
   }

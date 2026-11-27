@@ -8,17 +8,22 @@
              pipelines) when paths are referenced literally. The NuGet PackageId
              stays PascalCase "Twinelike"; package ids are case-insensitive. -->
         <AssemblyName>twinelike</AssemblyName>
-        <DefaultItemExcludes>$(DefaultItemExcludes);HarloweParser.Tests\**</DefaultItemExcludes>
+        <DefaultItemExcludes>$(DefaultItemExcludes);HarloweParser.Tests\**;tools\**</DefaultItemExcludes>
         <LangVersion>latest</LangVersion>
         <!-- Required for ILRepack: copies transitive deps (HtmlAgilityPack)
              into the output folder so the merge target can find them. -->
         <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+        <!-- twinelike.xml ships beside the DLL so hosts get the doc comments in
+             their IDE. CS1591 (public member without a comment) is off because
+             most public types are internals the host never touches. -->
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <NoWarn>$(NoWarn);CS1591</NoWarn>
     </PropertyGroup>
 
     <!-- NuGet package metadata. Run `dotnet pack -c Release` to produce a .nupkg. -->
     <PropertyGroup>
         <PackageId>Twinelike</PackageId>
-        <Version>0.2.0</Version>
+        <Version>0.3.0</Version>
         <Authors>Raheel Yawar</Authors>
         <Company>Raheel Yawar</Company>
         <Description>A C# library for parsing and running Twine/Harlowe interactive fiction stories. Targets game engines (Unity, Godot, etc.) via an engine-agnostic IRenderOutput interface. Accepts Twine 2 HTML exports and Twee 3 source; emits Twee 3.</Description>
@@ -49,13 +54,13 @@
              below. PrivateAssets=all keeps it out of the produced NuGet
              package's dependency list so consumers see a single self-contained
              DLL with zero external deps. -->
-        <PackageReference Include="HtmlAgilityPack" Version="1.12.4">
+        <PackageReference Include="HtmlAgilityPack" Version="1.13.1">
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
 
         <!-- Build-time only: drives the ILRepack target below. PrivateAssets=all
              keeps it out of the nuspec. -->
-        <PackageReference Include="ILRepack.Lib.MSBuild.Task" Version="2.0.46">
+        <PackageReference Include="ILRepack.Lib.MSBuild.Task" Version="2.0.48">
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
     </ItemGroup>

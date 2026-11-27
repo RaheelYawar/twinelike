@@ -29,5 +29,61 @@ namespace Harlowe
       }
       return sb.ToString();
     }
+
+    /// <summary>
+    /// The name reference gives a changer made by <paramref name="name"/> when it
+    /// prints one: aliases such as <c>colour</c> and <c>t8n</c> make the changer
+    /// of their main name, <c>text-colour</c> and <c>transition</c>. Other names
+    /// come back as given.
+    /// </summary>
+    internal static string CanonicalChangerName(string name)
+    {
+      switch (Normalize(name))
+      {
+        case "color": case "colour": case "textcolor": case "textcolour": return "text-colour";
+        case "bg": case "background": return "background";
+        case "size": case "textsize": return "text-size";
+        case "loop": case "for": return "for";
+        case "out": case "output": return "output";
+        case "t8n": case "transition": return "transition";
+        case "t8ntime": case "transitiontime": return "transition-time";
+        case "t8ndelay": case "transitiondelay": return "transition-delay";
+        case "t8nskip": case "transitionskip": return "transition-skip";
+        case "t8ndepart": case "transitiondepart": return "transition-depart";
+        case "t8narrive": case "transitionarrive": return "transition-arrive";
+        default: return name;
+      }
+    }
+
+    /// <summary>
+    /// True when two names are the same under <see cref="Normalize"/>, without
+    /// building either: reference's <c>insensitiveName</c>, which also decides
+    /// which hook a <c>?name</c> means.
+    /// </summary>
+    internal static bool SameName(string a, string b)
+    {
+      a = a ?? string.Empty;
+      b = b ?? string.Empty;
+      int i = 0, j = 0;
+      while (true)
+      {
+        while (i < a.Length && (a[i] == '-' || a[i] == '_')) i++;
+        while (j < b.Length && (b[j] == '-' || b[j] == '_')) j++;
+        if (i == a.Length || j == b.Length) return i == a.Length && j == b.Length;
+        if (char.ToLowerInvariant(a[i]) != char.ToLowerInvariant(b[j])) return false;
+        i++;
+        j++;
+      }
+    }
+
+    /// <summary>
+    /// True for a call to a custom macro held in a variable, <c>($name:)</c> or
+    /// <c>(_name:)</c>: the leading sigil is what reference's runner tests
+    /// (<c>macroNameToken.text.startsWith</c> in <c>ts/twinescript/runner.ts</c>).
+    /// Check this before <see cref="Normalize"/>, which would strip a leading
+    /// underscore and turn <c>(_a:)</c> into a call to <c>(a:)</c>.
+    /// </summary>
+    public static bool IsCustomCall(string name)
+      => !string.IsNullOrEmpty(name) && (name[0] == '$' || name[0] == '_');
   }
 }

@@ -1,12 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using Harlowe.Runtime.Macros;
 
 namespace Harlowe.Runtime
 {
   /// <summary>
-  /// Top-level engine surface. Wraps a parsed <see cref="Harlowe"/> story and
+  /// Top-level engine surface. Wraps a parsed <see cref="HarloweStory"/> story and
   /// drives it through the runtime layer: variable store, macro registry, body
   /// renderer, and visit tracking. Implements <see cref="IEvaluationContext"/>
   /// so the evaluator can resolve <c>time</c>, <c>visits</c>, and
@@ -47,7 +46,7 @@ namespace Harlowe.Runtime
   /// </summary>
   public class StorySession : IEvaluationContext
   {
-    private readonly Harlowe _story;
+    private readonly HarloweStory _story;
     private readonly MacroRegistry _registry;
     private readonly Saving.ISaveStorage _storage;
     private readonly HarloweVariableStore _store;
@@ -58,7 +57,11 @@ namespace Harlowe.Runtime
     private readonly List<Moment> _past;
     private Moment _present;
     private readonly List<Moment> _future;
-    private readonly Stopwatch _passageTimer;
+    // The session's clock, in milliseconds, which only the host moves, through
+    // Tick. 	ime and (live:) both read it, so a story's timing follows the
+    // host's frames and a replay is exact.
+    private double _clockMs;
+    private double _passageStartMs;
 
     // One RNG for the whole session, threaded into every MacroContext so every
     // (random:)/(either:) draw forms a single continuous stream (a fresh instance
@@ -101,12 +104,24 @@ namespace Harlowe.Runtime
     // loaded passage — the infinite-loop guard.
     private bool _loadedGame;
 
+    // False until the first render. Startup passages belong to the first turn,
+    // but a host that navigates before ever rendering still needs them to run.
+    private bool _startupHasRun;
+
     // The live render-tree state for the most recent main render. Kept alive
     // across renders so DispatchEvent can mutate it, re-flush, and return an
     // updated RenderResult without re-rendering the whole passage. Both reset
     // at the start of each main render.
     private Rendering.RenderRoot _liveRoot;
     private MacroContext _liveContext;
+
+    // Session-wide region-id counter. Each render's MacroContext starts from it
+    // and hands its advanced value back, so a region id is never reused within
+    // the session: a late event the host delivers for an earlier render's
+    // region (a mouseout fired as the old passage is torn down, a queued click
+    // after an undo) finds no handler instead of firing whatever now holds
+    // the same id.
+    private int _nextRegionIndex;
 
     private const int MaxGotoDepth = 20;
 
@@ -116,24 +131,24 @@ namespace Harlowe.Runtime
     // the two navigation-shaped macros have a consistent default ceiling, but
     // authors building modular UIs out of nested displays can raise the
     // ceiling via the public setter at construction time.
-    private const int DefaultMaxDisplayDepth = 20;
+    private const int DefaultMaxDisplayDepth = MacroContext.DefaultMaxRenderDepth;
 
-    // Absolute ceiling, regardless of consumer configuration. .NET's default
-    // 1MB stack with a few hundred bytes per recursion frame leaves room for
-    // a few thousand levels, but we leave a safety margin — exceeding the
-    // real stack throws StackOverflowException, which is uncatchable and
-    // crashes the host process, violating the no-throws runtime contract.
-    private const int AbsoluteMaxDisplayDepth = 256;
+    // Absolute ceiling, regardless of consumer configuration: the shared limit
+    // on open hooks and nested renders. Exceeding the real stack throws
+    // StackOverflowException, which is uncatchable and crashes the host
+    // process, violating the no-throws runtime contract.
+    private const int AbsoluteMaxDisplayDepth = MacroContext.MaxRenderNesting;
 
     private int _maxDisplayDepth = DefaultMaxDisplayDepth;
 
     /// <summary>
-    /// Maximum (display:) nesting depth. Mutating mid-render is supported but
-    /// only affects subsequent (display:) calls — the active stack frame
-    /// continues unaffected. Values are clamped to <c>[1, 256]</c>: under 1
-    /// would refuse a single (display:) call (the documented baseline);
-    /// above 256 risks a StackOverflowException, which terminates the host
-    /// process and bypasses the in-prose error contract.
+    /// Maximum nesting depth of (display:) calls and printed markup, which share
+    /// one limit because either can recurse through the other. Mutating
+    /// mid-render is supported but only affects subsequent nested renders — the
+    /// active stack frame continues unaffected. Values are clamped to
+    /// <c>[1, 128]</c>: under 1 would refuse a single (display:) call (the
+    /// documented baseline); above 128 risks a StackOverflowException, which
+    /// terminates the host process and bypasses the in-prose error contract.
     /// </summary>
     public int MaxDisplayDepth
     {
@@ -146,35 +161,48 @@ namespace Harlowe.Runtime
       }
     }
 
+    /// <summary>
+    /// Which optional output features appear directly in
+    /// <see cref="RenderResult.Entries"/>, for hosts that walk that list. The
+    /// default, <see cref="OutputFeatures.None"/>, holds only core channels: a
+    /// structured link label arrives as a flat link followed by any errors from
+    /// inside it. Hosts replaying through an adapter don't need this, since
+    /// <see cref="RenderResult.ReplayTo"/> follows the adapter's type. Applies
+    /// to results built after it is set; <see cref="RenderResult.Text"/> and
+    /// saves don't depend on it.
+    /// </summary>
+    public OutputFeatures OutputFeatures { get; set; }
+
     /// <summary>Name of the passage currently loaded into the session.</summary>
     public string CurrentPassage => _currentPassage;
 
     /// <summary>
     /// Builds a session from a parsed story. The session starts at the passage
-    /// whose pid matches <see cref="Harlowe.StartNode"/>; call
+    /// whose pid matches <see cref="HarloweStory.StartNode"/>; call
     /// <see cref="Render"/> to obtain its content.
     /// </summary>
-    public StorySession(Harlowe story) : this(story, new MulberryRng(), new Saving.InMemorySaveStorage()) { }
+    public StorySession(HarloweStory story) : this(story, new MulberryRng(), new Saving.InMemorySaveStorage()) { }
 
     /// <summary>
     /// Builds a session with a fixed RNG seed, so <c>(random:)</c>/<c>(either:)</c>
     /// produce a reproducible sequence across the whole session — useful for
     /// tests and replays.
     /// </summary>
-    public StorySession(Harlowe story, int seed) : this(story, new MulberryRng(seed), new Saving.InMemorySaveStorage()) { }
+    public StorySession(HarloweStory story, int seed) : this(story, new MulberryRng(seed), new Saving.InMemorySaveStorage()) { }
 
     /// <summary>
     /// Builds a session with a host-supplied save backend. Pass <c>null</c> to
     /// disable saving (<c>(save-game:)</c> then returns false); the storage-free
     /// constructors use a session-lifetime <see cref="Saving.InMemorySaveStorage"/>.
     /// </summary>
-    public StorySession(Harlowe story, Saving.ISaveStorage storage) : this(story, new MulberryRng(), storage) { }
+    public StorySession(HarloweStory story, Saving.ISaveStorage storage) : this(story, new MulberryRng(), storage) { }
 
     /// <summary>Seeded session with a host-supplied save backend (pass null to disable saving).</summary>
-    public StorySession(Harlowe story, int seed, Saving.ISaveStorage storage) : this(story, new MulberryRng(seed), storage) { }
+    public StorySession(HarloweStory story, int seed, Saving.ISaveStorage storage) : this(story, new MulberryRng(seed), storage) { }
 
-    private StorySession(Harlowe story, IRng rng, Saving.ISaveStorage storage)
+    private StorySession(HarloweStory story, IRng rng, Saving.ISaveStorage storage)
     {
+      if (story == null) throw new ArgumentNullException(nameof(story));
       _story = story;
       _storage = storage;
       _registry = new MacroRegistry();
@@ -182,8 +210,7 @@ namespace Harlowe.Runtime
       _store = new HarloweVariableStore();
       _past = new List<Moment>();
       _future = new List<Moment>();
-      _passageTimer = Stopwatch.StartNew();
-      _rng = rng;
+     _rng = rng;
 
       var startPassage = story.GetStartPassage();
       var startName = startPassage != null ? startPassage.Name : string.Empty;
@@ -196,8 +223,8 @@ namespace Harlowe.Runtime
 
     // IEvaluationContext ---------------------------------------------------
 
-    /// <summary>Milliseconds elapsed since the current passage was entered.</summary>
-    public HarloweValue Time => HarloweValue.OfNumber(_passageTimer.ElapsedMilliseconds);
+    /// <summary>Milliseconds of <see cref="Tick(double)"/> time since the current passage was entered. 0 while it first renders, as in reference.</summary>
+    public HarloweValue Time => HarloweValue.OfNumber(_clockMs - _passageStartMs);
 
     /// <summary>
     /// How many times the current passage has been entered this session, including
@@ -251,7 +278,7 @@ namespace Harlowe.Runtime
     {
       get
       {
-        var map = new Dictionary<string, HarloweValue>();
+        var map = new Dictionary<DataName, HarloweValue>();
         map["name"] = HarloweValue.OfString(_currentPassage ?? string.Empty);
         map["tags"] = HarloweValue.OfArray(BuildTags());
         return HarloweValue.OfDatamap(map);
@@ -320,6 +347,17 @@ namespace Harlowe.Runtime
       // can never be loaded); the first real navigation replaces it instead.
       if (!string.IsNullOrEmpty(_currentPassage))
       {
+        // A restored turn that has been re-rendered since is live again: the
+        // player may have chosen differently this time (a click, a (link:)), so
+        // its recorded delta and RNG position no longer describe what happened.
+        // Recapture both from the dirty set and RNG, which the restore reset to
+        // the turn's start. Without a re-render the record still stands.
+        if (!_liveAtTurnStart)
+        {
+          _present.StoreDelta = null;
+          _present.TypeDelta = null;
+          _present.SeedIter = null;
+        }
         FinalizePresent();
         _past.Add(_present);
       }
@@ -339,7 +377,7 @@ namespace Harlowe.Runtime
       // previous turn's end.
       if (_liveAtTurnStart)
       {
-        _store.ResetStoryVars(FlattenStore());
+        _store.ResetStoryVars(FlattenStore(), FlattenTypes());
         RestoreRng();
       }
       else
@@ -388,6 +426,87 @@ namespace Harlowe.Runtime
 
     /// <summary>Alias for <see cref="Redo"/> (reference Harlowe's <c>fastForward</c>).</summary>
     public bool FastForward() => Redo();
+
+    // ----- Host-facing state: turn data and variable reads -----
+    //
+    // Additive host extensions, deliberately invisible to story code: no macro or
+    // expression reads turn data, and nothing here writes story state, so Harlowe
+    // semantics are untouched whether or not a host uses them.
+
+    /// <summary>
+    /// Opaque host data attached to the present turn, or null if none. The runtime
+    /// never reads it and story code can't see it; it exists so a host can keep its
+    /// own per-turn record (whatever it showed or derived that turn) in step with the
+    /// timeline. Set it any time after the turn starts; setting null clears it.
+    ///
+    /// <para>It travels with its turn. After <see cref="Undo"/>/<see cref="Redo"/> this
+    /// reports the restored turn's data. <see cref="Goto"/> starts the new turn with
+    /// none, and when it discards the redo future the abandoned turns' data goes with
+    /// them. <see cref="SaveGame"/>/<see cref="LoadGame"/> round-trip it, the present
+    /// turn's included. A save carrying any turn data is stamped
+    /// <see cref="Saving.SaveBlobVersion.TurnData"/>; a session that never sets it
+    /// writes the same blobs as builds without the feature.</para>
+    /// </summary>
+    public string TurnData
+    {
+      get => _present.TurnData;
+      set => _present.TurnData = value;
+    }
+
+    /// <summary>
+    /// The timeline as a list of turns, oldest first, ending with the present turn —
+    /// the completed turns plus the live one, excluding the redo future (the same span
+    /// <see cref="SaveGame"/> writes). Each <see cref="TurnRecord"/> carries the turn's
+    /// resting passage and its <see cref="TurnData"/>. A fresh snapshot per call;
+    /// modifying it doesn't touch the session.
+    /// </summary>
+    public List<TurnRecord> GetTimeline()
+    {
+      var turns = new List<TurnRecord>(_past.Count + 1);
+      for (int i = 0; i < _past.Count; i++)
+        turns.Add(new TurnRecord { PassageName = _past[i].PassageName, TurnData = _past[i].TurnData });
+      // The live turn's Moment.PassageName is only finalised when the turn ends, so
+      // report the resting passage the session is actually on.
+      turns.Add(new TurnRecord { PassageName = _currentPassage ?? string.Empty, TurnData = _present.TurnData });
+      return turns;
+    }
+
+    /// <summary>
+    /// Reads a story (<c>$</c>) variable without changing anything.
+    /// <paramref name="name"/> may be given with or without its leading <c>$</c>.
+    /// Returns <c>false</c> (and a null <paramref name="value"/>) when no story
+    /// variable by that name is set. Temp (<c>_</c>) variables are hook-scoped render
+    /// state and aren't readable here.
+    ///
+    /// <para>The value is a deep copy: mutating its arrays or datamaps can't alter the
+    /// story's state. Reads have no side effects — they don't touch <c>it</c>, the
+    /// turn's variable delta, or the RNG — so state changes stay with the story's own
+    /// macros, where undo and saving can see them.</para>
+    ///
+    /// <para>Reads the live store. After <see cref="Render"/>, <see cref="Goto"/>, or
+    /// <see cref="DispatchEvent"/> that's the state the player is looking at. Between an
+    /// <see cref="Undo"/>/<see cref="Redo"/>/<see cref="LoadGame"/> and the next
+    /// <see cref="Render"/> it's the restored turn's <em>start</em>, before that
+    /// turn's own <c>(set:)</c>s replay.</para>
+    /// </summary>
+    public bool TryGetVariable(string name, out HarloweValue value)
+    {
+      value = null;
+      if (string.IsNullOrEmpty(name)) return false;
+      if (name[0] == '$') name = name.Substring(1);
+      var stored = _store.Get(name, false);
+      if (stored == null) return false;
+      value = HarloweVariableStore.DeepCopyValue(stored);
+      return true;
+    }
+
+    /// <summary>
+    /// The names of every story (<c>$</c>) variable currently set, without the
+    /// <c>$</c>, in ordinal order — pair with <see cref="TryGetVariable"/> to read them
+    /// all. A fresh list per call. Reflects the live store at the same point in the
+    /// turn as <see cref="TryGetVariable"/>.
+    /// </summary>
+    public List<string> GetVariableNames() => _store.StoryVariableNames();
 
     // ----- Save / load -----
 
@@ -520,6 +639,8 @@ namespace Harlowe.Runtime
       if (past != null) _past.AddRange(past);
       _future.Clear();
       _present = present;
+      // A loaded game's past already holds what its startup passages did.
+      _startupHasRun = true;
       RestoreToPresent();
       // The upcoming render shows a just-loaded passage; arm the loop guard so a
       // (load-game:) within it errors rather than reloading forever. RestoreToPresent
@@ -534,12 +655,12 @@ namespace Harlowe.Runtime
     /// throwaway store and RNG, not the live ones — so a tampered blob's source
     /// (a <c>$x to 5</c> assignment, a <c>(random:)</c> draw) can't mutate session
     /// state or advance the shared stream, keeping a failed load truly atomic.
-    /// Legitimate saved source never needs the live store: <see cref="HarloweValue.ToSource"/>
+    /// Legitimate saved source never needs the live store: <see cref="HarloweValue.ToSource()"/>
     /// emits only self-contained literals and macro calls.
     ///
     /// <para><b>Pinned to <see cref="HarloweProfile.SaveFormat"/>, not the
     /// story's profile</b> — deliberately differing from the render context.
-    /// Saved value source is engine-emitted by <see cref="HarloweValue.ToSource"/>,
+    /// Saved value source is engine-emitted by <see cref="HarloweValue.ToSource()"/>,
     /// so author compatibility policy has no bearing on it; following the
     /// story would silently re-lex existing saves under different rules the
     /// moment an author bumped <c>format-version</c> in Twine.</para>
@@ -551,7 +672,8 @@ namespace Harlowe.Runtime
         EvaluationContext = this,
         Invoker = _registry,
         Rng = new MulberryRng(),
-        Profile = HarloweProfile.SaveFormat
+        Profile = HarloweProfile.SaveFormat,
+        IsRestoringSave = true
       };
 
     /// <summary>
@@ -582,15 +704,17 @@ namespace Harlowe.Runtime
     /// <see cref="RestoreToPresent"/> just cleared and overwrite the delta with an
     /// empty one, losing that turn's variables on a later undo/redo. A non-null
     /// <see cref="Moment.StoreDelta"/> marks an already-finalised Moment (a fresh
-    /// turn starts null), so it doubles as the "is this turn live?" signal. (The
-    /// redirect trail is built during the render, not here; visit counts are
-    /// derived from it rather than snapshotted.)
+    /// turn starts null), so it doubles as the "is this turn live?" signal — which
+    /// is why <see cref="Goto"/> nulls it on a restored turn that has been
+    /// re-rendered, making it live again. (The redirect trail is built during the
+    /// render, not here; visit counts are derived from it rather than snapshotted.)
     /// </summary>
     private void FinalizePresent()
     {
       if (_present.StoreDelta != null) return;
       _present.PassageName = _currentPassage;
       _present.StoreDelta = _store.TakeStoryDelta();
+      _present.TypeDelta = _store.TakeTypeDelta();
       // Sparse RNG recording: stamp SeedIter only if the turn actually drew, so a
       // no-draw turn stays compressible (SeedIter null). The shared stream's live
       // position is this turn's end, since its draws are the most recent.
@@ -616,7 +740,7 @@ namespace Harlowe.Runtime
     /// </summary>
     private void RestoreToPresent()
     {
-      _store.ResetStoryVars(FlattenStore());   // start-of-turn store; the replay re-applies the turn's sets
+      _store.ResetStoryVars(FlattenStore(), FlattenTypes());   // start-of-turn store; the replay re-applies the turn's sets
       RestoreRng();                            // start-of-turn RNG; the replay reproduces the turn's draws
       _currentPassage = _present.PassageName;
       _replayFrom = _present.Visits != null && _present.Visits.Count > 0
@@ -629,7 +753,7 @@ namespace Harlowe.Runtime
       _loadedGame = false;
       _liveRoot = null;
       _liveContext = null;
-      _passageTimer.Restart();
+      _passageStartMs = _clockMs;
     }
 
     /// <summary>
@@ -682,6 +806,23 @@ namespace Harlowe.Runtime
       {
         var delta = _past[j].StoreDelta;
         if (delta == null) continue;
+        foreach (var kv in delta)
+        {
+          if (kv.Value == null) flat.Remove(kv.Key);
+          else flat[kv.Key] = kv.Value;
+        }
+      }
+      return flat;
+    }
+
+    /// <summary>The story-variable type restrictions at the start of the present turn: every past turn's, as with <see cref="FlattenStore"/>.</summary>
+    private Dictionary<string, HarloweValue> FlattenTypes()
+    {
+      var flat = new Dictionary<string, HarloweValue>();
+      for (int j = 0; j < _past.Count; j++)
+      {
+        var delta = _past[j].TypeDelta;
+        if (delta == null) continue;
         foreach (var kv in delta) flat[kv.Key] = kv.Value;
       }
       return flat;
@@ -693,7 +834,7 @@ namespace Harlowe.Runtime
     {
       _currentPassage = passageName ?? string.Empty;
       _store.BeginPassage();
-      _passageTimer.Restart();
+      _passageStartMs = _clockMs;
     }
 
     private RenderResult RenderInternal(int depth)
@@ -709,6 +850,7 @@ namespace Harlowe.Runtime
       {
         _liveRoot = null;
         _liveContext = null;
+        _registry.EvaluationDepth = 0;
         // A replay of a restored turn starts from its entry passage and rebuilds
         // the redirect trail from scratch — seeded with the entry so the derived
         // `visits` counts it mid-replay (a restored Moment's PassageName is the
@@ -747,10 +889,14 @@ namespace Harlowe.Runtime
         Rng = _rng,
         // Author-facing semantics follow the story's declared major. Note the
         // save context (NewSaveContext) deliberately does NOT — see there.
-        Profile = _story.Profile
+        Profile = _story.Profile,
+        NextRegionIndex = _nextRegionIndex
       };
       ctx.RenderPassage = (name, output) => InlineDisplayPassage(name, output, ctx);
+      ctx.MaxRenderDepth = () => MaxDisplayDepth;
       ctx.PassageExists = name => _story.GetPassage(name) != null;
+      ctx.FindPassage = name => _story.GetPassage(name);
+      ctx.AllPassages = () => _story.Passages;
       ctx.CanUndo = () => _past.Count > 0;
       ctx.SaveGame = (s, fn) => SaveGame(s, fn);
       ctx.SavedGames = SavedGames;
@@ -760,11 +906,22 @@ namespace Harlowe.Runtime
 
       // Render into a tree, then flush the finished tree to the buffer the
       // RenderResult is built from. The tree is kept alive on the session so
-      // DispatchEvent can mutate it (splice click-deferred content, re-run
+      // DispatchEvent can mutate it (render click-deferred content, re-run
       // enchantments) without re-rendering the whole passage.
       var builder = new Rendering.RenderTreeBuilder();
       ctx.LiveRoot = builder.Root;
-      new BodyRenderer(builder, _registry, ctx).Render(passage.Ast);
+      var renderer = new BodyRenderer(builder, _registry, ctx);
+      // While the passage renders, a (hide: ?passage) waits for it to finish,
+      // and revisions only reach what's before them.
+      Rendering.RenderNodes.StartBuilding(builder.Root, builder);
+      ctx.RenderingPassage = true;
+      if (depth == 0 && (_past.Count == 0 || !_startupHasRun)) RenderStartupPassages(renderer);
+      _startupHasRun = true;
+      renderer.Render(passage.Ast);
+      ctx.RenderingPassage = false;
+      builder.FinishBase();
+      // Before any early return below: an abandoned render's ids stay spent.
+      _nextRegionIndex = ctx.NextRegionIndex;
 
       // A staged (load-game:) replaces the whole timeline and shows the loaded
       // passage. Install after the body render (not mid-macro), then render the
@@ -811,8 +968,13 @@ namespace Harlowe.Runtime
       // (strip + re-apply), so DispatchEvent re-runs them after click-driven
       // mutations without double-wrapping. Interactions first so enchantment
       // restylings layer outside the interactive wraps, matching prior nesting.
+      // Whitespace collapses before both, because reference finishes collapsing
+      // before it runs updateEnchantments, so string targets see collapsed text.
+      if (ctx.UsesCollapsedWhitespace) Rendering.WhitespaceCollapser.Apply(builder.Root);
+      ctx.CollapseEachRender = true;
       InteractionPass.Update(builder.Root, ctx.Interactions, ctx.ClickHandlers, ctx);
       EnchantmentPass.Update(builder.Root, ctx.Enchantments, ctx);
+      _nextRegionIndex = ctx.NextRegionIndex;
 
       // Remember the live tree + context for DispatchEvent.
       _liveRoot = builder.Root;
@@ -822,14 +984,39 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
+    /// Runs every <c>startup</c>-tagged passage ahead of the first turn's passage,
+    /// in reference's natural name order (<see cref="NaturalOrder"/>), as its
+    /// <c>showPassage</c> does when no past turn exists. They share the passage's
+    /// frame, so their prose shows above it and their temp variables stay readable
+    /// in it. This is where stories usually define their custom macros.
+    /// </summary>
+    private void RenderStartupPassages(BodyRenderer renderer)
+    {
+      List<HarlowePassage> startups = null;
+      foreach (var candidate in _story.Passages)
+      {
+        if (candidate.Tags == null || !candidate.Tags.Contains("startup")) continue;
+        if (startups == null) startups = new List<HarlowePassage>();
+        startups.Add(candidate);
+      }
+      if (startups == null) return;
+      startups.Sort((a, b) =>
+      {
+        int order = NaturalOrder.Compare(a.Name, b.Name);
+        return order != 0 ? order : string.CompareOrdinal(a.Name, b.Name);
+      });
+      for (int i = 0; i < startups.Count; i++) renderer.Render(startups[i].Ast);
+    }
+
+    /// <summary>
     /// Report a user interaction (click, hover-enter, hover-leave) reported
     /// by the host engine for one of the regions the most recent
     /// <see cref="RenderResult"/> exposed. The session fires the registered
     /// handler — rendering the deferred prose (wrapped in its composed styles)
     /// and either <em>revealing</em> it at the macro's own position (plain
     /// <c>(click:)</c>-family macros fill their planted anchor, reference's
-    /// hidden attached-hook model) or splicing it into the targeted nodes via
-    /// the same revision machinery <c>(replace:)</c> uses (the
+    /// hidden attached-hook model) or rendering it into the targeted nodes the
+    /// way <c>(replace:)</c> does (the
     /// <c>-replace</c>/<c>-append</c>/<c>-prepend</c> combos) — then re-runs
     /// the interaction + enchantment passes and returns a fresh
     /// <see cref="RenderResult"/> reflecting the updated live tree. Single-use
@@ -875,82 +1062,70 @@ namespace Harlowe.Runtime
       if (fired.Once)
         _liveContext.Interactions.Remove(fired);
 
-      // Render the deferred hook into a detached subtree using the live
-      // context — so inner (click:)/(enchant:)/(replace:) calls inside the
-      // deferred hook register against the live session state (e.g. a nested
-      // (click:) appends to _liveContext.Interactions and is picked up below).
-      // The composed style layers wrap the render: (b)+(click: ?a)[x] bolds
-      // the revealed x, matching reference's renderInto of the descriptor.
-      var detached = new Rendering.RenderTreeBuilder();
-      var styles = fired.Styles;
-      if (styles != null)
-        for (int i = 0; i < styles.Count; i++) detached.PushStyle(styles[i]);
-      fired.RenderDeferredHook?.Invoke(detached);
-      if (styles != null)
-        for (int i = styles.Count - 1; i >= 0; i--) detached.PopStyle();
-      var source = detached.Root.Children;
+      // Each dispatch gets its own nested-render budget. Sharing the render's
+      // would let a long-lived passage run out after enough clicks. The target
+      // lookups below aren't charged to it: an event makes a fixed few of them
+      // however the story is written, unlike the macros its hook runs.
+      ResetBudgets();
 
+      // The deferred hook renders into each place it goes, using the live
+      // context, so inner (click:)/(enchant:)/(replace:) calls register against
+      // the live session state and its content is on the page while its
+      // macros run, as reference renders into the target. The composed style
+      // layers wrap each rendering: (b)+(click: ?a)[x] bolds the revealed x.
+      var places = new List<Changer.RevisionTarget>();
       if (fired.Mode != null)
       {
-        // Combo: splice the source into every target. A hook-name query is
-        // re-resolved fresh, matching Harlowe's "?name is a query" rule; a
-        // string target's occurrence wraps are found by their region-id tag —
-        // a wrap that left the tree (e.g. replaced by a via-lambda error) is
-        // simply not found, and one that arrived as a clone still is. The
-        // consumed region's leftover wrap is harmless: the interaction pass
+        // Combo: every target. A hook-name query is re-resolved fresh,
+        // matching Harlowe's "?name is a query" rule; a string target's
+        // occurrence wraps are found by their region-id tag, and one that left
+        // the tree (e.g. replaced by a via-lambda error) is simply not found.
+        // The consumed region's leftover wrap is harmless: the interaction pass
         // strips all wraps next.
-        IReadOnlyList<Rendering.RenderNode> targets;
+        var targets = new List<Rendering.RenderNode>();
         if (fired.Target != null)
-        {
-          targets = Rendering.HookResolver.Resolve(_liveRoot, fired.Target);
-        }
+          targets.AddRange(Rendering.HookResolver.Resolve(_liveRoot, fired.Target));
         else
-        {
-          var wraps = new List<Rendering.RenderNode>();
           Rendering.RenderNodes.CollectWhere(_liveRoot,
-            n => n is Rendering.RenderHookNode h && h.SourceRegionId == regionId, wraps);
-          targets = wraps;
-        }
+            n => n is Rendering.RenderHookNode h && h.SourceRegionId == regionId, targets);
         for (int i = 0; i < targets.Count; i++)
-        {
           if (targets[i] is Rendering.IRenderContainer container)
-            Rendering.RenderNodes.Splice(container, source, fired.Mode.Value);
-        }
+            places.Add(new Changer.RevisionTarget(container, fired.Mode.Value));
       }
       else
       {
         // Plain macro or (link:)-family changer: the deferred hook shows at
-        // the macro's own position — every anchor tagged with this region id.
-        // Tag search (clones inherit the tag) rather than a held node
-        // reference, so an anchor whose macro ran inside a revision-deferred
-        // render — spliced into the live tree as a clone — still reveals; one
-        // that never reached the live tree is simply not found, and nothing
-        // shows (reference's removed-hidden-hook behaviour). The interaction's
-        // RevealMode decides the splice: Append accumulates/fills (plain
-        // click, (link-reveal:), (link-repeat:)), Replace overwrites the
-        // previous run — and, for (link-replace:), the label nested inside
-        // the anchor ((click-rerun:), (link-rerun:)).
+        // the macro's own position, the anchor tagged with this region id. The
+        // interaction's RevealMode decides how: Append accumulates (plain
+        // click, (link-reveal:), (link-repeat:)), and Replace overwrites the
+        // previous run, along with the label nested inside the anchor for
+        // (link-replace:) ((click-rerun:), (link-rerun:)). An anchor that has
+        // left the page still gets its content, out of sight, as reference
+        // renders into the detached hook, so its macros still run.
         var anchors = new List<Rendering.RenderNode>();
         Rendering.RenderNodes.CollectWhere(_liveRoot,
           n => n is Rendering.RenderHookNode h && h.RevealRegionId == regionId, anchors);
         for (int i = 0; i < anchors.Count; i++)
-        {
           if (anchors[i] is Rendering.IRenderContainer anchor)
-            Rendering.RenderNodes.Splice(anchor, source, fired.RevealMode);
-        }
+            places.Add(new Changer.RevisionTarget(anchor, fired.RevealMode));
+        if (places.Count == 0)
+          places.Add(new Changer.RevisionTarget(new Rendering.RenderHookNode(), fired.RevealMode));
+      }
+      // The hook runs with the temp variables it could see when it was armed.
+      using (fired.TempScopes != null ? _liveContext.Store.EnterScopeChain(fired.TempScopes) : null)
+        Changer.RenderInPlace(places, fired.Styles, fired.RenderDeferredHook, _liveRoot, _liveContext);
 
-        // A consumed link-changer's label reverts to plain prose: clear the
-        // tag so ?link stops matching it and no pass re-arms a spent link
-        // (reference unwraps the <tw-link> on click). Surviving repeat/rerun
-        // labels keep theirs.
-        if (fired.LabelTarget && fired.Once)
-        {
-          var labels = new List<Rendering.RenderNode>();
-          Rendering.RenderNodes.CollectWhere(_liveRoot,
-            n => n is Rendering.RenderHookNode h && h.LabelRegionId == regionId, labels);
-          for (int i = 0; i < labels.Count; i++)
-            ((Rendering.RenderHookNode)labels[i]).LabelRegionId = null;
-        }
+      // A consumed link-changer's label reverts to plain prose: clear the tag
+      // so ?link stops matching it and no pass re-arms a spent link (reference
+      // unwraps the <tw-link> on click). Surviving repeat/rerun labels keep
+      // theirs.
+      if (fired.Mode == null && fired.LabelTarget && fired.Once)
+      {
+        var labels = new List<Rendering.RenderNode>();
+        Rendering.RenderNodes.CollectWhere(_liveRoot,
+          n => n is Rendering.RenderHookNode h && h.LabelRegionId == regionId, labels);
+        for (int i = 0; i < labels.Count; i++)
+          ((Rendering.RenderHookNode)labels[i]).LabelRegionId = null;
       }
 
       // Re-run both passes (strip + re-apply — idempotent). The interaction
@@ -965,9 +1140,14 @@ namespace Harlowe.Runtime
       // and RNG position, so pass-time macro execution cannot clobber the
       // click's queued navigation (nor grow the lists being iterated or desync
       // the RNG); EnchantmentPassCannotMutatePendingGoto in the test suite
-      // guards that.
+      // guards that. The revealed content has already collapsed, each render on
+      // its own as it finished, as in reference, so the rest of the page keeps
+      // its spacing.
       InteractionPass.Update(_liveRoot, _liveContext.Interactions, _liveContext.ClickHandlers, _liveContext);
       EnchantmentPass.Update(_liveRoot, _liveContext.Enchantments, _liveContext);
+      // The deferred hook may have armed nested interactions; keep their ids
+      // spent before any navigation below starts a new render.
+      _nextRegionIndex = _liveContext.NextRegionIndex;
 
       // A (load-game:) inside the deferred hook installs its timeline now and
       // renders the loaded passage — the dispatch-time analogue of the staged-
@@ -990,6 +1170,116 @@ namespace Harlowe.Runtime
         return Goto(target);
       }
 
+      return BuildResultFromLiveTree();
+    }
+
+    /// <summary>Gives a dispatch or live render its own budgets, rather than what's left of the render's.</summary>
+    private void ResetBudgets()
+    {
+      _liveContext.NestedRenderCost = 0;
+      _liveContext.ResetTargetWalk(_liveRoot);
+      _liveContext.RenderNesting = 0;
+      _liveContext.DisplayDepth = 0;
+      _registry.EvaluationDepth = 0;
+    }
+
+    /// <summary>True while the passage has a <c>(live:)</c> or <c>(after:)</c> hook waiting, which only <see cref="Tick(double, bool)"/> moves on.</summary>
+    public bool HasLiveHooks => _liveContext != null && _liveContext.LiveHooks.Count > 0;
+
+    /// <summary>One frame with no key or button held. See <see cref="Tick(double, bool)"/>.</summary>
+    public RenderResult Tick(double elapsedMilliseconds) => Tick(elapsedMilliseconds, false);
+
+    /// <summary>
+    /// Moves the story's clock on by <paramref name="elapsedMilliseconds"/>, as
+    /// a host's frame loop does each frame. <c>time</c> reads this clock, so it
+    /// only advances here, and it's 0 while a passage first renders, as in
+    /// reference.
+    ///
+    /// <para>Each call is one frame for the passage's <c>(live:)</c> and
+    /// <c>(after:)</c> hooks, as each animation frame is for reference's
+    /// <c>runLiveHook</c>. A <c>(live:)</c> hook starts counting on the first
+    /// frame after it's made, and once its delay has passed it renders,
+    /// replacing what it showed, and starts counting again, so it renders at
+    /// most once a frame. A render that runs <c>(stop:)</c> ends it. An
+    /// <c>(after:)</c> hook renders once, on the first frame after it's made
+    /// that <c>time</c> is past its delay. Pass <paramref name="inputHeld"/>
+    /// when the player holds any key, mouse button or touch during the frame,
+    /// which takes an <c>(after:)</c> hook's second number off its delay, as
+    /// reference's <c>anyInputDown</c> does.</para>
+    ///
+    /// <para>A live hook whose node was replaced keeps rendering off the page,
+    /// as reference's does, so its macros still run. Returns the page after the
+    /// renders, or null when no hook rendered. A <c>(goto:)</c> or
+    /// <c>(load-game:)</c> in a live hook navigates, and returns that page.</para>
+    ///
+    /// <para>As with <see cref="DispatchEvent"/>, what a live render changes
+    /// isn't part of a save, which reproduces the turn by rendering it again.</para>
+    /// </summary>
+    public RenderResult Tick(double elapsedMilliseconds, bool inputHeld)
+    {
+      if (double.IsNaN(elapsedMilliseconds) || elapsedMilliseconds < 0) elapsedMilliseconds = 0;
+      _clockMs += elapsedMilliseconds;
+      if (!HasLiveHooks || _liveRoot == null) return null;
+
+      // Hooks made by this frame's renders wait for the next frame, as a new
+      // animation frame request does.
+      var live = new List<LiveHook>(_liveContext.LiveHooks);
+      bool rendered = false;
+      for (int i = 0; i < live.Count; i++)
+      {
+        var hook = live[i];
+        if (hook.Stopped) continue;
+        if (hook.After != null)
+        {
+          // Reference's (after:) event filter, run every frame: a held key or
+          // button takes the skip off the delay, then the hook fires once time
+          // is past it.
+          if (inputHeld && hook.Skip > 0) hook.After -= hook.Skip;
+          if (!(_clockMs - _passageStartMs > hook.After.Value)) continue;
+        }
+        else
+        {
+          if (!hook.Started) hook.Started = true;
+          else hook.Remaining -= elapsedMilliseconds;
+          if (hook.Remaining > 0) continue;
+          hook.Remaining = hook.Delay;
+        }
+
+        ResetBudgets();
+        int stopsBefore = _liveContext.StopsRun;
+        // The node it was planted as, on the page or off it: a revision never
+        // copies it, since each target renders its own.
+        hook.Node.Hidden = null;
+        hook.Node.Children.Clear();
+        hook.Render(hook.Node, _liveRoot);
+        rendered = true;
+        if (hook.After != null || _liveContext.StopsRun != stopsBefore)
+        {
+          hook.Stopped = true;
+          _liveContext.LiveHooks.Remove(hook);
+        }
+        if (_liveContext.NavigationHalt) break;
+      }
+      if (!rendered) return null;
+
+      // The same passes, and the same navigation order, as a dispatch.
+      InteractionPass.Update(_liveRoot, _liveContext.Interactions, _liveContext.ClickHandlers, _liveContext);
+      EnchantmentPass.Update(_liveRoot, _liveContext.Enchantments, _liveContext);
+      _nextRegionIndex = _liveContext.NextRegionIndex;
+
+      if (_liveContext.PendingLoad != null)
+      {
+        var loaded = _liveContext.PendingLoad;
+        _liveContext.PendingLoad = null;
+        InstallTimeline(loaded.Past, loaded.Present);
+        return RenderInternal(0);
+      }
+      if (_liveContext.PendingGoto != null)
+      {
+        var target = _liveContext.PendingGoto;
+        _liveContext.PendingGoto = null;
+        return Goto(target);
+      }
       return BuildResultFromLiveTree();
     }
 
@@ -1022,7 +1312,9 @@ namespace Harlowe.Runtime
       {
         PassageName = _currentPassage,
         Text = buf.Text,
-        Entries = buf.Entries
+        Entries = (OutputFeatures & OutputFeatures.LinkLabels) != 0
+          ? buf.Entries
+          : OutputFeatureAdapter.LowerEntries(buf.Entries)
       };
     }
 
@@ -1033,19 +1325,35 @@ namespace Harlowe.Runtime
     /// render sink for in-prose use (so Link/Error/Style events propagate),
     /// or a private buffer for expression-position use (so the rendered text
     /// can be returned as a String). Returns an Error value if the passage
-    /// isn't found or if <see cref="MaxDisplayDepth"/> nested displays would
-    /// be exceeded; otherwise returns an empty String — the work is the
-    /// side-effect on <paramref name="output"/>.
+    /// isn't found, if <see cref="MaxDisplayDepth"/> nested renders would be
+    /// exceeded, or if this render has used up its nested-render budget;
+    /// otherwise returns an empty String — the work is the side-effect on
+    /// <paramref name="output"/>.
     /// </summary>
     private HarloweValue InlineDisplayPassage(string name, IRenderOutput output, MacroContext ctx)
     {
       var passage = _story.GetPassage(name);
       if (passage == null) return HarloweValue.OfError($"passage '{name}' not found");
-      if (ctx.DisplayDepth >= MaxDisplayDepth)
+      var refusal = ctx.EnterNestedRender(passage.RawBody?.Length ?? 0);
+      if (refusal == NestedRenderRefusal.TooDeep)
         return HarloweValue.OfError($"(display:) recursion limit reached at '{name}'");
-      ctx.DisplayDepth++;
-      try { new BodyRenderer(output, _registry, ctx).Render(passage.Ast); }
-      finally { ctx.DisplayDepth--; }
+      if (refusal == NestedRenderRefusal.OverBudget)
+        return HarloweValue.OfError($"(display:) stopped at '{name}': {MacroContext.OverBudgetMessage}");
+
+      // A displayed passage is its own stack frame in reference's renderInto:
+      // a fresh (else:) pairing and a child temp-variable scope.
+      var priorConditional = ctx.LastConditional;
+      ctx.LastConditional = null;
+      try
+      {
+        using (ctx.Store.PushTempScope())
+          new BodyRenderer(output, _registry, ctx).Render(passage.Ast);
+      }
+      finally
+      {
+        ctx.LastConditional = priorConditional;
+        ctx.ExitNestedRender();
+      }
       return HarloweValue.OfString(string.Empty);
     }
 

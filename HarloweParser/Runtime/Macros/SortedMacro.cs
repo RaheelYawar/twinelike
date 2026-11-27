@@ -29,9 +29,8 @@ namespace Harlowe.Runtime.Macros
   /// </para>
   ///
   /// <para>
-  /// A single trailing array arg is auto-iterated (see <see cref="FindMacro"/>
-  /// for the rationale), so <c>(sorted: (a: 3, 1, 2))</c> sorts the array's
-  /// contents and an empty array sorts to an empty array.
+  /// An array is given with <c>...</c>: <c>(sorted: ...$list)</c>. A spread of
+  /// an empty array sorts to an empty array.
   /// </para>
   /// </summary>
   public class SortedMacro : IMacro
@@ -56,7 +55,7 @@ namespace Harlowe.Runtime.Macros
         startIndex = 1;
       }
 
-      var items = LambdaArgs.ExpandItems(args, startIndex);
+      var items = LambdaArgs.Items(args, startIndex);
       if (items.Count == 0)
         return HarloweValue.OfArray(new List<HarloweValue>());
 

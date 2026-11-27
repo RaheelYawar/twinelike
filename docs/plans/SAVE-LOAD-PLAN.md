@@ -96,7 +96,7 @@ The six original prerequisites plus the forks settled by the findings:
 3. **Visit counts** — derived by walking the timeline (drop per-Moment
    `VisitCounts`). Matches reference, shrinks the blob.
 4. **IFID namespacing** — library prefixes the slot key internally with
-   `Harlowe.Ifid` (matches reference). Empty IFID → unprefixed key; the
+   `HarloweStory.Ifid` (matches reference). Empty IFID → unprefixed key; the
    cross-story-collision contract is documented on `ISaveStorage`.
 5. **`(load-game:)`** — side-effecting navigation (no `Command` type): stages the
    deserialised timeline + a pending-load flag; the body renderer halts further
@@ -138,8 +138,8 @@ the session-level `Redo`/`FastForward`.
 - **`HarloweValue.ToSource()`** — value → Harlowe source. Number→`FormatNumber`,
   String→a quoted literal via `MarkupPrinter`'s string-literal escaping (quotes,
   backslashes, and newlines re-lex safely), Bool→`true`/`false`, Array→`(a:…)`, Datamap→`(dm:…)`
-  (keys sorted, matching reference's `mapEntriesSorter` — fidelity/determinism;
-  round-trip is order-independent), Lambda→`MarkupPrinter` on its retained
+  (names in reference's `mapEntriesSorter` order, natural with names that sort
+  as equal reversed, so a loaded datamap holds its names as reference's would), Lambda→`MarkupPrinter` on its retained
   `LambdaNode`; HookName→synthesise a `HookRefNode` from the value's
   `Name`+`Steps` (it carries no node; copy the `IReadOnlyList<HookRefStep>` into
   `HookRefNode`'s `List`) then `MarkupPrinter`; Changer→its stamped source. The
@@ -187,7 +187,10 @@ the session-level `Redo`/`FastForward`.
 - **Blob** — JSON array of moments via the existing `JsonWriter`/`JsonReader`;
   each var value a source string; a moment with no var changes, redirects, or
   recorded `Seed`/`SeedIter` compresses to a bare passage-name string (mirroring
-  `#isEmpty()`). `SaveBlobVersion.Current = 1`.
+  `#isEmpty()`). `SaveBlobVersion.Current = 1`. *(Since extended: host turn data
+  added version 2 and a `turnData` moment field, which also blocks compression.
+  Blobs are stamped with the lowest version that can represent them, so one
+  without turn data is still written as version 1 — see `SaveBlobVersion`.)*
 - **`ISaveStorage`** — host interface modeled on `IRenderOutput`,
   constructor-injected: `TryRead`/`TryWrite`/`TryDelete`/`Enumerate`, no
   `HarloweValue` exposure. `InMemorySaveStorage` default.
@@ -264,7 +267,7 @@ Each step is a landable, test-green commit.
 
 5. **`ISaveStorage` + `InMemorySaveStorage`.** Interface (blob + filename stored
    separately, cheap `Enumerate`), default impl, optional constructor param on
-   `StorySession`. Library prefixes slot keys with `Harlowe.Ifid`. ~120 LoC.
+   `StorySession`. Library prefixes slot keys with `HarloweStory.Ifid`. ~120 LoC.
 
 6. **Macros + loop guard.** `(save-game:)` → Bool; `(load-game:)` → on success
    stage-timeline + pending-load, session installs + navigates to the loaded

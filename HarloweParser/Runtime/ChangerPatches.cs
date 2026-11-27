@@ -79,6 +79,75 @@ namespace Harlowe.Runtime
   }
 
   /// <summary>
+  /// Patch produced by the <c>(transition:)</c> family. Each sets one
+  /// transition field, merged into the descriptor's single transition layer, so
+  /// <c>(t8n: "fade") + (t8n-time: 2s)</c> is one layer with both and
+  /// <c>(t8n: "fade") + (t8n: "pulse")</c> pulses.
+  /// </summary>
+  public class TransitionPatch : IChangerPatch
+  {
+    /// <summary>The fields this patch sets. Its other fields are unset.</summary>
+    public StyleSpec Fields;
+
+    public void Apply(HookDescriptor descriptor)
+    {
+      var t = descriptor.Transition ?? (descriptor.Transition = new StyleSpec());
+      if (Fields.Transition != null) t.Transition = Fields.Transition;
+      if (Fields.TransitionTime != null) t.TransitionTime = Fields.TransitionTime;
+      if (Fields.TransitionDelay != null) t.TransitionDelay = Fields.TransitionDelay;
+      if (Fields.TransitionSkip != null) t.TransitionSkip = Fields.TransitionSkip;
+      if (Fields.TransitionDepart != null) t.TransitionDepart = Fields.TransitionDepart;
+      if (Fields.TransitionArrive != null) t.TransitionArrive = Fields.TransitionArrive;
+    }
+
+    public override bool Equals(object obj) => obj is TransitionPatch other && object.Equals(Fields, other.Fields);
+
+    public override int GetHashCode() => Fields?.GetHashCode() ?? 0;
+  }
+
+  /// <summary>Patch produced by <c>(live:)</c>. Reference's <c>d.data.live = {delay}</c>.</summary>
+  public class LivePatch : IChangerPatch
+  {
+    /// <summary>Milliseconds between renders, 0 for every frame.</summary>
+    public double Delay;
+
+    public void Apply(HookDescriptor descriptor) => descriptor.Live = new LiveSpec { Delay = Delay };
+
+    public override bool Equals(object obj) => obj is LivePatch other && other.Delay.Equals(Delay);
+
+    public override int GetHashCode() => Delay.GetHashCode() ^ 0x1ee7;
+  }
+
+  /// <summary>Patch produced by <c>(after:)</c>. Reference's <c>d.data.live = {event}</c>, whose event fires once <c>time</c> is past the delay.</summary>
+  public class AfterPatch : IChangerPatch
+  {
+    /// <summary>The <c>time</c>, in milliseconds since the passage was entered, after which the hook renders.</summary>
+    public double Delay;
+
+    /// <summary>Milliseconds taken off the delay on each frame a key or button is held, 0 for none.</summary>
+    public double Skip;
+
+    public void Apply(HookDescriptor descriptor) => descriptor.Live = new LiveSpec { After = Delay, Skip = Skip };
+
+    public override bool Equals(object obj) => obj is AfterPatch other && other.Delay.Equals(Delay) && other.Skip.Equals(Skip);
+
+    public override int GetHashCode() => (Delay.GetHashCode() * 397) ^ Skip.GetHashCode() ^ 0xaf7e;
+  }
+
+  /// <summary>
+  /// Patch produced by <c>(hidden:)</c>: the hook doesn't render until
+  /// <c>(show:)</c> reveals it. Reference's <c>d =&gt; {d.enabled = false}</c>.
+  /// </summary>
+  public class HiddenPatch : IChangerPatch
+  {
+    public void Apply(HookDescriptor descriptor) => descriptor.Enabled = false;
+
+    public override bool Equals(object obj) => obj is HiddenPatch;
+
+    public override int GetHashCode() => -2;
+  }
+
+  /// <summary>
   /// Patch produced by <c>(for:)</c>. Sets the descriptor's iteration spec.
   /// If a prior iteration patch already wrote one, the later one wins — a
   /// chained <c>(for:) + (for:)</c> composition is rejected at apply time by
@@ -123,9 +192,9 @@ namespace Harlowe.Runtime
   /// argument (the macros are variadic) and <em>appends</em> them to the
   /// descriptor's list rather than overwriting — reference pushes onto
   /// <c>desc.newTargets</c>, deduplicating identical (target, mode) pairs so
-  /// <c>(replace: ?1) + (replace: ?1, ?2)</c> splices <c>?1</c> once. The
-  /// renderer then splices the changer's rendered hook into every targeted
-  /// tree node instead of rendering it inline.
+  /// <c>(replace: ?1) + (replace: ?1, ?2)</c> revises <c>?1</c> once. The
+  /// renderer then renders the changer's hook into every targeted tree node
+  /// instead of inline.
   /// </summary>
   public class RevisionPatch : IChangerPatch
   {
@@ -174,7 +243,7 @@ namespace Harlowe.Runtime
   /// Patch produced by the click/hover macros (<c>(click:)</c>,
   /// <c>(mouseover-append:)</c>, …). Sets the descriptor's interaction spec —
   /// the changer then wraps the targeted nodes in
-  /// <see cref="RenderInteractiveNode"/>s and registers a deferred handler
+  /// <see cref="Rendering.RenderInteractiveNode"/>s and registers a deferred handler
   /// the session fires on <see cref="StorySession.DispatchEvent"/>.
   /// </summary>
   public class InteractionPatch : IChangerPatch

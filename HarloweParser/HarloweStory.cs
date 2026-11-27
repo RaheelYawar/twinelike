@@ -9,7 +9,7 @@ using HapHtmlNode = HtmlAgilityPack.HtmlNode;
 
 namespace Harlowe
 {
-  public class Harlowe
+  public class HarloweStory
   {
     private Dictionary<string, HarlowePassage> _passages;
 
@@ -60,7 +60,7 @@ namespace Harlowe
     /// tokenized by the time either can be assigned; a metadata assignment
     /// silently re-tokenizing the whole story would be more surprising than
     /// the stale rule. To load <em>under</em> a profile, pass it to the loader
-    /// — <see cref="Harlowe(string, HarloweProfile)"/> or
+    /// — <see cref="HarloweStory(string,Harlowe.HarloweProfile)"/> or
     /// <see cref="Twee.TweeReader(HarloweProfile)"/> — which is the only way
     /// to affect lexical switches. Passages added or re-parsed after the
     /// assignment do follow it.</para>
@@ -95,21 +95,33 @@ namespace Harlowe
     /// <see cref="HarlowePassage.Ast"/> tree; <see cref="HarlowePassage.Body"/>
     /// and <see cref="HarlowePassage.Branches"/> are derived views over the AST.
     /// </summary>
-    public Harlowe(string htmlText) : this(htmlText, null) { }
+    /// <exception cref="ArgumentNullException"><paramref name="htmlText"/> is null.</exception>
+    /// <exception cref="HarloweParseException">The HTML has no
+    /// <c>&lt;tw-storydata&gt;</c> element, a <c>&lt;tw-passagedata&gt;</c> has
+    /// no <c>name</c> or <c>pid</c>, or two passages share a name or pid. A
+    /// passage whose markup doesn't parse never throws; it renders an in-prose
+    /// error.</exception>
+    public HarloweStory(string htmlText) : this(htmlText, null) { }
 
     /// <summary>
     /// Parses a Twine HTML export under an explicit compatibility profile,
     /// overriding the major the export's <c>format-version</c> declares. Null
     /// follows the declaration, making this identical to
-    /// <see cref="Harlowe(string)"/>.
+    /// <see cref="HarloweStory(string)"/>.
     ///
     /// <para>The override belongs on the loader rather than on
     /// <see cref="Profile"/> because some switches are lexical: by the time a
     /// caller could assign the property, every passage body has been
     /// tokenized. This is the only entry point that can affect them.</para>
     /// </summary>
-    public Harlowe(string htmlText, HarloweProfile profile)
+    /// <exception cref="ArgumentNullException"><paramref name="htmlText"/> is null.</exception>
+    /// <exception cref="HarloweParseException">The HTML has no
+    /// <c>&lt;tw-storydata&gt;</c> element, a <c>&lt;tw-passagedata&gt;</c> has
+    /// no <c>name</c> or <c>pid</c>, or two passages share a name or pid.</exception>
+    public HarloweStory(string htmlText, HarloweProfile profile)
     {
+      if (htmlText == null) throw new ArgumentNullException(nameof(htmlText));
+
       // Before any parsing: Parse() lexes passage bodies under Profile, and a
       // lexical switch cannot be applied retroactively.
       _profileOverride = profile;
@@ -139,7 +151,7 @@ namespace Harlowe
     /// defaults; populate the story by setting fields and calling
     /// <see cref="AddPassage"/>.
     /// </summary>
-    public Harlowe()
+    public HarloweStory()
     {
       _passages = new Dictionary<string, HarlowePassage>();
       _passageOrder = new List<string>();
@@ -176,17 +188,37 @@ namespace Harlowe
     /// <see cref="HarlowePassage.RawBody"/>, one and the same string) is left
     /// untouched so it round-trips intact.</para>
     /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="passage"/> is null.</exception>
+    /// <exception cref="ArgumentException">The passage has no name, or its
+    /// name or pid is already taken. The passage is left unchanged.</exception>
     public void AddPassage(HarlowePassage passage)
     {
       if (passage == null) throw new ArgumentNullException(nameof(passage));
+      if (passage.Name == null)
+        throw new ArgumentException("the passage has no name", nameof(passage));
+      if (_passages.ContainsKey(passage.Name))
+        throw new ArgumentException(
+          $"a passage named '{passage.Name}' already exists", nameof(passage));
       if (string.IsNullOrEmpty(passage.Pid))
         passage.Pid = NextAvailablePid().ToString(CultureInfo.InvariantCulture);
       else if (GetPassageByPid(passage.Pid) != null)
         throw new ArgumentException(
           $"a passage with pid '{passage.Pid}' already exists", nameof(passage));
       HydratePassageFromBody(passage);
-      _passages.Add(passage.Name, passage); // throws on duplicate name; list stays clean
+      _passages.Add(passage.Name, passage);
       _passageOrder.Add(passage.Name);
+      passage.Story = this;
+    }
+
+    /// <summary>
+    /// Re-parses a passage of this story after its source was assigned, keeping
+    /// <see cref="HarlowePassage.Ast"/> and <see cref="HarlowePassage.Branches"/>
+    /// in step with <see cref="HarlowePassage.RawBody"/>.
+    /// </summary>
+    internal void ReparseBody(HarlowePassage passage)
+    {
+      passage.Ast = ParseBodyToAst(passage.Name, passage.RawBody);
+      passage.Branches = BranchCollector.Collect(passage.Ast);
     }
 
     /// <summary>
@@ -367,22 +399,23 @@ namespace Harlowe
     /// of profile is invisible — and a story running under semantics it didn't
     /// ask for shows symptoms far from the cause.</para>
     ///
-    /// <para>Four cases, in the shape a caller has to handle them:</para>
+    /// <para>Five cases, in the shape a caller has to handle them:</para>
     /// <list type="bullet">
     ///   <item><description>No version declared — <see cref="NoticeSeverity.Info"/>.
     ///     Ordinary for hand-built and test stories; real Twine exports always
-    ///     declare one. Runs under the newest profile.</description></item>
+    ///     declare one. Runs under <see cref="HarloweProfile.V3"/>.</description></item>
     ///   <item><description>A major we implement — no notice.</description></item>
     ///   <item><description>A major below 3 — <see cref="NoticeSeverity.Warning"/>,
     ///     clamped to <see cref="HarloweProfile.V3"/>: 1.x/2.x were never
     ///     audited here, so their semantics aren't reconstructed, but the
     ///     nearest audited major is closer than the newest.</description></item>
-    ///   <item><description>A major newer than we implement, or an unparseable
-    ///     version — <see cref="NoticeSeverity.Warning"/>, running under the
-    ///     newest. The two are distinguished in
-    ///     <see cref="CompatibilityNotice.Detail"/>, since one means "this
-    ///     library is behind" and the other means "this metadata is
-    ///     malformed".</description></item>
+    ///   <item><description>A major newer than we implement —
+    ///     <see cref="NoticeSeverity.Warning"/>, running under the newest,
+    ///     because this library is behind.</description></item>
+    ///   <item><description>An unparseable version —
+    ///     <see cref="NoticeSeverity.Warning"/>, running under
+    ///     <see cref="HarloweProfile.V3"/>, because the metadata is
+    ///     malformed.</description></item>
     /// </list>
     ///
     /// <para>An explicit <see cref="Profile"/> override is reported too — the
@@ -418,7 +451,7 @@ namespace Harlowe
           Severity = NoticeSeverity.Info,
           DeclaredVersion = declared,
           Profile = profile,
-          Detail = "no format-version was declared, so the newest supported semantics are used",
+          Detail = "no format-version was declared",
         });
         return notices;
       }
@@ -433,7 +466,7 @@ namespace Harlowe
 
       if (major < 0)
         detail = "the declared format-version '" + declared
-          + "' could not be read as a version number, so the newest supported semantics are used";
+          + "' could not be read as a version number";
       else if (major < 3)
         detail = "the declared format-version '" + declared
           + "' predates Harlowe 3, the oldest major this library reproduces";
@@ -606,8 +639,9 @@ namespace Harlowe
     /// <summary>
     /// Retargets inbound <c>[[…]]</c> links to a renamed passage across the
     /// whole story, mirroring the Twine editor (klembot/twinejs
-    /// <c>update-passage.ts</c>). The three Harlowe link forms —
-    /// <c>[[old]]</c>, <c>[[display-&gt;old]]</c>, <c>[[old&lt;-display]]</c> —
+    /// <c>update-passage.ts</c>, whose <c>compoundLinkRegexp</c> takes either
+    /// separator). The four Harlowe link forms — <c>[[old]]</c>,
+    /// <c>[[display-&gt;old]]</c>, <c>[[display|old]]</c>, <c>[[old&lt;-display]]</c> —
     /// have their <em>target</em> rewritten to <paramref name="newName"/> in
     /// each passage's raw source (the collapsed <c>[[old]]</c> form updates its
     /// visible text too, since text and target are one and the same there).
@@ -638,7 +672,7 @@ namespace Harlowe
       // The target sits immediately before ]] in every form, so anchoring on
       // that keeps these from matching display text or unrelated prose.
       var simple = new Regex(@"\[\[" + escaped + @"\]\]");
-      var rightArrow = new Regex(@"\[\[(.*?)->" + escaped + @"\]\]");
+      var rightward = new Regex(@"\[\[(.*?)(->|\|)" + escaped + @"\]\]");
       var leftArrow = new Regex(@"\[\[" + escaped + @"(<-.*?)\]\]");
 
       foreach (var passage in _passages.Values)
@@ -646,12 +680,11 @@ namespace Harlowe
         if (passage.RawBody == null) continue;
         string body = passage.RawBody;
         string updated = simple.Replace(body, "[[" + replacement + "]]");
-        updated = rightArrow.Replace(updated, "[[$1->" + replacement + "]]");
+        // Braced group refs: a new name starting with a digit must not extend $2.
+        updated = rightward.Replace(updated, "[[${1}${2}" + replacement + "]]");
         updated = leftArrow.Replace(updated, "[[" + replacement + "$1]]");
         if (updated == body) continue;
-        passage.RawBody = updated;
-        passage.Ast = ParseBodyToAst(passage.Name, updated);
-        passage.Branches = BranchCollector.Collect(passage.Ast);
+        passage.RawBody = updated;   // re-parses Ast + Branches
       }
     }
 
@@ -779,7 +812,7 @@ namespace Harlowe
     /// Walks every <c>&lt;tw-passagedata&gt;</c> node, runs its inner HTML
     /// through entity decoding → tokenizer → body parser, and indexes the
     /// resulting <see cref="HarlowePassage"/> by name. <see cref="HarlowePassage.Branches"/>
-    /// is filled by collecting every <see cref="LinkNode"/> in the AST;
+    /// is filled by collecting every <see cref="Harlowe.Ast.Body.LinkNode"/> in the AST;
     /// <see cref="HarlowePassage.RawBody"/> holds the raw author source.
     ///
     /// <para>Null/missing structural pieces — no passages at all, a passage
@@ -797,7 +830,7 @@ namespace Harlowe
       _passageOrder = new List<string>();
       // HtmlAgilityPack returns null from SelectNodes when no nodes match. A
       // story with zero passages is structurally valid (matches the empty
-      // story from `new Harlowe()`); treat it as such instead of throwing.
+      // story from `new HarloweStory()`); treat it as such instead of throwing.
       if (passageNodes == null) return;
 
       // Lexes under the story's profile: ParseStoryData ran first, so
@@ -874,6 +907,7 @@ namespace Harlowe
             $"duplicate passage name '{passage.Name}'", -1, -1, passage.Name, ex);
         }
         _passageOrder.Add(passage.Name);
+        passage.Story = this;
       }
     }
 

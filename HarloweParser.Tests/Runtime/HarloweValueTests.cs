@@ -2,6 +2,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
 using Harlowe.Runtime;
+using Harlowe.Runtime.Macros;
+using Harlowe.Runtime.Saving;
 using Xunit;
 
 namespace Harlowe.Tests.Runtime
@@ -59,7 +61,7 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void OfDatamap_StoresPayload()
     {
-      var map = new Dictionary<string, HarloweValue> { ["a"] = HarloweValue.OfNumber(1) };
+      var map = new Dictionary<DataName, HarloweValue> { ["a"] = HarloweValue.OfNumber(1) };
       var v = HarloweValue.OfDatamap(map);
       Assert.Equal(HarloweValueKind.Datamap, v.Kind);
       Assert.Same(map, v.AsDatamap);
@@ -84,7 +86,7 @@ namespace Harlowe.Tests.Runtime
       Assert.False(HarloweValue.OfString("non-empty").IsTruthy);
       Assert.False(HarloweValue.OfString("").IsTruthy);
       Assert.False(HarloweValue.OfArray(new List<HarloweValue>()).IsTruthy);
-      Assert.False(HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>()).IsTruthy);
+      Assert.False(HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>()).IsTruthy);
       Assert.False(HarloweValue.OfError("x").IsTruthy);
     }
 
@@ -141,17 +143,17 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void Equals_DatamapsStructurallyOrderInsensitive()
     {
-      var a = HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      var a = HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>
       {
         ["x"] = HarloweValue.OfNumber(1),
         ["y"] = HarloweValue.OfNumber(2)
       });
-      var b = HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      var b = HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>
       {
         ["y"] = HarloweValue.OfNumber(2),
         ["x"] = HarloweValue.OfNumber(1)
       });
-      var c = HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      var c = HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>
       {
         ["x"] = HarloweValue.OfNumber(1),
         ["y"] = HarloweValue.OfNumber(3)
@@ -190,6 +192,60 @@ namespace Harlowe.Tests.Runtime
       }
     }
 
+    // Numbers display as JavaScript's Number.prototype.toString prints them,
+    // since that is what reference Harlowe shows. .NET's own formatting differs
+    // in where it switches to exponent form and how it writes the exponent.
+    [Theory]
+    [InlineData(100.0, "100")]
+    [InlineData(123.456, "123.456")]
+    [InlineData(-5.0, "-5")]
+    [InlineData(1e15, "1000000000000000")]
+    [InlineData(1e16, "10000000000000000")]
+    [InlineData(123456789012345680000.0, "123456789012345680000")]
+    [InlineData(1e21, "1e+21")]
+    [InlineData(-1e21, "-1e+21")]
+    [InlineData(1.5e21, "1.5e+21")]
+    [InlineData(1.7976931348623157e308, "1.7976931348623157e+308")]
+    [InlineData(0.00001, "0.00001")]
+    [InlineData(0.000001, "0.000001")]
+    [InlineData(1e-7, "1e-7")]
+    [InlineData(1.5e-7, "1.5e-7")]
+    [InlineData(0.30000000000000004, "0.30000000000000004")]
+    [InlineData(0.7999999999999999, "0.7999999999999999")]   // .NET Framework's "R" gives 17 digits
+    public void FormatNumber_MatchesJavaScriptNumberToString(double value, string expected)
+      => Assert.Equal(expected, HarloweValue.FormatNumber(value));
+
+    [Fact]
+    public void FormatNumber_NegativeZero_PrintsAsZero()
+    {
+      // .NET Core 3.0+ prints "-0"; JavaScript and .NET Framework print "0".
+      double negativeZero = -1.0 * 0.0;
+      Assert.Equal(double.NegativeInfinity, 1 / negativeZero);
+      Assert.Equal("0", HarloweValue.FormatNumber(negativeZero));
+    }
+
+    [Fact]
+    public void FormatNumber_NonFinite_UsesJavaScriptNames()
+    {
+      Assert.Equal("NaN", HarloweValue.FormatNumber(double.NaN));
+      Assert.Equal("Infinity", HarloweValue.FormatNumber(double.PositiveInfinity));
+      Assert.Equal("-Infinity", HarloweValue.FormatNumber(double.NegativeInfinity));
+    }
+
+    [Theory]
+    [InlineData(1e21)]
+    [InlineData(1e-7)]
+    [InlineData(1.5e-7)]
+    [InlineData(1e16)]
+    public void ToSource_ExponentForms_ReloadToTheSameNumber(double value)
+    {
+      var registry = new MacroRegistry();
+      StandardMacros.RegisterAll(registry);
+      var ctx = new MacroContext { Store = new HarloweVariableStore(), Invoker = registry };
+      var back = SaveSerializer.Deserialise(HarloweValue.OfNumber(value).ToSource(), registry, ctx);
+      Assert.Equal(value, back.AsNumber);
+    }
+
     [Fact]
     public void ToHarloweString_BoolLowercase()
     {
@@ -218,7 +274,7 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void ToHarloweString_DatamapKeyValuePairs()
     {
-      var map = HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      var map = HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>
       {
         ["a"] = HarloweValue.OfNumber(1),
         ["b"] = HarloweValue.OfString("z")
@@ -235,7 +291,7 @@ namespace Harlowe.Tests.Runtime
       // contractually guaranteed" — Mono/IL2CPP have been observed to diverge.
       // Insert in reverse-alphabetical order; expect alphabetical output so
       // the rendered string is stable across runtimes.
-      var map = HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      var map = HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>
       {
         ["zebra"] = HarloweValue.OfNumber(1),
         ["apple"] = HarloweValue.OfNumber(2),
@@ -312,7 +368,7 @@ namespace Harlowe.Tests.Runtime
       Assert.Equal(Arr().GetHashCode(), Arr().GetHashCode());
 
       HarloweValue Map() => HarloweValue.OfDatamap(
-        new Dictionary<string, HarloweValue> { ["a"] = HarloweValue.OfNumber(1) });
+        new Dictionary<DataName, HarloweValue> { ["a"] = HarloweValue.OfNumber(1) });
       Assert.Equal(Map().GetHashCode(), Map().GetHashCode());
 
       Assert.Equal(HarloweValue.OfError("boom").GetHashCode(),

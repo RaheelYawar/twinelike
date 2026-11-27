@@ -24,7 +24,7 @@ namespace Harlowe.Runtime
   /// <see cref="HtmlRenderOutput"/> for the HTML mapping.</para>
   ///
   /// <para>Changers stay opaque values — they don't render visibly on their
-  /// own. <see cref="HarloweValue.ToHarloweString"/> prints them as
+  /// own. <see cref="HarloweValue.ToHarloweString()"/> prints them as
   /// <c>[A (text-style:) changer]</c>, mirroring reference's
   /// <c>print()</c> in <c>ts/datatypes/changer.ts</c>.</para>
   /// </summary>
@@ -39,7 +39,7 @@ namespace Harlowe.Runtime
     /// sites (reference keeps <c>macroName</c>+<c>params</c> and regenerates source the
     /// same way in <c>changer.ts</c>'s <c>TwineScript_ToSource</c>). Travels with the
     /// value, so a changer read back from a <c>$var</c> keeps its creation-time source —
-    /// which is how <see cref="HarloweValue.ToSource"/> serialises it. Null when
+    /// which is how <see cref="HarloweValue.ToSource()"/> serialises it. Null when
     /// unstamped or composed from an unstamped operand: such a changer has no source
     /// form and can't be saved (the save fails loudly).
     /// </summary>
@@ -58,6 +58,10 @@ namespace Harlowe.Runtime
     public static Changer FromStyle(StyleSpec style)
       => new Changer(new List<IChangerPatch> { new StylePatch { Style = style ?? new StyleSpec() } });
 
+    /// <summary>A changer setting the transition fields given in <paramref name="fields"/>, merged with any others in the same composition.</summary>
+    public static Changer FromTransition(StyleSpec fields)
+      => new Changer(new List<IChangerPatch> { new TransitionPatch { Fields = fields ?? new StyleSpec() } });
+
     /// <summary>
     /// Construct a changer that wraps a hook in a per-item iteration. The
     /// renderer reads the descriptor's <see cref="IterationSpec"/> and runs
@@ -70,9 +74,9 @@ namespace Harlowe.Runtime
     /// <summary>
     /// Construct a revision changer (<c>(replace:)</c> / <c>(append:)</c> /
     /// <c>(prepend:)</c>) over one spec per target — the macros are variadic.
-    /// When applied, the changer renders its hook into a detached subtree once
-    /// and splices clones into every node each target resolves to in the live
-    /// render tree, instead of rendering inline — see <see cref="Apply"/>.
+    /// When applied, the changer renders its hook into every node each target
+    /// resolves to in the live render tree, instead of rendering inline — see
+    /// <see cref="Apply"/>.
     /// </summary>
     public static Changer FromRevision(List<RevisionSpec> revisions)
       => new Changer(new List<IChangerPatch> { new RevisionPatch { Revisions = revisions } });
@@ -151,6 +155,26 @@ namespace Harlowe.Runtime
       }
     }
 
+    /// <summary>False when a condition in this changer, or <c>(hidden:)</c>, hides whatever it's attached to.</summary>
+    internal bool IsEnabled => BuildDescriptor().Enabled;
+
+    /// <summary>True when this changer makes content appear on a click or hover.</summary>
+    internal bool HasInteraction => BuildDescriptor().Interaction != null;
+
+    /// <summary>True for the <c>(link:)</c> family, whose label takes the attached hook's place.</summary>
+    internal bool HasLinkInteraction => BuildDescriptor().Interaction?.LinkText != null;
+
+    /// <summary>True when <c>(output:)</c> is part of this changer, so an attached hook becomes a custom macro's output instead of rendering.</summary>
+    internal bool HasOutputPatch
+    {
+      get
+      {
+        for (int i = 0; i < _patches.Count; i++)
+          if (_patches[i] is OutputPatch) return true;
+        return false;
+      }
+    }
+
     /// <summary>
     /// Construct a changer from a fixed sequence of patches. Used by macros
     /// that need to express more than one patch in a single produced changer —
@@ -162,12 +186,30 @@ namespace Harlowe.Runtime
       => new Changer(new List<IChangerPatch>(patches ?? new IChangerPatch[0]));
 
     /// <summary>
+    /// The most patches one changer may hold. A changer added to itself
+    /// doubles, so without a limit a few dozen <c>+</c>s exhaust memory. This
+    /// is ten doublings, far beyond any changer written out, and enough for a
+    /// story that adds a style on every visit.
+    /// </summary>
+    internal const int MaxPatches = 1024;
+
+    /// <summary>The in-prose error for a composition past <see cref="MaxPatches"/>.</summary>
+    internal const string TooManyPatchesMessage =
+      "I can't combine these changers, because the result would have more than 1024 parts.";
+
+    /// <summary>True when composing this with <paramref name="other"/> stays within <see cref="MaxPatches"/>.</summary>
+    internal bool CanCompose(Changer other)
+      => other == null || _patches.Count + other._patches.Count <= MaxPatches;
+
+    /// <summary>
     /// Compose this changer with <paramref name="other"/>, producing a new
     /// changer whose patch list is <c>this</c>'s followed by
     /// <paramref name="other"/>'s. Reading order: <c>A + B</c> means A's
     /// patches run before B's against the shared descriptor — so A's styles
     /// land first (outermost). Matches left-to-right authoring order in
-    /// source.
+    /// source. It doesn't check <see cref="MaxPatches"/>: the story's own
+    /// compositions do that first, and a host composing in code chooses its
+    /// own sizes.
     /// </summary>
     public Changer Compose(Changer other)
     {
@@ -182,14 +224,14 @@ namespace Harlowe.Runtime
     /// Build the descriptor from this changer's patches and execute against
     /// it. <paramref name="renderHook"/> renders the attached hook's content
     /// into whatever <see cref="IRenderOutput"/> it is handed — usually
-    /// <paramref name="output"/> itself, but for a revision changer a detached
-    /// builder, so the source can be spliced rather than shown inline.
+    /// <paramref name="output"/> itself, but for a revision changer a builder
+    /// for each target's placeholder.
     ///
     /// <list type="bullet">
-    /// <item><b>Revision</b> (<see cref="RevisionSpec"/> list): render the hook
-    /// into a detached subtree once, resolve each target against the live
-    /// render tree, and splice a clone into every match. Takes precedence over
-    /// iteration/styles on the same descriptor.</item>
+    /// <item><b>Revision</b> (<see cref="RevisionSpec"/> list): resolve every
+    /// target against the live render tree, then render the hook into a
+    /// placeholder in each (<see cref="RenderInPlace"/>). With iteration, once
+    /// per pass.</item>
     /// <item><b>Iteration</b> (<see cref="IterationSpec"/>): loop, binding
     /// parameter + <c>it</c> per item and emitting the style wrappers around
     /// each iteration's hook render.</item>
@@ -209,25 +251,42 @@ namespace Harlowe.Runtime
     /// composed conditional (<see cref="ConditionalPatch"/>) suppressed the hook,
     /// in which case nothing renders and nothing registers. The renderer feeds
     /// this into the <c>(else:)</c> pairing (reference's <c>lastHookShown</c>).</para>
+    ///
+    /// <para><paramref name="aroundLink"/> says the hook is a passage link, where
+    /// a <c>(transition-time:)</c> on its own still reaches the host.</para>
     /// </summary>
-    public bool Apply(IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx = null)
+    public bool Apply(IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx = null, bool aroundLink = false)
     {
-      var descriptor = BuildDescriptor();
+      var descriptor = BuildDescriptor(aroundLink);
 
       // A conditional in the composition disabled the hook: render nothing,
       // register nothing — (if: false) + (click: ?a) must not arm a click.
       if (!descriptor.Enabled) return false;
+      return Execute(descriptor, output, renderHook, ctx);
+    }
 
-      // Interaction, Revision, and Iteration are mutually-exclusive ways of
-      // consuming the hook (wrap-and-defer, splice-elsewhere, loop-in-place);
-      // this engine executes exactly one. Composing two — e.g. (replace: ?x) +
-      // (for: each _i, ...) — used to silently drop the lower-priority one.
-      // Surface an in-prose error instead so the author sees the unsupported
-      // combination rather than half of it. (Styles compose with any single
-      // one of the three and are unaffected.)
+    /// <summary>
+    /// A <c>(live:)</c> or <c>(after:)</c> hook's render when its time comes:
+    /// the rest of the changer applies, and the hook shows even if a condition
+    /// in it was false, as reference's <c>runLiveHook</c> forces its descriptor
+    /// enabled.
+    /// </summary>
+    internal void ApplyLive(IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx)
+      => Execute(BuildDescriptor(), output, renderHook, ctx);
+
+    /// <summary>What the changer's <c>(live:)</c> or <c>(after:)</c> asks for, or null when it has neither.</summary>
+    internal LiveSpec Live => BuildDescriptor().Live;
+
+    private static bool Execute(HookDescriptor descriptor, IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx)
+    {
+
+      // An interaction defers the hook, which a revision or a (for:) can't
+      // follow, so composing one with either is an in-prose error rather than
+      // half of it. A (for:) with a revision runs the revision once per pass,
+      // as reference's renderInto loops over its loop variables. (Styles
+      // compose with anything.)
       int exclusiveCount = (descriptor.Interaction != null ? 1 : 0)
-                         + (descriptor.Revisions.Count > 0 ? 1 : 0)
-                         + (descriptor.Iteration != null ? 1 : 0);
+                         + (descriptor.Revisions.Count > 0 || descriptor.Iteration != null ? 1 : 0);
       if (exclusiveCount > 1)
       {
         output.Error("changers can't be combined here: (click:)/revision/(for:) each consume the hook differently");
@@ -238,10 +297,6 @@ namespace Harlowe.Runtime
       {
         RunInteraction(descriptor, output, renderHook, ctx);
       }
-      else if (descriptor.Revisions.Count > 0)
-      {
-        RunRevision(descriptor, output, renderHook, ctx);
-      }
       else if (descriptor.Iteration != null)
       {
         if (ctx == null)
@@ -250,6 +305,10 @@ namespace Harlowe.Runtime
           return true;
         }
         RunIteration(descriptor, output, renderHook, ctx);
+      }
+      else if (descriptor.Revisions.Count > 0)
+      {
+        RunRevision(descriptor, output, renderHook, ctx);
       }
       else
       {
@@ -264,75 +323,205 @@ namespace Harlowe.Runtime
       if (iter.Items == null) return;
       for (int i = 0; i < iter.Items.Count; i++)
       {
+        // A custom macro's (output-data:) or a (goto:) in the loop ends it.
+        if (ctx.RenderBlocked) return;
+        // Loops multiply when nested, so each pass counts toward the render's budget.
+        if (!ctx.TrySpendOnSplice(MacroContext.LoopIterationCost))
+        {
+          output.Error(MacroContext.OverBudgetMessage);
+          return;
+        }
         var item = iter.Items[i];
         if (item != null && item.IsError) { output.Error(item.ErrorMessage); continue; }
+        // The iteration's own scope holds the loop variable, so a click armed
+        // inside the loop still finds this iteration's value when it fires.
+        using (ctx.Store.PushTempScope())
         using (ctx.Store.PushItBinding(item))
         using (ctx.Store.PushPosBinding(i + 1))
-        using (ctx.Store.PushBinding(iter.ParamName, iter.ParamIsTemporary, item))
         {
-          RunStyles(d.Styles, output, renderHook);
+          // A temp loop variable just lives in that scope. A binding would take
+          // it back out when the iteration ends, before any click could read it.
+          System.IDisposable storyBinding = null;
+          if (iter.ParamIsTemporary) ctx.Store.SetInCurrentScope(iter.ParamName, true, item);
+          else storyBinding = ctx.Store.PushBinding(iter.ParamName, false, item);
+          using (storyBinding)
+          {
+            if (d.Revisions.Count > 0) RunRevision(d, output, renderHook, ctx);
+            else RunStyles(d.Styles, output, renderHook);
+          }
         }
       }
     }
 
     private static void RunStyles(List<StyleSpec> styles, IRenderOutput output, System.Action<IRenderOutput> renderHook)
     {
+      if (output is RenderTreeBuilder builder)
+      {
+        bool opened = builder.PushStyles(styles);
+        renderHook?.Invoke(output);
+        if (opened) builder.PopStyle();
+        return;
+      }
       for (int i = 0; i < styles.Count; i++) output.PushStyle(styles[i]);
       renderHook?.Invoke(output);
       for (int i = styles.Count - 1; i >= 0; i--) output.PopStyle();
     }
 
     /// <summary>
-    /// Execute a revision changer. The hook content is rendered into a detached
-    /// <see cref="RenderTreeBuilder"/> — with any composed style layers wrapped
-    /// around it — then spliced into every node the target resolves to in the
-    /// live render tree. Targeting prefers <see cref="MacroContext.LiveRoot"/>
-    /// so a dispatch-time deferred render (whose own output is a detached
-    /// builder, not the live tree) still mutates the right tree; it falls back
-    /// to the output's root if no context is supplied. A target not in the
-    /// live tree (declared after this macro on the main render, or absent
-    /// entirely) means no match and the source is simply not shown —
-    /// Harlowe no-ops the same way. Each match gets its own deep clone of the
-    /// source so the tree stays a tree.
+    /// Execute a revision changer, following reference's
+    /// <c>ChangeDescriptor.render</c>. Every target of every argument is
+    /// resolved first, in the live tree (<see cref="MacroContext.LiveRoot"/>, or
+    /// the output's root with no context), and then
+    /// <see cref="RenderInPlace"/> renders the hook into each one. A target
+    /// that isn't there means nothing renders, as in reference.
+    ///
+    /// <para>While the passage renders, a revision written into the page only
+    /// reaches what's before its own position, after any ordinal has picked
+    /// (reference's <c>before</c> filter, which applies while the passage is
+    /// detached). A custom macro body isn't on the page, and reference's
+    /// filter there compares nodes from separate trees, which Chromium orders
+    /// by memory address: hooks made with the passage come earlier and are
+    /// reached, and the wraps a text search has just made come later and
+    /// aren't, so a string target from a body reaches nothing.</para>
     /// </summary>
     private static void RunRevision(HookDescriptor d, IRenderOutput output, System.Action<IRenderOutput> renderHook, MacroContext ctx)
     {
-      // Render the source into a detached subtree, styles wrapping the content.
-      var detached = new RenderTreeBuilder();
-      for (int i = 0; i < d.Styles.Count; i++) detached.PushStyle(d.Styles[i]);
-      renderHook?.Invoke(detached);
-      for (int i = d.Styles.Count - 1; i >= 0; i--) detached.PopStyle();
-      var source = detached.Root.Children;
-
       var liveRoot = MacroContext.ResolveLiveRoot(ctx, output);
       if (liveRoot == null) return;
 
-      // One splice pass per spec, in argument/composition order — reference
-      // processes desc.newTargets the same way, each {target, append} pair
-      // resolved and revised independently.
+      var writer = output as RenderTreeBuilder;
+      bool writesPage = writer != null && ReferenceEquals(writer.Root, liveRoot);
+      bool passage = ctx != null && ctx.RenderingPassage;
+      var position = passage && writesPage ? writer.CurrentContainer as RenderNode : null;
+      bool stringsReachNothing = passage && !writesPage && ctx.CurrentCustomMacro != null;
+
+      var targets = new List<RevisionTarget>();
       for (int s = 0; s < d.Revisions.Count; s++)
       {
         var rev = d.Revisions[s];
-        IReadOnlyList<RenderNode> targets;
-        if (rev.HookTarget != null)
+        if (ctx != null && !ctx.TrySpendOnTargetWalk(liveRoot))
         {
-          targets = HookResolver.Resolve(liveRoot, rev.HookTarget);
-        }
-        else if (rev.StringTarget != null)
-        {
-          var wraps = TextOccurrenceFinder.FindAndWrap(liveRoot, rev.StringTarget);
-          var list = new List<RenderNode>(wraps.Count);
-          for (int i = 0; i < wraps.Count; i++) list.Add(wraps[i]);
-          targets = list;
-        }
-        else
-        {
-          continue;
+          output.Error(MacroContext.OverBudgetMessage);
+          return;
         }
 
-        for (int i = 0; i < targets.Count; i++)
-          if (targets[i] is IRenderContainer container)
-            RenderNodes.Splice(container, source, rev.Mode);
+        if (rev.HookTarget != null)
+        {
+          var found = position != null
+            ? HookResolver.ResolveBefore(liveRoot, rev.HookTarget, position)
+            : HookResolver.Resolve(liveRoot, rev.HookTarget);
+          for (int i = 0; i < found.Count; i++)
+            if (found[i] is IRenderContainer container) targets.Add(new RevisionTarget(container, rev.Mode));
+        }
+        else if (rev.StringTarget != null && !stringsReachNothing)
+        {
+          var wraps = TextOccurrenceFinder.FindAndWrap(liveRoot, rev.StringTarget, position);
+          for (int i = 0; i < wraps.Count; i++) targets.Add(new RevisionTarget(wraps[i], rev.Mode));
+        }
+      }
+      RenderInPlace(targets, d.Styles, renderHook, liveRoot, ctx);
+    }
+
+    /// <summary>Where one rendering of a revision's or a reveal's content goes, and how.</summary>
+    internal struct RevisionTarget
+    {
+      public readonly IRenderContainer Target;
+      public readonly RevisionMode Mode;
+
+      public RevisionTarget(IRenderContainer target, RevisionMode mode)
+      {
+        Target = target;
+        Mode = mode;
+      }
+    }
+
+    /// <summary>
+    /// Renders <paramref name="renderHook"/> into each target, as reference
+    /// inserts a revision's content into every target before running any of
+    /// it. Each target first gets an empty placeholder: the only child for
+    /// <see cref="RevisionMode.Replace"/>, the last for
+    /// <see cref="RevisionMode.Append"/>, the first for
+    /// <see cref="RevisionMode.Prepend"/>. A target still being written has
+    /// what's written so far moved aside first. Then each placeholder gets its
+    /// own rendering, with <paramref name="styles"/> inside it, the ones on the
+    /// page in page order and then any already off it, and unwraps into its
+    /// target if it's still there.
+    ///
+    /// <para>So a revision in the content lands on top of it, and after an
+    /// inner <c>(replace:)</c> the rest of the content goes nowhere. Each
+    /// rendering is charged a fixed cost before it starts and its size after
+    /// it finishes, and the budget error, once reached, takes the place of
+    /// the rest.</para>
+    /// </summary>
+    internal static void RenderInPlace(List<RevisionTarget> targets, List<StyleSpec> styles, System.Action<IRenderOutput> renderHook, RenderRoot liveRoot, MacroContext ctx)
+    {
+      if (targets.Count == 0) return;
+
+      var placeholders = new List<RenderNode>(targets.Count);
+      for (int i = 0; i < targets.Count; i++)
+      {
+        var target = targets[i].Target;
+        if (target is IHideable hideable && hideable.Writer != null) hideable.Writer.MoveAside(hideable);
+        var placeholder = new RenderHookNode();
+        switch (targets[i].Mode)
+        {
+          case RevisionMode.Replace:
+            target.Children.Clear();
+            target.Children.Add(placeholder);
+            break;
+          case RevisionMode.Append:
+            target.Children.Add(placeholder);
+            break;
+          case RevisionMode.Prepend:
+            target.Children.Insert(0, placeholder);
+            break;
+        }
+        placeholders.Add(placeholder);
+      }
+
+      // Finding the page order is one more search of the page, charged like
+      // the others. Past the budget the targets keep their own order.
+      List<int> order;
+      if (placeholders.Count > 1 && (ctx == null || ctx.TrySpendOnTargetWalk(liveRoot)))
+        order = RenderNodes.PageOrder(liveRoot, placeholders);
+      else
+      {
+        order = new List<int>(placeholders.Count);
+        for (int i = 0; i < placeholders.Count; i++) order.Add(i);
+      }
+      for (int k = 0; k < order.Count; k++)
+      {
+        if (ctx != null && ctx.RenderBlocked) return;
+        var placeholder = (RenderHookNode)placeholders[order[k]];
+        var builder = RenderTreeBuilder.ForPlaceholder(placeholder, targets[order[k]].Target, liveRoot);
+        // Revisions nested in revisions recurse through here, so the stack is
+        // checked as a custom macro's is, with reference's depth wording.
+        if (!CustomMacroRunner.HasStackRoom())
+        {
+          builder.Error("Printing this expression may have trapped me in an infinite loop.");
+          builder.FinishBase();
+          return;
+        }
+        if (ctx != null && !ctx.TrySpendOnSplice(MacroContext.LoopIterationCost))
+        {
+          builder.Error(MacroContext.OverBudgetMessage);
+          builder.FinishBase();
+          return;
+        }
+
+        bool opened = builder.PushStyles(styles);
+        builder.MarkLayers();
+        renderHook?.Invoke(builder);
+        if (opened) builder.PopStyle();
+
+        bool fits = ctx == null || ctx.TrySpendOnSplice(RenderNodes.SpliceCost(placeholder.Children));
+        if (!fits)
+        {
+          placeholder.Children.Clear();
+          placeholder.Children.Add(new RenderErrorNode { Message = MacroContext.OverBudgetMessage });
+        }
+        builder.FinishBase();
+        if (!fits) return;
       }
     }
 
@@ -351,8 +540,7 @@ namespace Harlowe.Runtime
     /// hook at the current output position, tagged with the region id — the
     /// reveal anchor the dispatch fills with the deferred hook's render,
     /// mirroring reference's hidden attached-hook element. The dispatch finds
-    /// it by tag (clones inherit it), so an anchor planted in a detached
-    /// builder and spliced into the live tree still reveals. The composed
+    /// it in the live tree by tag. The composed
     /// style layers wrap that deferred render, not the armed region
     /// (reference applies the descriptor's styles at the event's
     /// <c>renderInto</c>); the armed region is styled by the macro's optional
@@ -410,6 +598,7 @@ namespace Harlowe.Runtime
         ArmLambda = spec.ArmLambda,
         Styles = styles,
         RenderDeferredHook = renderHook,
+        TempScopes = ctx.Store.CaptureScopeChain(),
         RegionId = regionId
       });
     }
@@ -418,8 +607,8 @@ namespace Harlowe.Runtime
     /// Apply this changer's effect to an <em>already-rendered</em> container in
     /// place — the mechanism behind <c>(change:)</c> and <c>(enchant:)</c>,
     /// which target existing render-tree nodes rather than an attached hook.
-    /// The target's children are wrapped in nested <see cref="RenderStyleNode"/>s
-    /// (outermost = first composed layer), matching the nesting
+    /// The target's children are wrapped in one <see cref="RenderStyleNode"/>
+    /// holding the changer's layers (outermost = first composed layer), as
     /// <see cref="Apply"/> produces for a hook.
     ///
     /// <para>
@@ -444,18 +633,22 @@ namespace Harlowe.Runtime
       var styles = BuildStyles();
       if (styles.Count == 0) return;
 
-      var content = new List<RenderNode>(target.Children);
-      for (int i = styles.Count - 1; i >= 0; i--)
-      {
-        // Clone the descriptor's style on the way onto the tree so the
-        // enchantment can be re-applied to multiple targets across passes
-        // without nodes sharing a StyleSpec reference.
-        var styleNode = new RenderStyleNode { Style = styles[i]?.Clone(), SourceEnchantment = source };
-        styleNode.Children.AddRange(content);
-        content = new List<RenderNode> { styleNode };
-      }
+      var styleNode = StyleNodeFor(styles, source);
+      styleNode.Children.AddRange(target.Children);
       target.Children.Clear();
-      target.Children.AddRange(content);
+      target.Children.Add(styleNode);
+    }
+
+    /// <summary>
+    /// One node holding copies of all of <paramref name="styles"/>, tagged with
+    /// <paramref name="source"/>. Copied so the enchantment can be re-applied to
+    /// many targets across passes without nodes sharing a StyleSpec.
+    /// </summary>
+    internal static RenderStyleNode StyleNodeFor(List<StyleSpec> styles, Enchantment source)
+    {
+      var node = new RenderStyleNode { SourceEnchantment = source };
+      for (int i = 0; i < styles.Count; i++) node.Styles.Add(styles[i]?.Clone());
+      return node;
     }
 
     /// <summary>
@@ -464,7 +657,7 @@ namespace Harlowe.Runtime
     /// <see cref="ApplyTo(IRenderContainer, Enchantment)"/>; a
     /// <see cref="RenderLinkNode"/> matched by <c>?link</c> — a container too,
     /// but one whose element the host renders — is wrapped <em>node-and-all</em>
-    /// in place within <paramref name="root"/> via <see cref="ApplyToNode"/>,
+    /// in place within <paramref name="root"/> via <see cref="ApplyToNode(IRenderContainer, RenderNode, Enchantment)"/>,
     /// keeping the style layer around the link the way reference wraps
     /// <c>&lt;tw-enchantment&gt;</c> around <c>&lt;tw-link&gt;</c> (and the flat
     /// <see cref="IRenderOutput.Link"/> event intact inside it). Lets
@@ -489,33 +682,60 @@ namespace Harlowe.Runtime
     public void ApplyToNode(IRenderContainer root, RenderNode target, Enchantment source = null)
     {
       if (root == null || target == null) return;
-      var styles = BuildStyles();
-      if (styles.Count == 0) return;
+      var wrapped = WrapInStyles(target, source);
+      if (!ReferenceEquals(wrapped, target)) RenderNodes.ReplaceChild(root, target, wrapped);
+    }
 
-      RenderNode wrapped = target;
-      for (int i = styles.Count - 1; i >= 0; i--)
-      {
-        var styleNode = new RenderStyleNode { Style = styles[i]?.Clone(), SourceEnchantment = source };
-        styleNode.Children.Add(wrapped);
-        wrapped = styleNode;
-      }
-      RenderNodes.ReplaceChild(root, target, wrapped);
+    /// <summary>As <see cref="ApplyToNode(IRenderContainer, RenderNode, Enchantment)"/>, for a pass wrapping many links, whose positions were recorded once.</summary>
+    internal void ApplyToNode(NodePositions positions, RenderNode target, Enchantment source)
+    {
+      var wrapped = WrapInStyles(target, source);
+      if (!ReferenceEquals(wrapped, target)) positions.Replace(target, wrapped);
+    }
+
+    /// <summary>Builds this changer's style layers around <paramref name="target"/> and returns the outermost, or <paramref name="target"/> itself when there are none. Doesn't place the result in the tree.</summary>
+    private RenderNode WrapInStyles(RenderNode target, Enchantment source)
+    {
+      var styles = BuildStyles(aroundLink: target is RenderLinkNode);
+      if (styles.Count == 0) return target;
+      var styleNode = StyleNodeFor(styles, source);
+      styleNode.Children.Add(target);
+      return styleNode;
     }
 
     /// <summary>Run every patch against a fresh descriptor — the single place the patch list is folded, shared by <see cref="Apply"/> and <see cref="BuildStyles"/>.</summary>
-    private HookDescriptor BuildDescriptor()
+    private HookDescriptor BuildDescriptor(bool aroundLink = false)
     {
       var descriptor = new HookDescriptor();
       for (int i = 0; i < _patches.Count; i++) _patches[i].Apply(descriptor);
+      // Reference wraps the hook's contents in its transition container, inside
+      // every other style, and only when a transition is named: a time or delay
+      // on its own changes nothing. Around a passage link a time on its own
+      // still counts, because (transition-time:) also sets how long the passage
+      // transition takes.
+      var t = descriptor.Transition;
+      if (t != null && (t.Transition != null || t.TransitionDepart != null || t.TransitionArrive != null
+          || (aroundLink && t.TransitionTime != null)))
+        descriptor.Styles.Add(t);
       return descriptor;
     }
 
-    /// <summary>Build the descriptor and return its style layers — the shared front of <see cref="ApplyTo"/> / <see cref="ApplyToNode"/>, also read by <see cref="InteractionPass"/> for armed-region styling. Empty when a composed conditional disabled the descriptor, so <c>(change: ?x, (if: false) + (colour: red))</c> applies nothing.</summary>
+    /// <summary>True when the composition has a <c>(transition:)</c>, which reference refuses on a passage link.</summary>
+    internal bool HasHookTransition
+    {
+      get
+      {
+        var descriptor = BuildDescriptor();
+        return descriptor.Transition != null && descriptor.Transition.Transition != null;
+      }
+    }
+
+    /// <summary>Build the descriptor and return its style layers — the shared front of <see cref="ApplyTo"/> / <see cref="ApplyToNode(IRenderContainer, RenderNode, Enchantment)"/>, also read by <see cref="InteractionPass"/> for armed-region styling. Empty when a composed conditional disabled the descriptor, so <c>(change: ?x, (if: false) + (colour: red))</c> applies nothing.</summary>
     internal List<StyleSpec> GetStyleLayers() => BuildStyles();
 
-    private List<StyleSpec> BuildStyles()
+    private List<StyleSpec> BuildStyles(bool aroundLink = false)
     {
-      var descriptor = BuildDescriptor();
+      var descriptor = BuildDescriptor(aroundLink);
       if (!descriptor.Enabled) descriptor.Styles.Clear();
       return descriptor.Styles;
     }

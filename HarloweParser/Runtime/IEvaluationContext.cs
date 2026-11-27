@@ -3,19 +3,19 @@ namespace Harlowe.Runtime
   /// <summary>
   /// Read-only view of session-level state that the evaluator needs to resolve
   /// the built-in identifiers <c>time</c>, <c>visit</c>, <c>visits</c>,
-  /// <c>passage</c>, <c>turn</c>, and <c>turns</c>. Kept as a separate
+  /// <c>turn</c>, and <c>turns</c>. Kept as a separate
   /// interface so the evaluator does not take a hard dependency on
   /// <see cref="StorySession"/>; tests can provide a static stub.
   /// </summary>
   public interface IEvaluationContext
   {
-    /// <summary>Milliseconds the current passage has been on screen, as a Number value.</summary>
+    /// <summary>Milliseconds the current passage has been on screen, as a Number value. A session counts the time the host has passed to <see cref="StorySession.Tick(double)"/>.</summary>
     HarloweValue Time { get; }
 
     /// <summary>How many times the current passage has been entered, as a Number value. Backs both <c>visit</c> and <c>visits</c> identifiers (Harlowe treats them as synonyms).</summary>
     HarloweValue Visits { get; }
 
-    /// <summary>A datamap describing the current passage (name, tags, etc.).</summary>
+    /// <summary>A datamap describing the current passage (name, tags, etc.). <c>(passage:)</c> reads the name from it when given none.</summary>
     HarloweValue Passage { get; }
 
     /// <summary>

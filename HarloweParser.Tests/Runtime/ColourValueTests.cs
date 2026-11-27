@@ -394,27 +394,30 @@ namespace Harlowe.Tests.Runtime
     [InlineData("(_: #)")]
     [InlineData("(_: #f)")]
     [InlineData("(_: #ff)")]
-    public void HexColour_TooFewDigits_IsAParseError(string source)
+    public void HexColour_TooFewDigits_IsAnErrorToken(string source)
     {
       // Not a silent skip of the '#': `(bg: #ff)` must name the malformed
       // colour, not degrade into an unknown identifier `ff`.
-      var ex = Assert.Throws<HarloweParseException>(
-        () => new HarloweTokenizer().Tokenize(source));
-      Assert.Contains("hexadecimal digits", ex.Message);
+      var tokens = new HarloweTokenizer().Tokenize(source);
+      Assert.Equal(TokenType.Error, tokens[1].Type);
+      Assert.Contains("hexadecimal digits", tokens[1].Value);
+      Assert.Equal(TokenType.MacroClose, tokens[2].Type);
     }
 
     [Fact]
-    public void HexColour_TooFewDigits_LoadsAsAnInProseError()
+    public void HexColour_TooFewDigits_IsAnInProseErrorInPlaceOfTheMacro()
     {
-      // …and that throw stays inside the library: like every other lex-time
-      // error, the loader recovers it into an in-prose error stub, so one bad
-      // colour can't take the story down with it.
-      var story = new global::Harlowe.Harlowe();
+      // …and the error stays confined to its macro: the attached hook survives
+      // as an ordinary hook, as reference renders a hook whose expression
+      // errored, so one bad colour can't take the passage down with it.
+      var story = new HarloweStory();
       var p = new HarlowePassage { Name = "Broken", Body = "(bg: #ff)[hi]" };
       story.AddPassage(p);
 
-      var err = Assert.IsType<ParseErrorNode>(Assert.Single(p.Ast.Children));
+      Assert.Equal(2, p.Ast.Children.Count);
+      var err = Assert.IsType<ParseErrorNode>(p.Ast.Children[0]);
       Assert.Contains("hexadecimal digits", err.Message);
+      Assert.IsType<HookNode>(p.Ast.Children[1]);
     }
 
     private static string[] ColourLexemes(string source)

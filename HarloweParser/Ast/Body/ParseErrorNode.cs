@@ -2,7 +2,7 @@ namespace Harlowe.Ast.Body
 {
   /// <summary>
   /// A synthetic body node carrying a parse-error message. The HTML and Twee
-  /// loaders (and <see cref="Harlowe.AddPassage"/>) emit one of these in place
+  /// loaders (and <see cref="HarloweStory.AddPassage"/>) emit one of these in place
   /// of a passage's real AST when tokenize/parse throws, so a single broken
   /// passage doesn't abort the whole story load — the rest of the story
   /// renders normally and the broken passage produces an in-prose error at

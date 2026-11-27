@@ -4,11 +4,12 @@ namespace Harlowe.Runtime.Macros
 {
   /// <summary>
   /// <c>(dm: "name", "Sam", "hp", 10)</c>. Builds a datamap from alternating
-  /// <c>String</c> key / value pairs. An odd argument count is rejected; a
-  /// non-string in a key position is rejected. Using the same key twice in one
-  /// call is an error (matching reference Harlowe's <c>map.has(key)</c> check) —
-  /// a silent last-write-wins would mask the author's mistake. Empty argument
-  /// list is allowed and produces an empty datamap.
+  /// name / value pairs. A name is a string or a number, and reference's
+  /// <c>isValidDatamapName</c> also refuses a string beside the number it
+  /// reads as, so <c>(dm: 1, "a", "1", "b")</c> is an error. Using the same
+  /// name twice in one call is an error too (reference's <c>map.has(key)</c>
+  /// check), as is an odd argument count. An empty argument list makes an
+  /// empty datamap.
   /// </summary>
   public class DmMacro : IMacro
   {
@@ -21,19 +22,19 @@ namespace Harlowe.Runtime.Macros
       if (args.Count % 2 != 0)
         return HarloweValue.OfError("(dm:) requires an even number of arguments (key, value pairs)");
 
-      var map = new Dictionary<string, HarloweValue>(args.Count / 2);
+      var map = new Dictionary<DataName, HarloweValue>(args.Count / 2);
+      var value = HarloweValue.OfDatamap(map);
       for (int i = 0; i < args.Count; i += 2)
       {
         if (args[i].IsError) return args[i];
         if (args[i + 1].IsError) return args[i + 1];
-        if (args[i].Kind != HarloweValueKind.String)
-          return HarloweValue.OfError($"(dm:) keys must be Strings; argument {i} is a {args[i].Kind}");
-        string key = args[i].AsString;
+        var nameError = ExpressionEvaluator.CheckDataName(value, args[i], out var key);
+        if (nameError != null) return nameError;
         if (map.ContainsKey(key))
-          return HarloweValue.OfError($"You used the same data name (the string \"{key}\") twice in the same (dm:) call.");
+          return HarloweValue.OfError($"You used the same data name ({key.ObjectName}) twice in the same (dm:) call.");
         map[key] = args[i + 1];
       }
-      return HarloweValue.OfDatamap(map);
+      return value;
     }
   }
 }

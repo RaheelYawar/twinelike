@@ -55,6 +55,17 @@ namespace Harlowe.Tests
       Assert.Equal(1.5, n.Value);
     }
 
+    [Theory]
+    [InlineData("1e999", double.PositiveInfinity)]
+    [InlineData("1e-999", 0.0)]
+    public void NumberLiteralBeyondDouble_ReadsAsJavaScriptDoes(string literal, double expected)
+    {
+      // .NET Framework's double.Parse throws on overflow, which would abort the
+      // story's load. JavaScript, and real 3.3.9, read 1e999 as Infinity.
+      var n = Assert.IsType<LiteralNode>(ParseExpr(literal));
+      Assert.Equal(expected, n.Value);
+    }
+
     [Fact]
     public void StringLiteral_ParsedAsLiteralNode()
     {

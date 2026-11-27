@@ -23,7 +23,7 @@ namespace Harlowe.Runtime
   /// </para>
   ///
   /// <para>
-  /// The <paramref name="pos"/> parameter on each entry point is the
+  /// The <c>pos</c> parameter on each entry point is the
   /// 1-indexed iteration position. Callers supply <c>i + 1</c> from their
   /// item loop. The binding exposes <c>pos</c> as an identifier inside the
   /// lambda clause body, matching reference Harlowe (see the <c>pos</c>
@@ -97,7 +97,7 @@ namespace Harlowe.Runtime
       if (node.MakingName == null) return HarloweValue.OfError("(folded:) lambda must have a 'making' clause");
       if (node.ViaClause == null) return HarloweValue.OfError("(folded:) lambda must have a 'via' clause");
 
-      var evaluator = new ExpressionEvaluator(ctx.Store, ctx.EvaluationContext, ctx.Invoker, ctx.Rng);
+      var evaluator = new ExpressionEvaluator(ctx.Store, ctx.EvaluationContext, ctx.Invoker, ctx.Rng, ctx.Profile);
 
       using (ctx.Store.PushItBinding(item))
       using (ctx.Store.PushPosBinding(pos))
@@ -129,7 +129,7 @@ namespace Harlowe.Runtime
     private static HarloweValue EvaluateClause(LambdaValue lambda, HarloweValue item, int pos, MacroContext ctx, IExpressionNode clause)
     {
       var node = lambda.Node;
-      var evaluator = new ExpressionEvaluator(ctx.Store, ctx.EvaluationContext, ctx.Invoker, ctx.Rng);
+      var evaluator = new ExpressionEvaluator(ctx.Store, ctx.EvaluationContext, ctx.Invoker, ctx.Rng, ctx.Profile);
 
       using (ctx.Store.PushItBinding(item))
       using (ctx.Store.PushPosBinding(pos))

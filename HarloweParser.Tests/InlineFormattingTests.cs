@@ -195,11 +195,11 @@ namespace Harlowe.Tests
       => Assert.Equal("<b>a</b>b<b>c</b>", RenderHtml("''a''b''c''"));
 
     [Fact]
-    public void Render_FormattingDoesNotCrossHookBoundary()
+    public void Render_FormattingCanCloseAcrossAnOpenHook()
     {
-      // The opening '' is outside the hook, the closing '' inside it: neither
-      // pairs across the boundary, so both stay literal.
-      Assert.Equal("''x''", RenderHtml("''[x'']"));
+      // Real Harlowe 3.3.9 output. The closing '' pairs with the opener across
+      // the open `[`, which is left as literal text, and so is the `]`.
+      Assert.Equal("<b>[x</b>]", RenderHtml("''[x'']"));
     }
 
     [Fact]
@@ -333,7 +333,7 @@ namespace Harlowe.Tests
     {
       // Exercises BranchCollector.Visit(FormatNode) through the public loader:
       // a link wrapped in '' must still surface in the passage's Branches.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(new HarlowePassage { Name = "P", Body = "''[[Go->Prose]]''" });
       var p = story.GetPassage("P");
       Assert.Single(p.Branches);

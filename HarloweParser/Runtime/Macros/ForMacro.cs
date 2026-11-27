@@ -15,8 +15,6 @@ namespace Harlowe.Runtime.Macros
   /// is simply not printed (matching reference: "if no extra values are given …
   /// nothing will happen and the attached hook will not be printed at all"),
   /// which lets authors loop over a possibly-empty array without guarding.
-  /// Auto-iterates a single trailing array arg the same way the other
-  /// lambda-consuming macros do (see <see cref="FindMacro"/>).
   /// </para>
   ///
   /// <para>Registered under both <c>for</c> and <c>loop</c>.</para>
@@ -42,7 +40,7 @@ namespace Harlowe.Runtime.Macros
       if (string.IsNullOrEmpty(lambda.Node.ParameterName))
         return HarloweValue.OfError($"({_name}:) lambda must name its iteration variable");
 
-      var items = LambdaArgs.ExpandItems(args, startIndex: 1);
+      var items = LambdaArgs.Items(args, startIndex: 1);
 
       return HarloweValue.OfChanger(Changer.FromIteration(new IterationSpec
       {

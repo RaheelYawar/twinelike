@@ -1,0 +1,1 @@
+["(print: 2s)","(print: 500ms)","(print: .5s)","(t8n-time: 2000)[x]","(t8n-time: 2s)[x]","(print: 2S)","(print: 1.5s + 1)","(print: .5)","(print: .5 + .25)","(print: 2MS)","(print: 1.1s)","(print: 2sx)","(print: 2s+1)","(print: (a: .5, 1))","(print: 3 - .5)","(set: $x to 2s)$x","(print: 1.s)","(print: 0.5s)","(print: 10ms is 10)"]

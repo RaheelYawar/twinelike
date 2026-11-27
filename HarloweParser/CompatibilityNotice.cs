@@ -2,7 +2,7 @@ namespace Harlowe
 {
   /// <summary>
   /// One remark about how a story's declared format version was interpreted, as
-  /// reported by <see cref="Harlowe.GetCompatibilityNotices"/>. The third
+  /// reported by <see cref="HarloweStory.GetCompatibilityNotices"/>. The third
   /// sibling to <see cref="BrokenLink"/> and <see cref="ParseError"/>, shaped
   /// the same way — a host engine calls it at load and shows these to whoever
   /// is building the story.
