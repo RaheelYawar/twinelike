@@ -1,6 +1,6 @@
 # Releasing Twinelike
 
-The release pipeline is split between this repo's `.github/workflows/release.yml` (build + pack + draft a GitHub Release) and the local prep below (decide the version, prepare `CHANGELOG.md` / `Twinelike.csproj` / `README.md`, commit, tag). **The tag push is what triggers the workflow.**
+The release pipeline is split between this repo's `.github/workflows/release.yml` (build + pack + draft a GitHub Release) and the local prep below (decide the version, prepare `CHANGELOG.md` / `Twinelike.csproj`, commit, tag). **The tag push is what triggers the workflow.**
 
 ## Versioning
 
@@ -17,7 +17,7 @@ Semantic versioning. Tags are `vX.Y.Z`; the version *number* (no `v`) is what Nu
 
 Edit `CHANGELOG.md`:
 
-- Add a new `## [X.Y.Z] — YYYY-MM-DD` section directly above the previous one.
+- Add a new `## [X.Y.Z] — YYYY-MM-DD` section directly above the previous one, dated the day you'll tag.
 - Group entries under **Added** / **Changed** / **Fixed** / **Security** / **Deprecated** / **Removed** (Keep a Changelog convention; omit empty sections).
 - Update the footer links:
   - `[Unreleased]: …/compare/vX.Y.Z...HEAD` (bumped to the new version)
@@ -58,7 +58,7 @@ The job builds, runs tests as a release gate, packs the `.nupkg`, stages three a
 
 ## 6. Review the draft and publish
 
-Open the draft from the [Releases page](https://github.com/RaheelYawar/twinelike/releases). Verify:
+On the [Releases page](https://github.com/RaheelYawar/twinelike/releases), click the pencil on the release marked **Draft**. A draft has a temporary `untagged-…` address, so opening the release by its tag doesn't find it. Verify:
 
 - Title is `Twinelike X.Y.Z`.
 - Body matches your `## [X.Y.Z]` CHANGELOG section.
@@ -66,7 +66,7 @@ Open the draft from the [Releases page](https://github.com/RaheelYawar/twinelike
 
 **Publish is a manual click in the GitHub UI** — `release.yml` deliberately drafts the release (`draft: true`) so this step is the human review gate. Drafts are invisible to non-collaborators and don't appear in the public release feed, so nothing is exposed until you click.
 
-When the checks above pass, click **Publish release**. The tag is already in place from step 5; the publish click is purely the visibility flip — GitHub doesn't create a new tag here. **Publishing also fires the NuGet push** (see below) — so this one click both makes the GitHub Release public and ships the package to nuget.org.
+When the checks above pass, click **Publish release** at the bottom of the edit form (or `gh release edit vX.Y.Z --draft=false`). The tag is already in place from step 5; the publish click is purely the visibility flip — GitHub doesn't create a new tag here. **Publishing also fires the NuGet push** (see below) — so this one click both makes the GitHub Release public and ships the package to nuget.org. Check that the push succeeded: `gh run list --workflow release.yml --limit 1`.
 
 ## Manual dispatch (without a tag)
 
@@ -84,4 +84,4 @@ With **nuget_only** ticked, the dispatch instead pushes the published release `v
 
 Publishing to nuget.org is automated and gated on the same human click as the GitHub Release. When you click **Publish release** (step 6), the `release: published` event triggers the `publish-nuget` job in `release.yml`, which downloads the `.nupkg` attached to that release and `dotnet nuget push`es it. It pushes the *reviewed* artifact — no rebuild — and uses `--skip-duplicate` so a re-run is a no-op. There's no symbol package, since ILRepack's merge breaks the PDB match. There's no separate manual push for normal releases.
 
-It uses nuget.org **trusted publishing**, so there's no API key to expire. A policy at nuget.org → Trusted Publishing trusts repository owner `RaheelYawar`, repository `twinelike`, workflow file `release.yml`, with no environment and Push scope. The job's `NuGet/login` step trades the run's GitHub OIDC token for a one-hour key. If the push fails, fix the cause and run the **nuget_only** dispatch above.
+It uses nuget.org **trusted publishing**, so there's no API key to expire. A policy at nuget.org → Trusted Publishing trusts repository owner `RaheelYawar`, repository `twinelike`, workflow file `release.yml`, with no environment, Push scope and glob `Twinelike`. The job's `NuGet/login` step trades the run's GitHub OIDC token for a one-hour key. If the push fails, the GitHub Release stays published and nothing needs undoing: fix the cause and run the **nuget_only** dispatch above.

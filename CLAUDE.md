@@ -6,6 +6,7 @@ A C# library (netstandard2.0) for parsing and running Twine/Harlowe interactive 
 - `ARCHITECTURE.md` — how it works: the host contract, every runtime subsystem, the five load-bearing decisions, and the file map. Read the relevant section before changing the runtime.
 - `TODO.md` — open bugs and the roadmap. `MACRO-DIVERGENCES.md` — per-macro gaps vs reference Harlowe. `COMPATIBILITY.md` — deliberate Harlowe-version differences (the compatibility-profile switch table).
 - `tools/README.md` — the test bench that compares Twinelike with real Harlowe 3.3.9.
+- `RELEASING.md` — how to cut a release, from changelog to nuget.org.
 - `docs/plans/` — finished design plans, kept for their reasoning. Active plans sit at the root.
 
 ## Build & Run
