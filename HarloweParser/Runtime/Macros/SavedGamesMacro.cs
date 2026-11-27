@@ -16,7 +16,7 @@ namespace Harlowe.Runtime.Macros
 
     public HarloweValue Invoke(List<HarloweValue> args, MacroContext context)
     {
-      var map = new Dictionary<string, HarloweValue>();
+      var map = new Dictionary<DataName, HarloweValue>();
       if (context.SavedGames != null)
         foreach (var kv in context.SavedGames())
           map[kv.Key] = HarloweValue.OfString(kv.Value);

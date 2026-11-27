@@ -20,7 +20,7 @@ using Harlowe.Runtime;
 using Harlowe.Twee; // only needed if you're loading Twee 3 source
 
 // Load a Twine 2 HTML export, or use new TweeReader().Read(tweeText) instead.
-var story = new Harlowe(File.ReadAllText("story.html"));
+var story = new HarloweStory(File.ReadAllText("story.html"));
 
 // Wrap it in a session — this is the stateful object you drive.
 var session = new StorySession(story);
@@ -38,17 +38,24 @@ var next = session.Goto("Forest");
 // Or, they clicked an interactive region — pass the id back:
 var after = session.DispatchEvent(regionIdFromYourUi);
 
+// Every frame, move the story's clock on. (live:), (after:) and `time` only
+// advance here. A non-null result means a timed hook changed the page.
+var ticked = session.Tick(deltaMilliseconds);
+if (ticked != null) Redraw(ticked);
+
 // Roll back to the previous passage:
 if (session.Undo()) {
   session.Render();
 }
 ```
 
-`RenderResult` carries the rendered content as both a flat `.Text` string and a list of typed `.Entries` (Text, Link, PushStyle, BeginInteractive, …). Walk the entries in your engine's renderer, or call `entry.ReplayTo(output)` to stream them through an adapter implementing the `IRenderOutput` interface below.
+`RenderResult` carries the rendered content as both a flat `.Text` string and a list of typed `.Entries` (Text, Link, PushStyle, BeginInteractive, …). Walk the entries in your engine's renderer, or call `result.ReplayTo(output)` to stream them through an adapter implementing the `IRenderOutput` interface below.
+
+Use a session from one thread at a time. Sessions share no mutable state, so separate sessions can run on separate threads, even over one `HarloweStory`, as long as nothing edits that story while they play.
 
 ## Engine integration
 
-Implement `IRenderOutput` against whatever your engine uses to display text. The interface is small and stable:
+Implement `IRenderOutput` against whatever your engine uses to display text. The interface is small and frozen, so a new release won't add a member your adapter lacks:
 
 ```csharp
 public interface IRenderOutput
@@ -56,20 +63,16 @@ public interface IRenderOutput
   // Prose text — already entity-decoded, post-macro evaluation.
   void Text(string content);
 
-  // Raw author-written inline HTML (e.g. <b>hello</b>). Drop, escape,
-  // or pass through depending on whether your engine wants HTML at all.
+  // Raw HTML: what the author wrote inline (e.g. <b>hello</b>), plus the
+  // structure the library emits itself — <hr> for ---, and <ul>/<ol>/<li>
+  // for lists, one tag per event. Pass author HTML through, escape or drop
+  // it, but map the structural tags to line breaks and bullets, or list
+  // items run together.
   void Html(string rawHtml);
 
-  // A passage navigation link whose label is plain text. Wire your UI's
-  // click handler to session.Goto(target).
+  // A passage navigation link. Wire your UI's click handler to
+  // session.Goto(target).
   void Link(string text, string target);
-
-  // A navigation link whose label carries structure a flat string can't
-  // express (styled or spliced content). The label arrives as ordinary
-  // events between the bracket pair; render both shapes as the same
-  // navigable link.
-  void BeginLink(string target);
-  void EndLink();
 
   // An in-prose error (bad expression, type mismatch, unknown macro).
   // The runtime never throws on the render hot path — errors come
@@ -93,6 +96,8 @@ public interface IRenderOutput
 }
 ```
 
+New output channels arrive as optional interfaces, so an adapter only receives what it opted into. Today there is one: implement `ILinkLabelOutput` (`BeginLink(target)`/`EndLink()`) and `result.ReplayTo(output)` delivers a link whose label carries styling or other structure as a bracket around ordinary events. Without it, that link arrives as a plain `Link` with flattened text and still navigates. If you walk `Entries` instead of replaying them, set `session.OutputFeatures = OutputFeatures.LinkLabels` to see the brackets there.
+
 ### Mapping to common engines
 
 The bracketing primitives (`PushStyle`/`PopStyle`, `BeginInteractive`/`EndInteractive`) intentionally line up with how inline-tag rich-text systems already work:
@@ -104,7 +109,7 @@ The bracketing primitives (`PushStyle`/`PopStyle`, `BeginInteractive`/`EndIntera
 | HTML / web | `<b>...</b>` | `<a data-region-id="region.Id">...</a>` | use `HtmlRenderOutput` (built in) |
 | CLI / plain text | ANSI bold | numbered hotkey | manual prompt → dispatch |
 
-For web/HTML consumers, replay a render's entries through the built-in `HtmlRenderOutput` and it translates semantic events into HTML tags automatically — no manual mapping.
+For web/HTML consumers, replay a render through the built-in `HtmlRenderOutput` (`result.ReplayTo(html)`) and it translates semantic events into HTML tags automatically — no manual mapping.
 
 ### A complete minimal adapter
 
@@ -127,9 +132,32 @@ public class ConsoleOutput : IRenderOutput
 }
 ```
 
+### Reading state and keeping per-turn data
+
+A host can read story variables, and keep its own data for each turn in step with the timeline. Neither is visible to story code, so a story behaves the same whether or not the host uses them.
+
+```csharp
+// Read story ($) variables — with or without the $. Values are copies; reads change nothing.
+if (session.TryGetVariable("health", out var health))
+  hud.SetHealth(health.AsNumber);
+foreach (var name in session.GetVariableNames()) { /* … */ }
+
+// Attach your own data to the present turn: any string (plain text, JSON, …).
+session.TurnData = textShownThisTurn;
+
+// It travels with its turn: undo shows the earlier turn's data again, a new branch
+// after undo discards the abandoned turns' data, and save/load round-trips it.
+session.Undo();
+var earlier = session.TurnData;
+foreach (var turn in session.GetTimeline())  // oldest first, ending with the present
+  Console.WriteLine($"{turn.PassageName}: {turn.TurnData}");
+```
+
+A save blob is stamped with the lowest format version that can represent it, so a session that never sets turn data writes blobs that builds without the feature can still load.
+
 ## Supported Harlowe features
 
-A story keeps the semantics of the Harlowe major it declares. `format-version` selects a compatibility profile at load — so a 3.x story gets 3.x behaviour even where Harlowe 4 changed the language — and a host can override it: `new Harlowe(html, HarloweProfile.V3)` or `new TweeReader(HarloweProfile.V3)`. `story.GetCompatibilityNotices()` reports anything unusual about the declared version.
+A story keeps the semantics of the Harlowe major it declares. `format-version` selects a compatibility profile at load — so a 3.x story gets 3.x behaviour even where Harlowe 4 changed the language — and a host can override it: `new HarloweStory(html, HarloweProfile.V3)` or `new TweeReader(HarloweProfile.V3)`. `story.GetCompatibilityNotices()` reports anything unusual about the declared version.
 
 ✓ shipped &middot; ⚠ partial &middot; ✗ not yet
 
@@ -142,13 +170,19 @@ A story keeps the semantics of the Harlowe major it declares. `format-version` s
 | Every operator from the Harlowe 3.3.9 precedence table | ✓ |
 | Property access (`'s`, `of`, `its`) | ✓ |
 | Ordinal indexing (`1st`, `last`, `Nthlast`) | ✓ |
-| Hooks: anonymous `[…]`, `\|name>[…]`, `[…]<name\|` | ✓ |
-| Twine links: `[[text->target]]`, `[[target<-text]]`, bare `[[name]]` | ✓ |
-| Inline text styling: `''bold''`, `//italic//`, `~~strike~~`, `^^sup^^` (Markdown `*em*`/`**strong**` pending) | ⚠ |
+| Hooks: anonymous `[…]`, `\|name>[…]`, `[…]<name\|`, unclosed `[=` | ✓ |
+| Twine links: `[[text->target]]`, `[[text\|target]]`, `[[target<-text]]`, bare `[[name]]` | ✓ |
+| Inline text styling: `''bold''`, `//italic//`, `~~strike~~`, `^^sup^^`, `*em*`, `**strong**` | ✓ |
+| Verbatim text in backticks, horizontal rules (`---`) | ✓ |
+| Bulleted and numbered lists (`* item`, `0. item`), sent as `Html` events | ✓ |
+| Block markup: headings, alignment, columns | ✗ |
 | Lambdas: `where`, `via`, `making`, `each` (incl. implicit `it`) | ✓ |
 | Hook references: `?name`, `?passage`, `?page`, `?link` (+ ordinal narrowing) | ✓ |
 | `(goto:)` with multi-step undo & redo | ✓ |
 | Inline `<html>` passthrough in passage bodies | ✓ |
+| Collapsing whitespace: `{…}`, `{=` | ✓ |
+| `...` spread of arrays and strings (`...num` spread datatypes pending) | ⚠ |
+| Printed strings and variables render as markup | ✓ |
 | String escape sequences (`\n`/`\r`/`\t`/`\\`/`\"`/`\xHH`/`\uHHHH`, etc.) | ✓ |
 | `when` lambda clause | ✗ (reserved for `(event:)`) |
 
@@ -161,7 +195,8 @@ A story keeps the semantics of the Harlowe major it declares. `format-version` s
 | `(if:)`, `(unless:)`, `(else-if:)`, `(else:)` | ✓ |
 | `(random:)`, `(either:)`, `(history:)` | ✓ |
 | `(save-game:)`, `(load-game:)`, `(saved-games:)` | ✓ |
-| `(a:)`, `(dm:)`, `(modulo:)`, `(text:)`, `(num:)` | ✓ |
+| `(a:)`, `(dm:)`, `(ds:)`, `(range:)`, `(modulo:)`, `(text:)`, `(num:)`, `(cond:)` | ✓ |
+| `(dm-names:)`, `(dm-values:)`, `(dm-entries:)`, `(passage:)`, `(passages:)` | ✓ |
 | `(rgb:)`, `(rgba:)`, `(hsl:)`, `(hsla:)` (`lch`/`oklch`/`mix`/`complement` pending) | ⚠ |
 | `(round:)`, `(min:)`, `(max:)`, `(floor:)`, `(ceil:)`, `(trunc:)`, `(abs:)`, `(sign:)` (`sqrt`/`pow`/`log`/trig pending) | ⚠ |
 | `(uppercase:)`, `(lowercase:)`, `(upperfirst:)`, `(lowerfirst:)`, `(substring:)`, `(words:)`, `(str-reversed:)`, `(str-repeated:)`, `(str-nth:)` | ✓ |
@@ -180,10 +215,12 @@ A story keeps the semantics of the Harlowe major it declares. `format-version` s
 | `(mouseout:)` and `-replace`/`-append`/`-prepend`/`-goto`/`-undo` variants | ✓ |
 | `(link:)`, `(link-replace:)`, `(link-reveal:)`, `(link-append:)`, `(link-repeat:)`, `(link-rerun:)`, `(link-goto:)`, `(link-undo:)` | ✓ |
 | `(link-reveal-goto:)`, `(link-show:)`, `(cycling-link:)`, `(link-fullscreen:)`, `(link-storylet:)` | ✗ |
-| `(live:)`, `(event:)`, `(trigger:)` | ✗ |
-| `(t8n:)`, `(transition:)`, transition modifiers | ✗ |
-| Custom `(macro:)`, `(output:)` | ✗ |
-| Storylets, `...` spread | ✗ |
+| `(live:)`, `(stop:)`, `(after:)` — on the host's clock, through `StorySession.Tick` | ✓ |
+| `(event:)`, `(more:)`, `(trigger:)` | ✗ |
+| `(hidden:)`, `(show:)`, `(hide:)` | ✓ |
+| `(transition:)` / `(t8n:)`, `(transition-time:)`, `-delay`, `-skip`, `-depart`, `-arrive` (`(animate:)` pending) | ⚠ |
+| Custom macros: `(macro:)`, `(output:)`, `(output-data:)`, `(error:)`, `(partial:)`, `($name:)` calls, typed variables, code hooks, `startup` passages | ✓ |
+| Storylets | ✗ |
 
 ### Storage
 
@@ -197,6 +234,7 @@ A story keeps the semantics of the Harlowe major it declares. `format-version` s
 | Lazy reserialization — clean passages round-trip byte-for-byte | ✓ |
 | Save / load via pluggable `ISaveStorage` backend (IFID-namespaced slots) | ✓ |
 | Reproducible `(random:)`/`(either:)` across undo, redo, and save/load (seedable RNG) | ✓ |
+| Host per-turn data (`TurnData`) carried through undo, redo, and save/load; host variable reads (`TryGetVariable`) | ✓ |
 
 Story writers: a story that uses only ✓ features will play unchanged. ⚠ rows mean the macro is recognised but only a subset of arguments work. ✗ macros produce an in-prose error rather than crashing — surrounding content keeps rendering.
 
@@ -212,7 +250,7 @@ The Clearing
 {
   "ifid": "00000000-0000-0000-0000-000000000001",
   "format": "Harlowe",
-  "format-version": "3.3.8",
+  "format-version": "3.3.9",
   "start": "Clearing"
 }
 
@@ -243,7 +281,7 @@ dotnet build Twinelike.sln
 dotnet test  Twinelike.sln
 ```
 
-Library targets `netstandard2.0`. Test project multi-targets `net48` + `net8.0` (xUnit). Both TFMs exercise the same code; CI runs `net8.0` on Linux.
+Library targets `netstandard2.0`. Test project multi-targets `net48` + `net8.0` (xUnit). Both TFMs exercise the same code; CI runs `net8.0` on Linux. `node tools/bench/verify.mjs` compares the runtime with real Harlowe 3.3.9 over the recorded cases (see [`tools/README.md`](https://github.com/RaheelYawar/twinelike/blob/main/tools/README.md)).
 
 To produce the distributable DLL:
 
@@ -251,7 +289,8 @@ To produce the distributable DLL:
 # Release build merges HtmlAgilityPack into twinelike.dll via ILRepack
 # (Debug builds skip the merge for fast dev cycles).
 dotnet build Twinelike.sln -c Release
-# → bin/Release/netstandard2.0/twinelike.dll  (self-contained, ~270 KB)
+# → bin/Release/netstandard2.0/twinelike.dll  (self-contained, ~480 KB)
+#   and twinelike.xml, the doc comments for your IDE
 
 # Or for a clean publish folder:
 dotnet publish Twinelike.csproj -c Release -o ./dist/Twinelike
@@ -259,20 +298,20 @@ dotnet publish Twinelike.csproj -c Release -o ./dist/Twinelike
 
 # Or for the NuGet package:
 dotnet pack Twinelike.csproj -c Release -o ./dist
-# → dist/Twinelike.0.2.0.nupkg
+# → dist/Twinelike.<version>.nupkg
 ```
 
-Drop the produced `twinelike.dll` into Unity's `Assets/Plugins/` or reference it from any .NET project — no other DLLs required.
+Drop the produced `twinelike.dll` into Unity's `Assets/Plugins/` or reference it from any .NET project — no other DLLs required. Put `twinelike.xml` beside it to get the doc comments in your IDE.
 
 ## Architecture
 
 Two parsing layers, then a runtime. Briefly:
 
-- **Layer 1 — host.** Either `Harlowe(htmlText)` (HtmlAgilityPack pulls `<tw-storydata>` / `<tw-passagedata>` and HTML-entity-decodes the inner text) or `TweeReader().Read(tweeText)` (header splits on `:: Name [tags] {position}` at column 0). Both produce the same `Harlowe` story object.
+- **Layer 1 — host.** Either `HarloweStory(htmlText)` (HtmlAgilityPack pulls `<tw-storydata>` / `<tw-passagedata>` and HTML-entity-decodes the inner text) or `TweeReader().Read(tweeText)` (header splits on `:: Name [tags] {position}` at column 0). Both produce the same `HarloweStory` story object.
 - **Layer 2 — Harlowe markup.** Shared between both front-ends: `HarloweTokenizer` → `HarloweBodyParser` (which hands off to `HarloweExpressionParser` at every macro) → `PassageBody` AST.
 - **Runtime.** `StorySession` owns the variable store, macro registry, and render-tree state. `BodyRenderer` walks an AST into a `RenderTreeBuilder` (an `IRenderOutput`-shaped tree-of-nodes); `RenderTreeFlusher` replays the finished tree as the flat event stream your `IRenderOutput` receives. Revision macros (`(replace:)`, `(append:)`, `(prepend:)`) mutate the tree in place; enchantment macros (`(change:)`, `(enchant:)`) re-wrap matched nodes; interaction macros (`(click:)` family) wrap targets in `InteractiveRegion` brackets and register handlers that fire on `DispatchEvent`.
 
-For implementation depth — file layout, the descriptor-patch changer model, design rationale, conventions — see [`CLAUDE.md`](https://github.com/RaheelYawar/twinelike/blob/main/CLAUDE.md).
+For implementation depth — file layout, the descriptor-patch changer model, design rationale, conventions — see [`ARCHITECTURE.md`](https://github.com/RaheelYawar/twinelike/blob/main/ARCHITECTURE.md).
 
 ## Dependencies
 
@@ -282,12 +321,14 @@ None at runtime. The shipped `twinelike.dll` is a single self-contained assembly
 
 The runtime never throws on the render hot path. A bad expression renders an inline error message at the spot it happened (delivered through `IRenderOutput.Error`) and the rest of the passage keeps rendering — mirroring Harlowe's authoring model, where one broken macro doesn't take down the whole story. Engine integrations don't need `try`/`catch` around every render call.
 
+Loading is the one place that throws, and only when the file as a whole is unusable: `new HarloweStory(html)` throws `HarloweParseException` when there's no `<tw-storydata>` element or a passage has no `name` or `pid`, both loaders throw it when two passages share a name (or, in HTML, a pid), and `TweeReader` throws it when `:: StoryData` isn't a JSON object. A passage whose markup doesn't parse never throws.
+
 ### Catching problems before the player does
 
 Inline errors only fire when the player *reaches* them. A typo'd passage name — or an outright syntax error — down an unplayed branch stays invisible right up until it ships. Three load-time reports find them all up front; call them once when you load the story and show the results to whoever is building it.
 
 ```csharp
-var story = new Harlowe(File.ReadAllText("story.html"));
+var story = new HarloweStory(File.ReadAllText("story.html"));
 
 foreach (var problem in story.GetParseErrors())
     Debug.LogError(problem.Message);

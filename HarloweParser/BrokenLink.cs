@@ -2,7 +2,7 @@ namespace Harlowe
 {
   /// <summary>
   /// One navigation reference whose target passage doesn't exist, as reported by
-  /// <see cref="Harlowe.GetBrokenLinks"/> — either the <c>[[…]]</c> syntax or a
+  /// <see cref="HarloweStory.GetBrokenLinks"/> — either the <c>[[…]]</c> syntax or a
   /// literal passage name handed to a navigation macro.
   ///
   /// <para>Shaped for a host engine to <em>show a developer</em> at load: it

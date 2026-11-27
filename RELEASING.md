@@ -1,6 +1,6 @@
 # Releasing Twinelike
 
-The release pipeline is split between this repo's `.github/workflows/release.yml` (build + pack + draft a GitHub Release) and the local prep below (decide the version, prepare `CHANGELOG.md` / `Twinelike.csproj` / `README.md`, commit, tag). **The tag push is what triggers the workflow.**
+The release pipeline is split between this repo's `.github/workflows/release.yml` (build + pack + draft a GitHub Release) and the local prep below (decide the version, prepare `CHANGELOG.md` / `Twinelike.csproj`, commit, tag). **The tag push is what triggers the workflow.**
 
 ## Versioning
 
@@ -17,7 +17,7 @@ Semantic versioning. Tags are `vX.Y.Z`; the version *number* (no `v`) is what Nu
 
 Edit `CHANGELOG.md`:
 
-- Add a new `## [X.Y.Z] — YYYY-MM-DD` section directly above the previous one.
+- Add a new `## [X.Y.Z] — YYYY-MM-DD` section directly above the previous one, dated the day you'll tag.
 - Group entries under **Added** / **Changed** / **Fixed** / **Security** / **Deprecated** / **Removed** (Keep a Changelog convention; omit empty sections).
 - Update the footer links:
   - `[Unreleased]: …/compare/vX.Y.Z...HEAD` (bumped to the new version)
@@ -28,14 +28,13 @@ The release workflow's `awk` extractor reads the matching `## [X.Y.Z]` section v
 ## 3. Bump the version
 
 - [ ] `Twinelike.csproj` — `<Version>X.Y.Z</Version>`.
-- [ ] `README.md` — the `dist/Twinelike.X.Y.Z.nupkg` example filename in the build/pack section.
 
 The release workflow passes `-p:Version=X.Y.Z` to `dotnet build` / `dotnet pack`, so the csproj `<Version>` is overridden at release time. But CI's pack smoke test uses the csproj value, so keep them in sync.
 
 ## 4. Commit and push
 
 ```sh
-git add CHANGELOG.md Twinelike.csproj README.md
+git add CHANGELOG.md Twinelike.csproj
 git commit -m "Bump version to X.Y.Z. <one-line summary of what's in this release.>"
 git push origin main
 ```
@@ -59,7 +58,7 @@ The job builds, runs tests as a release gate, packs the `.nupkg`, stages three a
 
 ## 6. Review the draft and publish
 
-Open the draft from the [Releases page](https://github.com/RaheelYawar/twinelike/releases). Verify:
+On the [Releases page](https://github.com/RaheelYawar/twinelike/releases), click the pencil on the release marked **Draft**. A draft has a temporary `untagged-…` address, so opening the release by its tag doesn't find it. Verify:
 
 - Title is `Twinelike X.Y.Z`.
 - Body matches your `## [X.Y.Z]` CHANGELOG section.
@@ -67,11 +66,13 @@ Open the draft from the [Releases page](https://github.com/RaheelYawar/twinelike
 
 **Publish is a manual click in the GitHub UI** — `release.yml` deliberately drafts the release (`draft: true`) so this step is the human review gate. Drafts are invisible to non-collaborators and don't appear in the public release feed, so nothing is exposed until you click.
 
-When the checks above pass, click **Publish release**. The tag is already in place from step 5; the publish click is purely the visibility flip — GitHub doesn't create a new tag here. **Publishing also fires the NuGet push** (see below) — so this one click both makes the GitHub Release public and ships the package to nuget.org.
+When the checks above pass, click **Publish release** at the bottom of the edit form (or `gh release edit vX.Y.Z --draft=false`). The tag is already in place from step 5; the publish click is purely the visibility flip — GitHub doesn't create a new tag here. **Publishing also fires the NuGet push** (see below) — so this one click both makes the GitHub Release public and ships the package to nuget.org. Check that the push succeeded: `gh run list --workflow release.yml --limit 1`.
 
 ## Manual dispatch (without a tag)
 
 The `workflow_dispatch` trigger on `release.yml` lets you draft a release without pushing a tag first — useful for retries or for cutting a release entirely from the GitHub UI. Provide the version (e.g. `0.1.1`) as the input; the tag is then created on Publish.
+
+With **nuget_only** ticked, the dispatch instead pushes the published release `v<version>`'s `.nupkg` to nuget.org: `gh workflow run release.yml -f version=X.Y.Z -f nuget_only=true`. Use it when the NuGet push failed after Publish. Re-running that failed job runs the workflow as it was at the tag, so it won't pick up a fix to `release.yml`.
 
 ## If something goes wrong
 
@@ -81,6 +82,6 @@ The `workflow_dispatch` trigger on `release.yml` lets you draft a release withou
 
 ## NuGet.org publishing
 
-Publishing to nuget.org is automated and gated on the same human click as the GitHub Release. When you click **Publish release** (step 6), the `release: published` event triggers the `publish-nuget` job in `release.yml`, which downloads the `.nupkg`/`.snupkg` attached to that release and `dotnet nuget push`es them. It pushes the *reviewed* artifact — no rebuild — uses `--skip-duplicate` so a re-run is a no-op, and the `.snupkg` symbols upload alongside the `.nupkg` automatically. There's no separate manual push for normal releases.
+Publishing to nuget.org is automated and gated on the same human click as the GitHub Release. When you click **Publish release** (step 6), the `release: published` event triggers the `publish-nuget` job in `release.yml`, which downloads the `.nupkg` attached to that release and `dotnet nuget push`es it. It pushes the *reviewed* artifact — no rebuild — and uses `--skip-duplicate` so a re-run is a no-op. There's no symbol package, since ILRepack's merge breaks the PDB match. There's no separate manual push for normal releases.
 
-This needs a repo secret **`NUGET_API_KEY`** (Settings → Secrets and variables → Actions) — create it at nuget.org → API Keys, scoped to **Push** with glob `Twinelike`. **These keys expire (365-day max); when one lapses the push job fails while the draft still succeeds — regenerate the key, update the secret, and re-run the job.**
+It uses nuget.org **trusted publishing**, so there's no API key to expire. A policy at nuget.org → Trusted Publishing trusts repository owner `RaheelYawar`, repository `twinelike`, workflow file `release.yml`, with no environment, Push scope and glob `Twinelike`. The job's `NuGet/login` step trades the run's GitHub OIDC token for a one-hour key. If the push fails, the GitHub Release stays published and nothing needs undoing: fix the cause and run the **nuget_only** dispatch above.

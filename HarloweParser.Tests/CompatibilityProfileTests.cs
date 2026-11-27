@@ -41,8 +41,8 @@ namespace Harlowe.Tests
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    public void Resolve_Absent_SelectsLatest(string version)
-      => Assert.Same(HarloweProfile.Latest, HarloweProfile.Resolve(version));
+    public void Resolve_Absent_SelectsV3(string version)
+      => Assert.Same(HarloweProfile.V3, HarloweProfile.Resolve(version));
 
     [Theory]
     [InlineData("2.1.0")]
@@ -69,8 +69,20 @@ namespace Harlowe.Tests
     [InlineData("v3.3.9")]  // leading 'v' — no leading digit run, so unparseable
     [InlineData("   ")]
     [InlineData(".3.9")]
-    public void Resolve_Unparseable_SelectsLatest(string version)
-      => Assert.Same(HarloweProfile.Latest, HarloweProfile.Resolve(version));
+    public void Resolve_Unparseable_SelectsV3(string version)
+      => Assert.Same(HarloweProfile.V3, HarloweProfile.Resolve(version));
+
+    [Fact]
+    public void UnversionedStory_KeepsProseAroundDoubleHyphens()
+    {
+      // The reason the default is V3: under V4 rules `--` is a comment and
+      // this prose would silently lose everything after each one.
+      var story = new HarloweStory();
+      story.AddPassage(new HarlowePassage { Name = "Start", RawBody = "He paused -- then spoke.\nLater -- much later -- she left." });
+      story.StartNode = story.GetPassage("Start").Pid;
+
+      Assert.Equal("He paused -- then spoke.\nLater -- much later -- she left.", new StorySession(story).Render().Text);
+    }
 
     [Fact]
     public void SaveFormat_IsPinned_NotAnAliasOfLatest()
@@ -129,6 +141,7 @@ namespace Harlowe.Tests
       new Dictionary<string, Func<HarloweProfile, string>>(StringComparer.Ordinal)
       {
         { "CommentMarkup", p => RenderUnder(p, "it was -- and remains -- fine") },
+        { "UnsetReadsAsZero", p => RenderUnder(p, "(print: $never + 1)") },
       };
 
     /// <summary>
@@ -198,6 +211,14 @@ namespace Harlowe.Tests
       Assert.Equal("it was ", RenderUnder(HarloweProfile.V4, src));
     }
 
+    [Fact]
+    public void UnsetReadsAsZero_ConcreteValues_BothProfiles()
+    {
+      const string src = "(print: $never + 1)";
+      Assert.Equal("1", RenderUnder(HarloweProfile.V3, src));
+      Assert.Equal("", RenderUnder(HarloweProfile.V4, src));
+    }
+
     // ----- The switch reaching real stories -----
 
     [Fact]
@@ -252,9 +273,9 @@ namespace Harlowe.Tests
         + "<tw-passagedata pid=\"1\" name=\"Start\">it was -- and remains -- fine</tw-passagedata>"
         + "</tw-storydata>";
 
-      Assert.Equal("it was ", new StorySession(new Harlowe(html)).Render().Text);
+      Assert.Equal("it was ", new StorySession(new HarloweStory(html)).Render().Text);
 
-      var overridden = new Harlowe(html, HarloweProfile.V3);
+      var overridden = new HarloweStory(html, HarloweProfile.V3);
       Assert.Same(HarloweProfile.V3, overridden.Profile);
       Assert.Equal("it was -- and remains -- fine", new StorySession(overridden).Render().Text);
     }
@@ -265,7 +286,7 @@ namespace Harlowe.Tests
       string html = "<tw-storydata name=\"S\" startnode=\"1\" format=\"Harlowe\" format-version=\"3.3.9\">"
         + "<tw-passagedata pid=\"1\" name=\"Start\">it was -- and remains -- fine</tw-passagedata>"
         + "</tw-storydata>";
-      var story = new Harlowe(html);
+      var story = new HarloweStory(html);
       Assert.Same(HarloweProfile.V3, story.Profile);
       Assert.Equal("it was -- and remains -- fine", new StorySession(story).Render().Text);
     }
@@ -275,7 +296,7 @@ namespace Harlowe.Tests
     {
       // A hand-built story is the documented editing shape: set metadata, then
       // add passages. The passage must be lexed under the declared major.
-      var story = new Harlowe { FormatVersion = "3.3.9" };
+      var story = new HarloweStory { FormatVersion = "3.3.9" };
       story.AddPassage(new HarlowePassage { Name = "Start", Body = "it was -- and remains -- fine" });
       story.StartNode = story.GetPassage("Start").Pid;
       Assert.Equal("it was -- and remains -- fine", new StorySession(story).Render().Text);
@@ -317,7 +338,7 @@ namespace Harlowe.Tests
     [InlineData("4.0.0")]
     public void Notices_RecognisedMajor_ReportsNothing(string version)
     {
-      var story = new Harlowe { FormatVersion = version };
+      var story = new HarloweStory { FormatVersion = version };
       Assert.Empty(story.GetCompatibilityNotices());
     }
 
@@ -326,10 +347,10 @@ namespace Harlowe.Tests
     {
       // The common case for hand-built and test stories. Real Twine exports
       // always declare a version, so this is information, not a problem.
-      var notices = new Harlowe().GetCompatibilityNotices();
+      var notices = new HarloweStory().GetCompatibilityNotices();
       var n = Assert.Single(notices);
       Assert.Equal(NoticeSeverity.Info, n.Severity);
-      Assert.Same(HarloweProfile.Latest, n.Profile);
+      Assert.Same(HarloweProfile.V3, n.Profile);
       Assert.Equal("", n.DeclaredVersion);
       Assert.Contains("no format-version", n.Message);
     }
@@ -337,7 +358,7 @@ namespace Harlowe.Tests
     [Fact]
     public void Notices_FutureMajor_WarnsAboutTheLibrary()
     {
-      var story = new Harlowe { FormatVersion = "5.2.0" };
+      var story = new HarloweStory { FormatVersion = "5.2.0" };
       var n = Assert.Single(story.GetCompatibilityNotices());
       Assert.Equal(NoticeSeverity.Warning, n.Severity);
       Assert.Same(HarloweProfile.Latest, n.Profile);
@@ -350,10 +371,11 @@ namespace Harlowe.Tests
     {
       // Distinguished from the future-major case on purpose: one means "this
       // library is behind", the other "this metadata is malformed", and they
-      // call for different fixes even though both run under the newest.
-      var story = new Harlowe { FormatVersion = "not-a-version" };
+      // call for different fixes.
+      var story = new HarloweStory { FormatVersion = "not-a-version" };
       var n = Assert.Single(story.GetCompatibilityNotices());
       Assert.Equal(NoticeSeverity.Warning, n.Severity);
+      Assert.Same(HarloweProfile.V3, n.Profile);
       Assert.Contains("could not be read as a version number", n.Message);
       Assert.DoesNotContain("newer major", n.Message);
     }
@@ -361,7 +383,7 @@ namespace Harlowe.Tests
     [Fact]
     public void Notices_BelowThree_WarnsAndReportsTheClamp()
     {
-      var story = new Harlowe { FormatVersion = "2.1.0" };
+      var story = new HarloweStory { FormatVersion = "2.1.0" };
       var n = Assert.Single(story.GetCompatibilityNotices());
       Assert.Equal(NoticeSeverity.Warning, n.Severity);
       Assert.Same(HarloweProfile.V3, n.Profile);           // clamped, not defaulted up
@@ -374,7 +396,7 @@ namespace Harlowe.Tests
     {
       // The host chose this, so it isn't a warning — but nothing else records
       // that the story's own declaration was set aside.
-      var story = new Harlowe { FormatVersion = "4.0.0", Profile = HarloweProfile.V3 };
+      var story = new HarloweStory { FormatVersion = "4.0.0", Profile = HarloweProfile.V3 };
       var n = Assert.Single(story.GetCompatibilityNotices());
       Assert.Equal(NoticeSeverity.Info, n.Severity);
       Assert.Same(HarloweProfile.V3, n.Profile);
@@ -388,7 +410,7 @@ namespace Harlowe.Tests
       // Diagnostics are called at load on whatever the file contained; a
       // malformed version must not take the story down.
       foreach (var v in new[] { null, "", "   ", "3", "0", "-1", "99999999999999999999", "3.3.9-x" })
-        Assert.NotNull(new Harlowe { FormatVersion = v }.GetCompatibilityNotices());
+        Assert.NotNull(new HarloweStory { FormatVersion = v }.GetCompatibilityNotices());
     }
   }
 }

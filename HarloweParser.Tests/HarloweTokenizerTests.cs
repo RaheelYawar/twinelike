@@ -565,14 +565,47 @@ namespace Harlowe.Tests
     [Fact]
     public void Macro_BracketsInExpression_TokenizedAsBracketTokens()
     {
+      // A bracket in an expression opens a code hook, whose contents are markup.
       AssertSequence(Tokenize("(print: $a[1])"),
         (TokenType.MacroOpen, "print"),
         (TokenType.Variable, "a"),
         (TokenType.BracketOpen, "["),
-        (TokenType.NumberLiteral, "1"),
+        (TokenType.Text, "1"),
         (TokenType.BracketClose, "]"),
         (TokenType.MacroClose, ")"),
         (TokenType.EndOfFile, ""));
+    }
+
+    [Fact]
+    public void CodeHook_ContentIsMarkupAndBracketsPair()
+    {
+      var tokens = Tokenize("(a: [x(b: [y])[z]''w''])");
+      int open = -1, close = -1;
+      for (int i = 0; i < tokens.Count; i++)
+      {
+        if (tokens[i].Type == TokenType.BracketOpen && open < 0) open = i;
+        if (tokens[i].Type == TokenType.BracketClose) close = i;
+      }
+      Assert.Equal(close, tokens[open].Partner);
+      Assert.Equal(open, tokens[close].Partner);
+      Assert.Equal(TokenType.MacroClose, tokens[close + 1].Type);
+      Assert.Contains(tokens, t => t.Type == TokenType.HookOpen);
+      Assert.Contains(tokens, t => t.Type == TokenType.FormatDelimiter);
+    }
+
+    [Theory]
+    [InlineData("{(a: [}])}")]       // a closer in the hook can't reach markup outside it
+    [InlineData("(a: [`]`])")]       // a bracket in verbatim doesn't close it
+    [InlineData("(a: [|n>[x]])")]    // a named hook inside it
+    public void CodeHook_CloserIsNotConfusedByItsContents(string source)
+    {
+      var tokens = Tokenize(source);
+      Token closer = null;
+      for (int i = 0; i < tokens.Count; i++)
+        if (tokens[i].Type == TokenType.BracketClose) closer = tokens[i];
+      Assert.NotNull(closer);
+      Assert.True(closer.Partner >= 0);
+      Assert.Equal(source.LastIndexOf(']'), closer.Position);
     }
 
     [Fact]
@@ -1138,8 +1171,23 @@ namespace Harlowe.Tests
     // --- incorrectOperator: targeted authoring hints for common mistakes ---
     //
     // Reference Harlowe catches a set of common-mistake operator spellings at
-    // lex time and converts each match into a precise corrective error. See
-    // the `incorrectOperator` pattern in ts/markup/patterns.ts.
+    // lex time and lexes each match to an error token carrying a precise
+    // corrective message. See the `incorrectOperator` pattern in
+    // ts/markup/patterns.ts. The tokenizer never throws for them: the parser
+    // raises the token, so only the containing macro fails.
+
+    private static Token SingleError(IReadOnlyList<Token> tokens)
+    {
+      Token error = null;
+      for (int i = 0; i < tokens.Count; i++)
+        if (tokens[i].Type == TokenType.Error)
+        {
+          Assert.Null(error);
+          error = tokens[i];
+        }
+      Assert.NotNull(error);
+      return error;
+    }
 
     [Theory]
     [InlineData("(if: $x gt 5)",      "gt")]
@@ -1152,29 +1200,58 @@ namespace Harlowe.Tests
     [InlineData("(if: $x isa Number)", "isa")]
     [InlineData("(if: $x are 5)",     "are")]
     [InlineData("(set: $a to 2 x 3)", "x")]
-    public void IncorrectIdentifier_ThrowsWithCorrectiveHint(string source, string badSpelling)
+    public void IncorrectIdentifier_EmitsErrorTokenWithCorrectiveHint(string source, string badSpelling)
     {
-      var ex = Assert.Throws<HarloweParseException>(() => new HarloweTokenizer().Tokenize(source));
-      Assert.Contains($"'{badSpelling}'", ex.Message);
+      var error = SingleError(Tokenize(source));
+      Assert.Contains($"'{badSpelling}'", error.Value);
+      Assert.Equal(source.IndexOf(" " + badSpelling + " ") + 2, error.Column);
     }
 
     [Fact]
-    public void IncorrectOperator_OrA_Detected()
+    public void IncorrectOperator_OrA_IsOneErrorTokenSpanningBothWords()
     {
-      // `or a` is two words; the scanner peeks for `a` after consuming `or`.
-      var ex = Assert.Throws<HarloweParseException>(
-        () => new HarloweTokenizer().Tokenize("(if: $x is 1 or a 2)"));
-      Assert.Contains("'or a'", ex.Message);
+      // `or a` is two words; the scanner peeks for `a` after consuming `or`,
+      // and the error token swallows both so no stray `a` operator follows.
+      AssertSequence(Tokenize("(if: $x is 1 or a 2)"),
+        (TokenType.MacroOpen, "if"),
+        (TokenType.Variable, "x"),
+        (TokenType.Operator, "is"),
+        (TokenType.NumberLiteral, "1"),
+        (TokenType.Error, "use 'or' instead of 'or a'"),
+        (TokenType.NumberLiteral, "2"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
     }
 
     [Theory]
     [InlineData("(if: $x =< 5)", "=<", "<=")]
     [InlineData("(if: $x => 5)", "=>", ">=")]
-    public void IncorrectSymbolOperator_ThrowsWithCorrectiveHint(string source, string bad, string good)
+    public void IncorrectSymbolOperator_EmitsErrorTokenWithCorrectiveHint(string source, string bad, string good)
     {
-      var ex = Assert.Throws<HarloweParseException>(() => new HarloweTokenizer().Tokenize(source));
-      Assert.Contains($"'{good}'", ex.Message);
-      Assert.Contains($"'{bad}'", ex.Message);
+      var error = SingleError(Tokenize(source));
+      Assert.Contains($"'{good}'", error.Value);
+      Assert.Contains($"'{bad}'", error.Value);
+    }
+
+    [Fact]
+    public void IncorrectOperator_LexingContinuesAfterTheErrorToken()
+    {
+      // The rest of the passage still lexes normally, newline and later macro
+      // included — the error no longer aborts tokenization.
+      AssertSequence(Tokenize("(if: $x gt 5)[a]\n(print: 1)"),
+        (TokenType.MacroOpen, "if"),
+        (TokenType.Variable, "x"),
+        (TokenType.Error, "use '>' instead of 'gt'"),
+        (TokenType.NumberLiteral, "5"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.HookOpen, "["),
+        (TokenType.Text, "a"),
+        (TokenType.HookClose, "]"),
+        (TokenType.Newline, "\n"),
+        (TokenType.MacroOpen, "print"),
+        (TokenType.NumberLiteral, "1"),
+        (TokenType.MacroClose, ")"),
+        (TokenType.EndOfFile, ""));
     }
 
     [Fact]

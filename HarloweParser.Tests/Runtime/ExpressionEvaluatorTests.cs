@@ -15,7 +15,8 @@ namespace Harlowe.Tests.Runtime
     // Helpers ----------------------------------------------------------------
 
     private static HarloweValue Eval(string source, IVariableStore store = null,
-                                     IEvaluationContext context = null, IMacroInvoker macros = null)
+                                     IEvaluationContext context = null, IMacroInvoker macros = null,
+                                     HarloweProfile profile = null)
     {
       store = store ?? new HarloweVariableStore();
       // The test driver parses a single arbitrary expression — including the
@@ -29,7 +30,7 @@ namespace Harlowe.Tests.Runtime
       cursor.Advance(); // consume MacroOpen
       var args = parser.ParseArgumentList(cursor, allowAssignment: true);
       var node = args.Count > 0 ? args[0] : null;
-      var evaluator = new ExpressionEvaluator(store, context, macros);
+      var evaluator = new ExpressionEvaluator(store, context, macros, null, profile);
       return evaluator.Evaluate(node);
     }
 
@@ -81,9 +82,9 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void UnsetVariable_ReturnsError()
     {
-      var v = Eval("$missing");
+      var v = Eval("_missing");
       Assert.True(v.IsError);
-      Assert.Contains("$missing", v.ErrorMessage);
+      Assert.Contains("_missing", v.ErrorMessage);
     }
 
     // Identifiers ------------------------------------------------------------
@@ -97,11 +98,15 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
-    public void ItIdentifier_ErrorsBeforeAnySet()
+    public void ItIdentifier_ErrorsBeforeAnySet_UnderHarlowe4()
     {
-      var v = Eval("it");
+      var v = Eval("it", profile: HarloweProfile.V4);
       Assert.True(v.IsError);
     }
+
+    [Fact]
+    public void ItIdentifier_IsZeroBeforeAnySet_UnderHarlowe3()
+      => Assert.Equal(0, Eval("it", profile: HarloweProfile.V3).AsNumber);
 
     [Fact]
     public void TimeIdentifier_ReadsContext()
@@ -485,14 +490,24 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
-    public void To_ItOnUnsetTarget_Errors()
+    public void To_ItOnUnsetTarget_ErrorsUnderHarlowe4()
     {
       // First-ever `(set: $hp to it - 10)` reads $hp's (absent) value through
-      // `it`, which must surface "'it' is not yet set" rather than silently
-      // using an unrelated variable's value.
+      // `it`, which must surface an error rather than silently using an
+      // unrelated variable's value.
       var store = new HarloweVariableStore();
-      var result = Eval("$hp to it - 10", store);
+      var result = Eval("$hp to it - 10", store, profile: HarloweProfile.V4);
       Assert.True(result.IsError);
+      Assert.Null(store.Get("hp", false));
+    }
+
+    [Fact]
+    public void To_ItOnUnsetTarget_ReadsZeroUnderHarlowe3()
+    {
+      var store = new HarloweVariableStore();
+      Eval("$hp to 50", store);
+      Eval("$mp to it - 10", store, profile: HarloweProfile.V3);
+      Assert.Equal(-10, store.Get("mp", false).AsNumber);
     }
 
     [Fact]
@@ -579,26 +594,26 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void ErrorOperand_ShortCircuitsBinary()
     {
-      // $missing is unset → produces Error → 1 + $missing should be the same Error,
+      // _missing is unset → produces Error → 1 + _missing should be the same Error,
       // not a "type mismatch" error.
-      var v = Eval("1 + $missing");
+      var v = Eval("1 + _missing");
       Assert.True(v.IsError);
-      Assert.Contains("$missing", v.ErrorMessage);
+      Assert.Contains("_missing", v.ErrorMessage);
     }
 
     [Fact]
     public void ErrorOperand_ShortCircuitsUnary()
     {
-      var v = Eval("not $missing");
+      var v = Eval("not _missing");
       Assert.True(v.IsError);
-      Assert.Contains("$missing", v.ErrorMessage);
+      Assert.Contains("_missing", v.ErrorMessage);
     }
 
     [Fact]
     public void ErrorOperand_ShortCircuitsAssignment()
     {
       var store = new HarloweVariableStore();
-      var v = Eval("$x to $missing", store);
+      var v = Eval("$x to _missing", store);
       Assert.True(v.IsError);
       Assert.Null(store.Get("x", false));  // assignment did not happen
     }
@@ -646,7 +661,7 @@ namespace Harlowe.Tests.Runtime
       {
         Handler = (name, args) => { called = true; return HarloweValue.OfNumber(0); }
       };
-      var v = Eval("(foo: $missing)", null, null, invoker);
+      var v = Eval("(foo: _missing)", null, null, invoker);
       Assert.True(v.IsError);
       Assert.False(called);
     }
@@ -684,12 +699,29 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
-    public void Property_Datamap_NumericKey_Errors()
+    public void Property_Datamap_MissingNumberKey_Errors()
     {
       var v = EvalP("(dm: \"n\", \"B\")'s 5");
       Assert.True(v.IsError);
-      Assert.Contains("String", v.ErrorMessage);
+      Assert.Equal("datamap has no key (5)", v.ErrorMessage);
     }
+
+    [Fact]
+    public void Property_Datamap_NumberKey_Reads()
+    {
+      Assert.Equal("a", EvalP("(dm: 1, \"a\")'s 1").AsString);
+      Assert.Equal("a", EvalP("(dm: 1, \"a\")'s (1)").AsString);
+      Assert.Equal("a", EvalP("(dm: 0, \"a\")'s (-0)").AsString);
+      Assert.Equal("a", EvalP("(1) of (dm: 1, \"a\")").AsString);
+    }
+
+    [Theory]
+    [InlineData("(dm: 1, \"a\")'s \"1\"", "You mustn't use both the string \"1\" and the number 1 as data names in the same datamap.")]
+    [InlineData("(dm: \"1\", \"a\")'s 1", "You mustn't use both the number 1 and the string \"1\" as data names in the same datamap.")]
+    [InlineData("(dm: 1, \"a\")'s (true)", "Only strings and numbers can be used as data names for a datamap, not the boolean value 'true'.")]
+    [InlineData("(dm: 1, \"a\")'s 1st", "datamap has no key '1st'")]
+    public void Property_Datamap_NameRules(string source, string message)
+      => Assert.Equal(message, EvalP(source).ErrorMessage);
 
     [Fact]
     public void Property_Of_DatamapReversed()
@@ -961,7 +993,7 @@ namespace Harlowe.Tests.Runtime
     }
 
     private static HarloweValue OneKeyMap(string key, double value)
-      => HarloweValue.OfDatamap(new Dictionary<string, HarloweValue> { [key] = HarloweValue.OfNumber(value) });
+      => HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue> { [key] = HarloweValue.OfNumber(value) });
 
     [Fact]
     public void Contains_Array_FindsElement()
@@ -988,28 +1020,25 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
-    public void Contains_Datamap_NonStringKey_Errors()
+    public void Contains_Datamap_LooksForAnyValue()
     {
-      var v = Eval("$dm contains 5", StoreWith("dm", OneKeyMap("hp", 10)));
-      Assert.True(v.IsError);
-      Assert.Contains("Datamap key must be a String", v.ErrorMessage);
+      // Reference compares each name with `is`, so a value of another type is just absent.
+      var store = StoreWith("dm", OneKeyMap("hp", 10));
+      Assert.False(Eval("$dm contains 5", store).AsBool);
+      Assert.False(Eval("$dm contains true", store).AsBool);
+      Assert.True(EvalP("(dm: 1, \"a\") contains 1").AsBool);
+      Assert.False(EvalP("(dm: 1, \"a\") contains \"1\"").AsBool);
     }
 
-    // passage identifier -------------------------------------------------------
+    // passage is not an identifier ---------------------------------------------
 
     [Fact]
-    public void Passage_Identifier_ReadsContext()
+    public void Passage_IsNotAnIdentifier()
     {
+      // Real 3.3.9 has no `passage` keyword. (passage:) is the way to read it.
       var ctx = new StubContext { Passage = HarloweValue.OfString("P1") };
-      Assert.Equal("P1", Eval("passage", null, ctx).AsString);
-    }
-
-    [Fact]
-    public void Passage_Identifier_WithoutContext_Errors()
-    {
-      var v = Eval("passage");
-      Assert.True(v.IsError);
-      Assert.Contains("outside a story session", v.ErrorMessage);
+      Assert.True(Eval("passage", null, ctx).IsError);
+      Assert.True(Eval("passage").IsError);
     }
 
     // Polymorphic + / - on unsupported kinds ----------------------------------
@@ -1196,9 +1225,22 @@ namespace Harlowe.Tests.Runtime
     public void PropertyAssign_Datamap_NonStringComputedKey_Errors()
     {
       var store = StoreWith("dm", OneKeyMap("hp", 10));
-      var v = EvalP("$dm's (5) to 1", store);
-      Assert.True(v.IsError);
-      Assert.Equal("the datamap can only have string data names, not a Number.", v.ErrorMessage);
+      Assert.Equal("A datamap can only have string data names, not the number 5.", EvalP("$dm's (5) to 1", store).ErrorMessage);
+      Assert.Equal("Only strings and numbers can be used as data names for a datamap, not the boolean value 'true'.",
+        EvalP("$dm's (true) to 1", store).ErrorMessage);
+    }
+
+    [Fact]
+    public void PropertyAssign_Datamap_NumberKeyCantBeWrittenThrough()
+    {
+      // Reference's canSet refuses a number name at every level of the chain.
+      var store = StoreWith("dm", HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>
+      {
+        [DataName.Of(1)] = OneKeyMap("hp", 10),
+      }));
+      Assert.Equal("A datamap can only have string data names, not the number 1.", EvalP("$dm's (1)'s hp to 1", store).ErrorMessage);
+      Assert.Equal("datamap has no key (2)", EvalP("$dm's (2)'s hp to 1", store).ErrorMessage);
+      Assert.Equal(10, Eval("$dm's (1)'s hp", store).AsNumber);
     }
 
     [Fact]
@@ -1376,9 +1418,9 @@ namespace Harlowe.Tests.Runtime
     public void PropertyAssign_CopyOnWrite_UntouchedSiblingsShareReferences()
     {
       var store = new HarloweVariableStore();
-      var hero = new Dictionary<string, HarloweValue> { ["hp"] = HarloweValue.OfNumber(10) };
-      var villain = new Dictionary<string, HarloweValue> { ["hp"] = HarloweValue.OfNumber(20) };
-      store.Set("chars", false, HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      var hero = new Dictionary<DataName, HarloweValue> { ["hp"] = HarloweValue.OfNumber(10) };
+      var villain = new Dictionary<DataName, HarloweValue> { ["hp"] = HarloweValue.OfNumber(20) };
+      store.Set("chars", false, HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>
       {
         ["hero"] = HarloweValue.OfDatamap(hero),
         ["villain"] = HarloweValue.OfDatamap(villain)
@@ -1434,7 +1476,7 @@ namespace Harlowe.Tests.Runtime
     {
       var store = StoreWith("arr", Numbers(1, 2));
       var before = store.Get("arr", false);
-      var v = EvalP("$arr's 1st to $missing", store);
+      var v = EvalP("$arr's 1st to _missing", store);
       Assert.True(v.IsError);
       Assert.Same(before, store.Get("arr", false));
       Assert.Equal(1, before.AsArray[0].AsNumber);
@@ -1516,9 +1558,9 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void PropertyAssign_UnsetRoot_Errors()
     {
-      var v = EvalP("$nope's 1st to 5");
+      var v = EvalP("_nope's 1st to 5");
       Assert.True(v.IsError);
-      Assert.Contains("$nope is not set", v.ErrorMessage);
+      Assert.Contains("_nope is not set", v.ErrorMessage);
     }
 
     [Fact]
@@ -1605,7 +1647,7 @@ namespace Harlowe.Tests.Runtime
     public void Move_DatamapKey_Removed()
     {
       var store = new HarloweVariableStore();
-      store.Set("dm", false, HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      store.Set("dm", false, HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>
       {
         ["hp"] = HarloweValue.OfNumber(10),
         ["mp"] = HarloweValue.OfNumber(5)
@@ -1636,14 +1678,14 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
-    public void Move_WholeVariable_SourceKept()
+    public void Move_WholeVariable_SourceDeleted()
     {
-      // Reference's documented contract: "Moving from variable to variable,
-      // such as by (move:$p into $q), won't cause $p to be deleted."
+      // What real 3.3.9 and the 4.0 specs do, against the (move:) article's
+      // "won't cause $p to be deleted".
       var store = StoreWith("p", HarloweValue.OfNumber(7));
       Assert.False(EvalMoveArg("$p into $q", store).IsError);
       Assert.Equal(7, store.Get("q", false).AsNumber);
-      Assert.Equal(7, store.Get("p", false).AsNumber);
+      Assert.Null(store.Get("p", false));
     }
 
     [Fact]
@@ -1683,33 +1725,30 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void Move_UnsetSourceRoot_Errors()
     {
-      Assert.Contains("$nope is not set", EvalMoveArg("$nope's 1st into $x").ErrorMessage);
-      Assert.Contains("$gone is not set", EvalMoveArg("$gone into $x").ErrorMessage);
+      Assert.Contains("_nope is not set", EvalMoveArg("_nope's 1st into $x").ErrorMessage);
+      Assert.Contains("_gone is not set", EvalMoveArg("_gone into $x").ErrorMessage);
     }
 
     [Fact]
-    public void Move_Length_AssignsThenErrors()
+    public void Move_Length_CopiesAndLeavesTheSource()
     {
-      // `length` reads fine but can't be deleted. Reference's order is
-      // set-then-delete, so the destination keeps the value and the canSet
-      // error surfaces after; the source array is untouched.
+      // `length` reads fine but can't be deleted, and reference ignores what
+      // src.delete() returns, so this is a plain copy with no error.
       var store = StoreWith("a", Numbers(1, 2, 3));
-      var v = EvalMoveArg("$a's length into $x", store);
-      Assert.True(v.IsError);
-      Assert.Equal("I can't forcibly alter the 'length' of the array.", v.ErrorMessage);
+      Assert.False(EvalMoveArg("$a's length into $x", store).IsError);
       Assert.Equal(3, store.Get("x", false).AsNumber);
       Assert.Equal(3, store.Get("a", false).AsArray.Count);
     }
 
     [Fact]
-    public void Move_ColourProperty_AssignsThenErrors()
+    public void Move_ColourProperty_CopiesAndLeavesTheSource()
     {
       var store = new HarloweVariableStore();
       EvalP("$col to (rgb: 10, 20, 30)", store);
-      var v = EvalMoveArg("$col's r into $x", store);
-      Assert.True(v.IsError);
-      Assert.Equal("I can't modify the colour", v.ErrorMessage);
+      var colour = store.Get("col", false);
+      Assert.False(EvalMoveArg("$col's r into $x", store).IsError);
       Assert.Equal(10, store.Get("x", false).AsNumber);
+      Assert.Same(colour, store.Get("col", false));
     }
 
     [Fact]
@@ -1726,13 +1765,13 @@ namespace Harlowe.Tests.Runtime
     public void Move_NestedSource_SiblingsShared()
     {
       var store = new HarloweVariableStore();
-      var hero = new Dictionary<string, HarloweValue>
+      var hero = new Dictionary<DataName, HarloweValue>
       {
         ["hp"] = HarloweValue.OfNumber(10),
         ["mp"] = HarloweValue.OfNumber(4)
       };
-      var villain = new Dictionary<string, HarloweValue> { ["hp"] = HarloweValue.OfNumber(20) };
-      store.Set("chars", false, HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      var villain = new Dictionary<DataName, HarloweValue> { ["hp"] = HarloweValue.OfNumber(20) };
+      store.Set("chars", false, HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>
       {
         ["hero"] = HarloweValue.OfDatamap(hero),
         ["villain"] = HarloweValue.OfDatamap(villain)
@@ -2024,7 +2063,7 @@ namespace Harlowe.Tests.Runtime
     {
       var v = EvalUnpackArg("(a: 1, 2) into (a: ...$x)");
       Assert.True(v.IsError);
-      Assert.Contains("datatypes", v.ErrorMessage);
+      Assert.Contains("typed variable", v.ErrorMessage);
     }
 
     [Fact]
@@ -2096,7 +2135,7 @@ namespace Harlowe.Tests.Runtime
     public void MovePattern_DatamapKeys_Removed()
     {
       var store = new HarloweVariableStore();
-      store.Set("stats", false, HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      store.Set("stats", false, HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>
       {
         ["Maths"] = HarloweValue.OfNumber(12),
         ["Science"] = HarloweValue.OfNumber(8),
@@ -2115,12 +2154,12 @@ namespace Harlowe.Tests.Runtime
     public void MovePattern_ChainSource_DeletesNestedSlot()
     {
       var store = new HarloweVariableStore();
-      var hero = new Dictionary<string, HarloweValue>
+      var hero = new Dictionary<DataName, HarloweValue>
       {
         ["hp"] = HarloweValue.OfNumber(10),
         ["mp"] = HarloweValue.OfNumber(4)
       };
-      store.Set("chars", false, HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      store.Set("chars", false, HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>
       {
         ["hero"] = HarloweValue.OfDatamap(hero)
       }));

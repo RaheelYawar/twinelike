@@ -7,11 +7,13 @@ namespace Harlowe
   /// <summary>
   /// Base traversal for <see cref="IBodyVisitor"/> collectors: leaves are
   /// no-ops, containers recurse (hooks — including hooks attached to macros and
-  /// changer chains — and inline-format spans). Collectors override just the
-  /// node they collect; a new container node added here descends for every
-  /// collector at once, instead of each hand-rolled copy having to remember to.
+  /// changer chains — and inline-format spans). It also walks macro arguments,
+  /// because a code hook there holds body content, such as a custom macro's
+  /// code. Collectors override just the node they collect; a new container node
+  /// added here descends for every collector at once, instead of each
+  /// hand-rolled copy having to remember to.
   /// </summary>
-  internal abstract class BodyWalker : IBodyVisitor
+  internal abstract class BodyWalker : IBodyVisitor, IExpressionVisitor
   {
     public virtual void Visit(TextNode node) { }
     public virtual void Visit(NewlineNode node) { }
@@ -21,9 +23,12 @@ namespace Harlowe
     public virtual void Visit(ParseErrorNode node) { }
     // Commented-out content is dead: no links to collect, no errors to report.
     public virtual void Visit(CommentNode node) { }
+    public virtual void Visit(VerbatimNode node) { }
+    public virtual void Visit(HorizontalRuleNode node) { }
 
     public virtual void Visit(MacroNode node)
     {
+      VisitArguments(node.Arguments);
       if (node.AttachedHook != null) node.AttachedHook.Accept(this);
     }
 
@@ -39,9 +44,78 @@ namespace Harlowe
       foreach (var child in node.Children) child.Accept(this);
     }
 
+    public virtual void Visit(CollapsedNode node)
+    {
+      if (node.Children == null) return;
+      foreach (var child in node.Children) child.Accept(this);
+    }
+
+    public virtual void Visit(ListNode node)
+    {
+      if (node.Items == null) return;
+      foreach (var item in node.Items)
+        if (item?.Children != null)
+          foreach (var child in item.Children) child.Accept(this);
+    }
+
     public virtual void Visit(ChangerChainNode node)
     {
+      node.Expression?.Accept(this);
       if (node.AttachedHook != null) node.AttachedHook.Accept(this);
+    }
+
+    public virtual void Visit(LiteralNode node) { }
+    public virtual void Visit(IdentifierNode node) { }
+    public virtual void Visit(VariableRefNode node) { }
+    public virtual void Visit(HookRefNode node) { }
+
+    public virtual void Visit(LambdaNode node)
+    {
+      node.WhereClause?.Accept(this);
+      node.ViaClause?.Accept(this);
+      node.WhenClause?.Accept(this);
+    }
+
+    /// <summary>
+    /// Visits the left operand, then the right. <c>a + b + c</c> parses with a
+    /// left side as deep as the chain is long, so that side is walked in a
+    /// loop: recursing once per operator overflowed the stack while a story
+    /// with a few thousand operands loaded. The nodes down the left side are
+    /// visited as operands, not through this method.
+    /// </summary>
+    public virtual void Visit(BinaryOpNode node)
+    {
+      if (!(node.Left is BinaryOpNode))
+      {
+        node.Left?.Accept(this);
+        node.Right?.Accept(this);
+        return;
+      }
+      var spine = new List<BinaryOpNode>();
+      IExpressionNode bottom = node;
+      while (bottom is BinaryOpNode op)
+      {
+        spine.Add(op);
+        bottom = op.Left;
+      }
+      bottom?.Accept(this);
+      for (int i = spine.Count - 1; i >= 0; i--) spine[i].Right?.Accept(this);
+    }
+
+    public virtual void Visit(UnaryOpNode node) => node.Operand?.Accept(this);
+
+    public virtual void Visit(MacroCallNode node) => VisitArguments(node.Arguments);
+
+    public virtual void Visit(CodeHookNode node)
+    {
+      if (node.Children == null) return;
+      foreach (var child in node.Children) child.Accept(this);
+    }
+
+    protected void VisitArguments(List<IExpressionNode> arguments)
+    {
+      if (arguments == null) return;
+      for (int i = 0; i < arguments.Count; i++) arguments[i]?.Accept(this);
     }
 
     /// <summary>Visits every top-level child of <paramref name="ast"/>; null-safe.</summary>
@@ -59,7 +133,7 @@ namespace Harlowe
   /// <see cref="ChangerChainNode"/>s — so links inside conditional or
   /// changer-styled blocks are still collected.
   ///
-  /// <para>Used by both the HTML loader (<see cref="Harlowe"/>) and the Twee
+  /// <para>Used by both the HTML loader (<see cref="HarloweStory"/>) and the Twee
   /// loader (<see cref="Twee.TweeReader"/>) to derive
   /// <see cref="HarlowePassage.Branches"/> from the AST. Lives in the root
   /// namespace as an <c>internal</c> helper because it is an implementation
@@ -85,7 +159,7 @@ namespace Harlowe
   /// Collects every passage <em>reference</em> in a body AST, in source order —
   /// both the <c>[[…]]</c> syntax and a literal passage name handed to a
   /// navigation macro (<see cref="NavigationMacros"/>). Backs
-  /// <see cref="Harlowe.GetBrokenLinks"/>, which keeps the ones that point at
+  /// <see cref="HarloweStory.GetBrokenLinks"/>, which keeps the ones that point at
   /// nothing.
   ///
   /// <para>Covering the macros matters: an engine that reports "your story's
@@ -99,7 +173,7 @@ namespace Harlowe
   /// variable link target <c>[[Go-&gt;$next]]</c> — is beyond any static check
   /// and is skipped rather than guessed at.</para>
   /// </summary>
-  internal class ReferenceCollector : BodyWalker, IExpressionVisitor
+  internal class ReferenceCollector : BodyWalker
   {
     /// <summary>One collected reference: the target, plus enough to point at it.</summary>
     internal struct Reference
@@ -154,55 +228,21 @@ namespace Harlowe
     public override void Visit(MacroNode node)
     {
       AddIfNavigation(node.Name, node.Arguments, node.Line, node.Column);
-      // Arguments may hold nested calls — (set: $x to (display: "P")).
-      VisitArguments(node.Arguments);
+      // The base walk covers arguments, which may hold nested calls —
+      // (set: $x to (display: "P")).
       base.Visit(node);
     }
 
-    public override void Visit(ChangerChainNode node)
-    {
-      node.Expression?.Accept(this);
-      base.Visit(node);
-    }
-
-    // --- expression side: find navigation macros nested in arguments ---
-
-    public void Visit(LiteralNode node) { }
-    public void Visit(IdentifierNode node) { }
-    public void Visit(VariableRefNode node) { }
-    public void Visit(HookRefNode node) { }
-
-    public void Visit(LambdaNode node)
-    {
-      node.WhereClause?.Accept(this);
-      node.ViaClause?.Accept(this);
-      node.WhenClause?.Accept(this);
-    }
-
-    public void Visit(BinaryOpNode node)
-    {
-      node.Left?.Accept(this);
-      node.Right?.Accept(this);
-    }
-
-    public void Visit(UnaryOpNode node) => node.Operand?.Accept(this);
-
-    public void Visit(MacroCallNode node)
+    public override void Visit(MacroCallNode node)
     {
       AddIfNavigation(node.Name, node.Arguments, node.Line, node.Column);
-      VisitArguments(node.Arguments);
-    }
-
-    private void VisitArguments(List<IExpressionNode> arguments)
-    {
-      if (arguments == null) return;
-      for (int i = 0; i < arguments.Count; i++) arguments[i]?.Accept(this);
+      base.Visit(node);
     }
 
     /// <summary>Record a reference if this is a navigation macro whose target argument is a literal string.</summary>
     private void AddIfNavigation(string macroName, List<IExpressionNode> arguments, int line, int column)
     {
-      if (macroName == null || arguments == null) return;
+      if (macroName == null || arguments == null || MacroNames.IsCustomCall(macroName)) return;
       if (!NavigationMacros.TryGetValue(MacroNames.Normalize(macroName), out var which)) return;
 
       int index;
@@ -240,7 +280,7 @@ namespace Harlowe
 
   /// <summary>
   /// Collects every <see cref="ParseErrorNode"/> in a body AST, in source order.
-  /// Backs <see cref="Harlowe.GetParseErrors"/> and the loader's passage-name
+  /// Backs <see cref="HarloweStory.GetParseErrors"/> and the loader's passage-name
   /// decoration pass.
   ///
   /// <para>Recurses into hooks (including hooks attached to macros and changer

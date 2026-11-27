@@ -9,7 +9,7 @@ namespace Harlowe.Runtime
   /// A tagged-union runtime value. <see cref="Kind"/> tells you which variant is
   /// in play; <see cref="Raw"/> holds the boxed payload (a <see cref="double"/>,
   /// <see cref="string"/>, <see cref="bool"/>, <c>List&lt;HarloweValue&gt;</c>,
-  /// <c>Dictionary&lt;string, HarloweValue&gt;</c>, or an error message
+  /// <c>Dictionary&lt;DataName, HarloweValue&gt;</c>, or an error message
   /// <see cref="string"/>). The shape mirrors <see cref="Ast.Expression.LiteralNode"/>'s
   /// Kind+object pair so the evaluator can copy a literal in one line.
   ///
@@ -51,13 +51,39 @@ namespace Harlowe.Runtime
     public static HarloweValue OfString(string s) => new HarloweValue(HarloweValueKind.String, s ?? string.Empty);
     public static HarloweValue OfBool(bool b) => new HarloweValue(HarloweValueKind.Bool, b);
     public static HarloweValue OfArray(List<HarloweValue> items) => new HarloweValue(HarloweValueKind.Array, items ?? new List<HarloweValue>());
-    public static HarloweValue OfDatamap(Dictionary<string, HarloweValue> map) => new HarloweValue(HarloweValueKind.Datamap, map ?? new Dictionary<string, HarloweValue>());
+    public static HarloweValue OfDatamap(Dictionary<DataName, HarloweValue> map) => new HarloweValue(HarloweValueKind.Datamap, map ?? new Dictionary<DataName, HarloweValue>());
     public static HarloweValue OfError(string message) => new HarloweValue(HarloweValueKind.Error, message ?? string.Empty);
     public static HarloweValue OfChanger(Changer changer) => new HarloweValue(HarloweValueKind.Changer, changer ?? throw new ArgumentNullException(nameof(changer)));
     public static HarloweValue OfLambda(LambdaValue lambda) => new HarloweValue(HarloweValueKind.Lambda, lambda ?? throw new ArgumentNullException(nameof(lambda)));
     public static HarloweValue OfHookName(HookNameValue hookName) => new HarloweValue(HarloweValueKind.HookName, hookName ?? throw new ArgumentNullException(nameof(hookName)));
     public static HarloweValue OfColour(ColourValue colour) => new HarloweValue(HarloweValueKind.Colour, colour ?? throw new ArgumentNullException(nameof(colour)));
     public static HarloweValue OfDatatype(DatatypeValue datatype) => new HarloweValue(HarloweValueKind.Datatype, datatype ?? throw new ArgumentNullException(nameof(datatype)));
+    public static HarloweValue OfCodeHook(CodeHookValue hook) => new HarloweValue(HarloweValueKind.CodeHook, hook ?? throw new ArgumentNullException(nameof(hook)));
+    public static HarloweValue OfTypedVar(TypedVarValue typedVar) => new HarloweValue(HarloweValueKind.TypedVar, typedVar ?? throw new ArgumentNullException(nameof(typedVar)));
+    public static HarloweValue OfCustomMacro(CustomMacroValue macro) => new HarloweValue(HarloweValueKind.CustomMacro, macro ?? throw new ArgumentNullException(nameof(macro)));
+    public static HarloweValue OfCommand(CommandValue command) => new HarloweValue(HarloweValueKind.Command, command ?? throw new ArgumentNullException(nameof(command)));
+
+    /// <summary>A dataset of <paramref name="items"/>, with later duplicates removed. Keeps the given order, which is how it prints.</summary>
+    public static HarloweValue OfDataset(List<HarloweValue> items) => new HarloweValue(HarloweValueKind.Dataset, Datasets.Unique(items ?? new List<HarloweValue>()));
+
+    /// <summary>A dataset of values already known to be unique, such as a copy of another's.</summary>
+    internal static HarloweValue OfUniqueDataset(List<HarloweValue> items) => new HarloweValue(HarloweValueKind.Dataset, items);
+
+    /// <summary>
+    /// A String whose text is printed exactly as it stands instead of being
+    /// rendered as markup. <c>(print:)</c> uses this for a changer's descriptive
+    /// form, <c>[A (font:) changer]</c>, whose brackets are not a hook. Reference
+    /// gets the same result by wrapping it in verbatim markup.
+    /// <paramref name="source"/> is the expression that recreates the value in a
+    /// save, since a plain string literal would come back as markup.
+    /// </summary>
+    internal static HarloweValue OfLiteralText(string s, string source = null)
+      => new HarloweValue(HarloweValueKind.String, s ?? string.Empty) { IsLiteralText = true, _literalSource = source };
+
+    /// <summary>True for a String built by <see cref="OfLiteralText"/>. Doesn't affect equality.</summary>
+    internal bool IsLiteralText { get; private set; }
+
+    private string _literalSource;
 
     public bool IsError => Kind == HarloweValueKind.Error;
 
@@ -65,13 +91,18 @@ namespace Harlowe.Runtime
     public string AsString => (string)Raw;
     public bool AsBool => (bool)Raw;
     public List<HarloweValue> AsArray => (List<HarloweValue>)Raw;
-    public Dictionary<string, HarloweValue> AsDatamap => (Dictionary<string, HarloweValue>)Raw;
+    public Dictionary<DataName, HarloweValue> AsDatamap => (Dictionary<DataName, HarloweValue>)Raw;
     public string ErrorMessage => (string)Raw;
     public Changer AsChanger => (Changer)Raw;
     public LambdaValue AsLambda => (LambdaValue)Raw;
     public HookNameValue AsHookName => (HookNameValue)Raw;
     public ColourValue AsColour => (ColourValue)Raw;
     public DatatypeValue AsDatatype => (DatatypeValue)Raw;
+    public CodeHookValue AsCodeHook => (CodeHookValue)Raw;
+    public TypedVarValue AsTypedVar => (TypedVarValue)Raw;
+    public CustomMacroValue AsCustomMacro => (CustomMacroValue)Raw;
+    public CommandValue AsCommand => (CommandValue)Raw;
+    public List<HarloweValue> AsDataset => (List<HarloweValue>)Raw;
 
     /// <summary>
     /// Harlowe truthiness: only <c>true</c> for a <see cref="HarloweValueKind.Bool"/>
@@ -123,8 +154,10 @@ namespace Harlowe.Runtime
           return (bool)raw == (bool)other.Raw;
         case HarloweValueKind.Array:
           return ArraysEqual((List<HarloweValue>)raw, (List<HarloweValue>)other.Raw, depth);
+        case HarloweValueKind.Dataset:
+          return DatasetsEqual((List<HarloweValue>)raw, (List<HarloweValue>)other.Raw, depth);
         case HarloweValueKind.Datamap:
-          return DatamapsEqual((Dictionary<string, HarloweValue>)raw, (Dictionary<string, HarloweValue>)other.Raw, depth);
+          return DatamapsEqual((Dictionary<DataName, HarloweValue>)raw, (Dictionary<DataName, HarloweValue>)other.Raw, depth);
         case HarloweValueKind.Error:
           return (string)raw == (string)other.Raw;
         case HarloweValueKind.Changer:
@@ -137,6 +170,13 @@ namespace Harlowe.Runtime
           return ((ColourValue)raw).EqualsColour((ColourValue)other.Raw);
         case HarloweValueKind.Datatype:
           return ((DatatypeValue)raw).EqualsDatatype((DatatypeValue)other.Raw);
+        case HarloweValueKind.CodeHook:
+          return ((CodeHookValue)raw).EqualsHook((CodeHookValue)other.Raw);
+        case HarloweValueKind.TypedVar:
+        case HarloweValueKind.CustomMacro:
+          return ReferenceEquals(raw, other.Raw);
+        case HarloweValueKind.Command:
+          return ((CommandValue)raw).EqualsCommand((CommandValue)other.Raw);
       }
       return false;
     }
@@ -156,12 +196,30 @@ namespace Harlowe.Runtime
         case HarloweValueKind.String: h = (h * 397) ^ ((string)Raw).GetHashCode(); break;
         case HarloweValueKind.Bool: h = (h * 397) ^ ((bool)Raw).GetHashCode(); break;
         case HarloweValueKind.Array:
+          // Follows first items a few levels in a loop, because a nested value
+          // can go deeper than the call stack allows.
           var arr = (List<HarloweValue>)Raw;
           h = (h * 397) ^ arr.Count;
-          if (arr.Count > 0) h = (h * 397) ^ arr[0].GetHashCode();
+          for (int level = 0; level < 8 && arr.Count > 0; level++)
+          {
+            var first = arr[0];
+            if (first.Kind != HarloweValueKind.Array)
+            {
+              h = (h * 397) ^ (first.Kind == HarloweValueKind.Datamap || first.Kind == HarloweValueKind.Dataset
+                ? ((System.Collections.ICollection)first.Raw).Count
+                : first.GetHashCode());
+              break;
+            }
+            arr = first.AsArray;
+            h = (h * 397) ^ arr.Count;
+          }
+          break;
+        case HarloweValueKind.Dataset:
+          // Only the count, because equal datasets can hold their values in any order.
+          h = (h * 397) ^ ((List<HarloweValue>)Raw).Count;
           break;
         case HarloweValueKind.Datamap:
-          h = (h * 397) ^ ((Dictionary<string, HarloweValue>)Raw).Count;
+          h = (h * 397) ^ ((Dictionary<DataName, HarloweValue>)Raw).Count;
           break;
         case HarloweValueKind.Error: h = (h * 397) ^ ((string)Raw).GetHashCode(); break;
         case HarloweValueKind.Changer: h = (h * 397) ^ ((Changer)Raw).GetHashCode(); break;
@@ -169,6 +227,14 @@ namespace Harlowe.Runtime
         case HarloweValueKind.HookName: h = (h * 397) ^ ((HookNameValue)Raw).GetHashCode(); break;
         case HarloweValueKind.Colour: h = (h * 397) ^ ((ColourValue)Raw).GetHashCode(); break;
         case HarloweValueKind.Datatype: h = (h * 397) ^ ((DatatypeValue)Raw).GetHashCode(); break;
+        case HarloweValueKind.CodeHook: h = (h * 397) ^ ((CodeHookValue)Raw).GetHashCode(); break;
+        case HarloweValueKind.TypedVar:
+        case HarloweValueKind.CustomMacro:
+          h = (h * 397) ^ System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(Raw);
+          break;
+        case HarloweValueKind.Command:
+          h = (h * 397) ^ ((CommandValue)Raw).CommandHash();
+          break;
       }
       return h;
     }
@@ -183,7 +249,29 @@ namespace Harlowe.Runtime
       return true;
     }
 
-    private static bool DatamapsEqual(Dictionary<string, HarloweValue> a, Dictionary<string, HarloweValue> b, int depth)
+    /// <summary>
+    /// <c>is</c> for two datasets: the same values, in any order, as the manual
+    /// and 4.0 define it. The 3.3.9 build compares them in order, a bug 4.0
+    /// fixed, and reference bugfixes apply to every profile here. A dataset level
+    /// takes more stack than an array's, so it counts for more against the depth
+    /// limit.
+    /// </summary>
+    private static bool DatasetsEqual(List<HarloweValue> a, List<HarloweValue> b, int depth)
+    {
+      if (a.Count != b.Count) return false;
+      var buckets = Datasets.Buckets(b);
+      for (int i = 0; i < a.Count; i++)
+      {
+        var bucket = Datasets.BucketFor(buckets, a[i]);
+        if (bucket == null) return false;
+        bool found = false;
+        for (int j = 0; j < bucket.Count && !found; j++) found = ValuesEqual(a[i], bucket[j], depth + 4);
+        if (!found) return false;
+      }
+      return true;
+    }
+
+    private static bool DatamapsEqual(Dictionary<DataName, HarloweValue> a, Dictionary<DataName, HarloweValue> b, int depth)
     {
       if (a.Count != b.Count) return false;
       foreach (var kv in a)
@@ -195,20 +283,88 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
-    /// Canonical number → string for both value display and Twee
-    /// reserialization: the shortest representation in invariant culture that
-    /// re-parses to the same <see cref="double"/>, so a parsed literal survives
-    /// a print/re-parse cycle. The "R" specifier is shortest but can
-    /// occasionally under-round on .NET Framework, so we verify the round trip
-    /// and fall back to "G17" (which always round-trips). Exponent forms like
-    /// <c>1E-07</c> are fine — the tokenizer's number rule accepts exponents.
+    /// Canonical number → string for value display, save source, and Twee
+    /// reserialization, matching JavaScript's <c>Number.prototype.toString</c>
+    /// — what reference Harlowe prints. The digits are the shortest that
+    /// re-parse to the same <see cref="double"/>; the layout follows
+    /// ECMAScript's <c>Number::toString</c>: plain digits from 1e-6 up to 1e21,
+    /// otherwise an exponent form like <c>1e+21</c> or <c>1.5e-7</c>, and
+    /// <c>0</c> for negative zero. .NET only supplies the digits: its own
+    /// layout switches to exponents at 1e15 (.NET Framework) or 1e17 (.NET 8)
+    /// and below 1e-4, writes them <c>1E-05</c>, and prints <c>-0</c> on .NET
+    /// Core 3.0+, so the same story would display differently per host. Every
+    /// form re-lexes: the tokenizer's number rule accepts exponents.
     /// </summary>
     public static string FormatNumber(double d)
     {
-      string s = d.ToString("R", CultureInfo.InvariantCulture);
-      if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var back) && back.Equals(d))
-        return s;
-      return d.ToString("G17", CultureInfo.InvariantCulture);
+      if (double.IsNaN(d)) return "NaN";
+      if (double.IsInfinity(d)) return d > 0 ? "Infinity" : "-Infinity";
+      if (d == 0) return "0";
+      var ic = CultureInfo.InvariantCulture;
+      // Whole numbers below 1e15 (exact in a long) are the common case.
+      if (Math.Abs(d) < 1e15 && d == Math.Floor(d)) return ((long)d).ToString(ic);
+
+      // "R" is shortest on .NET Core 3.0+, but on .NET Framework it is G15
+      // falling back to G17 and can under-round, so a 17-digit or
+      // non-round-tripping answer gets a 16-digit retry.
+      string s = d.ToString("R", ic);
+      SplitDigits(s, out bool negative, out string digits, out int point);
+      if (digits.Length == 17 || !RoundTrips(s, d))
+      {
+        string g16 = d.ToString("G16", ic);
+        s = RoundTrips(g16, d) ? g16 : d.ToString("G17", ic);
+        SplitDigits(s, out negative, out digits, out point);
+      }
+
+      // ECMAScript Number::toString, with the value as 0.digits × 10^point.
+      int k = digits.Length, n = point;
+      var sb = new StringBuilder(k + 8);
+      if (negative) sb.Append('-');
+      if (k <= n && n <= 21)
+        sb.Append(digits).Append('0', n - k);
+      else if (0 < n && n <= 21)
+        sb.Append(digits, 0, n).Append('.').Append(digits, n, k - n);
+      else if (-6 < n && n <= 0)
+        sb.Append("0.").Append('0', -n).Append(digits);
+      else
+      {
+        sb.Append(digits[0]);
+        if (k > 1) sb.Append('.').Append(digits, 1, k - 1);
+        int e = n - 1;
+        sb.Append('e').Append(e < 0 ? '-' : '+').Append((e < 0 ? -e : e).ToString(ic));
+      }
+      return sb.ToString();
+    }
+
+    private static bool RoundTrips(string s, double d)
+      => double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var back) && back.Equals(d);
+
+    /// <summary>
+    /// Splits a non-zero invariant-culture "R"/"G" string into its sign, its
+    /// significant digits (no leading or trailing zeros), and the decimal
+    /// point's position, so the value is 0.digits × 10^point.
+    /// </summary>
+    private static void SplitDigits(string s, out bool negative, out string digits, out int point)
+    {
+      negative = s[0] == '-';
+      int e = s.IndexOf('E');
+      int end = e < 0 ? s.Length : e;
+      int exponent = e < 0 ? 0 : int.Parse(s.Substring(e + 1), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);
+      var all = new StringBuilder(end);
+      int intDigits = 0;
+      bool pastDot = false;
+      for (int i = negative ? 1 : 0; i < end; i++)
+      {
+        if (s[i] == '.') { pastDot = true; continue; }
+        all.Append(s[i]);
+        if (!pastDot) intDigits++;
+      }
+      int lead = 0;
+      while (lead < all.Length - 1 && all[lead] == '0') lead++;
+      int trail = all.Length;
+      while (trail > lead + 1 && all[trail - 1] == '0') trail--;
+      digits = all.ToString(lead, trail - lead);
+      point = intDigits + exponent - lead;
     }
 
     /// <summary>
@@ -217,8 +373,8 @@ namespace Harlowe.Runtime
     /// save/load primitive, matching reference's source-based variable store
     /// (<c>toSource</c> + re-<c>eval</c> in <c>varscope.ts</c>). Number →
     /// <see cref="FormatNumber"/>, String → a quoted literal, Bool → <c>true</c>/
-    /// <c>false</c>, Array → <c>(a:…)</c>, Datamap → <c>(dm:"k",v,…)</c> (keys
-    /// ordinal-sorted for determinism; round-trip is order-independent), Lambda /
+    /// <c>false</c>, Array → <c>(a:…)</c>, Datamap → <c>(dm:"k",v,…)</c> (names
+    /// in reference's order, natural with equal names reversed), Lambda /
     /// HookName → the printed expression, Changer → its stamped
     /// <see cref="Changer.Source"/>.
     ///
@@ -240,7 +396,7 @@ namespace Harlowe.Runtime
     /// uncatchable <see cref="System.StackOverflowException"/>, matching the depth
     /// caps elsewhere (DeepCopyValue, the parsers, JsonReader).
     /// </summary>
-    private string ToSource(int depth)
+    internal string ToSource(int depth)
     {
       if (depth >= MaxSourceDepth) return null;
       switch (Kind)
@@ -252,13 +408,17 @@ namespace Harlowe.Runtime
           return FormatNumber(d);
         }
         case HarloweValueKind.String:
-          return Twee.MarkupPrinter.StringLiteral((string)Raw);
+          // Literal text with no recreating expression can't be saved: as a
+          // plain string it would come back as markup, so the save fails loudly.
+          return IsLiteralText ? _literalSource : Twee.MarkupPrinter.StringLiteral((string)Raw);
         case HarloweValueKind.Bool:
           return (bool)Raw ? "true" : "false";
         case HarloweValueKind.Array:
           return ArrayToSource((List<HarloweValue>)Raw, depth);
         case HarloweValueKind.Datamap:
-          return DatamapToSource((Dictionary<string, HarloweValue>)Raw, depth);
+          return DatamapToSource((Dictionary<DataName, HarloweValue>)Raw, depth);
+        case HarloweValueKind.Dataset:
+          return DatasetToSource((List<HarloweValue>)Raw, depth);
         case HarloweValueKind.Changer:
           return ((Changer)Raw).Source;
         case HarloweValueKind.Lambda:
@@ -269,6 +429,14 @@ namespace Harlowe.Runtime
           return ((ColourValue)Raw).ToSource();
         case HarloweValueKind.Datatype:
           return ((DatatypeValue)Raw).ToSource();
+        case HarloweValueKind.CodeHook:
+          return ((CodeHookValue)Raw).Source;
+        case HarloweValueKind.TypedVar:
+          return ((TypedVarValue)Raw).ToSource(depth + 1);
+        case HarloweValueKind.CustomMacro:
+          return ((CustomMacroValue)Raw).ToSource(depth + 1);
+        case HarloweValueKind.Command:
+          return ((CommandValue)Raw).ToSource(depth + 1);
         case HarloweValueKind.Error:
           return null;
       }
@@ -288,20 +456,47 @@ namespace Harlowe.Runtime
       return sb.Append(')').ToString();
     }
 
-    private static string DatamapToSource(Dictionary<string, HarloweValue> map, int depth)
+    /// <summary>Sorted, as reference's <c>toSource</c> writes a dataset, so one read back from a save prints in sorted order there too.</summary>
+    private static string DatasetToSource(List<HarloweValue> items, int depth)
     {
-      var keys = new List<string>(map.Count);
-      foreach (var kv in map) keys.Add(kv.Key);
-      keys.Sort(StringComparer.Ordinal);
+      var sorted = Datasets.SpreadOrder(items);
+      var sb = new StringBuilder("(ds:");
+      for (int i = 0; i < sorted.Count; i++)
+      {
+        if (i > 0) sb.Append(',');
+        string s = sorted[i].ToSource(depth + 1);
+        if (s == null) return null;
+        sb.Append(s);
+      }
+      return sb.Append(')').ToString();
+    }
+
+    /// <summary>
+    /// In reference <c>toSource</c>'s order, natural order with names that sort
+    /// as equal reversed, so a datamap read back from a save holds its names in
+    /// the order it would there.
+    /// </summary>
+    private static string DatamapToSource(Dictionary<DataName, HarloweValue> map, int depth)
+    {
+      var keys = NaturalOrder.DatamapNames(map, equalNamesReversed: true);
       var sb = new StringBuilder("(dm:");
       for (int i = 0; i < keys.Count; i++)
       {
         if (i > 0) sb.Append(',');
+        string ks = keys[i].ToSource();
         string vs = map[keys[i]].ToSource(depth + 1);
-        if (vs == null) return null;
-        sb.Append(Twee.MarkupPrinter.StringLiteral(keys[i])).Append(',').Append(vs);
+        if (ks == null || vs == null) return null;
+        sb.Append(ks).Append(',').Append(vs);
       }
       return sb.Append(')').ToString();
+    }
+
+    private static List<DataName> SortedNames(Dictionary<DataName, HarloweValue> map)
+    {
+      var keys = new List<DataName>(map.Count);
+      foreach (var kv in map) keys.Add(kv.Key);
+      keys.Sort(DataName.Compare);
+      return keys;
     }
 
     private static string HookNameToSource(HookNameValue hn)
@@ -320,9 +515,16 @@ namespace Harlowe.Runtime
     /// <c>key: value, ...</c>. Errors render their message verbatim — the
     /// renderer is expected to route them through
     /// <see cref="IRenderOutput.Error"/> rather than print this directly, but
-    /// returning the message keeps debugging easy.
+    /// returning the message keeps debugging easy. Past
+    /// <see cref="MaxPrintDepth"/> levels of nesting the rest is cut off as
+    /// <c>...</c>, since a value can be nested deeper than the call stack allows.
     /// </summary>
-    public string ToHarloweString()
+    public string ToHarloweString() => ToHarloweString(0);
+
+    /// <summary>How deeply nested a collection may be printed.</summary>
+    internal const int MaxPrintDepth = 256;
+
+    private string ToHarloweString(int depth)
     {
       switch (Kind)
       {
@@ -333,9 +535,10 @@ namespace Harlowe.Runtime
         case HarloweValueKind.Bool:
           return (bool)Raw ? "true" : "false";
         case HarloweValueKind.Array:
-          return JoinArray((List<HarloweValue>)Raw);
+        case HarloweValueKind.Dataset:
+          return depth >= MaxPrintDepth ? "..." : JoinArray((List<HarloweValue>)Raw, depth);
         case HarloweValueKind.Datamap:
-          return JoinDatamap((Dictionary<string, HarloweValue>)Raw);
+          return depth >= MaxPrintDepth ? "..." : JoinDatamap((Dictionary<DataName, HarloweValue>)Raw, depth);
         case HarloweValueKind.Error:
           return (string)Raw;
         case HarloweValueKind.Changer:
@@ -343,7 +546,7 @@ namespace Harlowe.Runtime
           // Reference prints changers as "[A (if:) changer]" (changer.ts's
           // print()); unstamped changers have no creation source to name.
           string front = ((Changer)Raw).FrontMacroName;
-          return front != null ? "[A (" + front + ":) changer]" : "[A changer]";
+          return front != null ? "[A (" + MacroNames.CanonicalChangerName(front) + ":) changer]" : "[A changer]";
         }
         case HarloweValueKind.Lambda:
           return string.Empty;
@@ -359,44 +562,82 @@ namespace Harlowe.Runtime
           return ((ColourValue)Raw).ToCssString();
         case HarloweValueKind.Datatype:
           // Reference's print() is "[the num datatype]" wrapped in verbatim
-          // markup; the brackets are literal text on our render channel, which
-          // never re-parses what it is handed.
+          // markup. The body renderer prints only strings as markup, so a
+          // datatype's brackets stay literal.
           return ((DatatypeValue)Raw).ToPrintedString();
+        case HarloweValueKind.CodeHook:
+          return ((CodeHookValue)Raw).InnerSource;
+        case HarloweValueKind.TypedVar:
+          return "[A typed variable name]";
+        case HarloweValueKind.CustomMacro:
+          return "[" + ((CustomMacroValue)Raw).ObjectName + "]";
+        case HarloweValueKind.Command:
+          return ((CommandValue)Raw).PrintedName;
       }
       return string.Empty;
     }
 
-    private static string JoinArray(List<HarloweValue> items)
+    /// <summary>
+    /// Reference's <c>objectName</c>: how an error message refers to this value,
+    /// such as <c>the number 5</c> or <c>the string "x"</c>.
+    /// </summary>
+    internal string ObjectName
+    {
+      get
+      {
+        switch (Kind)
+        {
+          case HarloweValueKind.Number: return "the number " + FormatNumber((double)Raw);
+          case HarloweValueKind.String: return "the string \"" + (string)Raw + "\"";
+          case HarloweValueKind.Bool: return "the boolean value '" + ((bool)Raw ? "true" : "false") + "'";
+          case HarloweValueKind.Array: return ((List<HarloweValue>)Raw).Count == 0 ? "an empty array" : "an array";
+          case HarloweValueKind.Datamap: return ((Dictionary<DataName, HarloweValue>)Raw).Count == 0 ? "an empty datamap" : "a datamap";
+          case HarloweValueKind.Dataset: return ((List<HarloweValue>)Raw).Count == 0 ? "an empty dataset" : "a dataset";
+          case HarloweValueKind.Changer:
+            string front = ((Changer)Raw).FrontMacroName;
+            return front != null ? "a (" + MacroNames.CanonicalChangerName(front) + ":) changer" : "a changer";
+          case HarloweValueKind.Lambda: return "a lambda";
+          case HarloweValueKind.HookName: return "the hook name ?" + ((HookNameValue)Raw).Name;
+          case HarloweValueKind.Colour: return "a colour";
+          case HarloweValueKind.Datatype: return "the " + ((DatatypeValue)Raw).Name + " datatype";
+          case HarloweValueKind.CodeHook: return "a code hook";
+          case HarloweValueKind.TypedVar: return ((TypedVarValue)Raw).ObjectName;
+          case HarloweValueKind.CustomMacro: return ((CustomMacroValue)Raw).ObjectName;
+          case HarloweValueKind.Command: return ((CommandValue)Raw).ObjectName;
+          default: return "an error";
+        }
+      }
+    }
+
+    private static string JoinArray(List<HarloweValue> items, int depth)
     {
       var sb = new StringBuilder();
       for (int i = 0; i < items.Count; i++)
       {
         if (i > 0) sb.Append(',');
-        sb.Append(items[i].ToHarloweString());
+        sb.Append(items[i].ToHarloweString(depth + 1));
       }
       return sb.ToString();
     }
 
     /// <summary>
-    /// Serialize a datamap as <c>key:value,key:value</c>. Keys are emitted in
-    /// ordinal sort order so the rendered text is stable across runtimes —
-    /// <see cref="Dictionary{TKey, TValue}"/> enumeration order is
+    /// Serialize a datamap as <c>key:value,key:value</c>. Keys are emitted
+    /// sorted, number names first, so the rendered text is stable across
+    /// runtimes — <see cref="Dictionary{TKey, TValue}"/> enumeration order is
     /// "insertion-order in practice but not contractually guaranteed," and
     /// Mono / Unity IL2CPP have been observed to diverge from CoreCLR. The
     /// equality path is order-independent, so this only affects user-visible
     /// rendering.
     /// </summary>
-    private static string JoinDatamap(Dictionary<string, HarloweValue> map)
+    private static string JoinDatamap(Dictionary<DataName, HarloweValue> map, int depth)
     {
-      var keys = new List<string>(map.Count);
-      foreach (var kv in map) keys.Add(kv.Key);
-      keys.Sort(System.StringComparer.Ordinal);
+      var keys = SortedNames(map);
 
       var sb = new StringBuilder();
       for (int i = 0; i < keys.Count; i++)
       {
         if (i > 0) sb.Append(',');
-        sb.Append(keys[i]).Append(':').Append(map[keys[i]].ToHarloweString());
+        sb.Append(keys[i]).Append(':').Append(map[keys[i]].ToHarloweString(depth + 1));
       }
       return sb.ToString();
     }

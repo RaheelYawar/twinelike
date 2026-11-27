@@ -34,7 +34,23 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new RandomMacro());
       registry.Register(new EitherMacro());
       registry.Register(new AMacro());
+      registry.Register(new RangeMacro());
       registry.Register(new DmMacro());
+      // "data-names" also covers reference's "datanames", which normalizes the same.
+      registry.Register(new DatamapListMacro("dm-names", DatamapListMacro.Part.Names));
+      registry.Register(new DatamapListMacro("datamap-names", DatamapListMacro.Part.Names));
+      registry.Register(new DatamapListMacro("data-names", DatamapListMacro.Part.Names));
+      registry.Register(new DatamapListMacro("dm-values", DatamapListMacro.Part.Values));
+      registry.Register(new DatamapListMacro("datamap-values", DatamapListMacro.Part.Values));
+      registry.Register(new DatamapListMacro("data-values", DatamapListMacro.Part.Values));
+      registry.Register(new DatamapListMacro("dm-entries", DatamapListMacro.Part.Entries));
+      registry.Register(new DatamapListMacro("datamap-entries", DatamapListMacro.Part.Entries));
+      registry.Register(new DatamapListMacro("data-entries", DatamapListMacro.Part.Entries));
+      registry.Register(new DatasetMacro("ds"));
+      registry.Register(new DatasetMacro("dataset"));
+      registry.Register(new PassageMacro());
+      registry.Register(new PassagesMacro());
+      registry.Register(new CondMacro());
       registry.Register(new ModuloMacro());
       registry.Register(new TextMacro("text"));
       registry.Register(new TextMacro("str"));
@@ -80,6 +96,15 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new TextSizeMacro("size"));
       registry.Register(new OpacityMacro());
       registry.Register(new AlignMacro());
+      foreach (var prefix in new[] { "transition", "t8n" })
+      {
+        registry.Register(new TransitionMacro(prefix, TransitionField.Transition));
+        registry.Register(new TransitionMacro(prefix + "-depart", TransitionField.Depart));
+        registry.Register(new TransitionMacro(prefix + "-arrive", TransitionField.Arrive));
+        registry.Register(new TransitionMacro(prefix + "-time", TransitionField.Time));
+        registry.Register(new TransitionMacro(prefix + "-delay", TransitionField.Delay));
+        registry.Register(new TransitionMacro(prefix + "-skip", TransitionField.Skip));
+      }
       registry.Register(new FindMacro());
       registry.Register(new AllPassMacro());
       registry.Register(new AlteredMacro());
@@ -130,6 +155,20 @@ namespace Harlowe.Runtime.Macros
       registry.Register(new LinkMacro("link-rerun", RevisionMode.Replace, once: false, replacesLabel: false));
       registry.Register(new LinkGotoMacro());
       registry.Register(new LinkUndoMacro());
+      registry.Register(new MacroMacro());
+      registry.Register(new OutputDataMacro("output-data"));
+      registry.Register(new OutputDataMacro("out-data"));
+      registry.Register(new OutputMacro("output"));
+      registry.Register(new OutputMacro("out"));
+      registry.Register(new ErrorMacro());
+      registry.Register(new PartialMacro());
+      registry.Register(new CustomCommandMacro());
+      registry.Register(new HiddenMacro());
+      registry.Register(new ShowMacro());
+      registry.Register(new HideMacro());
+      registry.Register(new LiveMacro());
+      registry.Register(new AfterMacro());
+      registry.Register(new StopMacro());
     }
   }
 }

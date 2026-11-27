@@ -22,7 +22,7 @@ namespace Harlowe.Tests
     }
 
     /// <summary>
-    /// Builds a fresh <see cref="Harlowe"/> from the cached fixture HTML.
+    /// Builds a fresh <see cref="HarloweStory"/> from the cached fixture HTML.
     /// Each test gets its own instance so mutations cannot leak between tests.
     ///
     /// <para><b>This is a Harlowe 3 fixture.</b> It is a real Twine export
@@ -34,6 +34,6 @@ namespace Harlowe.Tests
     /// data. A test needing newest-major semantics should build its own story
     /// rather than change this file's declared version.</para>
     /// </summary>
-    public static Harlowe LoadTestFile() => new Harlowe(TestFileHtml);
+    public static HarloweStory LoadTestFile() => new HarloweStory(TestFileHtml);
   }
 }

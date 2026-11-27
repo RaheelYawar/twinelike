@@ -82,7 +82,7 @@ namespace Harlowe.Runtime.Macros
       if (value.Kind == HarloweValueKind.Datamap)
       {
         var src = value.AsDatamap;
-        var dst = new Dictionary<string, HarloweValue>(src.Count);
+        var dst = new Dictionary<DataName, HarloweValue>(src.Count);
         foreach (var kv in src)
         {
           var item = Recur(kv.Value, depth + 1);

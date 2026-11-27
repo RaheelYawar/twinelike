@@ -19,9 +19,9 @@ namespace Harlowe.Tests
   /// </summary>
   public class BrokenLinkTests
   {
-    private static Harlowe Story(params (string name, string body)[] passages)
+    private static HarloweStory Story(params (string name, string body)[] passages)
     {
-      var s = new Harlowe();
+      var s = new HarloweStory();
       foreach (var (name, body) in passages)
         s.AddPassage(new HarlowePassage { Name = name, Body = body });
       s.StartNode = s.GetPassage(passages[0].name).Pid;
@@ -108,7 +108,7 @@ namespace Harlowe.Tests
       Assert.Equal("Anywhere", link.Target);
     }
 
-    // ----- Harlowe.GetBrokenLinks() -----
+    // ----- HarloweStory.GetBrokenLinks() -----
 
     [Fact]
     public void GetBrokenLinks_FindsThem_AndReportsWhereTheyAre()
@@ -274,9 +274,9 @@ namespace Harlowe.Tests
     [Fact]
     public void VariableLinkTarget_Unset_ErrorsInProse_NoLinkEvent()
     {
-      var r = new StorySession(Story(("Start", "[[Go->$next]]"))).Render();
+      var r = new StorySession(Story(("Start", "[[Go->_next]]"))).Render();
       Assert.Equal(0, CountKind(r, BufferedRenderOutput.Kind.Link));
-      Assert.True(HasError(r, "$next"));
+      Assert.True(HasError(r, "_next"));
     }
 
     [Fact]

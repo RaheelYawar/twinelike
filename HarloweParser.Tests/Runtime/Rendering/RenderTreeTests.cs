@@ -161,11 +161,27 @@ namespace Harlowe.Tests.Runtime.Rendering
     {
       RenderViaTree("(text-style: \"bold\")[loud]", out var root);
       var style = Assert.IsType<RenderStyleNode>(Assert.Single(root.Children));
-      Assert.True(style.Style.Bold);
+      Assert.True(Assert.Single(style.Styles).Bold);
       // The attached hook still produces its own hook node inside the style.
       var hook = Assert.IsType<RenderHookNode>(Assert.Single(style.Children));
       var text = Assert.IsType<RenderTextNode>(Assert.Single(hook.Children));
       Assert.Equal("loud", text.Content);
+    }
+
+    [Theory]
+    [InlineData("(text-style: \"bold\")+(text-style: \"italic\")+(text-colour: red)[loud]")]
+    [InlineData("(set: $c to (text-style: \"bold\")+(text-style: \"italic\")+(text-colour: red))$c[loud]")]
+    public void Builder_ComposedChanger_IsOneStyleNodeHoldingEveryLayer(string source)
+    {
+      // A node per layer made the tree as deep as the changer was long, and
+      // the passes after a render recurse through every level.
+      RenderViaTree(source, out var root);
+      var style = Assert.IsType<RenderStyleNode>(Assert.Single(root.Children));
+      Assert.Equal(3, style.Styles.Count);
+      Assert.True(style.Styles[0].Bold);
+      Assert.True(style.Styles[1].Italic);
+      Assert.NotNull(style.Styles[2].Color);
+      Assert.IsType<RenderHookNode>(Assert.Single(style.Children));
     }
 
     [Fact]
@@ -208,7 +224,8 @@ namespace Harlowe.Tests.Runtime.Rendering
     public void Flusher_StyleNode_BracketsChildrenWithPushPop()
     {
       var root = new RenderRoot();
-      var style = new RenderStyleNode { Style = new StyleSpec { Italic = true } };
+      var style = new RenderStyleNode();
+      style.Styles.Add(new StyleSpec { Italic = true });
       style.Children.Add(new RenderTextNode { Content = "x" });
       root.Children.Add(style);
 
@@ -218,6 +235,27 @@ namespace Harlowe.Tests.Runtime.Rendering
       Assert.Collection(buf.Entries,
         e => Assert.Equal(BufferedRenderOutput.Kind.PushStyle, e.Kind),
         e => Assert.Equal(BufferedRenderOutput.Kind.Text, e.Kind),
+        e => Assert.Equal(BufferedRenderOutput.Kind.PopStyle, e.Kind));
+    }
+
+    [Fact]
+    public void Flusher_StyleNodeWithLayers_EmitsAPushAndAPopPerLayer()
+    {
+      var root = new RenderRoot();
+      var style = new RenderStyleNode();
+      style.Styles.Add(new StyleSpec { Bold = true });
+      style.Styles.Add(new StyleSpec { Italic = true });
+      style.Children.Add(new RenderTextNode { Content = "x" });
+      root.Children.Add(style);
+
+      var buf = new BufferedRenderOutput();
+      RenderTreeFlusher.Flush(root, buf);
+
+      Assert.Collection(buf.Entries,
+        e => Assert.True(e.Kind == BufferedRenderOutput.Kind.PushStyle && e.Style.Bold),
+        e => Assert.True(e.Kind == BufferedRenderOutput.Kind.PushStyle && e.Style.Italic),
+        e => Assert.Equal(BufferedRenderOutput.Kind.Text, e.Kind),
+        e => Assert.Equal(BufferedRenderOutput.Kind.PopStyle, e.Kind),
         e => Assert.Equal(BufferedRenderOutput.Kind.PopStyle, e.Kind));
     }
 
@@ -242,24 +280,27 @@ namespace Harlowe.Tests.Runtime.Rendering
       Assert.IsType<RenderTextNode>(Assert.Single(builder.Root.Children));
     }
 
-    // --- Clone independence ---
+    // --- Style independence ---
 
     [Fact]
-    public void StyleNode_Clone_IsolatesStyleMutation()
+    public void Builder_PushStyle_StampsItsOwnCopy()
     {
-      // The render tree clones nodes when revision macros splice into multiple
-      // targets. If clones shared the StyleSpec reference, mutating one node's
-      // style would silently change every clone of it.
-      var original = new RenderStyleNode { Style = new StyleSpec { Bold = true } };
-      original.Style.Effects.Add(TextEffect.Mark);
-      var clone = (RenderStyleNode)original.Clone();
+      // A changer pushes the same StyleSpec into every target it renders, so a
+      // node sharing it would change every other node when one is restyled.
+      var style = new StyleSpec { Bold = true };
+      style.Effects.Add(TextEffect.Mark);
+      var builder = new RenderTreeBuilder();
+      ((IRenderOutput)builder).PushStyle(style);
+      ((IRenderOutput)builder).PopStyle();
+      var node = (RenderStyleNode)builder.Root.Children[0];
 
-      original.Style.Bold = false;
-      original.Style.Effects.Add(TextEffect.Shadow);
+      style.Bold = false;
+      style.Effects.Add(TextEffect.Shadow);
 
-      Assert.True(clone.Style.Bold);
-      Assert.Single(clone.Style.Effects);
-      Assert.Equal(TextEffect.Mark, clone.Style.Effects[0]);
+      var copy = Assert.Single(node.Styles);
+      Assert.True(copy.Bold);
+      Assert.Single(copy.Effects);
+      Assert.Equal(TextEffect.Mark, copy.Effects[0]);
     }
 
     [Fact]
@@ -285,29 +326,13 @@ namespace Harlowe.Tests.Runtime.Rendering
       Assert.Contains("1 container", ex.Message);
     }
 
-    [Fact]
-    public void InteractiveNode_Clone_IsolatesRegionMutation()
-    {
-      var original = new RenderInteractiveNode
-      {
-        Region = new InteractiveRegion { Id = "r-1", Kind = InteractionKind.Click }
-      };
-      var clone = (RenderInteractiveNode)original.Clone();
-
-      original.Region.Id = "r-mutated";
-      original.Region.Kind = InteractionKind.MouseOver;
-
-      Assert.Equal("r-1", clone.Region.Id);
-      Assert.Equal(InteractionKind.Click, clone.Region.Kind);
-    }
-
     // --- Link container (BeginLink/EndLink) ---
 
     [Fact]
     public void Builder_BeginEndLink_RoundTripsStructuredLabel()
     {
       var builder = new RenderTreeBuilder();
-      IRenderOutput sink = builder;
+      ILinkLabelOutput sink = builder;
       sink.BeginLink("P2");
       sink.Text("a");
       sink.PushStyle(new StyleSpec { Bold = true });
@@ -332,7 +357,7 @@ namespace Harlowe.Tests.Runtime.Rendering
     {
       // Flat Link() and an all-text BeginLink bracket flush identically.
       var builder = new RenderTreeBuilder();
-      IRenderOutput sink = builder;
+      ILinkLabelOutput sink = builder;
       sink.BeginLink("P2");
       sink.Text("Go");
       sink.EndLink();
@@ -346,33 +371,14 @@ namespace Harlowe.Tests.Runtime.Rendering
     }
 
     [Fact]
-    public void LinkNode_TextProperty_FlattensDescendants_AndClones()
+    public void LinkNode_TextProperty_FlattensDescendants()
     {
       var link = new RenderLinkNode { Target = "P2", Text = "Go" };
-      var style = new RenderStyleNode { Style = new StyleSpec { Bold = true } };
+      var style = new RenderStyleNode();
+      style.Styles.Add(new StyleSpec { Bold = true });
       style.Children.Add(new RenderTextNode { Content = " on" });
       link.Children.Add(style);
       Assert.Equal("Go on", link.Text);
-
-      var clone = (RenderLinkNode)link.Clone();
-      ((RenderTextNode)link.Children[0]).Content = "mutated";
-      Assert.Equal("Go on", clone.Text);
-      Assert.Equal("P2", clone.Target);
-    }
-
-    [Fact]
-    public void Clone_CoversHtmlErrorAndRootNodes()
-    {
-      var root = new RenderRoot();
-      root.Children.Add(new RenderHtmlNode { RawHtml = "<hr>" });
-      root.Children.Add(new RenderErrorNode { Message = "boom" });
-
-      var copy = (RenderRoot)root.Clone();
-      ((RenderHtmlNode)root.Children[0]).RawHtml = "mutated";
-      ((RenderErrorNode)root.Children[1]).Message = "mutated";
-
-      Assert.Equal("<hr>", ((RenderHtmlNode)copy.Children[0]).RawHtml);
-      Assert.Equal("boom", ((RenderErrorNode)copy.Children[1]).Message);
     }
 
     [Fact]

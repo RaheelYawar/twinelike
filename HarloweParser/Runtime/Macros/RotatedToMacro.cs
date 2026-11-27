@@ -11,8 +11,7 @@ namespace Harlowe.Runtime.Macros
   /// <para>
   /// If no item matches, the sequence is returned unchanged — a forgiving
   /// no-op rather than an error, consistent with the library's in-prose
-  /// tolerance. Auto-iterates a single trailing array arg (see
-  /// <see cref="FindMacro"/> for the rationale).
+  /// tolerance.
   /// </para>
   /// </summary>
   public class RotatedToMacro : IMacro
@@ -27,7 +26,7 @@ namespace Harlowe.Runtime.Macros
         return HarloweValue.OfError("(rotated-to:) first argument must be a lambda");
 
       var lambda = args[0].AsLambda;
-      var items = LambdaArgs.ExpandItems(args, startIndex: 1);
+      var items = LambdaArgs.Items(args, startIndex: 1);
 
       int pivot = -1;
       for (int i = 0; i < items.Count; i++)

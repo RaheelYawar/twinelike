@@ -1,0 +1,1 @@
+["(if: 1)[yes]","(else:)[B]","(else-if: true)[B]","(if: false)[A](else-if: 5)[B]","(if: false)(else:)[B]","(set: $c to (if: false))$c[A](else:)[B]","(if: true)[A](set: $c to (if: false))$c[B](else:)[C]","(if: false)[a](print: \"(else:)[b]\")(else:)[c]","(set: $x to 5) + (print: 1) tail","(if: $x)   [yes]","(if: $x)\n[yes]"]

@@ -90,6 +90,15 @@ namespace Harlowe.Tests.Runtime
       Assert.Contains("HP: 10", h.Buf.Text);
     }
 
+    [Fact]
+    public void PrintedNumbers_ReadAsJavaScriptPrintsThem_OnEveryRuntime()
+    {
+      // Negative zero and the exponent thresholds used to vary per host
+      // runtime ("-0" on .NET 8, "1E+15" on .NET Framework).
+      var h = Render("(print: 0 * -1) (print: (ceil: -0.5)) (print: 1000000000000000) (print: 1 / 10000000)");
+      Assert.Equal("0 0 1000000000000000 1e-7", h.Buf.Text);
+    }
+
     // Property assignment ----------------------------------------------------
 
     [Fact]
@@ -212,14 +221,14 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void Variable_Unset_RoutesError()
     {
-      var h = Render("$missing");
+      var h = Render("_missing");
       Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
     }
 
     [Fact]
     public void Variable_Unset_DoesNotAbortRest()
     {
-      var h = Render("before $missing after");
+      var h = Render("before _missing after");
       Assert.Contains("before ", h.Buf.Text);
       Assert.Contains(" after", h.Buf.Text);
     }
@@ -428,9 +437,10 @@ namespace Harlowe.Tests.Runtime
       Assert.Equal("A", h.Buf.Text);
 
       // With nothing pairable before it, the variable-attached hide leaves the
-      // pairing unset and the (else:) errors, exactly as reference does.
+      // pairing unset and the (else:) errors, with its hook still rendering as
+      // ordinary content, exactly as reference does.
       var stray = Render("(set: $c to (if: false))$c[A](else:)[B]");
-      Assert.Equal("", stray.Buf.Text);
+      Assert.Equal("B", stray.Buf.Text);
       Assert.Equal(1, CountKind(stray.Buf, BufferedRenderOutput.Kind.Error));
     }
 
@@ -448,12 +458,13 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void UnattachedConditional_ErrorsInProse()
     {
-      // Reference: "The (if:) changer should be stored in a variable or
-      // attached to a hook." With no pairing written, the (else:) errors too
-      // rather than pairing with the dropped (if:).
+      // The (if:) looks at the (else:) to attach to it, and its error reports
+      // once, in the (if:)'s place. The hook after it is then ordinary content.
       var h = Render("(if: false)(else:)[B]");
-      Assert.Equal("", h.Buf.Text);
-      Assert.Equal(2, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+      Assert.Equal("B", h.Buf.Text);
+      Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+      Assert.Equal(0, CountKind(Render("(if: false)[x]").Buf, BufferedRenderOutput.Kind.Error));
+      Assert.Equal(1, CountKind(Render("(if: false)").Buf, BufferedRenderOutput.Kind.Error));
     }
 
     [Fact]
@@ -509,9 +520,10 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void Else_StrayWithNoPrecedingConditional_Errors()
     {
+      // An error replaces only the macro, so the hook still renders.
       var h = Render("(else:)[B]");
       Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
-      Assert.DoesNotContain("B", h.Buf.Text);
+      Assert.Equal("B", h.Buf.Text);
     }
 
     [Fact]
@@ -591,7 +603,7 @@ namespace Harlowe.Tests.Runtime
     {
       var h = Render("(else-if: true)[B]");
       Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
-      Assert.DoesNotContain("B", h.Buf.Text);
+      Assert.Equal("B", h.Buf.Text);
     }
 
     [Fact]
@@ -610,7 +622,7 @@ namespace Harlowe.Tests.Runtime
     {
       var h = Render("(if: false)[A](else-if: 5)[B]");
       Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
-      Assert.DoesNotContain("B", h.Buf.Text);
+      Assert.Equal("B", h.Buf.Text);
     }
 
     [Theory]
@@ -701,8 +713,8 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void MacroArgError_RoutedAndStops()
     {
-      // $missing → Error → routed via Error channel; macro never invoked, no goto, render continues for siblings.
-      var h = Render("a (set: $x to $missing) b");
+      // _missing → Error → routed via Error channel; macro never invoked, no goto, render continues for siblings.
+      var h = Render("a (set: $x to _missing) b");
       Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
       Assert.Contains("a ", h.Buf.Text);
       Assert.Contains(" b", h.Buf.Text);
@@ -731,11 +743,119 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
-    public void IfNonBoolArg_RoutesError_NoHookRender()
+    public void IfNonBoolArg_RoutesError_AndTheHookStillRenders()
     {
       var h = Render("(if: 1)[yes]");
       Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
-      Assert.DoesNotContain("yes", h.Buf.Text);
+      Assert.Equal("yes", h.Buf.Text);
+    }
+
+    [Theory]
+    [InlineData("(foo:) [hook]", " hook", 1)]
+    [InlineData("(if: 1) [hook]", " hook", 1)]
+    [InlineData("(print: 1 + 'a')\n[hook]", "\nhook", 1)]
+    [InlineData("(print: 1) [hook]", "1 hook", 0)]
+    [InlineData("(print: 'x')\n[hook]", "x\nhook", 0)]
+    [InlineData("(set: $x to 1) [hook]", " hook", 0)]
+    [InlineData("(set: $b to 5)$b [hook]", "5 hook", 0)]
+    [InlineData("(set: $b to true)$b [hook]", " hook", 0)]
+    [InlineData("(set: $b to false)$b [hook]", " ", 0)]
+    [InlineData("(if: true) [hook]", "hook", 0)]
+    [InlineData("(if: false) [hook]x", "x", 0)]
+    public void WhitespaceBeforeAHook_GoesOnlyForAChanger(string source, string expected, int errors)
+    {
+      var h = Render(source);
+      Assert.Equal(expected, h.Buf.Text);
+      Assert.Equal(errors, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+    }
+
+    [Theory]
+    [InlineData("(if: false)|a>[x]z", "z")]
+    [InlineData("(if: true) |a>[x]z", "xz")]
+    [InlineData("(print: 1) |a>[x]z", "1 xz")]
+    [InlineData("(set: $b to false)$b|a>[x]z", "z")]
+    [InlineData("(if: false)<!--c-->[x]z", "z")]
+    [InlineData("(if: false)<br>[x]z", "z")]
+    [InlineData("(if: false)<BR/>[x]z", "z")]
+    [InlineData("(if: false)<br class='x'>[x]z", "z")]
+    [InlineData("(if: false)</br>[x]z", "z")]
+    [InlineData("(print: 1)<!--c-->[x]z", "1xz")]
+    public void AnAttachingExpression_FindsHooksAcrossNamesAndComments(string source, string expected)
+    {
+      var h = Render(source);
+      Assert.Equal(expected, h.Buf.Text);
+      Assert.Equal(0, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+    }
+
+    [Theory]
+    [InlineData("(if: false)<brx>[y]z")]
+    [InlineData("(if: false)<br-x>[y]z")]
+    [InlineData("(if: false)<br!>[y]z")]
+    [InlineData("(if: false)<br.foo>[y]z")]
+    public void ATagThatOnlyStartsLikeBr_StopsAnAttachment(string source)
+    {
+      // The tag itself goes out through the Html channel, so only the end is compared.
+      var h = Render(source);
+      Assert.EndsWith("yz", h.Buf.Text);
+      Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+    }
+
+    [Theory]
+    [InlineData("(if: false)[x]<a|(replace: ?a)[y]z", "yz")]
+    [InlineData("(if: false)|a>[x](replace: ?a)[y]z", "yz")]
+    [InlineData("(if: false) |a>[x](append: ?a)[y]z", "yz")]
+    [InlineData("(set: $b to false)$b|a>[x](replace: ?a)[y]z", "yz")]
+    [InlineData("(set: $b to false)$b [x]<a|(replace: ?a)[y]z", " yz")]
+    public void AHiddenNamedHook_CanStillBeFilled(string source, string expected)
+    {
+      var result = new StorySession(StoryOf(source)).Render();
+      Assert.Equal(expected, result.Text);
+      Assert.DoesNotContain(result.Entries, e => e.Kind == BufferedRenderOutput.Kind.Error);
+    }
+
+    private static HarloweStory StoryOf(string body)
+    {
+      var story = new HarloweStory { FormatVersion = "3.3.9" };
+      story.AddPassage(new HarlowePassage { Name = "Start", RawBody = body });
+      story.StartNode = story.GetPassage("Start").Pid;
+      return story;
+    }
+
+    [Theory]
+    [InlineData("(set: $b to true)$b x", " x")]
+    [InlineData("(set: $b to false)$b x", " x")]
+    [InlineData("(set: $b to true)[$b]", "")]
+    public void ABareBoolean_PrintsNothing(string source, string expected)
+    {
+      Assert.Equal(expected, Render(source).Buf.Text);
+    }
+
+    [Theory]
+    [InlineData("(if: false)(print: 5)z", "z")]
+    [InlineData("(if: true)(print: 5)z", "5z")]
+    [InlineData("(if: false) (print: 5)z", " z")]
+    [InlineData("(if: false)(print: 5) [hook]", " hook")]
+    [InlineData("(for: each _i, 1, 2)(print: 5)", "55")]
+    [InlineData("(set: $c to (if: false))$c(print: 5)z", "z")]
+    public void AChanger_AttachesToABuiltinCommand(string source, string expected)
+    {
+      var h = Render(source);
+      Assert.Equal(expected, h.Buf.Text);
+      Assert.Equal(0, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+    }
+
+    [Theory]
+    [InlineData("(if: false)(str: 5)z", "z", "The string \"5\" can't have changers like (if:)")]
+    [InlineData("(if: false)(set: $x to 1)$x", "1", "A (set:) operation can't have changers")]
+    [InlineData("(if: false)(text-style:'bold')z", "z", "need to be combined using +")]
+    [InlineData("(if: false)(print: 1 + 'a')z", "z", "")]
+    [InlineData("(if: false)(foo:) [hook]", " hook", "unknown macro")]
+    public void AChanger_BeforeSomethingThatCantTakeIt_Errors(string source, string expected, string error)
+    {
+      var h = Render(source);
+      Assert.Equal(expected, h.Buf.Text);
+      Assert.Equal(1, CountKind(h.Buf, BufferedRenderOutput.Kind.Error));
+      Assert.Contains(error, h.Buf.Entries.Find(e => e.Kind == BufferedRenderOutput.Kind.Error).Content);
     }
 
     // Value macros at body position -----------------------------------------

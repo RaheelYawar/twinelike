@@ -108,7 +108,7 @@ namespace Harlowe.Tests.Runtime.Macros
     {
       // Only String/Number/Boolean/Array are accepted; a Datamap errors.
       var (reg, ctx) = Setup();
-      var dm = HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>
+      var dm = HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>
       {
         { "hp", HarloweValue.OfNumber(10) },
       });
@@ -465,11 +465,42 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
-    public void Dm_NonStringKey_Errors()
+    public void Dm_NumberKey_IsAName()
     {
       var (reg, ctx) = Setup();
-      Assert.True(Call(reg, ctx, "dm",
-        HarloweValue.OfNumber(1), HarloweValue.OfString("v")).IsError);
+      var map = Call(reg, ctx, "dm", HarloweValue.OfNumber(1), HarloweValue.OfString("v")).AsDatamap;
+      Assert.Equal("v", map[DataName.Of(1)].AsString);
+      Assert.False(map.ContainsKey("1"));
+    }
+
+    [Fact]
+    public void Dm_BoolKey_Errors()
+    {
+      var (reg, ctx) = Setup();
+      Assert.Equal("Only strings and numbers can be used as data names for an empty datamap, not the boolean value 'true'.",
+        Call(reg, ctx, "dm", HarloweValue.OfBool(true), HarloweValue.OfString("v")).ErrorMessage);
+    }
+
+    [Theory]
+    [InlineData(1.0, "1", true)]
+    [InlineData(1.0, "01", true)]
+    [InlineData(0.0, "", true)]
+    [InlineData(1.0, "1st", false)]
+    public void Dm_NumberAndMatchingString_Clash(double number, string text, bool clashes)
+    {
+      // Reference refuses a string beside the number JavaScript reads it as,
+      // checking only the name being added against what's already there.
+      var (reg, ctx) = Setup();
+      var v = Call(reg, ctx, "dm", HarloweValue.OfNumber(number), HarloweValue.OfString("a"), HarloweValue.OfString(text), HarloweValue.OfString("b"));
+      Assert.Equal(clashes, v.IsError);
+    }
+
+    [Fact]
+    public void Dm_StringThenNumber_ClashesOnlyOnThePrintedForm()
+    {
+      var (reg, ctx) = Setup();
+      Assert.False(Call(reg, ctx, "dm", HarloweValue.OfString("01"), HarloweValue.OfString("a"), HarloweValue.OfNumber(1), HarloweValue.OfString("b")).IsError);
+      Assert.True(Call(reg, ctx, "dm", HarloweValue.OfString("1"), HarloweValue.OfString("a"), HarloweValue.OfNumber(1), HarloweValue.OfString("b")).IsError);
     }
 
     [Fact]
@@ -549,7 +580,7 @@ namespace Harlowe.Tests.Runtime.Macros
     {
       public HarloweValue Time => HarloweValue.OfNumber(0);
       public HarloweValue Visits => HarloweValue.OfNumber(0);
-      public HarloweValue Passage => HarloweValue.OfDatamap(new Dictionary<string, HarloweValue>());
+      public HarloweValue Passage => HarloweValue.OfDatamap(new Dictionary<DataName, HarloweValue>());
       public HarloweValue History { get; set; }
       public HarloweValue Turns => HarloweValue.OfNumber(0);
     }

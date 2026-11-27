@@ -81,10 +81,11 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
-    public void Min_SingleArray_AutoUnpacks()
+    public void Min_ArrayWithoutSpread_Errors()
     {
+      // Reference's rest(Number) signature: an array needs `...`.
       var (reg, ctx) = Setup();
-      Assert.Equal(1.0, Call(reg, ctx, Array(3, 1, 2)).AsNumber);
+      Assert.True(Call(reg, ctx, Array(3, 1, 2)).IsError);
     }
 
     [Fact]

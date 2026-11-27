@@ -68,16 +68,31 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
-    public void For_SingleArrayArg_AutoIterates()
+    public void For_SpreadArray_IteratesItsItems()
     {
-      var h = Render("(for: each _x, (a: 10, 20, 30))[_x;]");
+      var h = Render("(for: each _x, ...(a: 10, 20, 30))[_x;]");
       Assert.Equal("10;20;30;", h.Buf.Text);
+    }
+
+    [Fact]
+    public void For_ArrayWithoutSpread_IsOneItem()
+    {
+      // Reference has no auto-unpack: the array itself is the single value.
+      var h = Render("(for: each _x, (a: 10, 20))[_x;]");
+      Assert.Equal("10,20;", h.Buf.Text);
+    }
+
+    [Fact]
+    public void For_SpreadOfOneNestedArray_KeepsTheInnerArrayWhole()
+    {
+      var h = Render("(for: each _row, ...(a: (a: 1, 2)))[_row;]");
+      Assert.Equal("1,2;", h.Buf.Text);
     }
 
     [Fact]
     public void For_EmptyItems_RendersNothing()
     {
-      var h = Render("before(for: each _x, (a:))[loop ]after");
+      var h = Render("before(for: each _x, ...(a:))[loop ]after");
       Assert.Equal("beforeafter", h.Buf.Text);
     }
 

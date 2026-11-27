@@ -14,8 +14,8 @@ namespace Harlowe.Twee
   /// also useful as a debugging aid for inspecting an AST in source form.
   ///
   /// <para><b>Round-trip property.</b> For any AST produced by
-  /// <see cref="HarloweParser.Parsing.HarloweBodyParser"/> /
-  /// <see cref="HarloweParser.Parsing.HarloweExpressionParser"/>, the output
+  /// <see cref="HarloweBodyParser"/> /
+  /// <see cref="HarloweExpressionParser"/>, the output
   /// of this printer parses back to an equivalent AST. The output is
   /// canonical (no insignificant whitespace, no original formatting), not
   /// byte-identical to the source — that's what
@@ -166,21 +166,23 @@ namespace Harlowe.Twee
     /// <summary>
     /// Emits a hook with its anchor in the canonical position:
     /// <c>|name&gt;[content]</c> for right-anchored, <c>[content]&lt;name|</c>
-    /// for left-anchored, <c>[content]</c> for anonymous.
+    /// for left-anchored, <c>[content]</c> for anonymous. A hidden hook writes
+    /// its name with a parenthesis in place of the arrow.
     /// </summary>
     public void Visit(HookNode node)
     {
       if (node.Anchor == HookAnchor.Right)
       {
-        _sb.Append('|').Append(node.Name).Append('>');
+        _sb.Append('|').Append(node.Name).Append(node.IsHidden ? ')' : '>');
       }
-      _sb.Append('[');
+      _sb.Append(node.UnclosedMarker ?? "[");
       if (node.Children != null)
         foreach (var child in node.Children) child.Accept(this);
+      if (node.UnclosedMarker != null) return;
       _sb.Append(']');
       if (node.Anchor == HookAnchor.Left)
       {
-        _sb.Append('<').Append(node.Name).Append('|');
+        _sb.Append(node.IsHidden ? '(' : '<').Append(node.Name).Append('|');
       }
     }
 
@@ -199,6 +201,56 @@ namespace Harlowe.Twee
     }
 
     /// <summary>
+    /// Emits a collapsing span as it was written: <c>{…}</c> for a matched
+    /// pair, or the unclosed marker (<c>{=</c>, <c>{==</c>, …) with no closer.
+    /// </summary>
+    public void Visit(CollapsedNode node)
+    {
+      _sb.Append(node.UnclosedMarker ?? "{");
+      if (node.Children != null)
+        foreach (var child in node.Children) child.Accept(this);
+      if (node.UnclosedMarker == null) _sb.Append('}');
+    }
+
+    public void Visit(VerbatimNode node) => _sb.Append(node.Delimiter).Append(node.Text).Append(node.Delimiter);
+
+    /// <summary>
+    /// Emits each item's marker as written, its content, and the line break
+    /// that ended it. A hand-built item with no marker gets the plain one for
+    /// its depth. An item that doesn't end its line is followed by the next
+    /// marker on the same line, which is how <c>* * a</c> reads back.
+    /// </summary>
+    public void Visit(ListNode node)
+    {
+      if (node.Items == null) return;
+      foreach (var item in node.Items)
+      {
+        if (item == null) continue;
+        if (item.Marker != null) _sb.Append(item.Marker);
+        else
+        {
+          for (int i = 0; i < System.Math.Max(1, item.Depth); i++) _sb.Append(node.Ordered ? "0." : "*");
+          _sb.Append(' ');
+        }
+        if (item.Children != null)
+          foreach (var child in item.Children) child.Accept(this);
+        if (item.EndsLine) _sb.Append('\n');
+      }
+    }
+
+    /// <summary>
+    /// Emits the rule as written. A rule always ends its line, so a last-line
+    /// rule gains a line break here: it's harmless at the end of a passage, and
+    /// stops anything appended after it from turning the rule into prose.
+    /// </summary>
+    public void Visit(HorizontalRuleNode node)
+    {
+      string rule = node.OriginalSource ?? "---\n";
+      _sb.Append(rule);
+      if (!rule.EndsWith("\n", System.StringComparison.Ordinal)) _sb.Append('\n');
+    }
+
+    /// <summary>
     /// Emits a body-position macro: <c>(name: args)</c>, immediately followed
     /// by an attached hook (no whitespace) when present. The body parser's
     /// whitespace-skipping lookahead means the spacing here is purely
@@ -208,20 +260,22 @@ namespace Harlowe.Twee
     public void Visit(MacroNode node)
     {
       EmitMacroCall(node.Name, node.Arguments);
-      if (node.AttachedHook != null) node.AttachedHook.Accept(this);
+      EmitAttachedHook(node.HookGap, node.AttachedHook);
     }
 
-    /// <summary>
-    /// Emits a changer-chain node: the expression in canonical form (which
-    /// already produces <c>(m1)+(m2)</c> or <c>$var</c> via the existing
-    /// expression visitors), immediately followed by the hook. Re-parses to
-    /// the same shape — the body parser detects the chain pattern from the
-    /// expression's leading token.
-    /// </summary>
+    /// <summary>Emits <c>$var</c>, the whitespace written after it, and its hook.</summary>
     public void Visit(ChangerChainNode node)
     {
       node.Expression.Accept((IExpressionVisitor)this);
-      if (node.AttachedHook != null) node.AttachedHook.Accept(this);
+      EmitAttachedHook(node.HookGap, node.AttachedHook);
+    }
+
+    /// <summary>The whitespace is kept because it renders unless the expression turns out to be a changer.</summary>
+    private void EmitAttachedHook(string gap, HookNode hook)
+    {
+      if (hook == null) return;
+      _sb.Append(gap);
+      hook.Accept(this);
     }
 
     // ----- IExpressionVisitor -----
@@ -275,17 +329,37 @@ namespace Harlowe.Twee
     /// </summary>
     public void Visit(BinaryOpNode node)
     {
-      int ourOrder = BinaryOps[node.Operator];
-      EmitBinaryChild(node.Left, node.Operator, ourOrder, isRight: false);
-      if (node.Operator == "'s")
+      // `a + b + c` parses with a left side as deep as the chain is long, so
+      // the left side is printed in a loop while it needs no parentheses:
+      // recursing once per operator overflowed the stack. One in parentheses
+      // recurses, and the parser caps how deeply source parentheses nest.
+      var spine = new List<BinaryOpNode> { node };
+      var bottom = node;
+      while (bottom.Left is BinaryOpNode left
+             && !BinaryChildNeedsParens(left, bottom.Operator, BinaryOps[bottom.Operator], isRight: false))
       {
-        _sb.Append("'s ");
+        spine.Add(left);
+        bottom = left;
       }
-      else
+      EmitBinaryChild(bottom.Left, bottom.Operator, BinaryOps[bottom.Operator], isRight: false);
+      for (int i = spine.Count - 1; i >= 0; i--)
       {
-        _sb.Append(' ').Append(node.SourceOperator ?? node.Operator).Append(' ');
+        var op = spine[i];
+        if (op.Operator == "'s")
+        {
+          _sb.Append("'s ");
+        }
+        else if (op.Operator == "-type")
+        {
+          // Written straight after the type: `num-type _a`.
+          _sb.Append("-type ");
+        }
+        else
+        {
+          _sb.Append(' ').Append(op.SourceOperator ?? op.Operator).Append(' ');
+        }
+        EmitBinaryChild(op.Right, op.Operator, BinaryOps[op.Operator], isRight: true);
       }
-      EmitBinaryChild(node.Right, node.Operator, ourOrder, isRight: true);
     }
 
     /// <summary>
@@ -306,6 +380,20 @@ namespace Harlowe.Twee
     }
 
     public void Visit(MacroCallNode node) => EmitMacroCall(node.Name, node.Arguments);
+
+    /// <summary>Emits a code hook as it was written, or from its nodes when the parser had no source.</summary>
+    public void Visit(CodeHookNode node)
+    {
+      if (node.Source != null)
+      {
+        _sb.Append(node.Source);
+        return;
+      }
+      _sb.Append('[');
+      if (node.Children != null)
+        foreach (var child in node.Children) child.Accept(this);
+      _sb.Append(']');
+    }
 
     /// <summary>
     /// Emits a hook reference: <c>?name</c>, with each ordinal step appended as
@@ -452,23 +540,25 @@ namespace Harlowe.Twee
         return;
       }
 
-      if (child is BinaryOpNode bin && BinaryOps.TryGetValue(bin.Operator, out int childOrder))
+      if (child is BinaryOpNode bin && BinaryChildNeedsParens(bin, parentOp, ourOrder, isRight))
       {
-        bool parentIsRightAssoc = HarloweExpressionParser.RightAssociativeOps.Contains(parentOp);
-        // Equal-precedence side that does NOT match the parent's
-        // associativity needs explicit parens.
-        bool equalSideNeedsParens = parentIsRightAssoc ? !isRight : isRight;
-        bool needsParens = childOrder > ourOrder
-                           || (childOrder == ourOrder && equalSideNeedsParens);
-        if (needsParens)
-        {
-          _sb.Append('(');
-          child.Accept(this);
-          _sb.Append(')');
-          return;
-        }
+        _sb.Append('(');
+        child.Accept(this);
+        _sb.Append(')');
+        return;
       }
       child.Accept(this);
+    }
+
+    /// <summary>True when <paramref name="child"/>, an operand of <paramref name="parentOp"/>, needs parentheses to parse back the same.</summary>
+    private static bool BinaryChildNeedsParens(BinaryOpNode child, string parentOp, int ourOrder, bool isRight)
+    {
+      if (!BinaryOps.TryGetValue(child.Operator, out int childOrder)) return false;
+      bool parentIsRightAssoc = HarloweExpressionParser.RightAssociativeOps.Contains(parentOp);
+      // Equal-precedence side that does NOT match the parent's
+      // associativity needs explicit parens.
+      bool equalSideNeedsParens = parentIsRightAssoc ? !isRight : isRight;
+      return childOrder > ourOrder || (childOrder == ourOrder && equalSideNeedsParens);
     }
 
     /// <summary>
@@ -493,7 +583,7 @@ namespace Harlowe.Twee
 
     /// <summary>
     /// Emit a string literal as a double-quoted, backslash-escaped Harlowe
-    /// string. Round-trips through <see cref="HarloweTokenizer"/> because the
+    /// string. Round-trips through <see cref="Harlowe.Tokens.HarloweTokenizer"/> because the
     /// tokenizer's escape decoder reverses every sequence we produce here.
     /// <c>\</c> and <c>"</c> get backslash escapes; <c>\n</c>/<c>\r</c>/
     /// <c>\t</c> become their named escapes so the emitted source stays on a
@@ -506,7 +596,7 @@ namespace Harlowe.Twee
     /// <summary>
     /// The standalone, instance-free form of <see cref="AppendStringLiteral"/>: a
     /// double-quoted, backslash-escaped Harlowe string literal for an arbitrary
-    /// value. Used by <see cref="HarloweValue.ToSource"/> to serialise string values
+    /// value. Used by <see cref="HarloweValue.ToSource()"/> to serialise string values
     /// (and datamap keys) round-trippably without an AST node or a printer instance.
     /// </summary>
     public static string StringLiteral(string s)

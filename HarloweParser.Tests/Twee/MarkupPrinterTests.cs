@@ -136,8 +136,8 @@ namespace Harlowe.Tests.Twee
       => Assert.Equal("-5", Print(new LiteralNode { Kind = LiteralKind.Number, Value = -5.0 }));
 
     [Theory]
-    [InlineData(0.0000001)]            // would print as 1E-07 — must re-lex
-    [InlineData(1e16)]                 // would print as 1E+16
+    [InlineData(0.0000001)]            // prints as 1e-7 — must re-lex
+    [InlineData(1e21)]                 // prints as 1e+21
     [InlineData(1.0000000000000002)]   // 17 significant digits; G15 truncates to 1
     [InlineData(3.14)]
     [InlineData(10.0)]

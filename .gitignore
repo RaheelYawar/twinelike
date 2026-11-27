@@ -181,3 +181,6 @@ nupkg-test/
 # run; contributors fetch their own copy (see CONTRIBUTING.md). Kept out of the
 # repo to avoid vendoring a whole foreign project under our MIT licence.
 references/
+# The bench: fetched third-party inputs, transcripts and our outputs, and its Node packages.
+tools/.cache/
+tools/bench/node_modules/

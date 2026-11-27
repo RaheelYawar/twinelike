@@ -10,16 +10,16 @@ namespace Harlowe.Tests.Runtime
     // HTML builder helpers
     // -----------------------------------------------------------------------
 
-    private static Harlowe OnePassage(string body)
+    private static HarloweStory OnePassage(string body)
       => Story("1", ("1", "P1", body));
 
-    private static Harlowe TwoPassages(string p1, string p2)
+    private static HarloweStory TwoPassages(string p1, string p2)
       => Story("1", ("1", "P1", p1), ("2", "P2", p2));
 
-    private static Harlowe ThreePassages(string p1, string p2, string p3)
+    private static HarloweStory ThreePassages(string p1, string p2, string p3)
       => Story("1", ("1", "P1", p1), ("2", "P2", p2), ("3", "P3", p3));
 
-    private static Harlowe Story(string startPid, params (string pid, string name, string body)[] passages)
+    private static HarloweStory Story(string startPid, params (string pid, string name, string body)[] passages)
     {
       var sb = new System.Text.StringBuilder();
       sb.Append("<html><body><tw-storydata name=\"T\" startnode=\"");
@@ -36,7 +36,7 @@ namespace Harlowe.Tests.Runtime
         sb.Append("</tw-passagedata>");
       }
       sb.Append("</tw-storydata></body></html>");
-      return new Harlowe(sb.ToString());
+      return new HarloweStory(sb.ToString());
     }
 
     private static int CountKind(RenderResult r, BufferedRenderOutput.Kind k)
@@ -45,6 +45,14 @@ namespace Harlowe.Tests.Runtime
       for (int i = 0; i < r.Entries.Count; i++)
         if (r.Entries[i].Kind == k) n++;
       return n;
+    }
+
+    private static string FirstRegionId(RenderResult r)
+    {
+      for (int i = 0; i < r.Entries.Count; i++)
+        if (r.Entries[i].Kind == BufferedRenderOutput.Kind.BeginInteractive)
+          return r.Entries[i].Region?.Id;
+      return null;
     }
 
     // -----------------------------------------------------------------------
@@ -154,7 +162,7 @@ namespace Harlowe.Tests.Runtime
       // synthesized pids start at 1 — so the session opens with no current
       // passage. The first Goto must not finalise that nameless present into the
       // past (a Moment with passage "" makes every later save unloadable).
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(new HarlowePassage { Name = "P1", Body = "hello" });
       var session = new StorySession(story);
       session.Render();
@@ -340,7 +348,7 @@ namespace Harlowe.Tests.Runtime
       // construction and turns reports 0. (When a start passage exists,
       // EnterPassage runs in the constructor — see the "starts at one"
       // test above.)
-      var session = new StorySession(new Harlowe());
+      var session = new StorySession(new HarloweStory());
       var v = ((IEvaluationContext)session).Turns;
       Assert.Equal(0, v.AsNumber);
     }
@@ -378,7 +386,7 @@ namespace Harlowe.Tests.Runtime
       var html = "<html><body><tw-storydata name=\"T\" startnode=\"1\">"
         + "<tw-passagedata pid=\"1\" name=\"P1\" tags=\"intro  hidden\">text</tw-passagedata>"
         + "</tw-storydata></body></html>";
-      var session = new StorySession(new Harlowe(html));
+      var session = new StorySession(new HarloweStory(html));
       session.Render();
       var pv = ((IEvaluationContext)session).Passage;
       Assert.True(pv.AsDatamap.TryGetValue("tags", out var tags));
@@ -501,7 +509,7 @@ namespace Harlowe.Tests.Runtime
     {
       // A runtime error inside the displayed passage must surface as an Error
       // entry on the parent output, not be swallowed by the buffer flattening.
-      var session = new StorySession(TwoPassages("(display: \"P2\")", "$missing"));
+      var session = new StorySession(TwoPassages("(display: \"P2\")", "_missing"));
       var r = session.Render();
       Assert.True(CountKind(r, BufferedRenderOutput.Kind.Error) >= 1);
     }
@@ -581,8 +589,7 @@ namespace Harlowe.Tests.Runtime
       // for the host process. The setter now caps at a safe absolute ceiling
       // so the in-prose error path still fires before the real stack does.
       var session = new StorySession(OnePassage("hi")) { MaxDisplayDepth = int.MaxValue };
-      Assert.True(session.MaxDisplayDepth <= 1024, "absolute ceiling should bound the configured depth");
-      Assert.True(session.MaxDisplayDepth >= 20, "ceiling should still leave generous headroom over the default");
+      Assert.Equal(128, session.MaxDisplayDepth);
     }
 
     // -----------------------------------------------------------------------
@@ -630,10 +637,11 @@ namespace Harlowe.Tests.Runtime
       var session = new StorySession(TwoPassages("$x", "(set: $x to 99)"));
       session.Goto("P2");  // sets $x = 99 in store
       session.Undo();
-      // After undo, the store is restored to pre-goto state ($x unset).
-      // Render P1 which references $x — should produce an error (unset).
+      // After undo, the store is restored to pre-goto state ($x unset), so P1
+      // shows Harlowe 3's default for an unset variable rather than 99.
       var r = session.Render();
-      Assert.Equal(1, CountKind(r, BufferedRenderOutput.Kind.Error));
+      Assert.Equal("0", r.Text);
+      Assert.False(session.TryGetVariable("x", out _));
     }
 
     [Fact]
@@ -708,8 +716,8 @@ namespace Harlowe.Tests.Runtime
         + "<tw-passagedata pid=\"2\" name=\"P2\" tags=\"\">(set: $x to 1)$x</tw-passagedata>"
         + "<tw-passagedata pid=\"3\" name=\"P3\" tags=\"\">(set: $x to 2)$x</tw-passagedata>"
         + "</tw-storydata></body></html>";
-      var session = new StorySession(new Harlowe(html));
-      session.Render();             // P1 — error (unset), but we don't care
+      var session = new StorySession(new HarloweStory(html));
+      session.Render();             // P1 — $x unset
       session.Goto("P2");           // $x = 1
       session.Goto("P3");           // $x = 2
 
@@ -719,7 +727,8 @@ namespace Harlowe.Tests.Runtime
 
       session.Undo();               // pop snapshot taken before entering P2 — $x unset
       var r2 = session.Render();
-      Assert.Equal(1, CountKind(r2, BufferedRenderOutput.Kind.Error));
+      Assert.Equal("0", r2.Text);
+      Assert.False(session.TryGetVariable("x", out _));
     }
 
     [Fact]
@@ -1231,6 +1240,78 @@ namespace Harlowe.Tests.Runtime
       Assert.Equal("11", session.Goto("P3").Text);   // forward w/o rendering P2; $x = 11 carried
     }
 
+    // A (link:) whose reveal sets a variable: the in-passage choice a player can
+    // make differently after undoing back to the passage.
+    private const string SwordChoice = "(set: $weapon to \"none\")(link: \"Take sword\")[(set: $weapon to \"sword\")]";
+
+    [Fact]
+    public void UndoThenDeclineChoice_ThenContinue_TimelineForgetsTheOriginalChoice()
+    {
+      var session = new StorySession(ThreePassages(SwordChoice, "$weapon", "end"));
+      session.DispatchEvent(FirstRegionId(session.Render()));   // take the sword
+      Assert.Equal("sword", session.Goto("P2").Text);
+      session.Undo();
+      session.Render();                                         // back on P1; decline this time
+      Assert.Equal("none", session.Goto("P2").Text);
+
+      // Undo from the next turn reconstructs P2 from the timeline, which must agree
+      // with what was actually played — not with the choice made before the undo.
+      session.Goto("P3");
+      session.Undo();
+      Assert.Equal("none", session.Render().Text);
+    }
+
+    [Fact]
+    public void UndoThenMakeChoice_ThenContinue_TimelineRecordsTheNewChoice()
+    {
+      var session = new StorySession(ThreePassages(SwordChoice, "$weapon", "end"));
+      session.Render();                                         // decline the sword
+      Assert.Equal("none", session.Goto("P2").Text);
+      session.Undo();
+      session.DispatchEvent(FirstRegionId(session.Render()));   // take it this time
+      Assert.Equal("sword", session.Goto("P2").Text);
+
+      session.Goto("P3");
+      session.Undo();
+      Assert.Equal("sword", session.Render().Text);
+    }
+
+    [Fact]
+    public void UndoThenDeclineChoice_ThenContinue_SaveLoadReproducesWhatWasPlayed()
+    {
+      var session = new StorySession(ThreePassages(SwordChoice, "$weapon", "end"));
+      session.DispatchEvent(FirstRegionId(session.Render()));
+      session.Goto("P2");
+      session.Undo();
+      session.Render();
+      Assert.Equal("none", session.Goto("P2").Text);
+
+      Assert.True(session.SaveGame("slot"));
+      Assert.True(session.LoadGame("slot"));
+      Assert.Equal("none", session.Render().Text);
+    }
+
+    [Fact]
+    public void UndoThenSkipRandomChoice_ThenContinue_LaterTurnReplaysItsDraws()
+    {
+      // The reopened turn's RNG position must be recaptured as well as its
+      // variables: the original visit drew, the replayed one didn't, so the next
+      // turn starts where the replayed visit left the stream.
+      var session = new StorySession(ThreePassages(
+        "(link: \"Roll\")[(set: $r to (random: 1, 1000000))]",
+        "(print: (random: 1, 1000000))",
+        "end"), 42);
+      session.DispatchEvent(FirstRegionId(session.Render()));   // draws once
+      session.Goto("P2");
+      session.Undo();
+      session.Render();                                         // don't roll this time
+      string played = session.Goto("P2").Text;
+
+      session.Goto("P3");
+      session.Undo();
+      Assert.Equal(played, session.Render().Text);
+    }
+
     [Fact]
     public void CurrentPassage_AfterUndoIntoRedirectTurn_IsRestingNotEntry()
     {
@@ -1394,6 +1475,39 @@ namespace Harlowe.Tests.Runtime
     // -----------------------------------------------------------------------
 
     [Fact]
+    public void DispatchEvent_StaleRegionFromAnEarlierPassage_IsANoOp()
+    {
+      // Region ids are unique across the session, not just per render: a late
+      // event for the previous passage's region (a mouseout fired as its
+      // elements are torn down) must not fire what the new passage armed.
+      var session = new StorySession(TwoPassages(
+        "|a>[first](click: ?a)[revealed in P1]",
+        "|b>[second](click: ?b)[revealed in P2]"));
+      string stale = FirstRegionId(session.Render());
+      var p2 = session.Goto("P2");
+      Assert.NotEqual(stale, FirstRegionId(p2));
+
+      Assert.DoesNotContain("revealed", session.DispatchEvent(stale).Text);
+      Assert.Contains("revealed in P2", session.DispatchEvent(FirstRegionId(p2)).Text);
+    }
+
+    [Fact]
+    public void DispatchEvent_StaleRegionFromBeforeAnUndo_IsANoOp()
+    {
+      var session = new StorySession(TwoPassages(
+        "|a>[first](click: ?a)[revealed]",
+        "second"));
+      string stale = FirstRegionId(session.Render());
+      session.Goto("P2");
+      session.Undo();
+      var fresh = session.Render();
+      Assert.NotEqual(stale, FirstRegionId(fresh));
+
+      Assert.DoesNotContain("revealed", session.DispatchEvent(stale).Text);
+      Assert.Contains("revealed", session.DispatchEvent(FirstRegionId(fresh)).Text);
+    }
+
+    [Fact]
     public void GotoMissingPassage_IsRefused_SoThePassageStaysLiveAndClickable()
     {
       // The inverse of the old contract, and the point of refusing the Goto: the
@@ -1449,7 +1563,7 @@ namespace Harlowe.Tests.Runtime
     {
       // A freshly-constructed story has no start passage, so the session has
       // no current passage — Render must return an empty result, not throw.
-      var session = new StorySession(new Harlowe());
+      var session = new StorySession(new HarloweStory());
       var result = session.Render();
       Assert.Equal(string.Empty, result.Text);
       Assert.Empty(result.Entries);
