@@ -13,7 +13,7 @@ Twinelike itself.
 --------------------------------------------------------------------------------
 
 1. HtmlAgilityPack
-   Version:    1.12.4
+   Version:    1.13.1
    Authors:    ZZZ Projects, Simon Mourrier, Jeff Klawiter, Stephan Grell
    Copyright:  Copyright (c) ZZZ Projects Inc.
    Project:    https://html-agility-pack.net/

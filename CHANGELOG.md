@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **HtmlAgilityPack 1.13.1**, merged into `twinelike.dll`, no longer doubles the `#` when it decodes an invalid numeric entity in Twine HTML.
+
 ## [0.3.0] — 2026-11-26
 
 Save/load and an undo/redo timeline, the `(link:)` family, custom macros, timed and hidden hooks, lists, transitions, datasets, inline text formatting, and compatibility profiles, so a story keeps the semantics of the Harlowe major it declares. **Breaking:** hosts must rename the story class and rebuild, and code that implements `IBodyVisitor` or builds datamaps needs more, as the **For hosts** and **Migration** notes below say. `IRenderOutput` is unchanged, so existing adapters keep working. Timed hooks need the host to call `StorySession.Tick` each frame.
