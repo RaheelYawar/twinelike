@@ -178,17 +178,20 @@ namespace Harlowe.Runtime.Rendering
   }
 
   /// <summary>
-  /// A styling layer. Replaces a <see cref="IRenderOutput.PushStyle"/> /
-  /// content / <see cref="IRenderOutput.PopStyle"/> bracket: the flusher emits
-  /// <c>PushStyle</c>, flushes <see cref="Children"/>, then <c>PopStyle</c>.
+  /// Styling layers around <see cref="Children"/>. The flusher emits a
+  /// <see cref="IRenderOutput.PushStyle"/> per layer, outermost first, then
+  /// the children, then a <see cref="IRenderOutput.PopStyle"/> per layer. A
+  /// changer's layers share one node however many it has, so applying a
+  /// changer adds one level to the tree, which every later walk recurses
+  /// through.
   /// </summary>
   public class RenderStyleNode : RenderNode, IRenderContainer
   {
     /// <summary>
-    /// The style layer. <see cref="StyleSpec"/> is public-mutable, so the
-    /// builder stamps a copy of the changer's, and no other node shares it.
+    /// The layers, outermost first. <see cref="StyleSpec"/> is public-mutable,
+    /// so each node holds copies of the changer's, which no other node shares.
     /// </summary>
-    public StyleSpec Style;
+    public List<StyleSpec> Styles { get; } = new List<StyleSpec>();
 
     /// <summary>
     /// The enchantment that produced this node, or <c>null</c> for ordinary

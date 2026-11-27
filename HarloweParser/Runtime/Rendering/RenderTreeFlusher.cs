@@ -78,9 +78,9 @@ namespace Harlowe.Runtime.Rendering
           output.Error(e.Message);
           break;
         case RenderStyleNode s:
-          output.PushStyle(s.Style);
+          for (int i = 0; i < s.Styles.Count; i++) output.PushStyle(s.Styles[i]);
           FlushChildren(s.Children, output);
-          output.PopStyle();
+          for (int i = 0; i < s.Styles.Count; i++) output.PopStyle();
           break;
         case RenderInteractiveNode iv:
           output.BeginInteractive(iv.Region);

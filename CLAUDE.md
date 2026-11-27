@@ -55,4 +55,4 @@ Parse errors follow the same contract at load time: they never abort a load, the
 
 ## Status
 
-**4635 tests passing (net48 + net8.0); no high-severity divergences open.** 23 active divergences, all low severity, are listed in `MACRO-DIVERGENCES.md`, and feature gaps and next-slice candidates in `TODO.md`. Against real Harlowe 3.3.9, the bench's current match counts are in `tools/cases/expected.json`. Per-slice history lives in `git log`.
+**4701 tests passing (net48 + net8.0); no high-severity divergences open.** 23 active divergences, all low severity, are listed in `MACRO-DIVERGENCES.md`, and feature gaps and next-slice candidates in `TODO.md`. Against real Harlowe 3.3.9, the bench's current match counts are in `tools/cases/expected.json`. Per-slice history lives in `git log`.

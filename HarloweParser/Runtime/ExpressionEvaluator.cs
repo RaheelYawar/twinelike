@@ -221,18 +221,13 @@ namespace Harlowe.Runtime
       if (node.Operator == "to") { AssignTo(node.Left, node.Right, bindItToTarget: true); return; }
       if (node.Operator == "into") { AssignTo(node.Right, node.Left, bindItToTarget: false); return; }
 
-      // The variable side of `-type` is a name, not a value to read.
-      if (node.Operator == "-type") { _result = EvaluateTypedVar(node); return; }
+      // The variable side of `-type` is a name, not a value to read, and a
+      // spread type isn't a value either. A type that is itself a chain, such
+      // as another `-type`, goes down the loop below.
+      if (node.Operator == "-type" && !(node.Left is BinaryOpNode)) { _result = EvaluateTypedVar(node); return; }
 
-      // Property access keeps the accessor side as a node so an IdentifierNode
-      // is treated as a key/property name rather than evaluated as an unknown
-      // identifier. Dispatched before the universal evaluation below.
-      if (node.Operator == "'s")
-      {
-        var container = Evaluate(node.Left);
-        _result = ResolveProperty(container, node.Right);
-        return;
-      }
+      // `of` keeps its accessor, the left side, as a node, as `'s` keeps its
+      // right in Combine.
       if (node.Operator == "of")
       {
         var container = Evaluate(node.Right);
@@ -240,20 +235,63 @@ namespace Harlowe.Runtime
         return;
       }
 
-      var left = Evaluate(node.Left);
-      if (left.IsError) { _result = left; return; }
+      // `a + b + c` parses with a left side as deep as the chain is long, so
+      // that side is evaluated in a loop: recursing once per operator
+      // overflowed the stack on about 1,500 operands. The nodes down the left
+      // side are combined from the bottom up, each exactly as on its own.
+      if (!(node.Left is BinaryOpNode first) || !InChain(first))
+      {
+        _result = Combine(node, Evaluate(node.Left));
+        return;
+      }
+      var spine = new List<BinaryOpNode> { node };
+      IExpressionNode bottom = first;
+      while (bottom is BinaryOpNode op && InChain(op))
+      {
+        spine.Add(op);
+        bottom = op.Left;
+      }
+      var value = Evaluate(bottom);
+      for (int i = spine.Count - 1; i >= 0; i--) value = Combine(spine[i], value);
+      _result = value;
+    }
+
+    /// <summary>
+    /// True for a node that evaluates its left side as an ordinary value
+    /// before its right, or instead of it: every operator but the assignments
+    /// and <c>of</c>, which evaluate the right side first or never. A
+    /// <c>-type</c> whose type isn't itself an operator, such as a spread
+    /// <c>...num</c>, is evaluated whole.
+    /// </summary>
+    private static bool InChain(BinaryOpNode node)
+    {
+      string op = node.Operator;
+      if (op == "to" || op == "into" || op == "of") return false;
+      return op != "-type" || node.Left is BinaryOpNode;
+    }
+
+    /// <summary>The value of <paramref name="node"/>, given its left side's.</summary>
+    private HarloweValue Combine(BinaryOpNode node, HarloweValue left)
+    {
+      // Property access keeps the accessor side as a node, so an
+      // IdentifierNode is a key or property name rather than evaluated as an
+      // unknown identifier.
+      if (node.Operator == "'s") return ResolveProperty(left, node.Right);
+      if (node.Operator == "-type") return TypedVar(node, left, isRest: false);
+
+      if (left.IsError) return left;
       var right = Evaluate(node.Right);
-      if (right.IsError) { _result = right; return; }
+      if (right.IsError) return right;
 
       switch (node.Operator)
       {
-        case "+": _result = OpAdd(left, right); return;
-        case "-": _result = OpSubtract(left, right); return;
-        case "*": _result = OpNumeric("*", left, right, (a, b) => a * b); return;
+        case "+": return OpAdd(left, right);
+        case "-": return OpSubtract(left, right);
+        case "*": return OpNumeric("*", left, right, (a, b) => a * b);
         case "/":
           if (left.Kind == HarloweValueKind.Number && right.Kind == HarloweValueKind.Number && right.AsNumber == 0.0)
-          { _result = HarloweValue.OfError("division by zero"); return; }
-          _result = OpNumeric("/", left, right, (a, b) => a / b); return;
+            return HarloweValue.OfError("division by zero");
+          return OpNumeric("/", left, right, (a, b) => a / b);
 
         case "%":
           // Matches reference Harlowe (the "%" entry in
@@ -262,38 +300,38 @@ namespace Harlowe.Runtime
           // semantics match JS `%` semantics: truncated, sign follows the
           // dividend.
           if (left.Kind == HarloweValueKind.Number && right.Kind == HarloweValueKind.Number && right.AsNumber == 0.0)
-          { _result = HarloweValue.OfError("modulo by zero"); return; }
-          _result = OpNumeric("%", left, right, (a, b) => a % b); return;
+            return HarloweValue.OfError("modulo by zero");
+          return OpNumeric("%", left, right, (a, b) => a % b);
 
-        case "<": _result = OpCompare("<", left, right, (a, b) => a < b); return;
-        case "<=": _result = OpCompare("<=", left, right, (a, b) => a <= b); return;
-        case ">": _result = OpCompare(">", left, right, (a, b) => a > b); return;
-        case ">=": _result = OpCompare(">=", left, right, (a, b) => a >= b); return;
+        case "<": return OpCompare("<", left, right, (a, b) => a < b);
+        case "<=": return OpCompare("<=", left, right, (a, b) => a <= b);
+        case ">": return OpCompare(">", left, right, (a, b) => a > b);
+        case ">=": return OpCompare(">=", left, right, (a, b) => a >= b);
 
-        case "is": _result = HarloweValue.OfBool(left.Equals(right)); return;
-        case "is not": _result = HarloweValue.OfBool(!left.Equals(right)); return;
+        case "is": return HarloweValue.OfBool(left.Equals(right));
+        case "is not": return HarloweValue.OfBool(!left.Equals(right));
 
         case "and":
-          if (left.Kind != HarloweValueKind.Bool) { _result = TypeError("and", left); return; }
-          if (right.Kind != HarloweValueKind.Bool) { _result = TypeError("and", right); return; }
-          _result = HarloweValue.OfBool(left.AsBool && right.AsBool); return;
+          if (left.Kind != HarloweValueKind.Bool) return TypeError("and", left);
+          if (right.Kind != HarloweValueKind.Bool) return TypeError("and", right);
+          return HarloweValue.OfBool(left.AsBool && right.AsBool);
         case "or":
-          if (left.Kind != HarloweValueKind.Bool) { _result = TypeError("or", left); return; }
-          if (right.Kind != HarloweValueKind.Bool) { _result = TypeError("or", right); return; }
-          _result = HarloweValue.OfBool(left.AsBool || right.AsBool); return;
+          if (left.Kind != HarloweValueKind.Bool) return TypeError("or", left);
+          if (right.Kind != HarloweValueKind.Bool) return TypeError("or", right);
+          return HarloweValue.OfBool(left.AsBool || right.AsBool);
 
-        case "contains": _result = OpContains(left, right); return;
-        case "is in": _result = OpContains(right, left); return;
-        case "does not contain": _result = OpNegate(OpContains(left, right)); return;
-        case "is not in": _result = OpNegate(OpContains(right, left)); return;
+        case "contains": return OpContains(left, right);
+        case "is in": return OpContains(right, left);
+        case "does not contain": return OpNegate(OpContains(left, right));
+        case "is not in": return OpNegate(OpContains(right, left));
 
-        case "is a": _result = OpIsA(left, right); return;
-        case "is not a": _result = OpNegate(OpIsA(left, right)); return;
-        case "matches": _result = OpMatchesValue(left, right, negate: false); return;
-        case "does not match": _result = OpMatchesValue(left, right, negate: true); return;
+        case "is a": return OpIsA(left, right);
+        case "is not a": return OpNegate(OpIsA(left, right));
+        case "matches": return OpMatchesValue(left, right, negate: false);
+        case "does not match": return OpMatchesValue(left, right, negate: true);
 
         default:
-          _result = HarloweValue.OfError($"unsupported binary operator '{node.Operator}'"); return;
+          return HarloweValue.OfError($"unsupported binary operator '{node.Operator}'");
       }
     }
 
@@ -306,6 +344,12 @@ namespace Harlowe.Runtime
     {
       bool isRest = node.Left is UnaryOpNode spread && spread.Operator == "...";
       var datatype = Evaluate(isRest ? ((UnaryOpNode)node.Left).Operand : node.Left);
+      return TypedVar(node, datatype, isRest);
+    }
+
+    /// <summary>The typed variable <paramref name="node"/> makes, given its type's value.</summary>
+    private static HarloweValue TypedVar(BinaryOpNode node, HarloweValue datatype, bool isRest)
+    {
       if (datatype.IsError) return datatype;
       if (isRest && datatype.Kind != HarloweValueKind.Datatype)
         return HarloweValue.OfError("A spread typed variable needs a plain datatype, like ...num-type _a.");
@@ -1703,14 +1747,15 @@ namespace Harlowe.Runtime
     /// <see cref="Changer.Source"/> stays null and the changer simply can't be saved.
     /// Lets a changer stored in a variable round-trip through save/load.
     /// </summary>
-    internal static Changer ComposeChangers(Changer left, Changer right)
+    internal static HarloweValue ComposeChangers(Changer left, Changer right)
     {
+      if (!left.CanCompose(right)) return HarloweValue.OfError(Changer.TooManyPatchesMessage);
       // Reference chains composed changers' source with `+`. If either operand
       // is unstamped the composite has no reliable source, so it can't be saved.
       var composed = left.Compose(right);
       string ls = left.Source, rs = right.Source;
       composed.Source = (ls != null && rs != null) ? ls + "+" + rs : null;
-      return composed;
+      return HarloweValue.OfChanger(composed);
     }
 
     internal static void StampChangerSource(HarloweValue result, string macroName, List<HarloweValue> args)
@@ -1806,9 +1851,7 @@ namespace Harlowe.Runtime
         case HarloweValueKind.Dataset:
           return Datasets.Union(left, right);
         case HarloweValueKind.Changer:
-        {
-          return HarloweValue.OfChanger(ComposeChangers(left.AsChanger, right.AsChanger));
-        }
+          return ComposeChangers(left.AsChanger, right.AsChanger);
         default:
           return HarloweValue.OfError($"+ does not apply to {left.Kind} and {right.Kind}");
       }

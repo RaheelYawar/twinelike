@@ -161,11 +161,27 @@ namespace Harlowe.Tests.Runtime.Rendering
     {
       RenderViaTree("(text-style: \"bold\")[loud]", out var root);
       var style = Assert.IsType<RenderStyleNode>(Assert.Single(root.Children));
-      Assert.True(style.Style.Bold);
+      Assert.True(Assert.Single(style.Styles).Bold);
       // The attached hook still produces its own hook node inside the style.
       var hook = Assert.IsType<RenderHookNode>(Assert.Single(style.Children));
       var text = Assert.IsType<RenderTextNode>(Assert.Single(hook.Children));
       Assert.Equal("loud", text.Content);
+    }
+
+    [Theory]
+    [InlineData("(text-style: \"bold\")+(text-style: \"italic\")+(text-colour: red)[loud]")]
+    [InlineData("(set: $c to (text-style: \"bold\")+(text-style: \"italic\")+(text-colour: red))$c[loud]")]
+    public void Builder_ComposedChanger_IsOneStyleNodeHoldingEveryLayer(string source)
+    {
+      // A node per layer made the tree as deep as the changer was long, and
+      // the passes after a render recurse through every level.
+      RenderViaTree(source, out var root);
+      var style = Assert.IsType<RenderStyleNode>(Assert.Single(root.Children));
+      Assert.Equal(3, style.Styles.Count);
+      Assert.True(style.Styles[0].Bold);
+      Assert.True(style.Styles[1].Italic);
+      Assert.NotNull(style.Styles[2].Color);
+      Assert.IsType<RenderHookNode>(Assert.Single(style.Children));
     }
 
     [Fact]
@@ -208,7 +224,8 @@ namespace Harlowe.Tests.Runtime.Rendering
     public void Flusher_StyleNode_BracketsChildrenWithPushPop()
     {
       var root = new RenderRoot();
-      var style = new RenderStyleNode { Style = new StyleSpec { Italic = true } };
+      var style = new RenderStyleNode();
+      style.Styles.Add(new StyleSpec { Italic = true });
       style.Children.Add(new RenderTextNode { Content = "x" });
       root.Children.Add(style);
 
@@ -218,6 +235,27 @@ namespace Harlowe.Tests.Runtime.Rendering
       Assert.Collection(buf.Entries,
         e => Assert.Equal(BufferedRenderOutput.Kind.PushStyle, e.Kind),
         e => Assert.Equal(BufferedRenderOutput.Kind.Text, e.Kind),
+        e => Assert.Equal(BufferedRenderOutput.Kind.PopStyle, e.Kind));
+    }
+
+    [Fact]
+    public void Flusher_StyleNodeWithLayers_EmitsAPushAndAPopPerLayer()
+    {
+      var root = new RenderRoot();
+      var style = new RenderStyleNode();
+      style.Styles.Add(new StyleSpec { Bold = true });
+      style.Styles.Add(new StyleSpec { Italic = true });
+      style.Children.Add(new RenderTextNode { Content = "x" });
+      root.Children.Add(style);
+
+      var buf = new BufferedRenderOutput();
+      RenderTreeFlusher.Flush(root, buf);
+
+      Assert.Collection(buf.Entries,
+        e => Assert.True(e.Kind == BufferedRenderOutput.Kind.PushStyle && e.Style.Bold),
+        e => Assert.True(e.Kind == BufferedRenderOutput.Kind.PushStyle && e.Style.Italic),
+        e => Assert.Equal(BufferedRenderOutput.Kind.Text, e.Kind),
+        e => Assert.Equal(BufferedRenderOutput.Kind.PopStyle, e.Kind),
         e => Assert.Equal(BufferedRenderOutput.Kind.PopStyle, e.Kind));
     }
 
@@ -259,9 +297,10 @@ namespace Harlowe.Tests.Runtime.Rendering
       style.Bold = false;
       style.Effects.Add(TextEffect.Shadow);
 
-      Assert.True(node.Style.Bold);
-      Assert.Single(node.Style.Effects);
-      Assert.Equal(TextEffect.Mark, node.Style.Effects[0]);
+      var copy = Assert.Single(node.Styles);
+      Assert.True(copy.Bold);
+      Assert.Single(copy.Effects);
+      Assert.Equal(TextEffect.Mark, copy.Effects[0]);
     }
 
     [Fact]
@@ -335,7 +374,8 @@ namespace Harlowe.Tests.Runtime.Rendering
     public void LinkNode_TextProperty_FlattensDescendants()
     {
       var link = new RenderLinkNode { Target = "P2", Text = "Go" };
-      var style = new RenderStyleNode { Style = new StyleSpec { Bold = true } };
+      var style = new RenderStyleNode();
+      style.Styles.Add(new StyleSpec { Bold = true });
       style.Children.Add(new RenderTextNode { Content = " on" });
       link.Children.Add(style);
       Assert.Equal("Go on", link.Text);

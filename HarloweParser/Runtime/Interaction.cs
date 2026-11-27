@@ -226,19 +226,17 @@ namespace Harlowe.Runtime
             Region = new InteractiveRegion { Id = interaction.RegionId, Kind = interaction.Kind }
           };
 
-          // Fold the armed-region style layers around the interactive node,
-          // innermost = last layer, each cloned + tagged with the region id so
-          // StripWraps removes it alongside the interactive node next pass.
+          // The armed-region style layers go around the interactive node, in
+          // one node tagged with the region id so StripWraps removes it
+          // alongside the interactive node next pass.
           RenderNode wrapped = interactiveNode;
           var armStyles = armChanger?.GetStyleLayers();
-          if (armStyles != null)
+          if (armStyles != null && armStyles.Count > 0)
           {
-            for (int s = armStyles.Count - 1; s >= 0; s--)
-            {
-              var styleNode = new RenderStyleNode { Style = armStyles[s]?.Clone(), SourceRegionId = interaction.RegionId };
-              styleNode.Children.Add(wrapped);
-              wrapped = styleNode;
-            }
+            var styleNode = Changer.StyleNodeFor(armStyles, null);
+            styleNode.SourceRegionId = interaction.RegionId;
+            styleNode.Children.Add(wrapped);
+            wrapped = styleNode;
           }
 
           if (targets[j] is RenderLinkNode)

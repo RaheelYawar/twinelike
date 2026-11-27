@@ -382,7 +382,14 @@ namespace Harlowe.Runtime
               PlanSpent(candidate);
               return;
             }
-            changer = ExpressionEvaluator.ComposeChangers(changer, right.Value.AsChanger);
+            var joined = ExpressionEvaluator.ComposeChangers(changer, right.Value.AsChanger);
+            if (joined.IsError)
+            {
+              _output.Error(joined.ErrorMessage);
+              PlanSpent(candidate);
+              return;
+            }
+            changer = joined.AsChanger;
             var ownHook = HookOf(_siblings[candidate]);
             if (ownHook != null)
             {
@@ -1383,6 +1390,11 @@ namespace Harlowe.Runtime
       {
         var hook = new HookNode { Children = command.Hook.ChildrenFor(_context.Profile) };
         bool insideCollapse = _collapseDepth > 0;
+        if (attached != null && !attached.CanCompose(command.Changer))
+        {
+          _output.Error(Changer.TooManyPatchesMessage);
+          return;
+        }
         var changer = attached != null ? attached.Compose(command.Changer) : command.Changer;
         using (_context.Store.PushCapturedTemps(command.Temps))
           changer.Apply(_output, target => RenderHookInto(hook, target, insideCollapse), _context);

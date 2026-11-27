@@ -26,7 +26,7 @@ the target's signature), #30 (deliberate: `(for:)+(output:)` works), #31
 #32 (a revision in a macro body whose target comes later does nothing), #33
 (a revision, `(for:)` or link changer attached to `(show:)` has no effect), #34
 (natural order is approximate for accented text and hex strings),
-#35 (deliberate: limits on `(for:)` passes, `(range:)` length, print depth and live hooks),
+#35 (deliberate: limits on `(for:)` passes, `(range:)` length, print depth, live hooks and changer size),
 #36 (a run of spaces in a hand-edited tags attribute adds no empty tags), #38 (a
 hook hiding itself, or copied while hidden, can come back different), #39
 (`time` moves by frames),
@@ -825,9 +825,9 @@ A changer written before `(show:)` styles the hook it reveals, and a false condi
 
 Spreading a dataset, `(passages:)`, the order `startup` passages run in, and `(dm-names:)`, `(dm-values:)` and `(dm-entries:)` all sort with `NaturalOrder`, which covers ASCII exactly. Real 3.3.9 uses the browser's English collator, so `(a: ...(ds: "é", "e", "z"))` is `e,é,z` there and `e,z,é` here, because other letters sort after `z`. It also reads `"0x10"` as the number 16, so `(dm-names:)` puts `"0x9"` before `"0x10"`, and reads date-shaped strings as dates. Neither is implemented here.
 
-### 35. Limits on `(for:)` passes, `(range:)` length, print depth and live hooks (deliberate; found in the `(range:)` slice, 2026-11-23)
+### 35. Limits on `(for:)` passes, `(range:)` length, print depth, live hooks and changer size (deliberate; found in the `(range:)` slice, 2026-11-23)
 
-One render can make a quarter of a million `(for:)` passes, one `(range:)` can hold 200,000 numbers, a value can print 256 levels deep, and a passage can have 500 `(live:)` hooks running. Past any of these it's an in-prose error. Real 3.3.9 sets no limit of its own: `(range:)` worked at 100,000 and failed with a JavaScript stack error at 150,000, printing managed 300 levels and failed at 5,000, and a 3,000 by 3,000 loop was still running when the test stopped it after 3 seconds. Here a stuck render or stack overflow would take the host game down with it.
+One render can make a quarter of a million `(for:)` passes, one `(range:)` can hold 200,000 numbers, a value can print 256 levels deep, a passage can have 500 `(live:)` hooks running, and a changer can hold 1,024 parts, about one per changer joined into it, which is ten doublings of one added to itself. Past any of these it's an in-prose error. Real 3.3.9 sets no limit of its own: `(range:)` worked at 100,000 and failed with a JavaScript stack error at 150,000, printing managed 300 levels and failed at 5,000, and a 3,000 by 3,000 loop was still running when the test stopped it after 3 seconds. Here a stuck render or stack overflow would take the host game down with it.
 
 ### 36. A run of spaces in a hand-edited tags attribute adds no empty tags (found in the `(passage:)` review, 2026-11-23)
 

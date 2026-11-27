@@ -115,10 +115,9 @@ namespace Harlowe.Runtime.Macros
 
         // The hook is this builder's base, built until FinishBase.
         var builder = new RenderTreeBuilder(hook, owner);
-        int layers = styles?.Count ?? 0;
-        for (int i = 0; i < layers; i++) builder.PushStyle(styles[i]);
+        bool opened = builder.PushStyles(styles);
         content.Render(builder, insideCollapse);
-        for (int i = 0; i < layers; i++) builder.PopStyle();
+        if (opened) builder.PopStyle();
         builder.FinishBase();
       }
       finally

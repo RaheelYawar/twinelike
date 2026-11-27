@@ -241,14 +241,28 @@ namespace Harlowe.Runtime.Rendering
     public void PushStyle(StyleSpec style)
     {
       // Clone the spec when stamping it onto the tree so a downstream pass
-      // that mutates one RenderStyleNode.Style (enchantment overrides,
-      // future patches) can't bleed back into the changer's descriptor or
-      // every other sibling node sharing the same reference. Centralized
-      // here so every render path is protected — RunStyles, RunRevision,
-      // and RunInteraction all share this invariant for free.
-      var node = new RenderStyleNode { Style = style?.Clone() };
+      // that mutates a node's style can't bleed back into the changer's
+      // descriptor or every other node sharing the same reference.
+      var node = new RenderStyleNode();
+      node.Styles.Add(style?.Clone());
       Current.Children.Add(node);
       _stack.Add(node);
+    }
+
+    /// <summary>
+    /// Opens one node holding copies of all of <paramref name="styles"/>, a
+    /// changer's layers, closed by one <see cref="PopStyle"/>. Opening a node
+    /// per layer made the tree as deep as the changer was long. Returns false,
+    /// opening nothing, when there are no layers.
+    /// </summary>
+    public bool PushStyles(List<StyleSpec> styles)
+    {
+      if (styles == null || styles.Count == 0) return false;
+      var node = new RenderStyleNode();
+      for (int i = 0; i < styles.Count; i++) node.Styles.Add(styles[i]?.Clone());
+      Current.Children.Add(node);
+      _stack.Add(node);
+      return true;
     }
 
     public void PopStyle()

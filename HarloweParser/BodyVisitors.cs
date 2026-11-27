@@ -76,10 +76,30 @@ namespace Harlowe
       node.WhenClause?.Accept(this);
     }
 
+    /// <summary>
+    /// Visits the left operand, then the right. <c>a + b + c</c> parses with a
+    /// left side as deep as the chain is long, so that side is walked in a
+    /// loop: recursing once per operator overflowed the stack while a story
+    /// with a few thousand operands loaded. The nodes down the left side are
+    /// visited as operands, not through this method.
+    /// </summary>
     public virtual void Visit(BinaryOpNode node)
     {
-      node.Left?.Accept(this);
-      node.Right?.Accept(this);
+      if (!(node.Left is BinaryOpNode))
+      {
+        node.Left?.Accept(this);
+        node.Right?.Accept(this);
+        return;
+      }
+      var spine = new List<BinaryOpNode>();
+      IExpressionNode bottom = node;
+      while (bottom is BinaryOpNode op)
+      {
+        spine.Add(op);
+        bottom = op.Left;
+      }
+      bottom?.Accept(this);
+      for (int i = spine.Count - 1; i >= 0; i--) spine[i].Right?.Accept(this);
     }
 
     public virtual void Visit(UnaryOpNode node) => node.Operand?.Accept(this);

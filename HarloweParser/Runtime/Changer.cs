@@ -186,12 +186,30 @@ namespace Harlowe.Runtime
       => new Changer(new List<IChangerPatch>(patches ?? new IChangerPatch[0]));
 
     /// <summary>
+    /// The most patches one changer may hold. A changer added to itself
+    /// doubles, so without a limit a few dozen <c>+</c>s exhaust memory. This
+    /// is ten doublings, far beyond any changer written out, and enough for a
+    /// story that adds a style on every visit.
+    /// </summary>
+    internal const int MaxPatches = 1024;
+
+    /// <summary>The in-prose error for a composition past <see cref="MaxPatches"/>.</summary>
+    internal const string TooManyPatchesMessage =
+      "I can't combine these changers, because the result would have more than 1024 parts.";
+
+    /// <summary>True when composing this with <paramref name="other"/> stays within <see cref="MaxPatches"/>.</summary>
+    internal bool CanCompose(Changer other)
+      => other == null || _patches.Count + other._patches.Count <= MaxPatches;
+
+    /// <summary>
     /// Compose this changer with <paramref name="other"/>, producing a new
     /// changer whose patch list is <c>this</c>'s followed by
     /// <paramref name="other"/>'s. Reading order: <c>A + B</c> means A's
     /// patches run before B's against the shared descriptor — so A's styles
     /// land first (outermost). Matches left-to-right authoring order in
-    /// source.
+    /// source. It doesn't check <see cref="MaxPatches"/>: the story's own
+    /// compositions do that first, and a host composing in code chooses its
+    /// own sizes.
     /// </summary>
     public Changer Compose(Changer other)
     {
@@ -337,6 +355,13 @@ namespace Harlowe.Runtime
 
     private static void RunStyles(List<StyleSpec> styles, IRenderOutput output, System.Action<IRenderOutput> renderHook)
     {
+      if (output is RenderTreeBuilder builder)
+      {
+        bool opened = builder.PushStyles(styles);
+        renderHook?.Invoke(output);
+        if (opened) builder.PopStyle();
+        return;
+      }
       for (int i = 0; i < styles.Count; i++) output.PushStyle(styles[i]);
       renderHook?.Invoke(output);
       for (int i = styles.Count - 1; i >= 0; i--) output.PopStyle();
@@ -484,11 +509,10 @@ namespace Harlowe.Runtime
           return;
         }
 
-        int layers = styles?.Count ?? 0;
-        for (int i = 0; i < layers; i++) builder.PushStyle(styles[i]);
+        bool opened = builder.PushStyles(styles);
         builder.MarkLayers();
         renderHook?.Invoke(builder);
-        for (int i = 0; i < layers; i++) builder.PopStyle();
+        if (opened) builder.PopStyle();
 
         bool fits = ctx == null || ctx.TrySpendOnSplice(RenderNodes.SpliceCost(placeholder.Children));
         if (!fits)
@@ -583,8 +607,8 @@ namespace Harlowe.Runtime
     /// Apply this changer's effect to an <em>already-rendered</em> container in
     /// place — the mechanism behind <c>(change:)</c> and <c>(enchant:)</c>,
     /// which target existing render-tree nodes rather than an attached hook.
-    /// The target's children are wrapped in nested <see cref="RenderStyleNode"/>s
-    /// (outermost = first composed layer), matching the nesting
+    /// The target's children are wrapped in one <see cref="RenderStyleNode"/>
+    /// holding the changer's layers (outermost = first composed layer), as
     /// <see cref="Apply"/> produces for a hook.
     ///
     /// <para>
@@ -609,18 +633,22 @@ namespace Harlowe.Runtime
       var styles = BuildStyles();
       if (styles.Count == 0) return;
 
-      var content = new List<RenderNode>(target.Children);
-      for (int i = styles.Count - 1; i >= 0; i--)
-      {
-        // Clone the descriptor's style on the way onto the tree so the
-        // enchantment can be re-applied to multiple targets across passes
-        // without nodes sharing a StyleSpec reference.
-        var styleNode = new RenderStyleNode { Style = styles[i]?.Clone(), SourceEnchantment = source };
-        styleNode.Children.AddRange(content);
-        content = new List<RenderNode> { styleNode };
-      }
+      var styleNode = StyleNodeFor(styles, source);
+      styleNode.Children.AddRange(target.Children);
       target.Children.Clear();
-      target.Children.AddRange(content);
+      target.Children.Add(styleNode);
+    }
+
+    /// <summary>
+    /// One node holding copies of all of <paramref name="styles"/>, tagged with
+    /// <paramref name="source"/>. Copied so the enchantment can be re-applied to
+    /// many targets across passes without nodes sharing a StyleSpec.
+    /// </summary>
+    internal static RenderStyleNode StyleNodeFor(List<StyleSpec> styles, Enchantment source)
+    {
+      var node = new RenderStyleNode { SourceEnchantment = source };
+      for (int i = 0; i < styles.Count; i++) node.Styles.Add(styles[i]?.Clone());
+      return node;
     }
 
     /// <summary>
@@ -669,14 +697,10 @@ namespace Harlowe.Runtime
     private RenderNode WrapInStyles(RenderNode target, Enchantment source)
     {
       var styles = BuildStyles(aroundLink: target is RenderLinkNode);
-      RenderNode wrapped = target;
-      for (int i = styles.Count - 1; i >= 0; i--)
-      {
-        var styleNode = new RenderStyleNode { Style = styles[i]?.Clone(), SourceEnchantment = source };
-        styleNode.Children.Add(wrapped);
-        wrapped = styleNode;
-      }
-      return wrapped;
+      if (styles.Count == 0) return target;
+      var styleNode = StyleNodeFor(styles, source);
+      styleNode.Children.Add(target);
+      return styleNode;
     }
 
     /// <summary>Run every patch against a fresh descriptor — the single place the patch list is folded, shared by <see cref="Apply"/> and <see cref="BuildStyles"/>.</summary>

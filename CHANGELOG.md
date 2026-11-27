@@ -6,7 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-Save/load, an undo/redo timeline with reproducible randomness, the `(link:)` family, conditionals rebuilt as composable changers, string targets across the enchant/interaction macros, and inline text formatting. **Breaking:** hosts must rename the story class and rebuild — see *Changed*. `IRenderOutput` is unchanged, so existing adapters keep working.
+## [0.3.0] — 2026-11-26
+
+Save/load and an undo/redo timeline, the `(link:)` family, custom macros, timed and hidden hooks, lists, transitions, datasets, inline text formatting, and compatibility profiles, so a story keeps the semantics of the Harlowe major it declares. **Breaking:** hosts must rename the story class and rebuild, and code that implements `IBodyVisitor` or builds datamaps needs more, as the **For hosts** and **Migration** notes below say. `IRenderOutput` is unchanged, so existing adapters keep working. Timed hooks need the host to call `StorySession.Tick` each frame.
 
 ### Added
 
@@ -26,6 +28,7 @@ Save/load, an undo/redo timeline with reproducible randomness, the `(link:)` fam
 - **Structured link labels, opt-in.** A link whose label carries styles, armed regions or spliced content can reach a host as a `BeginLink(target)`/`EndLink()` bracket by implementing the new optional `ILinkLabelOutput`; hosts walking `Entries` set `session.OutputFeatures = OutputFeatures.LinkLabels`. Other adapters need no change: the label flattens to one `Link`, dropping its styling, regions and HTML and moving any errors to just after the link.
 - **Macro-name normalisation.** Names are case-, dash-, and underscore-insensitive (`(textstyle:)` ≡ `(text-style:)`), as in reference.
 - **Compatibility profiles — a story keeps the semantics of the Harlowe major it declares.** `format-version` selects a profile at load; a host can override it with `new HarloweStory(html, HarloweProfile.V3)` or `new TweeReader(HarloweProfile.V3)` (the override belongs on the loader — some differences are lexical, so they're decided before any post-load property could be set). Absent, unparseable and pre-3.x versions run under Harlowe 3, so `--` in prose is never mistaken for a comment; a major newer than any implemented runs under the newest semantics. `story.GetCompatibilityNotices()` joins `GetParseErrors()`/`GetBrokenLinks()` as a third load-time report, describing anything unusual about the declared version. Saves are pinned to their own profile and never follow the story, so bumping `format-version` can't re-interpret existing save blobs.
+- **`--` comments, for stories declaring Harlowe 4.** There `--` comments out the element after it, as in Harlowe 4. Under Harlowe 3, which includes a story declaring no version, `--` is text, so `it was -- and remains -- fine` renders whole and `5--3` is `8`.
 - **Collapsing whitespace.** `{…}` and the unclosed `{=` reduce runs of whitespace in prose to single spaces and trim the span's edges. Text printed by a macro or variable keeps its whitespace, as in reference.
 - **Unclosed hooks.** `[=` opens a hook that runs to the end of its container, alone, after a macro or variable, or with a name (`|name>[=`).
 - **`...` spread.** Arrays and strings spread into any macro's arguments, including `(for: each _i, ...$list)`.
@@ -84,11 +87,10 @@ Save/load, an undo/redo timeline with reproducible randomness, the `(link:)` fam
 - **Composing incompatible changers errors** in-prose instead of silently dropping one side (a click or hover with a revision or `(for:)`), and a bare unattached changer in prose (e.g. `(if: $x)` with no hook) is an in-prose error, as in reference.
 - **Consecutive text nodes coalesce** into single `Text` events — string-target matching works across what used to be node boundaries, and output granularity is coarser.
 - **Misuse fails clearly.** `new StorySession(null)` and `new HarloweStory((string)null)` throw `ArgumentNullException`, and `AddPassage` says when a passage has no name or reuses one, leaving the passage unchanged. `HarloweExpressionParser.RightAssociativeOps` is no longer public, so a host can't change how every story parses.
-- **`--` is comment markup only for stories declaring Harlowe 4.** The `--` comment family shipped against Harlowe 4.0 semantics, which made the em-dash idiom (`it was -- and remains -- fine`) comment out the rest of the line for *every* story — and since 4.0 is unreleased, every real story is 3.x. Stories declaring a 3.x `format-version` now render such prose whole, and `5--3` is again `8`. Stories declaring 4.x keep the comment behaviour, and a story declaring no version runs under Harlowe 3, since guessing 4 would delete the prose after every `--`.
 
 ### Fixed
 
-- **A `(show:)` of thousands of hooks no longer stalls the host.** Each hook it reveals searched the whole page uncharged, so on a page that printed itself one click took half a minute. Each search now counts toward the render's page-search budget, and a page that runs out shows an in-prose error.
+- **Long operator chains and many-layered changers no longer crash the host.** `(print: 1 + 1 + …)` overflowed a 512 KB stack from about 1,500 operands, and from a few thousand while the story loaded, as did a changer of a couple of thousand style layers, or of 32 on each of 120 nested hooks. Chains are now walked in a loop, and a changer's layers are one node of the render tree. A changer can hold at most 1,024 parts, one for most changers joined into it and two for `(text-style: "none", "bold")`: past that `+` is an in-prose error, since a changer added to itself doubles, and a save holding a bigger one, which an older build could write, doesn't load. **For hosts:** `RenderStyleNode.Style` is now `Styles`, the layers of the changer that made it, outermost first. The events a host receives are unchanged.
 - **A number literal too big for a double no longer stops a story loading on .NET Framework.** `1e999` threw out of the loader there. It now reads as Infinity, as it does in JavaScript and on .NET Core.
 - **Printing a very deeply nested value no longer kills the host.** A loop wrapping a variable in `(a:)` tens of thousands of times overflowed the stack when it was printed. Past 256 levels it's now an in-prose error.
 - **Twee round-trip data loss.** Passage names containing `[`/`]`/`{`/`}` now escape on write and unescape on read (per the Twee 3 spec); a leading UTF-8 BOM no longer hides the first passage; a content passage named `StoryTitle`/`StoryData` no longer collides with the metadata sigils; a story title starting with `::` round-trips.
@@ -111,8 +113,13 @@ Save/load, an undo/redo timeline with reproducible randomness, the `(link:)` fam
 
 ### Security
 
-- **Recursion depth caps everywhere user input can nest** — expression parser, body parser (hooks), value deep-copy, and the `:: StoryData` JSON reader — converting potential uncatchable stack-overflow crashes on adversarial input into in-prose errors.
+- **Recursion depth caps where user input nests** — expression parser, body parser (hooks), value deep-copy, and the `:: StoryData` JSON reader — converting potential uncatchable stack-overflow crashes on adversarial input into in-prose errors.
 - **Save-blob hardening.** Version/seed gates reject integer-overflow bypasses; deserialisation is sandboxed so a tampered blob can't mutate live session state on a failed load.
+
+### Known limitations
+
+- A value that keeps doubling isn't limited: thirty doublings of a string, `(set: $s to $s + $s)`, throw `OutOfMemoryException` out of `Render`, and of an array take eight seconds.
+- Where Twinelike differs from Harlowe 3.3.9 is listed in `MACRO-DIVERGENCES.md`.
 
 ## [0.2.0] — 2026-06-08
 
@@ -195,7 +202,8 @@ First public release. Tracks Harlowe 3.3.8 to the extent listed in the [README f
 - `(link:)`, `(live:)`, `(event:)`, `(trigger:)`, `(t8n:)` / transitions, custom `(macro:)` / `(output:)`, storylets, and `(unpack:)` / `...` spread are not yet implemented; they emit an "unknown macro" in-prose error.
 - Tokenizer string literals do not handle escape sequences. A string containing both `"` and `'` cannot be round-tripped through `MarkupPrinter`.
 
-[Unreleased]: https://github.com/RaheelYawar/twinelike/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/RaheelYawar/twinelike/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/RaheelYawar/twinelike/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/RaheelYawar/twinelike/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/RaheelYawar/twinelike/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/RaheelYawar/twinelike/releases/tag/v0.1.0

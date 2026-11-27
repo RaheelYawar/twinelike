@@ -69,6 +69,20 @@ namespace Twinelike.Probe
         Add("deep-" + name + "-add", grown + "(print: ((ds: $d) + (ds: $d))'s length)");
         Add("deep-" + name + "-str", grown + "(print: (a: $d) is (a: $d))(set: $e to $d)(print: 1)");
       }
+
+      // Flat source the parser turns into a deep tree: an operator chain is as
+      // deep as it's long, and each changer wraps what it styles.
+      Add("chain-plus", "(print: 1" + Repeat(" + 1", 100000) + ")");
+      Add("chain-mixed", "(print: 1" + Repeat(" + 1 * 1", 20000) + ")");
+      Add("chain-possessive", "(set: $a to (a: 1))(print: $a" + Repeat("'s 1st", 20000) + ")");
+      Add("chain-type", "(print: num" + Repeat("-type num", 20000) + "-type _a)");
+      Add("chain-set-lambda", "(set: $x to 1" + Repeat(" + 1", 20000) + ")(print: (altered: via it" + Repeat(" + it", 20000) + ", 1))");
+      const string Doubled = "(set: $c to (text-style: 'bold'))";
+      Add("changer-doubled", Doubled + Repeat("(set: $c to $c + $c)", 30) + "$c[x]");
+      Add("changer-grown", Doubled + "(for: each _i, ...(range: 1, 5000))[(set: $c to $c + (text-style: 'italic'))]$c[x]");
+      Add("changer-inline", Repeat("(text-style: 'bold')+", 10000) + "(text-style: 'bold')[x]");
+      Add("changer-1024-nested", Doubled + Repeat("(set: $c to $c + $c)", 10) + Nest("$c[", "]", 60, "x"));
+      Add("changer-1024-enchant", Doubled + Repeat("(set: $c to $c + $c)", 10) + Nest("|a>[", "]", 60, "x") + "(enchant: ?a, $c)");
       return s;
     }
 

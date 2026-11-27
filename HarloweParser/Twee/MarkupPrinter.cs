@@ -329,22 +329,37 @@ namespace Harlowe.Twee
     /// </summary>
     public void Visit(BinaryOpNode node)
     {
-      int ourOrder = BinaryOps[node.Operator];
-      EmitBinaryChild(node.Left, node.Operator, ourOrder, isRight: false);
-      if (node.Operator == "'s")
+      // `a + b + c` parses with a left side as deep as the chain is long, so
+      // the left side is printed in a loop while it needs no parentheses:
+      // recursing once per operator overflowed the stack. One in parentheses
+      // recurses, and the parser caps how deeply source parentheses nest.
+      var spine = new List<BinaryOpNode> { node };
+      var bottom = node;
+      while (bottom.Left is BinaryOpNode left
+             && !BinaryChildNeedsParens(left, bottom.Operator, BinaryOps[bottom.Operator], isRight: false))
       {
-        _sb.Append("'s ");
+        spine.Add(left);
+        bottom = left;
       }
-      else if (node.Operator == "-type")
+      EmitBinaryChild(bottom.Left, bottom.Operator, BinaryOps[bottom.Operator], isRight: false);
+      for (int i = spine.Count - 1; i >= 0; i--)
       {
-        // Written straight after the type: `num-type _a`.
-        _sb.Append("-type ");
+        var op = spine[i];
+        if (op.Operator == "'s")
+        {
+          _sb.Append("'s ");
+        }
+        else if (op.Operator == "-type")
+        {
+          // Written straight after the type: `num-type _a`.
+          _sb.Append("-type ");
+        }
+        else
+        {
+          _sb.Append(' ').Append(op.SourceOperator ?? op.Operator).Append(' ');
+        }
+        EmitBinaryChild(op.Right, op.Operator, BinaryOps[op.Operator], isRight: true);
       }
-      else
-      {
-        _sb.Append(' ').Append(node.SourceOperator ?? node.Operator).Append(' ');
-      }
-      EmitBinaryChild(node.Right, node.Operator, ourOrder, isRight: true);
     }
 
     /// <summary>
@@ -525,23 +540,25 @@ namespace Harlowe.Twee
         return;
       }
 
-      if (child is BinaryOpNode bin && BinaryOps.TryGetValue(bin.Operator, out int childOrder))
+      if (child is BinaryOpNode bin && BinaryChildNeedsParens(bin, parentOp, ourOrder, isRight))
       {
-        bool parentIsRightAssoc = HarloweExpressionParser.RightAssociativeOps.Contains(parentOp);
-        // Equal-precedence side that does NOT match the parent's
-        // associativity needs explicit parens.
-        bool equalSideNeedsParens = parentIsRightAssoc ? !isRight : isRight;
-        bool needsParens = childOrder > ourOrder
-                           || (childOrder == ourOrder && equalSideNeedsParens);
-        if (needsParens)
-        {
-          _sb.Append('(');
-          child.Accept(this);
-          _sb.Append(')');
-          return;
-        }
+        _sb.Append('(');
+        child.Accept(this);
+        _sb.Append(')');
+        return;
       }
       child.Accept(this);
+    }
+
+    /// <summary>True when <paramref name="child"/>, an operand of <paramref name="parentOp"/>, needs parentheses to parse back the same.</summary>
+    private static bool BinaryChildNeedsParens(BinaryOpNode child, string parentOp, int ourOrder, bool isRight)
+    {
+      if (!BinaryOps.TryGetValue(child.Operator, out int childOrder)) return false;
+      bool parentIsRightAssoc = HarloweExpressionParser.RightAssociativeOps.Contains(parentOp);
+      // Equal-precedence side that does NOT match the parent's
+      // associativity needs explicit parens.
+      bool equalSideNeedsParens = parentIsRightAssoc ? !isRight : isRight;
+      return childOrder > ourOrder || (childOrder == ourOrder && equalSideNeedsParens);
     }
 
     /// <summary>

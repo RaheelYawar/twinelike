@@ -28,14 +28,13 @@ The release workflow's `awk` extractor reads the matching `## [X.Y.Z]` section v
 ## 3. Bump the version
 
 - [ ] `Twinelike.csproj` — `<Version>X.Y.Z</Version>`.
-- [ ] `README.md` — the `dist/Twinelike.X.Y.Z.nupkg` example filename in the build/pack section.
 
 The release workflow passes `-p:Version=X.Y.Z` to `dotnet build` / `dotnet pack`, so the csproj `<Version>` is overridden at release time. But CI's pack smoke test uses the csproj value, so keep them in sync.
 
 ## 4. Commit and push
 
 ```sh
-git add CHANGELOG.md Twinelike.csproj README.md
+git add CHANGELOG.md Twinelike.csproj
 git commit -m "Bump version to X.Y.Z. <one-line summary of what's in this release.>"
 git push origin main
 ```
@@ -81,6 +80,6 @@ The `workflow_dispatch` trigger on `release.yml` lets you draft a release withou
 
 ## NuGet.org publishing
 
-Publishing to nuget.org is automated and gated on the same human click as the GitHub Release. When you click **Publish release** (step 6), the `release: published` event triggers the `publish-nuget` job in `release.yml`, which downloads the `.nupkg`/`.snupkg` attached to that release and `dotnet nuget push`es them. It pushes the *reviewed* artifact — no rebuild — uses `--skip-duplicate` so a re-run is a no-op, and the `.snupkg` symbols upload alongside the `.nupkg` automatically. There's no separate manual push for normal releases.
+Publishing to nuget.org is automated and gated on the same human click as the GitHub Release. When you click **Publish release** (step 6), the `release: published` event triggers the `publish-nuget` job in `release.yml`, which downloads the `.nupkg` attached to that release and `dotnet nuget push`es it. It pushes the *reviewed* artifact — no rebuild — and uses `--skip-duplicate` so a re-run is a no-op. There's no symbol package, since ILRepack's merge breaks the PDB match. There's no separate manual push for normal releases.
 
 This needs a repo secret **`NUGET_API_KEY`** (Settings → Secrets and variables → Actions) — create it at nuget.org → API Keys, scoped to **Push** with glob `Twinelike`. **These keys expire (365-day max); when one lapses the push job fails while the draft still succeeds — regenerate the key, update the secret, and re-run the job.**

@@ -362,8 +362,17 @@ namespace Harlowe.Tests.Runtime
         ? "(set: $x to \"" + open + "$x" + close + "\")$x"
         : open + "(display: \"Start\")" + close;
 
+      // 512 KB is the floor promised to hosts, which run the Release build:
+      // there the printed case needs about 390 KB. A Debug build needs about
+      // 450 KB, and on a 512 KB thread about one run in 200 overflowed on
+      // .NET Framework and took the test process down, so Debug gets room.
+#if DEBUG
+      const int stackKb = 1024;
+#else
+      const int stackKb = 512;
+#endif
       string errors = null;
-      var thread = new Thread(() => errors = Errors(new StorySession(Story(("Start", body))).Render()), 512 * 1024);
+      var thread = new Thread(() => errors = Errors(new StorySession(Story(("Start", body))).Render()), stackKb * 1024);
       thread.Start();
       thread.Join();
 
