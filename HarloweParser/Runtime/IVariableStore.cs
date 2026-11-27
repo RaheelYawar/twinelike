@@ -36,6 +36,22 @@ namespace Harlowe.Runtime
     void Set(string name, bool isTemporary, HarloweValue value);
 
     /// <summary>
+    /// Removes <paramref name="name"/>, as <c>(move:)</c> does to a whole-variable
+    /// source. A story variable's removal is recorded in the turn's delta. A temp
+    /// variable is removed from the current scope only, so one declared in an
+    /// enclosing hook stays readable, as in Harlowe 3.3.9. <c>it</c> is unaffected.
+    /// </summary>
+    void Delete(string name, bool isTemporary);
+
+    /// <summary>
+    /// Stores <paramref name="value"/> in the current scope without walking
+    /// outward, which is how <c>(move:)</c> writes back a collection it removed a
+    /// slot from: a temp variable from an enclosing hook is shadowed rather than
+    /// changed. <c>it</c> is unaffected.
+    /// </summary>
+    void SetInCurrentScope(string name, bool isTemporary, HarloweValue value);
+
+    /// <summary>
     /// Called by the navigation layer at the start of every passage render.
     /// Clears the temporary namespace; story-scoped variables and the
     /// <c>it</c> slot are untouched.
@@ -126,7 +142,7 @@ namespace Harlowe.Runtime
     /// outward (inner-to-outer) until a name is found, and a
     /// <see cref="Set"/> of a previously-undefined temp variable writes to
     /// the innermost scope (does not leak out on pop). <see cref="Set"/> of
-    /// a name that already exists in an outer scope writes to the outermost
+    /// a name that already exists in an outer scope writes to the nearest
     /// declaration, matching reference Harlowe's parent-walking set() loop in
     /// ts/internaltypes/varref.ts ("inner hooks can modify outer hooks'
     /// values").
@@ -138,5 +154,39 @@ namespace Harlowe.Runtime
     /// single global namespace.</para>
     /// </summary>
     IDisposable PushTempScope();
+
+    /// <summary>
+    /// Pushes a temp scope that can't see any temp variable outside it, for a
+    /// custom macro's body (reference's fresh <c>VarScope</c> in
+    /// <c>macroEntryFn</c>). The caller's temps are back on dispose.
+    /// </summary>
+    IDisposable PushIsolatedTempScope();
+
+    /// <summary>Pushes an ordinary child scope holding <paramref name="temps"/>, for rendering a custom command with the variables its macro captured.</summary>
+    IDisposable PushCapturedTemps(System.Collections.Generic.Dictionary<string, HarloweValue> temps);
+
+    /// <summary>
+    /// An opaque handle on the current chain of temp scopes, for a hook that
+    /// runs later, like a click's. Reference's deferred hooks keep their stack
+    /// frame the same way. The scopes stay live, so a value one click changes is
+    /// what the next click reads.
+    /// </summary>
+    object CaptureScopeChain();
+
+    /// <summary>Makes a captured chain current, with a fresh scope on top, until disposed.</summary>
+    IDisposable EnterScopeChain(object chain);
+
+    /// <summary>Every temp variable visible from the current scope, as a fresh map.</summary>
+    System.Collections.Generic.Dictionary<string, HarloweValue> CaptureTemps();
+
+    /// <summary>
+    /// The type restriction on a variable, or null. A temp variable's restriction
+    /// is found by walking outward, so an inner hook is bound by one set outside
+    /// it (reference's prototype-chained <c>typeDefs</c>).
+    /// </summary>
+    HarloweValue GetTypeRestriction(string name, bool isTemporary);
+
+    /// <summary>Restricts a variable to <paramref name="datatype"/>. A temp variable's restriction belongs to the current scope.</summary>
+    void DefineType(string name, bool isTemporary, HarloweValue datatype);
   }
 }

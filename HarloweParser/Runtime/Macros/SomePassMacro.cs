@@ -11,7 +11,7 @@ namespace Harlowe.Runtime.Macros
   public class SomePassMacro : IMacro
   {
     public string Name => "some-pass";
-    public int MinArgs => 2;
+    public int MinArgs => 1;
     public int MaxArgs => -1;
 
     public HarloweValue Invoke(List<HarloweValue> args, MacroContext context)
@@ -20,7 +20,7 @@ namespace Harlowe.Runtime.Macros
         return HarloweValue.OfError("(some-pass:) first argument must be a lambda");
 
       var lambda = args[0].AsLambda;
-      var items = LambdaArgs.ExpandItems(args, startIndex: 1);
+      var items = LambdaArgs.Items(args, startIndex: 1);
 
       for (int i = 0; i < items.Count; i++)
       {

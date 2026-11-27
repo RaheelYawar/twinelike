@@ -19,16 +19,22 @@ namespace Harlowe.Runtime.Macros
   /// redirect here (not a fresh passage as in reference) and keeps the guard armed —
   /// a known, deliberate divergence from reference.</para>
   /// </summary>
-  public class LoadGameMacro : IMacro
+  public class LoadGameMacro : IMacro, ICommandCheck
   {
     public string Name => "load-game";
     public int MinArgs => 1;
     public int MaxArgs => 1;
 
+    // A slot that doesn't exist is only an error when the command runs.
+    HarloweValue ICommandCheck.Check(List<HarloweValue> args, MacroContext context)
+      => args[0].Kind == HarloweValueKind.String
+        ? null
+        : HarloweValue.OfError($"(load-game:) requires a string slot name, got {args[0].Kind}");
+
     public HarloweValue Invoke(List<HarloweValue> args, MacroContext context)
     {
-      if (args[0].Kind != HarloweValueKind.String)
-        return HarloweValue.OfError($"(load-game:) requires a string slot name, got {args[0].Kind}");
+      var error = ((ICommandCheck)this).Check(args, context);
+      if (error != null) return error;
       string slot = args[0].AsString;
 
       // Loop guard: a (load-game:) while rendering a just-loaded passage would reload

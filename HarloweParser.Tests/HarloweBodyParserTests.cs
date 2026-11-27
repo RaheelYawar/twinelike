@@ -53,10 +53,10 @@ namespace Harlowe.Tests
     }
 
     [Fact]
-    public void StrayHookClose_SilentlySkipped()
+    public void StrayHookClose_IsLiteralText()
     {
-      // A `]` with no opener is tolerated, not a parse error — the parser
-      // skips the stray closer and keeps the surrounding prose.
+      // Reference's hookBack rule only matches with an open front token, so a
+      // `]` with no opener stays in the prose.
       var body = Parse("a]b");
       var text = new System.Text.StringBuilder();
       foreach (var child in body.Children)
@@ -64,17 +64,42 @@ namespace Harlowe.Tests
         Assert.IsNotType<ParseErrorNode>(child);
         if (child is TextNode t) text.Append(t.Content);
       }
-      Assert.Equal("ab", text.ToString());
+      Assert.Equal("a]b", text.ToString());
+    }
+
+    [Theory]
+    [InlineData("a [ b", "a [ b")]
+    [InlineData("[[Shop", "[[Shop")]
+    [InlineData("[ [x] ", "[ x ")]
+    [InlineData("a<b|c", "a<b|c")]
+    public void UnmatchedHookMarkup_IsLiteralText(string source, string expected)
+    {
+      var text = new System.Text.StringBuilder();
+      void Flatten(System.Collections.Generic.IEnumerable<IBodyNode> nodes)
+      {
+        foreach (var child in nodes)
+        {
+          if (child is TextNode t) text.Append(t.Content);
+          else if (child is HookNode h) Flatten(h.Children);
+        }
+      }
+      Flatten(Parse(source).Children);
+      Assert.Equal(expected, text.ToString());
     }
 
     [Fact]
-    public void RightAnchoredHookName_WithoutBody_ProducesEmptyNamedHook()
+    public void UnmatchedHookOpen_DoesNotAttachToAMacro()
     {
-      // `|name>` not followed by `[` — a named anchor with no hook body.
+      var body = Parse("(if: true)[never closed");
+      Assert.Null(Assert.IsType<MacroNode>(body.Children[0]).AttachedHook);
+    }
+
+    [Fact]
+    public void RightAnchoredHookName_WithoutBody_IsLiteralText()
+    {
+      // Reference's pattern is `|name>[`, so with no hook the name stays prose.
       var body = Parse("|mark>x");
-      var hook = Assert.IsType<HookNode>(body.Children[0]);
-      Assert.Equal("mark", hook.Name);
-      Assert.Empty(hook.Children);
+      Assert.Equal("|mark>", Assert.IsType<TextNode>(body.Children[0]).Content);
       Assert.Equal("x", Assert.IsType<TextNode>(body.Children[1]).Content);
     }
 
@@ -499,40 +524,21 @@ namespace Harlowe.Tests
     }
 
     [Fact]
-    public void ChainAssignmentError_DoesNotSwallowFollowingSiblingMacro()
+    public void AssignmentBeforeAPlus_ParsesAsSiblings()
     {
-      // (set:) in chain position throws AFTER its own arg list consumed the
-      // closing paren, so the broken construct owes no MacroClose. The resync
-      // used to hunt for the next MacroClose anyway and ate the well-formed
-      // sibling: `(print: 1)` vanished and only ` tail` survived. The sibling
-      // macro is now itself the resume point.
+      // 3.3.9 renders this as " + 1 tail": only a changer joins a +, and that
+      // isn't known until the macro runs, so it's no parse error.
       var body = Parse("(set: $x to 5) + (print: 1) tail");
-      ParseErrorNode err = null;
       MacroNode print = null;
       bool sawTail = false;
       for (int i = 0; i < body.Children.Count; i++)
       {
-        if (body.Children[i] is ParseErrorNode n && err == null) err = n;
+        Assert.False(body.Children[i] is ParseErrorNode);
         if (body.Children[i] is MacroNode m && m.Name == "print") print = m;
         if (body.Children[i] is TextNode t && t.Content.Contains("tail")) sawTail = true;
       }
-      Assert.NotNull(err);
-      Assert.Contains("set", err.Message);
       Assert.NotNull(print);
-      Assert.True(sawTail, "prose after the sibling macro should survive recovery");
-    }
-
-    [Fact]
-    public void ChainAssignmentError_ErrorSpanStopsBeforeSiblingMacro()
-    {
-      // The captured OriginalSource covers the broken construct — the (set:)
-      // call plus the dangling `+` — and nothing of the sibling that follows.
-      var body = ParseWithSource("(set: $x to 5) + (print: 1) tail");
-      ParseErrorNode err = null;
-      for (int i = 0; i < body.Children.Count; i++)
-        if (body.Children[i] is ParseErrorNode n) { err = n; break; }
-      Assert.NotNull(err);
-      Assert.Equal("(set: $x to 5) + ", err.OriginalSource);
+      Assert.True(sawTail, "prose after the sibling macro should be kept");
     }
 
     [Fact]

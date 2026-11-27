@@ -21,7 +21,7 @@ namespace Harlowe.Runtime.Saving
     /// <summary>
     /// Value → Harlowe source, or <c>null</c> when the value has no source form — a
     /// non-finite number, an <see cref="HarloweValueKind.Error"/>, or a Changer whose
-    /// source was never stamped (see <see cref="HarloweValue.ToSource"/>). A caller
+    /// source was never stamped (see <see cref="HarloweValue.ToSource()"/>). A caller
     /// fails the save loudly on null rather than emitting unparseable source.
     /// </summary>
     public static string Serialise(HarloweValue value) => value?.ToSource();
@@ -43,7 +43,7 @@ namespace Harlowe.Runtime.Saving
     /// invoked; its single argument is the value expression.</para>
     ///
     /// <para>Re-lexed under <see cref="HarloweProfile.SaveFormat"/>, never the
-    /// story's profile: the source came from <see cref="HarloweValue.ToSource"/>,
+    /// story's profile: the source came from <see cref="HarloweValue.ToSource()"/>,
     /// so it is engine-emitted and author compatibility policy has no bearing
     /// on it. A blob must read back the same way it was written, whatever
     /// major the story later declares.</para>
@@ -56,8 +56,10 @@ namespace Harlowe.Runtime.Saving
       IExpressionNode node;
       try
       {
-        var tokens = new HarloweTokenizer(HarloweProfile.SaveFormat).Tokenize("(v:" + source + ")");
-        var cursor = new TokenCursor(tokens);
+        string wrapped = "(v:" + source + ")";
+        var tokens = new HarloweTokenizer(HarloweProfile.SaveFormat).Tokenize(wrapped);
+        // The cursor gets the text too, so a code hook in the value keeps its source.
+        var cursor = new TokenCursor(tokens, wrapped);
         cursor.Advance(); // consume the wrapper's MacroOpen so the parser is in expression mode
         var args = new HarloweExpressionParser().ParseArgumentList(cursor, false);
         if (args.Count != 1)
@@ -70,10 +72,14 @@ namespace Harlowe.Runtime.Saving
       }
 
       var prior = registry.Context;
+      int priorDepth = registry.EvaluationDepth;
       registry.Context = context;
       try
       {
-        var evaluator = new ExpressionEvaluator(context?.Store, context?.EvaluationContext, registry, context?.Rng);
+        var evaluator = new ExpressionEvaluator(context?.Store, context?.EvaluationContext, registry, context?.Rng, HarloweProfile.SaveFormat)
+        {
+          ReparseCodeHooks = true,
+        };
         return evaluator.Evaluate(node);
       }
       catch (System.Exception ex)
@@ -88,6 +94,8 @@ namespace Harlowe.Runtime.Saving
       finally
       {
         registry.Context = prior;
+        // A throw above skips the evaluator's own decrement.
+        registry.EvaluationDepth = priorDepth;
       }
     }
 
@@ -98,34 +106,63 @@ namespace Harlowe.Runtime.Saving
     /// <paramref name="present"/>) to a JSON blob: a <see cref="SaveBlobVersion"/>
     /// wrapper around a moments array. The redo future is deliberately excluded — it
     /// lies ahead of the present and isn't part of saved history. Each moment with no
-    /// variable changes, redirect trail, or recorded RNG state compresses to a bare
+    /// variable changes, redirect trail, recorded RNG state, or turn data compresses to a bare
     /// passage-name string (reference's <c>#isEmpty()</c>); otherwise it's an object.
     /// Returns <c>null</c> if any stored value has no source form (a non-finite
     /// number, an unstamped changer, …) so the caller can fail the save loudly.
+    ///
+    /// <para>The blob is stamped with the lowest <see cref="SaveBlobVersion"/> that
+    /// can represent it: <see cref="SaveBlobVersion.TypeRestrictions"/> when a saved
+    /// turn restricted a variable's type, <see cref="SaveBlobVersion.DeletedVariables"/>
+    /// when one removed a variable, <see cref="SaveBlobVersion.TurnData"/> when one
+    /// carries host <see cref="Moment.TurnData"/>, and
+    /// <see cref="SaveBlobVersion.Original"/> otherwise — so a timeline using
+    /// none of them serialises byte-identically to builds that predate them.</para>
     /// </summary>
     public static string SerialiseTimeline(IReadOnlyList<Moment> past, Moment present)
     {
       var moments = new List<object>();
+      bool hasTurnData = false;
+      bool hasDeletion = false;
+      bool hasTypes = false;
       if (past != null)
         for (int i = 0; i < past.Count; i++)
         {
           var m = SerialiseMoment(past[i]);
           if (m == null) return null;
           moments.Add(m);
+          if (past[i].TurnData != null) hasTurnData = true;
+          if (RemovesAVariable(past[i])) hasDeletion = true;
+          if (past[i].TypeDelta != null && past[i].TypeDelta.Count > 0) hasTypes = true;
         }
       if (present != null)
       {
         var m = SerialiseMoment(present);
         if (m == null) return null;
         moments.Add(m);
+        if (present.TurnData != null) hasTurnData = true;
+        if (RemovesAVariable(present)) hasDeletion = true;
+        if (present.TypeDelta != null && present.TypeDelta.Count > 0) hasTypes = true;
       }
 
+      int version = hasTypes ? SaveBlobVersion.TypeRestrictions
+        : hasDeletion ? SaveBlobVersion.DeletedVariables
+        : hasTurnData ? SaveBlobVersion.TurnData
+        : SaveBlobVersion.Original;
       var root = new Dictionary<string, object>
       {
-        { "version", (long)SaveBlobVersion.Current },
+        { "version", (long)version },
         { "moments", moments },
       };
       return new JsonWriter().Write(root);
+    }
+
+    private static bool RemovesAVariable(Moment m)
+    {
+      if (m.StoreDelta == null) return false;
+      foreach (var kv in m.StoreDelta)
+        if (kv.Value == null) return true;
+      return false;
     }
 
     /// <summary>One moment → a compressed passage-name string or a full object; null if a value can't be serialised.</summary>
@@ -135,16 +172,30 @@ namespace Harlowe.Runtime.Saving
       bool hasVisits = m.Visits != null && m.Visits.Count > 0;
       bool hasSeed = m.Seed != null;
       bool hasSeedIter = m.SeedIter.HasValue;
+      bool hasTurnData = m.TurnData != null;
+      bool hasTypes = m.TypeDelta != null && m.TypeDelta.Count > 0;
 
-      if (!hasVars && !hasVisits && !hasSeed && !hasSeedIter)
+      if (!hasVars && !hasVisits && !hasSeed && !hasSeedIter && !hasTurnData && !hasTypes)
         return m.PassageName ?? string.Empty;
 
       var obj = new Dictionary<string, object> { { "passage", m.PassageName ?? string.Empty } };
+      if (hasTypes)
+      {
+        var types = new Dictionary<string, object>();
+        foreach (var kv in m.TypeDelta)
+        {
+          string src = Serialise(kv.Value);
+          if (src == null) return null;
+          types[kv.Key] = src;
+        }
+        obj["types"] = types;
+      }
       if (hasVars)
       {
         var vars = new Dictionary<string, object>();
         foreach (var kv in m.StoreDelta)
         {
+          if (kv.Value == null) { vars[kv.Key] = null; continue; } // removed by (move:)
           string src = Serialise(kv.Value);
           if (src == null) return null; // value has no source form → fail the whole save
           vars[kv.Key] = src;
@@ -159,6 +210,7 @@ namespace Harlowe.Runtime.Saving
       }
       if (hasSeed) obj["seed"] = m.Seed;
       if (hasSeedIter) obj["seedIter"] = (long)m.SeedIter.Value;
+      if (hasTurnData) obj["turnData"] = m.TurnData;
       return obj;
     }
 
@@ -172,7 +224,7 @@ namespace Harlowe.Runtime.Saving
     /// the blob's last moment is the <see cref="DeserialiseResult.Present"/> and the
     /// rest are <see cref="DeserialiseResult.Past"/>.
     /// </summary>
-    public static DeserialiseResult DeserialiseTimeline(string blob, Harlowe story, MacroRegistry registry, MacroContext context)
+    public static DeserialiseResult DeserialiseTimeline(string blob, HarloweStory story, MacroRegistry registry, MacroContext context)
     {
       if (blob == null) return Fail("empty save data");
       if (story == null) return Fail("no story to load into");
@@ -191,10 +243,12 @@ namespace Harlowe.Runtime.Saving
       if (!dict.TryGetValue("moments", out var mObj) || !(mObj is List<object> momentList) || momentList.Count == 0)
         return Fail("save data has no moments");
 
+      bool allowDeletions = vNum >= SaveBlobVersion.DeletedVariables;
+      bool allowTypes = vNum >= SaveBlobVersion.TypeRestrictions;
       var moments = new List<Moment>(momentList.Count);
       for (int i = 0; i < momentList.Count; i++)
       {
-        var parsed = DeserialiseMoment(momentList[i], story, registry, context, out string error);
+        var parsed = DeserialiseMoment(momentList[i], story, registry, context, allowDeletions, allowTypes, out string error);
         if (error != null) return Fail(error);
         moments.Add(parsed);
       }
@@ -209,7 +263,7 @@ namespace Harlowe.Runtime.Saving
     }
 
     /// <summary>One blob moment → a <see cref="Moment"/>, or null with <paramref name="error"/> set on any validation/value failure.</summary>
-    private static Moment DeserialiseMoment(object raw, Harlowe story, MacroRegistry registry, MacroContext context, out string error)
+    private static Moment DeserialiseMoment(object raw, HarloweStory story, MacroRegistry registry, MacroContext context, bool allowDeletions, bool allowTypes, out string error)
     {
       error = null;
 
@@ -235,10 +289,27 @@ namespace Harlowe.Runtime.Saving
         moment.StoreDelta = new Dictionary<string, HarloweValue>();
         foreach (var kv in varsDict)
         {
+          if (kv.Value == null && allowDeletions) { moment.StoreDelta[kv.Key] = null; continue; }
           if (!(kv.Value is string src)) { error = $"variable '{kv.Key}' is not a source string"; return null; }
           var value = Deserialise(src, registry, context);
           if (value.IsError) { error = $"could not restore variable '{kv.Key}': {value.ErrorMessage}"; return null; }
+          // A custom macro's name is how its errors refer to it, and it isn't in the source.
+          if (value.Kind == HarloweValueKind.CustomMacro) value.AsCustomMacro.KnownName = "$" + kv.Key;
           moment.StoreDelta[kv.Key] = value;
+        }
+      }
+
+      if (obj.TryGetValue("types", out var typesObj))
+      {
+        if (!allowTypes || !(typesObj is Dictionary<string, object> typesDict))
+        { error = "moment type restrictions are malformed"; return null; }
+        moment.TypeDelta = new Dictionary<string, HarloweValue>();
+        foreach (var kv in typesDict)
+        {
+          if (!(kv.Value is string src)) { error = $"the type of variable '{kv.Key}' is not a source string"; return null; }
+          var type = Deserialise(src, registry, context);
+          if (type.IsError) { error = $"could not restore the type of variable '{kv.Key}': {type.ErrorMessage}"; return null; }
+          moment.TypeDelta[kv.Key] = type;
         }
       }
 
@@ -267,6 +338,12 @@ namespace Harlowe.Runtime.Saving
         // garbage into the RNG restore.
         if (iterNum < 0 || iterNum > int.MaxValue) { error = "moment RNG position is out of range"; return null; }
         moment.SeedIter = (int)iterNum;
+      }
+
+      if (obj.TryGetValue("turnData", out var turnDataObj))
+      {
+        if (!(turnDataObj is string turnData)) { error = "moment turn data is malformed"; return null; }
+        moment.TurnData = turnData;
       }
 
       return moment;

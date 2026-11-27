@@ -75,6 +75,33 @@ namespace Harlowe.Runtime
     /// </summary>
     public int? AlignCenterOffsetPercent;
 
+    /// <summary>
+    /// How the hook appears, from <c>(transition:)</c>: one of Harlowe's
+    /// transition names in lower case with hyphens removed, such as
+    /// <c>"dissolve"</c>, <c>"fade"</c> or <c>"slideleft"</c>. Harlowe's
+    /// transitions last 800 ms unless <see cref="TransitionTime"/> says otherwise.
+    /// A layer with transition fields names a transition here or in
+    /// <see cref="TransitionDepart"/> or <see cref="TransitionArrive"/>, except
+    /// around a passage link, where <see cref="TransitionTime"/> alone sets how
+    /// long the passage transition takes.
+    /// </summary>
+    public string Transition;
+
+    /// <summary>Milliseconds the transition takes, from <c>(transition-time:)</c>. Around a passage link, how long the passage transition takes.</summary>
+    public double? TransitionTime;
+
+    /// <summary>Milliseconds before the transition starts, from <c>(transition-delay:)</c>. The hook is hidden until then.</summary>
+    public double? TransitionDelay;
+
+    /// <summary>From <c>(transition-skip:)</c>: milliseconds to advance the transition by for each millisecond the player holds a key, mouse button or touch.</summary>
+    public double? TransitionSkip;
+
+    /// <summary>Around a passage link, how the current passage leaves when it's followed, from <c>(transition-depart:)</c>. Same names as <see cref="Transition"/>.</summary>
+    public string TransitionDepart;
+
+    /// <summary>Around a passage link, how the next passage arrives, from <c>(transition-arrive:)</c>. Same names as <see cref="Transition"/>.</summary>
+    public string TransitionArrive;
+
     /// <summary>Effect names from variadic <c>(text-style:)</c> that don't have a primitive flag — order preserved for diagnostic clarity; engines may ignore unsupported entries. <c>readonly</c> so the non-null invariant is enforced at the type system: callers mutate via <c>Add</c>/<c>Clear</c>/index, never by reassigning the field.</summary>
     public readonly List<TextEffect> Effects = new List<TextEffect>();
 
@@ -84,6 +111,8 @@ namespace Harlowe.Runtime
       Color == null && BackgroundColor == null && BackgroundImage == null &&
       FontFamily == null && FontSize == null &&
       Opacity == null && Alignment == null && AlignCenterOffsetPercent == null &&
+      Transition == null && TransitionTime == null && TransitionDelay == null && TransitionSkip == null &&
+      TransitionDepart == null && TransitionArrive == null &&
       (Effects == null || Effects.Count == 0);
 
     public override bool Equals(object obj)
@@ -101,7 +130,13 @@ namespace Harlowe.Runtime
           || FontSize != other.FontSize
           || Opacity != other.Opacity
           || Alignment != other.Alignment
-          || AlignCenterOffsetPercent != other.AlignCenterOffsetPercent)
+          || AlignCenterOffsetPercent != other.AlignCenterOffsetPercent
+          || Transition != other.Transition
+          || TransitionTime != other.TransitionTime
+          || TransitionDelay != other.TransitionDelay
+          || TransitionSkip != other.TransitionSkip
+          || TransitionDepart != other.TransitionDepart
+          || TransitionArrive != other.TransitionArrive)
         return false;
       return EffectsEqual(Effects, other.Effects);
     }
@@ -122,6 +157,12 @@ namespace Harlowe.Runtime
       h = (h * 397) ^ Opacity.GetHashCode();
       h = (h * 397) ^ Alignment.GetHashCode();
       h = (h * 397) ^ AlignCenterOffsetPercent.GetHashCode();
+      h = (h * 397) ^ (Transition?.GetHashCode() ?? 0);
+      h = (h * 397) ^ TransitionTime.GetHashCode();
+      h = (h * 397) ^ TransitionDelay.GetHashCode();
+      h = (h * 397) ^ TransitionSkip.GetHashCode();
+      h = (h * 397) ^ (TransitionDepart?.GetHashCode() ?? 0);
+      h = (h * 397) ^ (TransitionArrive?.GetHashCode() ?? 0);
       if (Effects != null)
       {
         h = (h * 397) ^ Effects.Count;
@@ -145,7 +186,7 @@ namespace Harlowe.Runtime
     /// Field-by-field copy. The copy's <see cref="Effects"/> is the fresh
     /// empty list the field initializer produced; items are appended one at a
     /// time so the copy and the original have independent lists. Used by the
-    /// render tree when it clones a styling layer for splicing.
+    /// render tree when it stamps a styling layer onto a node.
     /// </summary>
     public StyleSpec Clone()
     {
@@ -164,6 +205,12 @@ namespace Harlowe.Runtime
         Opacity = Opacity,
         Alignment = Alignment,
         AlignCenterOffsetPercent = AlignCenterOffsetPercent,
+        Transition = Transition,
+        TransitionTime = TransitionTime,
+        TransitionDelay = TransitionDelay,
+        TransitionSkip = TransitionSkip,
+        TransitionDepart = TransitionDepart,
+        TransitionArrive = TransitionArrive,
       };
       for (int i = 0; i < Effects.Count; i++) copy.Effects.Add(Effects[i]);
       return copy;

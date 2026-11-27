@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Globalization;
 
 namespace Harlowe.Runtime.Macros
 {
@@ -13,9 +12,8 @@ namespace Harlowe.Runtime.Macros
   /// argument must be a String — a Number is rejected (use <c>(str:)</c> for the
   /// reverse direction), matching reference's <c>[String]</c> signature.
   ///
-  /// <para>Registered under both <c>num</c> and <c>number</c>. One JS edge is not
-  /// reproduced: <c>0x</c>/<c>0o</c>/<c>0b</c> integer literals, which JS coerces
-  /// but interactive-fiction authors essentially never pass here.</para>
+  /// <para>Registered under both <c>num</c> and <c>number</c>. Unsigned
+  /// <c>0x</c>/<c>0o</c>/<c>0b</c> integers convert too, as they do in JS.</para>
   /// </summary>
   public class NumMacro : IMacro
   {
@@ -35,19 +33,8 @@ namespace Harlowe.Runtime.Macros
         return HarloweValue.OfError($"({_name}:) requires a String, got {v.Kind}");
 
       string s = v.AsString;
-      // JS Number(): an empty or whitespace-only string coerces to 0.
-      if (string.IsNullOrWhiteSpace(s))
-        return HarloweValue.OfNumber(0);
-
-      string t = s.Trim();
-      if (t == "Infinity" || t == "+Infinity")
-        return HarloweValue.OfNumber(double.PositiveInfinity);
-      if (t == "-Infinity")
-        return HarloweValue.OfNumber(double.NegativeInfinity);
-
-      if (double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out double n) && !double.IsNaN(n))
+      if (JsNumbers.TryParse(s, out double n))
         return HarloweValue.OfNumber(n);
-
       return HarloweValue.OfError($"I couldn't convert the string \"{s}\" to a number.");
     }
   }

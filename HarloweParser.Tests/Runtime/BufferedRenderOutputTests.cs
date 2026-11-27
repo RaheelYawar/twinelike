@@ -65,11 +65,11 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void ReplayTo_ReproducesEveryChannel()
     {
-      // Entry.ReplayTo is the documented bridge from a stored RenderResult to
-      // any IRenderOutput adapter: replaying one buffer's entries into a
-      // second buffer must reproduce the identical event log.
+      // Entry.ReplayTo is the per-entry bridge from a stored render to an
+      // adapter: replaying one buffer's entries into a second buffer must
+      // reproduce the identical event log.
       var buf = new BufferedRenderOutput();
-      IRenderOutput sink = buf;
+      ILinkLabelOutput sink = buf;
       sink.Text("prose");
       sink.Html("<i>raw</i>");
       sink.Link("label", "Target");
@@ -112,9 +112,7 @@ namespace Harlowe.Tests.Runtime
       sink.PopStyle();
 
       var htmlBuf = new BufferedRenderOutput();
-      var html = new HtmlRenderOutput(htmlBuf);
-      for (int i = 0; i < buf.Entries.Count; i++)
-        buf.Entries[i].ReplayTo(html);
+      new RenderResult { Entries = buf.Entries }.ReplayTo(new HtmlRenderOutput(htmlBuf));
 
       Assert.Equal("<b>hi</b>", htmlBuf.Text);
     }
@@ -149,7 +147,7 @@ namespace Harlowe.Tests.Runtime
       // A bracketed link's label fragments are entries but stay out of Text,
       // matching the flat Link shape (whose label never contributed).
       var buf = new BufferedRenderOutput();
-      IRenderOutput sink = buf;
+      ILinkLabelOutput sink = buf;
       sink.Text("go ");
       sink.BeginLink("P2");
       sink.Text("label");

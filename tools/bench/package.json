@@ -1,0 +1,12 @@
+{
+  "name": "twinelike-bench",
+  "private": true,
+  "description": "Compares Twinelike with real Harlowe 3.3.9. See tools/README.md.",
+  "type": "module",
+  "scripts": {
+    "verify": "node verify.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "1.65.1"
+  }
+}

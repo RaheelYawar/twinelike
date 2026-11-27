@@ -10,7 +10,7 @@ namespace Harlowe.Tests.Runtime
   /// </summary>
   public class HtmlRenderOutputTests
   {
-    private static (BufferedRenderOutput buf, IRenderOutput sink) NewSink()
+    private static (BufferedRenderOutput buf, ILinkLabelOutput sink) NewSink()
     {
       var buf = new BufferedRenderOutput();
       return (buf, new HtmlRenderOutput(buf));

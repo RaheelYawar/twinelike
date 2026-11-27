@@ -10,14 +10,14 @@ namespace Harlowe.Tests.Runtime.Saving
   /// </summary>
   public class SaveLoadMacroTests
   {
-    private static Harlowe Story(params string[] bodies)
+    private static HarloweStory Story(params string[] bodies)
     {
       var sb = new StringBuilder();
       sb.Append("<html><body><tw-storydata name=\"T\" startnode=\"1\" ifid=\"TEST-IFID\" creator=\"\" creator-version=\"\">");
       for (int i = 0; i < bodies.Length; i++)
         sb.Append($"<tw-passagedata pid=\"{i + 1}\" name=\"P{i + 1}\" tags=\"\">{bodies[i]}</tw-passagedata>");
       sb.Append("</tw-storydata></body></html>");
-      return new Harlowe(sb.ToString());
+      return new HarloweStory(sb.ToString());
     }
 
     private static bool HasError(RenderResult r)

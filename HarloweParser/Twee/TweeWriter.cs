@@ -4,7 +4,7 @@ using System.Text;
 namespace Harlowe.Twee
 {
   /// <summary>
-  /// Serializes a <see cref="Harlowe"/> story back to Twee 3 source text.
+  /// Serializes a <see cref="HarloweStory"/> story back to Twee 3 source text.
   /// Counterpart to <see cref="TweeReader"/>; together they support
   /// **interchangeable editing** with Twine 2 — a story round-tripped through
   /// this library produces a Twee file Twine 2 can re-open without losing
@@ -25,7 +25,7 @@ namespace Harlowe.Twee
   ///
   /// <para><b>StoryData round-trip.</b> Typed fields (<c>ifid</c>,
   /// <c>format</c>, <c>format-version</c>, <c>start</c>) are overlaid onto a
-  /// copy of <see cref="Harlowe.StoryDataExtras"/> before emit, so any keys
+  /// copy of <see cref="HarloweStory.StoryDataExtras"/> before emit, so any keys
   /// the reader didn't surface as typed properties (<c>tag-colors</c>,
   /// <c>zoom</c>, future Twine fields) pass through unchanged.</para>
   ///
@@ -42,7 +42,7 @@ namespace Harlowe.Twee
     /// separated by a blank line. The output ends with a single trailing
     /// newline.
     /// </summary>
-    public string Write(Harlowe story)
+    public string Write(HarloweStory story)
     {
       if (story == null) return string.Empty;
 
@@ -90,16 +90,16 @@ namespace Harlowe.Twee
 
     /// <summary>
     /// Builds the <c>:: StoryData</c> block by overlaying typed fields onto a
-    /// shallow copy of <see cref="Harlowe.StoryDataExtras"/>. Typed fields are
+    /// shallow copy of <see cref="HarloweStory.StoryDataExtras"/>. Typed fields are
     /// authoritative: assigning to a key in place preserves its original
     /// position in the dictionary, while an empty/null typed value
     /// <em>removes</em> the key from the emitted JSON — so clearing
-    /// <see cref="Harlowe.Ifid"/> or removing the start passage actually
+    /// <see cref="HarloweStory.Ifid"/> or removing the start passage actually
     /// drops the stale value from output instead of letting the original
     /// stashed-extras copy survive. Returns <c>null</c> when there is
     /// genuinely nothing to emit so the writer can skip the block entirely.
     /// </summary>
-    private static string BuildStoryDataBlock(Harlowe story)
+    private static string BuildStoryDataBlock(HarloweStory story)
     {
       var dict = story.StoryDataExtras != null
         ? new Dictionary<string, object>(story.StoryDataExtras)
@@ -120,7 +120,7 @@ namespace Harlowe.Twee
 
     /// <summary>
     /// Indexer-assign when <paramref name="value"/> is set (preserves enumeration
-    /// position for keys that originally came from <see cref="Harlowe.StoryDataExtras"/>);
+    /// position for keys that originally came from <see cref="HarloweStory.StoryDataExtras"/>);
     /// <see cref="Dictionary{TKey, TValue}.Remove(TKey)"/> when it's empty so a
     /// cleared typed field actually disappears from the JSON.
     /// </summary>
@@ -132,7 +132,7 @@ namespace Harlowe.Twee
 
     /// <summary>
     /// The Twee 3 special passage names this writer projects from typed metadata
-    /// (<c>:: StoryTitle</c> from <see cref="Harlowe.StoryName"/>, <c>:: StoryData</c>
+    /// (<c>:: StoryTitle</c> from <see cref="HarloweStory.StoryName"/>, <c>:: StoryData</c>
     /// from the metadata fields). A content passage sharing one of these names is
     /// not serialized as a passage — the metadata block already represents it.
     /// Case-sensitive, symmetric with the header checks in <see cref="TweeReader"/>.

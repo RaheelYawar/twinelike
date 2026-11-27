@@ -21,6 +21,9 @@ namespace Harlowe.Tokens
 
     private Stack<Frame> _modes;
     private bool _inLink;
+    private MarkupFronts _fronts;
+
+    private bool _hasVerbatim;
 
     private readonly HarloweProfile _profile;
 
@@ -53,8 +56,8 @@ namespace Harlowe.Tokens
     /// lex time and converts into a targeted authoring hint. See the
     /// <c>incorrectOperator</c> pattern in <c>ts/markup/patterns.ts</c>.
     /// Matched in <see cref="ScanIdentifierOrKeyword"/> after the multi-word
-    /// fuser fails; throws <see cref="HarloweParseException"/> with the
-    /// "Please say X instead of Y" hint.
+    /// fuser fails; emits a <see cref="TokenType.Error"/> carrying the
+    /// corrective hint rather than throwing, so only the containing macro fails.
     /// </summary>
     private static readonly Dictionary<string, string> IncorrectIdentifiers = new Dictionary<string, string>
     {
@@ -86,6 +89,8 @@ namespace Harlowe.Tokens
       _modes = new Stack<Frame>();
       _modes.Push(new Frame { Mode = TokenizerMode.Body });
       _inLink = false;
+      _fronts = new MarkupFronts();
+      _hasVerbatim = false;
 
       while (_pos < _src.Length)
       {
@@ -96,6 +101,7 @@ namespace Harlowe.Tokens
       }
 
       Emit(TokenType.EndOfFile, string.Empty, _pos, _line, _col);
+      if (_hasVerbatim) FillVerbatimValues();
       return _tokens;
     }
 
@@ -110,6 +116,7 @@ namespace Harlowe.Tokens
       if (_inLink) { ScanLinkContent(); return; }
 
       int startPos = _pos, startLine = _line, startCol = _col;
+      if (AtBlockStart && TryScanBlockMarkup(startPos, startLine, startCol)) return;
       char c = _src[_pos];
 
       switch (c)
@@ -121,8 +128,19 @@ namespace Harlowe.Tokens
         case '(':
           if (TryScanMacroOpen(startPos, startLine, startCol)) return;
           break;
+        case '*':
+          ScanStar(startPos, startLine, startCol);
+          return;
+        case '`':
+          ScanGraves(startPos, startLine, startCol);
+          return;
         case '[':
-          if (Peek(1) == '[' && HasLinkCloserAhead())
+          // Reference's link opener is `\[\[(?!\[)`, so in `[[[a]]` the first
+          // bracket is a hook opener and the link starts at the second. After
+          // `|name>` the first bracket always belongs to that named hook,
+          // because reference lexes `|name>[` as one token.
+          bool named = _tokens.Count > 0 && _tokens[_tokens.Count - 1].Type == TokenType.HookNameRight;
+          if (!named && Peek(1) == '[' && Peek(2) != '[' && HasLinkCloserAhead())
           {
             AdvanceN(2);
             _inLink = true;
@@ -134,12 +152,37 @@ namespace Harlowe.Tokens
           // hook opener so the second `[` and the rest of the passage —
           // newlines, macros — still tokenize instead of being swallowed into
           // one phantom link.
+          if (Peek(1) == '=')
+          {
+            // Reference's `unclosedHook` pattern, `\[=+`.
+            int unclosedEnd = _pos + 1;
+            while (unclosedEnd < _src.Length && _src[unclosedEnd] == '=') unclosedEnd++;
+            string marker = _src.Substring(_pos, unclosedEnd - _pos);
+            AdvanceN(marker.Length);
+            Emit(TokenType.HookOpenUnclosed, marker, startPos, startLine, startCol);
+            return;
+          }
           Advance();
           Emit(TokenType.HookOpen, "[", startPos, startLine, startCol);
+          _fronts.Push(named ? FrontKind.NamedHook : FrontKind.Hook, _tokens.Count - 1);
           return;
         case ']':
+          if (TryCloseCodeHook(startPos, startLine, startCol)) return;
+          int hookFront = _fronts.CloseHook(IsHookNameLeftAt(_pos + 1));
           Advance();
-          Emit(TokenType.HookClose, "]", startPos, startLine, startCol);
+          EmitPaired(TokenType.HookClose, "]", hookFront, startPos, startLine, startCol);
+          // `(name|` is a hook name only directly after the `]` it closes.
+          // Anywhere else it's ordinary prose.
+          if (hookFront >= 0 && Peek(0) == '(' && IsHookNameLeftAt(_pos))
+            TryScanHookNameLeft(_pos, _line, _col);
+          return;
+        case '{':
+          ScanCollapseOpener(startPos, startLine, startCol);
+          return;
+        case '}':
+          int collapseFront = _fronts.Close(FrontKind.Collapse);
+          Advance();
+          EmitPaired(TokenType.CollapseClose, "}", collapseFront, startPos, startLine, startCol);
           return;
         case '<':
           if (TryScanHtmlComment(startPos, startLine, startCol)) return;
@@ -189,6 +232,178 @@ namespace Harlowe.Tokens
     }
 
     /// <summary>
+    /// Consumes <c>{</c> as a <see cref="TokenType.CollapseOpen"/>, or <c>{=</c>
+    /// with any run of <c>=</c> as a <see cref="TokenType.CollapseUnclosed"/>
+    /// (reference's <c>unclosedCollapsed</c> pattern, <c>\{=+</c>).
+    /// </summary>
+    private void ScanCollapseOpener(int startPos, int startLine, int startCol)
+    {
+      int look = _pos + 1;
+      while (look < _src.Length && _src[look] == '=') look++;
+      int length = look - _pos;
+      string lexeme = _src.Substring(_pos, length);
+      AdvanceN(length);
+      Emit(length > 1 ? TokenType.CollapseUnclosed : TokenType.CollapseOpen, lexeme, startPos, startLine, startCol);
+      if (length == 1) _fronts.Push(FrontKind.Collapse, _tokens.Count - 1);
+    }
+
+    /// <summary>
+    /// True where a block rule may start: reference's
+    /// <c>blockRuleConstraint</c> allows them at the start of the source or
+    /// straight after a line break, rule or list marker.
+    /// </summary>
+    private bool AtBlockStart
+    {
+      get
+      {
+        if (_tokens.Count == 0) return true;
+        var last = _tokens[_tokens.Count - 1].Type;
+        return last == TokenType.Newline || last == TokenType.HorizontalRule || last == TokenType.ListMarker;
+      }
+    }
+
+    /// <summary>
+    /// At a block start, consumes a horizontal rule or a list marker. The rule
+    /// is reference's <c>hr</c> pattern, <c>{ws}-{3,}{ws}(\n|$)</c>, so it owns
+    /// its line break. A marker is reference's <c>bulleted</c>,
+    /// <c>{ws}(\*+){mws}</c>, or <c>numbered</c>, <c>{ws}((?:0\.)+){mws}</c>. A
+    /// bullet outranks emphasis, so <c>* a *b*</c> is one item with <c>b</c>
+    /// emphasised, and <c>**a**</c>, with no space after the stars, is bold.
+    /// </summary>
+    private bool TryScanBlockMarkup(int startPos, int startLine, int startCol)
+    {
+      int look = SkipMarkupSpace(_pos);
+      if (look >= _src.Length) return false;
+
+      if (_src[look] == '-')
+      {
+        int end = look;
+        while (end < _src.Length && _src[end] == '-') end++;
+        if (end - look < 3) return false;
+        end = SkipMarkupSpace(end);
+        if (end < _src.Length && _src[end] != '\n') return false;
+        if (end < _src.Length) end++;
+        string rule = _src.Substring(_pos, end - _pos);
+        AdvanceN(rule.Length);
+        Emit(TokenType.HorizontalRule, rule, startPos, startLine, startCol);
+        return true;
+      }
+
+      int run = look;
+      if (_src[look] == '*')
+      {
+        while (run < _src.Length && _src[run] == '*') run++;
+      }
+      else
+      {
+        while (run + 1 < _src.Length && _src[run] == '0' && _src[run + 1] == '.') run += 2;
+      }
+      if (run == look) return false;
+      int after = SkipMarkupSpace(run);
+      if (after == run) return false;
+      string marker = _src.Substring(_pos, after - _pos);
+      AdvanceN(marker.Length);
+      Emit(TokenType.ListMarker, marker, startPos, startLine, startCol);
+      return true;
+    }
+
+    /// <summary>
+    /// Index of the first character at or after <paramref name="pos"/> outside
+    /// reference's <c>ws</c> class, which excludes line breaks and U+1680.
+    /// </summary>
+    private int SkipMarkupSpace(int pos)
+    {
+      while (pos < _src.Length && IsMarkupSpace(_src[pos])) pos++;
+      return pos;
+    }
+
+    private static bool IsMarkupSpace(char c)
+    {
+      int u = c;
+      return u == 0x20 || u == 0x0c || u == 0x09 || u == 0x0b || u == 0xa0
+        || (u >= 0x2000 && u <= 0x200a) || u == 0x2028 || u == 0x2029
+        || u == 0x202f || u == 0x205f || u == 0x3000;
+    }
+
+    /// <summary>
+    /// Consumes one emphasis delimiter from a run of asterisks, in reference's
+    /// rule order (<c>emBack</c>, <c>strongBack</c>, <c>strongFront</c>,
+    /// <c>emFront</c>) so <c>***a***</c> reads as strong around emphasis. The
+    /// body dispatch comes back here for the rest of the run.
+    /// </summary>
+    private void ScanStar(int startPos, int startLine, int startCol)
+    {
+      bool doubled = Peek(1) == '*';
+      if (_fronts.CanClose(FrontKind.Emphasis))
+        CloseFormat("*", FrontKind.Emphasis, startPos, startLine, startCol);
+      else if (doubled && _fronts.CanClose(FrontKind.Strong))
+        CloseFormat("**", FrontKind.Strong, startPos, startLine, startCol);
+      else
+      {
+        string delimiter = doubled ? "**" : "*";
+        AdvanceN(delimiter.Length);
+        Emit(TokenType.FormatDelimiter, delimiter, startPos, startLine, startCol);
+        _fronts.Push(doubled ? FrontKind.Strong : FrontKind.Emphasis, _tokens.Count - 1);
+      }
+    }
+
+    private void CloseFormat(string delimiter, FrontKind kind, int startPos, int startLine, int startCol)
+    {
+      int front = _fronts.Close(kind);
+      AdvanceN(delimiter.Length);
+      EmitPaired(TokenType.FormatDelimiter, delimiter, front, startPos, startLine, startCol);
+    }
+
+    /// <summary>
+    /// Consumes a run of graves. A run the length of an open verbatim closes it,
+    /// replacing everything since the opener with one
+    /// <see cref="TokenType.Verbatim"/> token. Any other run opens a new span,
+    /// and stays literal text if nothing closes it.
+    /// </summary>
+    private void ScanGraves(int startPos, int startLine, int startCol)
+    {
+      int end = _pos;
+      while (end < _src.Length && _src[end] == '`') end++;
+      int run = end - _pos;
+      int front = _fronts.CloseVerbatim(run);
+      AdvanceN(run);
+
+      if (front < 0)
+      {
+        Emit(TokenType.Text, _src.Substring(startPos, run), startPos, startLine, startCol);
+        _fronts.Push(FrontKind.Verbatim, _tokens.Count - 1, run);
+        return;
+      }
+
+      // The value is filled in once scanning ends, since an outer span can
+      // swallow this one and nested spans would otherwise copy the text repeatedly.
+      var opener = _tokens[front];
+      _tokens.RemoveRange(front, _tokens.Count - front);
+      Emit(TokenType.Verbatim, null, opener.Position, opener.Line, opener.Column);
+      _hasVerbatim = true;
+    }
+
+    /// <summary>Gives each surviving verbatim token its source. Body tokens are contiguous, so the next token marks where it ends.</summary>
+    private void FillVerbatimValues()
+    {
+      for (int i = 0; i < _tokens.Count - 1; i++)
+      {
+        var token = _tokens[i];
+        if (token.Type == TokenType.Verbatim)
+          token.Value = _src.Substring(token.Position, _tokens[i + 1].Position - token.Position);
+      }
+    }
+
+    /// <summary>Emits a closer and records its pairing with the token at <paramref name="front"/>, if any.</summary>
+    private void EmitPaired(TokenType type, string value, int front, int pos, int line, int col)
+    {
+      Emit(type, value, pos, line, col);
+      if (front < 0) return;
+      _tokens[front].Partner = _tokens.Count - 1;
+      _tokens[_tokens.Count - 1].Partner = front;
+    }
+
+    /// <summary>
     /// Tries to consume an inline text-formatting delimiter — <c>''</c> (bold),
     /// <c>//</c> (italic), <c>~~</c> (strike), or <c>^^</c> (superscript) — and
     /// emit a <see cref="TokenType.FormatDelimiter"/>. Only the doubled forms are
@@ -201,8 +416,15 @@ namespace Harlowe.Tokens
     {
       if (!IsFormatDelimiterStart(_pos)) return false;
       string delim = _src.Substring(_pos, 2);
+      var kind = delim == "''" ? FrontKind.Bold : delim == "//" ? FrontKind.Italic : delim == "~~" ? FrontKind.Strike : FrontKind.Superscript;
+      if (_fronts.CanClose(kind))
+      {
+        CloseFormat(delim, kind, startPos, startLine, startCol);
+        return true;
+      }
       AdvanceN(2);
       Emit(TokenType.FormatDelimiter, delim, startPos, startLine, startCol);
+      _fronts.Push(kind, _tokens.Count - 1);
       return true;
     }
 
@@ -377,6 +599,8 @@ namespace Harlowe.Tokens
     /// </summary>
     private void ScanExpression()
     {
+      if (_inLink) { ScanLinkContent(); return; }
+
       // Skip Unicode whitespace between tokens. char.IsWhiteSpace matches
       // NBSP / em-en / ideographic / line+paragraph separators — same set
       // as reference Harlowe's `ws` pattern in ts/markup/patterns.ts, which
@@ -416,8 +640,27 @@ namespace Harlowe.Tokens
           }
           return;
         case '[':
-          Advance();
-          Emit(TokenType.BracketOpen, "[", startPos, startLine, startCol);
+          // `[[a->b]]` is a link here as it is in prose (reference's
+          // passageLink rule runs in both modes). Any other `[` opens a code hook.
+          if (Peek(1) == '[' && Peek(2) != '[' && HasLinkCloserAhead())
+          {
+            AdvanceN(2);
+            _inLink = true;
+            Emit(TokenType.LinkOpen, "[[", startPos, startLine, startCol);
+            return;
+          }
+          // Reference's unclosed-hook opener only exists in prose, so inside a
+          // macro call it's bad syntax rather than a code hook.
+          if (Peek(1) == '=')
+          {
+            int markerEnd = _pos + 1;
+            while (markerEnd < _src.Length && _src[markerEnd] == '=') markerEnd++;
+            string unclosedMarker = _src.Substring(_pos, markerEnd - _pos);
+            AdvanceN(unclosedMarker.Length);
+            Emit(TokenType.Error, $"\"{unclosedMarker}\" isn't valid Harlowe syntax for the inside of a macro call.", startPos, startLine, startCol);
+            return;
+          }
+          OpenCodeHook(startPos, startLine, startCol);
           return;
         case ']':
           Advance();
@@ -455,6 +698,13 @@ namespace Harlowe.Tokens
         ScanNumberLiteral(startPos, startLine, startCol);
         return;
       }
+      // A number can start at its decimal point, `.5`, as reference's number
+      // and time rules allow. `...` is the spread operator, matched above.
+      if (c == '.' && IsAsciiDigit(Peek(1)) && (_pos == 0 || !IsWordChar(_src[_pos - 1])))
+      {
+        ScanNumberLiteral(startPos, startLine, startCol);
+        return;
+      }
 
       if (char.IsLetter(c))
       {
@@ -464,7 +714,54 @@ namespace Harlowe.Tokens
 
       if (TryScanSymbolOperator(startPos, startLine, startCol)) return;
 
+      // A dot that isn't part of a number or `...` matches no reference rule,
+      // so `(print: 1.)` is an error there rather than a 1.
+      if (c == '.')
+      {
+        Advance();
+        Emit(TokenType.Error, "\".\" isn't valid Harlowe syntax for the inside of a macro call.", startPos, startLine, startCol);
+        return;
+      }
       Advance();
+    }
+
+    /// <summary>
+    /// Opens a code hook. Its contents lex as markup, so the frame is a Body
+    /// frame, and they get their own <see cref="MarkupFronts"/> because markup
+    /// inside a code hook can't pair with markup outside it: a <c>}</c> in the
+    /// hook must not close a <c>{</c> before the macro and strand the closer.
+    /// </summary>
+    private void OpenCodeHook(int startPos, int startLine, int startCol)
+    {
+      Advance();
+      Emit(TokenType.BracketOpen, "[", startPos, startLine, startCol);
+      _modes.Push(new Frame { Mode = TokenizerMode.Body, CodeHookOpener = _tokens.Count - 1, OuterFronts = _fronts });
+      _fronts = new MarkupFronts();
+    }
+
+    /// <summary>
+    /// At a <c>]</c>: closes the current code hook when it isn't closing a hook
+    /// inside it, pairs the two brackets, and goes back to the expression.
+    /// False otherwise.
+    /// </summary>
+    private bool TryCloseCodeHook(int startPos, int startLine, int startCol)
+    {
+      var frame = _modes.Peek();
+      if (frame.CodeHookOpener < 0 || !_fronts.CanCloseEnclosing) return false;
+      Advance();
+      Emit(TokenType.BracketClose, "]", startPos, startLine, startCol);
+      int close = _tokens.Count - 1;
+      _tokens[frame.CodeHookOpener].Partner = close;
+      _tokens[close].Partner = frame.CodeHookOpener;
+      _fronts = frame.OuterFronts;
+      _modes.Pop();
+      // A name written on a code hook (`[x]<name|`) is legal and does nothing.
+      if (IsHookNameLeftAt(_pos))
+      {
+        int bar = _src.IndexOf('|', _pos);
+        AdvanceN(bar - _pos + 1);
+      }
+      return true;
     }
 
     /// <summary>
@@ -473,12 +770,18 @@ namespace Harlowe.Tokens
     /// fresh Expression frame onto the mode stack. The cursor is left just past
     /// the colon. Returns false (without consuming anything) if the lookahead
     /// does not match a valid macro opener — e.g. <c>(hello)</c>, which the
-    /// caller then treats as text or as a grouping paren.
+    /// caller then treats as text or as a grouping paren. Follows reference's
+    /// <c>macro.name</c> rule in <c>ts/markup/patterns.ts</c>: a leading
+    /// <c>$</c> is a call to a custom macro held in that variable, so the name
+    /// keeps its sigil, and a colon before <c>/</c> is no opener, which keeps
+    /// <c>(http://example.com)</c> as prose.
     /// </summary>
     private bool TryScanMacroOpen(int startPos, int startLine, int startCol)
     {
-      int look = _pos + 1;
-      int nameStart = look;
+      int start = _pos + 1;
+      bool inVariable = start < _src.Length && _src[start] == '$';
+      int nameStart = inVariable ? start + 1 : start;
+      int look = nameStart;
       while (look < _src.Length)
       {
         char ch = _src[look];
@@ -487,8 +790,9 @@ namespace Harlowe.Tokens
       }
       if (look == nameStart) return false;
       if (look >= _src.Length || _src[look] != ':') return false;
+      if (look + 1 < _src.Length && _src[look + 1] == '/') return false;
 
-      string name = _src.Substring(nameStart, look - nameStart);
+      string name = _src.Substring(start, look - start);
       AdvanceN(look - _pos + 1);
       _modes.Push(new Frame { Mode = TokenizerMode.Expression });
       Emit(TokenType.MacroOpen, name, startPos, startLine, startCol);
@@ -530,43 +834,86 @@ namespace Harlowe.Tokens
     }
 
     /// <summary>
-    /// Tries to consume a left-anchored hook name <c>&lt;name|</c>, which binds
-    /// to the hook on its left. The bare name (without the angle bracket or
-    /// pipe) becomes the token's <see cref="Token.Value"/>. Returns false if
-    /// the lookahead is not a letter or the trailing <c>|</c> is missing — in
-    /// which case the caller may try <see cref="TryScanHtmlTag"/>.
+    /// Tries to consume a left-anchored hook name, <c>&lt;name|</c> or the
+    /// hidden <c>(name|</c>, which binds to the hook on its left. The bare name
+    /// becomes the token's <see cref="Token.Value"/>. Returns false if there's
+    /// no name or the trailing <c>|</c> is missing, in which case the caller
+    /// may try <see cref="TryScanHtmlTag"/>.
     /// </summary>
     private bool TryScanHookNameLeft(int startPos, int startLine, int startCol)
     {
-      int look = _pos + 1;
-      if (look >= _src.Length || !char.IsLetter(_src[look])) return false;
-      int nameStart = look;
-      while (look < _src.Length && IsIdContinue(_src[look])) look++;
-      if (look >= _src.Length || _src[look] != '|') return false;
+      if (!IsHookNameLeftAt(_pos)) return false;
+      bool hidden = _src[_pos] == '(';
+      int nameStart = _pos + 1;
+      int look = nameStart;
+      while (IsHookNameChar(_src[look])) look++;
       string name = _src.Substring(nameStart, look - nameStart);
       AdvanceN(look - _pos + 1);
       Emit(TokenType.HookNameLeft, name, startPos, startLine, startCol);
+      _tokens[_tokens.Count - 1].IsHidden = hidden;
+      return true;
+    }
+
+    /// <summary>True if <c>&lt;name|</c> or <c>(name|</c> begins at <paramref name="pos"/>: reference's <c>hookTagBack</c>.</summary>
+    private bool IsHookNameLeftAt(int pos)
+    {
+      if (pos >= _src.Length || (_src[pos] != '<' && _src[pos] != '(')) return false;
+      int look = pos + 1;
+      while (look < _src.Length && IsHookNameChar(_src[look])) look++;
+      return look > pos + 1 && look < _src.Length && _src[look] == '|';
+    }
+
+    /// <summary>
+    /// Tries to consume a right-anchored hook name, <c>|name&gt;</c> or the
+    /// hidden <c>|name)</c>, which binds to the hook on its right. The bare name
+    /// becomes the token's <see cref="Token.Value"/>. Reference's <c>|name)</c>
+    /// includes the <c>[</c> that follows, so without one it stays prose.
+    /// Returns false when this isn't a name, and the caller treats <c>|</c> as
+    /// text.
+    /// </summary>
+    private bool TryScanHookNameRight(int startPos, int startLine, int startCol)
+    {
+      int nameStart = _pos + 1;
+      int look = nameStart;
+      while (look < _src.Length && IsHookNameChar(_src[look])) look++;
+      if (look == nameStart || look >= _src.Length) return false;
+      bool hidden = _src[look] == ')';
+      if (!hidden && _src[look] != '>') return false;
+      if (hidden && (look + 1 >= _src.Length || _src[look + 1] != '[')) return false;
+      string name = _src.Substring(nameStart, look - nameStart);
+      AdvanceN(look - _pos + 1);
+      Emit(TokenType.HookNameRight, name, startPos, startLine, startCol);
+      _tokens[_tokens.Count - 1].IsHidden = hidden;
       return true;
     }
 
     /// <summary>
-    /// Tries to consume a right-anchored hook name <c>|name&gt;</c>, which binds
-    /// to the hook on its right. The bare name becomes the token's
-    /// <see cref="Token.Value"/>. Returns false if the lookahead is not a
-    /// letter or the trailing <c>&gt;</c> is missing — in which case the
-    /// caller treats <c>|</c> as text.
+    /// Reference's <c>anyLetter</c> class in <c>ts/markup/patterns.ts</c>, which
+    /// hook names are made of: ASCII word characters, <c>-</c>, the Latin-1
+    /// letters, four Hungarian letters and any surrogate. Written with numeric
+    /// code points so nothing in this file depends on its encoding.
     /// </summary>
-    private bool TryScanHookNameRight(int startPos, int startLine, int startCol)
+    private static bool IsHookNameChar(char c)
     {
-      int look = _pos + 1;
-      if (look >= _src.Length || !char.IsLetter(_src[look])) return false;
-      int nameStart = look;
-      while (look < _src.Length && IsIdContinue(_src[look])) look++;
-      if (look >= _src.Length || _src[look] != '>') return false;
-      string name = _src.Substring(nameStart, look - nameStart);
-      AdvanceN(look - _pos + 1);
-      Emit(TokenType.HookNameRight, name, startPos, startLine, startCol);
-      return true;
+      int u = c;
+      return IsWordChar(c) || u == '-'
+        || (u >= 0x00C0 && u <= 0x00DE) || (u >= 0x00DF && u <= 0x00FF)
+        || u == 0x0150 || u == 0x0170 || u == 0x0151 || u == 0x0171
+        || (u >= 0xD800 && u <= 0xDFFF);
+    }
+
+    /// <summary>JavaScript's <c>\w</c>, which is ASCII only.</summary>
+    private static bool IsWordChar(char c)
+      => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+
+    /// <summary>The length of an <c>s</c> or <c>ms</c> time unit at <paramref name="at"/> that ends at a word boundary, or 0.</summary>
+    private int TimeUnitLength(int at)
+    {
+      int len = 0;
+      if (at < _src.Length && (_src[at] == 'm' || _src[at] == 'M')) len = 1;
+      if (at + len >= _src.Length || (_src[at + len] != 's' && _src[at + len] != 'S')) return 0;
+      len++;
+      return at + len < _src.Length && IsWordChar(_src[at + len]) ? 0 : len;
     }
 
     /// <summary>
@@ -765,6 +1112,18 @@ namespace Harlowe.Tokens
         Advance();
         while (_pos < _src.Length && IsAsciiDigit(_src[_pos])) Advance();
       }
+      // A time, reference 3.3.9's cssTime rule: `2s` and `500ms`, either case,
+      // followed by a word boundary, where the number may end at its point
+      // (`1.s`). The parser turns it into milliseconds.
+      int point = _pos < _src.Length && _src[_pos] == '.' && _pos > start && IsAsciiDigit(_src[_pos - 1]) ? 1 : 0;
+      int unit = TimeUnitLength(_pos + point);
+      if (unit > 0) AdvanceN(point);
+      if (unit > 0)
+      {
+        AdvanceN(unit);
+        Emit(TokenType.NumberLiteral, _src.Substring(start, _pos - start), startPos, startLine, startCol);
+        return;
+      }
       // Optional exponent: [eE][+-]?[0-9]+. Reference Harlowe's number pattern
       // (the `number` rule in ts/markup/patterns.ts) permits exponents, and
       // our serializer emits them for very small/large magnitudes — so this is
@@ -823,19 +1182,26 @@ namespace Harlowe.Tokens
       if (TryFuseMultiWordOperator(word, startPos, startLine, startCol))
         return;
 
-      // Single-word common-mistake spellings (gt, eq, isa, …). Throw an
-      // authoring hint with the correct form before falling through to the
-      // generic identifier emit. Reference equivalent: incorrectOperator in
-      // ts/markup/patterns.ts plus the runner conversion to an error token.
+      // Single-word common-mistake spellings (gt, eq, isa, …) become an error
+      // token carrying the correct form, as reference's incorrectOperator rule
+      // in ts/markup/patterns.ts lexes to an `error` token.
       if (IncorrectIdentifiers.TryGetValue(word, out var hint))
-        throw new HarloweParseException(hint, startLine, startCol);
+      {
+        Emit(TokenType.Error, hint, startPos, startLine, startCol);
+        return;
+      }
 
       // Two-word case: `or a` → "use 'or' instead of 'or a'". `or` is a valid
       // word-operator on its own; we only complain when followed (after
-      // whitespace) by a bare `a` that isn't part of a larger construct.
+      // whitespace) by a bare `a` that isn't part of a larger construct. The
+      // error token spans both words, like reference's `or${mws}a${wb}`.
       if (word == "or" && NextWordIs(_pos, "a"))
-        throw new HarloweParseException(
-          "use 'or' instead of 'or a'", startLine, startCol);
+      {
+        PeekNextWordFrom(_pos, out int afterA);
+        AdvanceTo(afterA);
+        Emit(TokenType.Error, "use 'or' instead of 'or a'", startPos, startLine, startCol);
+        return;
+      }
 
       if (WordOperators.Contains(word))
         Emit(TokenType.Operator, word, startPos, startLine, startCol);
@@ -895,10 +1261,10 @@ namespace Harlowe.Tokens
     /// leaves any remainder to the next rule, so <c>#abcd</c> is <c>#abc</c>
     /// then <c>d</c>.
     ///
-    /// <para>Fewer than three digits is an authoring error, not a token: it
-    /// throws rather than skipping the <c>#</c>, so <c>(bg: #ff)</c> reports a
-    /// malformed colour instead of degrading into an unknown identifier
-    /// <c>ff</c>.</para>
+    /// <para>Fewer than three digits is an authoring error: the <c>#</c> and its
+    /// digits become one <see cref="TokenType.Error"/> token rather than being
+    /// skipped, so <c>(bg: #ff)</c> reports a malformed colour instead of
+    /// degrading into an unknown identifier <c>ff</c>.</para>
     /// </summary>
     private void ScanHexColour(int startPos, int startLine, int startCol)
     {
@@ -907,8 +1273,11 @@ namespace Harlowe.Tokens
       int available = look - (_pos + 1);
       int digits = available >= 6 ? 6 : available >= 3 ? 3 : 0;
       if (digits == 0)
-        throw new HarloweParseException(
-          "a colour needs 3 or 6 hexadecimal digits after '#'", startLine, startCol);
+      {
+        AdvanceN(available + 1);
+        Emit(TokenType.Error, "a colour needs 3 or 6 hexadecimal digits after '#'", startPos, startLine, startCol);
+        return;
+      }
       string lexeme = _src.Substring(_pos, digits + 1);
       AdvanceN(digits + 1);
       Emit(TokenType.ColourLiteral, lexeme, startPos, startLine, startCol);
@@ -1088,18 +1457,22 @@ namespace Harlowe.Tokens
     /// Tries to consume a hook reference of the form <c>?name</c> — a value used
     /// inside an expression to target a named hook (or a built-in like
     /// <c>?passage</c>/<c>?link</c>). The leading <c>?</c> is dropped from the
-    /// emitted token's <see cref="Token.Value"/>. Requires a letter immediately
-    /// after the <c>?</c>; a bare <c>?</c> returns false so the caller skips it.
-    /// Only reached in expression context — in body prose a <c>?</c> is plain
-    /// text.
+    /// emitted token's <see cref="Token.Value"/>. Follows reference's
+    /// <c>hookName</c> pattern, <c>\?(anyLetter+)\b</c>: the longest run of name
+    /// characters that ends at a word boundary. Without one, this returns false
+    /// so the caller skips the <c>?</c>. Only reached in expression context — in
+    /// body prose a <c>?</c> is plain text.
     /// </summary>
     private bool TryScanHookRef(int startPos, int startLine, int startCol)
     {
-      if (_pos + 1 >= _src.Length || !char.IsLetter(_src[_pos + 1])) return false;
-      Advance(); // consume '?'
-      int nameStart = _pos;
-      while (_pos < _src.Length && IsIdContinue(_src[_pos])) Advance();
-      Emit(TokenType.HookRef, _src.Substring(nameStart, _pos - nameStart), startPos, startLine, startCol);
+      int nameStart = _pos + 1;
+      int end = nameStart;
+      while (end < _src.Length && IsHookNameChar(_src[end])) end++;
+      while (end > nameStart && IsWordChar(_src[end - 1]) == (end < _src.Length && IsWordChar(_src[end]))) end--;
+      if (end == nameStart) return false;
+      string name = _src.Substring(nameStart, end - nameStart);
+      AdvanceN(end - _pos);
+      Emit(TokenType.HookRef, name, startPos, startLine, startCol);
       return true;
     }
 
@@ -1138,17 +1511,20 @@ namespace Harlowe.Tokens
           Emit(TokenType.Operator, two, startPos, startLine, startCol);
           return true;
         }
-        // Reference Harlowe catches reversed forms with a precise hint.
-        // See the `incorrectOperator` pattern in ts/markup/patterns.ts.
-        if (two == "=<")
-          throw new HarloweParseException(
-            "use '<=' instead of '=<'", startLine, startCol);
-        if (two == "=>")
-          throw new HarloweParseException(
-            "use '>=' instead of '=>'", startLine, startCol);
+        // Reference Harlowe catches reversed forms with a precise hint, as an
+        // error token. See the `incorrectOperator` pattern in ts/markup/patterns.ts.
+        if (two == "=<" || two == "=>")
+        {
+          AdvanceN(2);
+          Emit(TokenType.Error, two == "=<" ? "use '<=' instead of '=<'" : "use '>=' instead of '=>'",
+            startPos, startLine, startCol);
+          return true;
+        }
       }
 
-      if (_pos + 2 < _src.Length && _src[_pos] == '.' && _src[_pos + 1] == '.' && _src[_pos + 2] == '.')
+      // Reference's spread is `\.\.\.(?!\.)`, so `....` starts with a stray dot.
+      if (_pos + 2 < _src.Length && _src[_pos] == '.' && _src[_pos + 1] == '.' && _src[_pos + 2] == '.'
+          && (_pos + 3 >= _src.Length || _src[_pos + 3] != '.'))
       {
         AdvanceN(3);
         Emit(TokenType.Operator, "...", startPos, startLine, startCol);
@@ -1299,6 +1675,7 @@ namespace Harlowe.Tokens
       switch (c)
       {
         case '(': case '[': case ']': case '<': case '|': case '$': case '_': case '\n':
+        case '{': case '}': case '*': case '`':
           return true;
         default:
           return false;
@@ -1318,12 +1695,10 @@ namespace Harlowe.Tokens
     /// which also matches non-ASCII decimal digits (Arabic-Indic U+0660–0669,
     /// fullwidth U+FF10–FF19, Devanagari, …). Harlowe's number grammar is
     /// ASCII-only (the <c>\d</c> in reference's <c>ts/markup/patterns.ts</c>),
-    /// and letting a non-ASCII digit reach a <see cref="TokenType.NumberLiteral"/>
-    /// token would make the parser's <c>double.Parse(…, InvariantCulture)</c>
-    /// throw a <c>FormatException</c> — which escapes the loaders (they catch
-    /// only <c>HarloweParseException</c>) and aborts the whole story load,
-    /// violating the in-prose-errors-never-exceptions policy. With this gate the
-    /// digit falls through to identifier/text handling instead.
+    /// and the parser reads a <see cref="TokenType.NumberLiteral"/> it can't
+    /// parse as a value too large for a double, so a non-ASCII digit reaching
+    /// one would silently become Infinity. With this gate the digit falls
+    /// through to identifier/text handling instead.
     /// </summary>
     private static bool IsAsciiDigit(char c) => c >= '0' && c <= '9';
 
@@ -1409,6 +1784,12 @@ namespace Harlowe.Tokens
     {
       public TokenizerMode Mode;
       public int ParenDepth;
+
+      /// <summary>For a code hook's Body frame, the index of its <c>[</c> token. -1 for every other frame.</summary>
+      public int CodeHookOpener = -1;
+
+      /// <summary>The markup fronts to go back to when this code hook closes.</summary>
+      public MarkupFronts OuterFronts;
     }
   }
 

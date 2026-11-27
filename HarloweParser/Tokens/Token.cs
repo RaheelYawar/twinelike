@@ -27,6 +27,16 @@ namespace Harlowe.Tokens
     public int Column;
 
     /// <summary>
+    /// For paired markup (a hook, <c>{…}</c> or inline-format delimiter), the
+    /// stream index of the token this one pairs with. -1 means it found no
+    /// partner, so it renders as the literal characters the author typed.
+    /// </summary>
+    public int Partner = -1;
+
+    /// <summary>True on a hook name written with a parenthesis, <c>|name)</c> or <c>(name|</c>, which marks the hook as hidden.</summary>
+    public bool IsHidden;
+
+    /// <summary>
     /// Constructs a token with its category, value, and source position. All
     /// fields are public for direct mutation, but tokenizers should treat
     /// emitted tokens as immutable.

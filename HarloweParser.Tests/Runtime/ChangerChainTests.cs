@@ -11,11 +11,10 @@ using Xunit;
 namespace Harlowe.Tests.Runtime
 {
   /// <summary>
-  /// Coverage for the ChangerChainNode pipeline (v2.1A.1): body parser
-  /// detection, renderer behaviour for both Changer and non-Changer values,
-  /// and MarkupPrinter round-trip. Exercises both shapes the parser folds:
-  /// <c>(m1)+(m2)+...[hook]</c> chains and <c>$var[hook]</c> stored-changer
-  /// applications.
+  /// Coverage for changer chains: <c>$var[hook]</c>, which the parser folds into
+  /// a <see cref="ChangerChainNode"/>, and <c>(m1)+(m2)+...[hook]</c>, which it
+  /// leaves as siblings for the renderer to combine, because only a changer
+  /// joins a <c>+</c>. Expected outputs were measured on real Harlowe 3.3.9.
   /// </summary>
   public class ChangerChainTests
   {
@@ -41,39 +40,43 @@ namespace Harlowe.Tests.Runtime
     // ----- Body parser shape -----
 
     [Fact]
-    public void Parser_ChainOfTwoMacros_BuildsChangerChainNode()
+    public void Parser_PlusBetweenMacros_StaysAmongTheSiblings()
     {
       var body = ParseBody("(text-style: \"bold\")+(text-style: \"italic\")[hi]");
-      Assert.Single(body.Children);
-      var chain = Assert.IsType<ChangerChainNode>(body.Children[0]);
-      var bin = Assert.IsType<BinaryOpNode>(chain.Expression);
-      Assert.Equal("+", bin.Operator);
-      Assert.IsType<MacroCallNode>(bin.Left);
-      Assert.IsType<MacroCallNode>(bin.Right);
-      Assert.NotNull(chain.AttachedHook);
+      Assert.Equal(3, body.Children.Count);
+      Assert.Null(Assert.IsType<MacroNode>(body.Children[0]).AttachedHook);
+      Assert.Equal("+", Assert.IsType<TextNode>(body.Children[1]).Content);
+      Assert.NotNull(Assert.IsType<MacroNode>(body.Children[2]).AttachedHook);
     }
 
     [Fact]
-    public void Parser_ChainOfThree_LeftAssociative()
+    public void Parser_ChainOfThree_KeepsEachMacro()
     {
-      // (a)+(b)+(c) parses as ((a + b) + c) because + is left-associative.
       var body = ParseBody("(a:1)+(a:2)+(a:3)[x]");
-      var chain = (ChangerChainNode)body.Children[0];
-      var outer = (BinaryOpNode)chain.Expression;
-      var inner = (BinaryOpNode)outer.Left;
-      Assert.IsType<MacroCallNode>(inner.Left);
-      Assert.IsType<MacroCallNode>(inner.Right);
-      Assert.IsType<MacroCallNode>(outer.Right);
+      Assert.Equal(5, body.Children.Count);
+      Assert.NotNull(Assert.IsType<MacroNode>(body.Children[4]).AttachedHook);
     }
 
     [Fact]
-    public void Parser_ChainWithoutHook_StillBuildsChangerChain()
+    public void Parser_ChainWithoutHook_LeavesTheLastMacroBare()
     {
-      // Authored tail-less chains are unusual but legal — the chain still
-      // evaluates, just produces no visible output (changer with null hook).
       var body = ParseBody("(text-style: \"bold\")+(text-style: \"italic\")");
-      var chain = Assert.IsType<ChangerChainNode>(body.Children[0]);
-      Assert.Null(chain.AttachedHook);
+      Assert.Null(Assert.IsType<MacroNode>(body.Children[2]).AttachedHook);
+    }
+
+    [Theory]
+    [InlineData("(if: true) [hi]", " ")]
+    [InlineData("(if: true)\n[hi]", "\n")]
+    [InlineData("(if: true)[hi]", null)]
+    public void Parser_RecordsTheGapBeforeAHook(string source, string gap)
+    {
+      Assert.Equal(gap, Assert.IsType<MacroNode>(ParseBody(source).Children[0]).HookGap);
+    }
+
+    [Fact]
+    public void Parser_RecordsTheGapAfterAVariable()
+    {
+      Assert.Equal("  ", Assert.IsType<ChangerChainNode>(ParseBody("$x  [hi]").Children[0]).HookGap);
     }
 
     [Fact]
@@ -134,52 +137,27 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
-    public void Parser_SetAsFirstChainComponent_Rejected()
+    public void Render_SetBeforeAPlus_IsNotAChain()
     {
-      // (set:) is an assignment macro — letting it ride into a chain would
-      // mutate state on evaluation before producing the inevitable chain-
-      // type error at render time. The body parser recovers per-node, so the
-      // misuse surfaces as a ParseErrorNode in the AST rather than escaping
-      // as an exception — but the diagnostic still fires before the AST
-      // node carrying the (set:) MacroCallNode is produced, so no eval can
-      // touch the store. Per-node recovery resumes after the broken
-      // construct so trailing siblings may follow — we just verify the
-      // diagnostic landed somewhere in the children.
-      var body = ParseBody("(set: $x to 1)+(text-style: \"bold\")[hi]");
-      ParseErrorNode err = null;
-      for (int i = 0; i < body.Children.Count; i++)
-        if (body.Children[i] is ParseErrorNode n) { err = n; break; }
-      Assert.NotNull(err);
-      Assert.Contains("set", err.Message);
-    }
-
-    [Fact]
-    public void Parser_PutAsContinuationChainComponent_Rejected()
-    {
-      var body = ParseBody("(text-style: \"bold\")+(put: $x into 1)[hi]");
-      ParseErrorNode err = null;
-      for (int i = 0; i < body.Children.Count; i++)
-        if (body.Children[i] is ParseErrorNode n) { err = n; break; }
-      Assert.NotNull(err);
-      Assert.Contains("put", err.Message);
-    }
-
-    [Fact]
-    public void Parser_SetAsFirstChainComponent_FollowingMacroStillRenders()
-    {
-      // The recovery resync must not fold the well-formed macro after the
-      // broken chain into the error span: `(print: 42)` and the trailing
-      // prose still reach the output alongside the in-prose error.
+      // (set:) isn't a changer, so the + after it is plain prose.
       var buf = Render("(set: $x to 5) + (print: 42) tail");
-      Assert.Contains("42", buf.Text);
-      Assert.Contains("tail", buf.Text);
+      Assert.Equal(" + 42 tail", buf.Text);
+      Assert.Empty(buf.Entries.FindAll(e => e.Kind == BufferedRenderOutput.Kind.Error));
+    }
+
+    [Fact]
+    public void Render_ChangerPlusAssignment_ErrorsAndStillAssigns()
+    {
+      // 3.3.9 runs the assignment while evaluating it, then refuses to combine it.
+      var buf = Render("(text-style: \"bold\")+(set: $x to 1)$x");
+      Assert.Equal("1", buf.Text);
+      var error = buf.Entries.Find(e => e.Kind == BufferedRenderOutput.Kind.Error);
+      Assert.Contains("(set:) operation", error.Content);
     }
 
     [Fact]
     public void Parser_PlainSetMacro_StillParsesAsBodyMacro()
     {
-      // Regression check: rejecting (set:) in chains must not affect the
-      // plain-body (set:) call shape.
       var body = ParseBody("(set: $x to 1)");
       var macro = Assert.IsType<MacroNode>(body.Children[0]);
       Assert.Equal("set", macro.Name);
@@ -230,7 +208,7 @@ namespace Harlowe.Tests.Runtime
     [Fact]
     public void Render_UnsetVariableInChain_EmitsError()
     {
-      var buf = Render("$missing[hi]");
+      var buf = Render("_missing[hi]");
       var err = buf.Entries.Find(e => e.Kind == BufferedRenderOutput.Kind.Error);
       Assert.NotNull(err);
     }
@@ -240,6 +218,43 @@ namespace Harlowe.Tests.Runtime
     {
       var buf = Render("(text-style: \"bold\")+(text-style: \"italic\")");
       Assert.Equal(string.Empty, buf.Text);
+      Assert.Single(buf.Entries.FindAll(e => e.Kind == BufferedRenderOutput.Kind.Error));
+    }
+
+    [Theory]
+    [InlineData("(print: 1)+(print: 2)z", "1+2z")]
+    [InlineData("(print: 1) + (print: 2)[hook]", "1 + 2hook")]
+    [InlineData("(print: 2)+(text-style:'bold')[hook]", "2+<b>hook</b>")]
+    [InlineData("(print: 'x')+[hook]", "x+hook")]
+    [InlineData("(set: $c to 5)$c+$c[hook]", "5+5hook")]
+    [InlineData("(set: $n to 5)$n+(text-style:'bold')[x]", "5+<b>x</b>")]
+    public void Render_APlusAfterANonChanger_IsProse(string source, string expected)
+    {
+      Assert.Equal(expected, Render(source).Text);
+    }
+
+    [Theory]
+    [InlineData("(set: $c to (text-style:'bold'))$c+(text-style:'italic')[x]", "<b><i>x</i></b>")]
+    [InlineData("(set: $c to (text-style:'bold'))(text-style:'italic')+$c[x]", "<i><b>x</b></i>")]
+    [InlineData("(text-style:'bold')\n+\n(text-style:'italic')\n[x]", "<b><i>x</i></b>")]
+    [InlineData("(text-style:'bold')+(text-style:'italic')(print: 5)", "<b><i>5</i></b>")]
+    [InlineData("(text-style:'bold') + [x]", " + <b>x</b>")]
+    [InlineData("(text-style:'bold')+[x]+[y]", "+<b>x</b>+y")]
+    public void Render_ChainsThroughVariablesAndCommands(string source, string expected)
+    {
+      Assert.Equal(expected, Render(source).Text);
+    }
+
+    [Theory]
+    [InlineData("(text-style:'bold')+(foo:)[x]", "+x", "unknown macro")]
+    [InlineData("(text-style:'bold')+$nope", "", "I can't combine")]
+    [InlineData("(text-style:'bold')+(print: 2)z", "z", "remove the +")]
+    [InlineData("(text-style:'bold') + z", " + z", "should be stored")]
+    public void Render_ABrokenChain_ReportsInTheChangersPlace(string source, string expected, string error)
+    {
+      var buf = Render(source);
+      Assert.Equal(expected, buf.Text);
+      Assert.Contains(error, buf.Entries.Find(e => e.Kind == BufferedRenderOutput.Kind.Error).Content);
     }
 
     [Fact]
@@ -277,13 +292,13 @@ namespace Harlowe.Tests.Runtime
     }
 
     [Fact]
-    public void Printer_PrintsExpressionThenHook()
+    public void Printer_KeepsThePlusAsWritten()
     {
-      // Locks the canonical printed form so a future formatter change is
-      // visible. The expression printer adds spaces around `+`.
-      var ast = ParseBody("(text-style:\"bold\")+(text-style:\"italic\")[hi]");
+      // The + is prose unless both sides turn out to be changers, so its
+      // spacing can show in the page and has to survive a reprint.
+      var ast = ParseBody("(text-style:\"bold\") + (text-style:\"italic\") [hi]");
       string printed = new MarkupPrinter().Print(ast);
-      Assert.Equal("(text-style: \"bold\") + (text-style: \"italic\")[hi]", printed);
+      Assert.Equal("(text-style: \"bold\") + (text-style: \"italic\") [hi]", printed);
     }
   }
 }

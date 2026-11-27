@@ -31,8 +31,23 @@ namespace Harlowe.Runtime
     public List<StyleSpec> Styles = new List<StyleSpec>();
 
     /// <summary>
+    /// The transition fields the <c>(transition:)</c> family set, merged into one
+    /// layer, later values winning, as reference keeps them on one descriptor.
+    /// Joins <see cref="Styles"/> as the innermost layer once every patch has
+    /// run, if it names a transition. Null when none was given.
+    /// </summary>
+    public StyleSpec Transition;
+
+    /// <summary>
+    /// What a <c>(live:)</c> or <c>(after:)</c> changer asks for. The hook
+    /// doesn't show when it's written, and <see cref="StorySession.Tick(double)"/>
+    /// renders it later. Null for an ordinary hook.
+    /// </summary>
+    public LiveSpec Live;
+
+    /// <summary>
     /// When set, the renderer iterates the hook contents once per item,
-    /// binding <see cref="IterationParamName"/> (and the <c>it</c> slot) to
+    /// binding <see cref="IterationSpec.ParamName"/> (and the <c>it</c> slot) to
     /// each item in turn. Null for non-loop changers.
     /// </summary>
     public IterationSpec Iteration;
@@ -40,8 +55,8 @@ namespace Harlowe.Runtime
     /// <summary>
     /// When non-empty, the changer is a revision changer (<c>(replace:)</c> /
     /// <c>(append:)</c> / <c>(prepend:)</c>): instead of rendering its hook
-    /// inline, the renderer renders it into a detached subtree and splices that
-    /// into the targeted nodes already present in the render tree. One entry
+    /// inline, the renderer renders it into each of the targeted nodes already
+    /// present in the render tree. One entry
     /// per target — the macros are variadic (<c>(replace: ?a, "text")</c>), and
     /// composed revision changers accumulate here rather than overwrite,
     /// mirroring reference's <c>desc.newTargets</c> list of
@@ -53,11 +68,45 @@ namespace Harlowe.Runtime
     /// <summary>
     /// When set, the changer is an interaction changer (<c>(click:)</c>,
     /// <c>(mouseover-append:)</c>, etc.): the renderer wraps the targeted
-    /// nodes' content in a <see cref="RenderInteractiveNode"/> and registers a
+    /// nodes' content in a <see cref="Rendering.RenderInteractiveNode"/> and registers a
     /// deferred handler that the session fires on
     /// <see cref="StorySession.DispatchEvent"/>. Null for ordinary changers.
     /// </summary>
     public InteractionSpec Interaction;
+  }
+
+  /// <summary>
+  /// The patch <c>(output:)</c> adds. It changes nothing on the descriptor: the
+  /// renderer sees it on the changer and captures the hook as a custom command,
+  /// and when that command runs the rest of the changer applies as usual.
+  /// </summary>
+  public sealed class OutputPatch : IChangerPatch
+  {
+    public void Apply(HookDescriptor descriptor) { }
+
+    public override bool Equals(object obj) => obj is OutputPatch;
+
+    public override int GetHashCode() => typeof(OutputPatch).GetHashCode();
+  }
+
+  /// <summary>
+  /// What a <c>(live:)</c> or <c>(after:)</c> changer leaves on a descriptor,
+  /// reference's <c>d.data.live</c>. Each replaces the whole field, so in a
+  /// composition of the two the later one wins, as in reference.
+  /// </summary>
+  public sealed class LiveSpec
+  {
+    /// <summary><c>(live:)</c>'s milliseconds between renders, 0 for every frame.</summary>
+    public double Delay;
+
+    /// <summary>
+    /// <c>(after:)</c>'s time: the hook renders once, on the first frame
+    /// <c>time</c> is past it. Null for <c>(live:)</c>.
+    /// </summary>
+    public double? After;
+
+    /// <summary><c>(after:)</c>'s second number: milliseconds taken off <see cref="After"/> on each frame a key or button is held.</summary>
+    public double Skip;
   }
 
   /// <summary>

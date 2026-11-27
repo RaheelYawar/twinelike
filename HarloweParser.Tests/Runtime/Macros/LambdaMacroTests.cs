@@ -101,8 +101,8 @@ namespace Harlowe.Tests.Runtime.Macros
     public void EvalPredicate_PropagatesClauseError()
     {
       var (reg, ctx) = Setup();
-      // unset $missing — looked up inside the predicate, surfaces as error.
-      var lambda = ParseLambda("_x where $missing > 5");
+      // unset _missing — looked up inside the predicate, surfaces as error.
+      var lambda = ParseLambda("_x where _missing > 5");
       var v = LambdaInvoker.EvalPredicate(lambda, HarloweValue.OfNumber(10), 1, ctx);
       Assert.True(v.IsError);
     }
@@ -185,10 +185,10 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
-    public void Find_FiltersSingleArrayArg()
+    public void Find_FiltersSpreadArray()
     {
       var (reg, ctx) = Setup();
-      var v = Eval(reg, ctx, "(find: _x where _x > 5, (a: 1, 6, 3, 7))");
+      var v = Eval(reg, ctx, "(find: _x where _x > 5, ...(a: 1, 6, 3, 7))");
       Assert.Equal(2, v.AsArray.Count);
     }
 
@@ -222,8 +222,8 @@ namespace Harlowe.Tests.Runtime.Macros
     public void Find_ErrorInIterable_ShortCircuits()
     {
       var (reg, ctx) = Setup();
-      // Reading unset $bad as one of the items surfaces an error that find propagates.
-      var v = Eval(reg, ctx, "(find: _x where _x > 0, 1, $bad, 3)");
+      // Reading unset _bad as one of the items surfaces an error that find propagates.
+      var v = Eval(reg, ctx, "(find: _x where _x > 0, 1, _bad, 3)");
       Assert.True(v.IsError);
     }
 
@@ -231,11 +231,11 @@ namespace Harlowe.Tests.Runtime.Macros
     public void Find_ErrorInLambdaSlot_PropagatesOriginalError()
     {
       var (reg, ctx) = Setup();
-      // The lambda-slot expression itself errors (unset $bad). The original
+      // The lambda-slot expression itself errors (unset _bad). The original
       // error must propagate via the central gate, not be masked behind the
       // macro's own "first argument must be a lambda" message (cf.
       // Find_NonLambdaFirstArg_Errors, where a plain non-lambda still reports it).
-      var v = Eval(reg, ctx, "(find: $bad, 1, 2, 3)");
+      var v = Eval(reg, ctx, "(find: _bad, 1, 2, 3)");
       Assert.True(v.IsError);
       Assert.DoesNotContain("must be a lambda", v.ErrorMessage);
     }
@@ -262,7 +262,7 @@ namespace Harlowe.Tests.Runtime.Macros
     public void AllPass_EmptyIsVacuouslyTrue()
     {
       var (reg, ctx) = Setup();
-      var v = Eval(reg, ctx, "(all-pass: _x where _x > 0, (a:))");
+      var v = Eval(reg, ctx, "(all-pass: _x where _x > 0, ...(a:))");
       Assert.True(v.AsBool);
     }
 
@@ -327,10 +327,10 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
-    public void Altered_MapsSingleArrayArg()
+    public void Altered_MapsSpreadArray()
     {
       var (reg, ctx) = Setup();
-      var v = Eval(reg, ctx, "(altered: _x via _x * 2, (a: 1, 2, 3))");
+      var v = Eval(reg, ctx, "(altered: _x via _x * 2, ...(a: 1, 2, 3))");
       Assert.Equal(3, v.AsArray.Count);
     }
 
@@ -382,7 +382,7 @@ namespace Harlowe.Tests.Runtime.Macros
     public void SomePass_Empty_False()
     {
       var (reg, ctx) = Setup();
-      var v = Eval(reg, ctx, "(some-pass: _x where _x > 5, (a:))");
+      var v = Eval(reg, ctx, "(some-pass: _x where _x > 5, ...(a:))");
       Assert.False(v.AsBool);
     }
 
@@ -408,7 +408,7 @@ namespace Harlowe.Tests.Runtime.Macros
     public void NonePass_Empty_True()
     {
       var (reg, ctx) = Setup();
-      var v = Eval(reg, ctx, "(none-pass: _x where _x > 5, (a:))");
+      var v = Eval(reg, ctx, "(none-pass: _x where _x > 5, ...(a:))");
       Assert.True(v.AsBool);
     }
 
@@ -483,10 +483,10 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
-    public void Folded_SingleArrayArg()
+    public void Folded_SpreadArray()
     {
       var (reg, ctx) = Setup();
-      var v = Eval(reg, ctx, "(folded: _item making _acc via _acc + _item, (a: 5, 6, 7))");
+      var v = Eval(reg, ctx, "(folded: _item making _acc via _acc + _item, ...(a: 5, 6, 7))");
       Assert.Equal(18, v.AsNumber);
     }
 
@@ -502,7 +502,7 @@ namespace Harlowe.Tests.Runtime.Macros
     public void Folded_EmptyArray_Errors()
     {
       var (reg, ctx) = Setup();
-      var v = Eval(reg, ctx, "(folded: _item making _acc via _acc + _item, (a:))");
+      var v = Eval(reg, ctx, "(folded: _item making _acc via _acc + _item, ...(a:))");
       Assert.True(v.IsError);
       Assert.Contains("at least one", v.ErrorMessage);
     }
@@ -632,10 +632,10 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
-    public void RotatedTo_SingleArrayArg()
+    public void RotatedTo_SpreadArray()
     {
       var (reg, ctx) = Setup();
-      var v = Eval(reg, ctx, "(rotated-to: _x where _x is 4, (a: 2, 4, 6))");
+      var v = Eval(reg, ctx, "(rotated-to: _x where _x is 4, ...(a: 2, 4, 6))");
       Assert.Equal(4, v.AsArray[0].AsNumber);
       Assert.Equal(6, v.AsArray[1].AsNumber);
       Assert.Equal(2, v.AsArray[2].AsNumber);
@@ -691,10 +691,10 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
-    public void Sorted_SingleArrayArg()
+    public void Sorted_SpreadArray()
     {
       var (reg, ctx) = Setup();
-      var v = Eval(reg, ctx, "(sorted: (a: 3, 1, 2))");
+      var v = Eval(reg, ctx, "(sorted: ...(a: 3, 1, 2))");
       Assert.Equal(1, v.AsArray[0].AsNumber);
       Assert.Equal(3, v.AsArray[2].AsNumber);
     }
@@ -712,7 +712,7 @@ namespace Harlowe.Tests.Runtime.Macros
     public void Sorted_EmptyArray_ReturnsEmpty()
     {
       var (reg, ctx) = Setup();
-      var v = Eval(reg, ctx, "(sorted: (a:))");
+      var v = Eval(reg, ctx, "(sorted: ...(a:))");
       Assert.Equal(HarloweValueKind.Array, v.Kind);
       Assert.Empty(v.AsArray);
     }
@@ -836,7 +836,7 @@ namespace Harlowe.Tests.Runtime.Macros
       {
         HarloweValue.OfNumber(3), HarloweValue.OfNumber(1), HarloweValue.OfNumber(2)
       }));
-      var v = Eval(reg, ctx, "(sorted: $nums)");
+      var v = Eval(reg, ctx, "(sorted: ...$nums)");
       Assert.Equal(1, v.AsArray[0].AsNumber);
       // original array order untouched
       var original = ctx.Store.Get("nums", false).AsArray;

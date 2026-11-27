@@ -12,11 +12,14 @@ namespace Harlowe.Runtime.Macros
   /// <c>(change:)</c>. <c>(enchant: ?page, …)</c> is the documented
   /// whole-passage styling idiom. Produces no visible output of its own.
   /// </summary>
-  public class EnchantMacro : IMacro
+  public class EnchantMacro : IMacro, ICommandCheck, ITakesHookNames
   {
     public string Name => "enchant";
     public int MinArgs => 2;
     public int MaxArgs => 2;
+
+    HarloweValue ICommandCheck.Check(List<HarloweValue> args, MacroContext context)
+      => EnchantmentMacroSupport.Validate(args, "(enchant:)", out _);
 
     public HarloweValue Invoke(List<HarloweValue> args, MacroContext context)
     {

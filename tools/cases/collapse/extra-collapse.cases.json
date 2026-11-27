@@ -1,0 +1,1 @@
+[{"source":"{(link-repeat: \"go\")[ word  word ](click-rerun: \"word\")[!]}","steps":[50,50,50],"clicks":{"0":0,"1":0,"2":1}},{"source":"(link: \"a\")[  x  ]  y","steps":[50],"clicks":{"0":0}},{"source":"{a (link: \"go\")[  (set: $x to 1)  b   ] c}","steps":[50],"clicks":{"0":0}}]

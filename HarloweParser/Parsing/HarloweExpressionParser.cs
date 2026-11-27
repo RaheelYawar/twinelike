@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Harlowe.Ast.Expression;
@@ -13,7 +12,7 @@ namespace Harlowe.Parsing
   /// appendix; in that table <em>lower</em> order numbers bind tighter, so
   /// order 1 (grouping) is the innermost and order 16 (<c>to</c>/<c>into</c>)
   /// is the outermost binary level. Order 17 (the comma) is not handled here —
-  /// it is the macro-argument separator owned by <see cref="ParseArgumentList"/>.
+  /// it is the macro-argument separator owned by <see cref="ParseArgumentList(TokenCursor)"/>.
   ///
   /// <para>
   /// All binary operators are treated as left-associative. <c>and</c> and
@@ -81,7 +80,7 @@ namespace Harlowe.Parsing
     /// which makes the two operators produce mirror-image trees with the
     /// same evaluated value.
     /// </summary>
-    public static readonly HashSet<string> RightAssociativeOps = new HashSet<string>
+    internal static readonly HashSet<string> RightAssociativeOps = new HashSet<string>
     {
       "of",
     };
@@ -230,18 +229,18 @@ namespace Harlowe.Parsing
 
       while (true)
       {
-        args.Add(ParseExpression(cursor, allowAssignmentAtTop: allowAssignment));
-
-        if (cursor.Current.Type == TokenType.Comma)
+        // Reference ignores empty arguments, so `(a:,1)` and `(a:1,,2)` are
+        // fine, and a trailing comma is the same case.
+        while (cursor.Current.Type == TokenType.Comma) cursor.Advance();
+        if (cursor.Current.Type == TokenType.MacroClose)
         {
           cursor.Advance();
-          if (cursor.Current.Type == TokenType.MacroClose)
-          {
-            cursor.Advance();
-            return args;
-          }
-          continue;
+          return args;
         }
+
+        args.Add(ParseExpression(cursor, allowAssignmentAtTop: allowAssignment));
+
+        if (cursor.Current.Type == TokenType.Comma) continue;
 
         if (cursor.Current.Type == TokenType.MacroClose)
         {
@@ -256,6 +255,7 @@ namespace Harlowe.Parsing
         // detach any hook that followed the macro (rendering it
         // unconditionally).
         var stray = cursor.Current;
+        if (stray.Type == TokenType.Error) throw ErrorTokenException(stray);
         string got = string.IsNullOrEmpty(stray.Value) ? stray.Type.ToString() : stray.Value;
         throw new HarloweParseException(
           $"expected ',' or ')' in macro argument list; got '{got}'",
@@ -272,6 +272,7 @@ namespace Harlowe.Parsing
     /// </summary>
     public static bool IsAssignmentMacro(string name)
     {
+      if (MacroNames.IsCustomCall(name)) return false;
       string n = MacroNames.Normalize(name);
       return n == "set" || n == "put" || n == "move" || n == "unpack";
     }
@@ -319,6 +320,7 @@ namespace Harlowe.Parsing
         // loosest precedence and slices out its following token.
         SkipComments(cursor);
         var t = cursor.Current;
+        if (t.Type == TokenType.Error) throw ErrorTokenException(t);
         if (t.Type != TokenType.Operator) break;
         if (LambdaClauseKeywords.Contains(t.Value))
         {
@@ -476,6 +478,31 @@ namespace Harlowe.Parsing
     /// expected to validate the surrounding token stream and avoid feeding us
     /// junk.
     /// </summary>
+    /// <summary>
+    /// A number literal's value. A time is in milliseconds, so <c>2s</c> is
+    /// 2000, as reference's cssTime rule makes it. The tokenizer only lets ASCII
+    /// number shapes through, so the one way parsing fails is a value too large
+    /// for a double, like <c>1e999</c>. JavaScript reads that as Infinity, and
+    /// so does .NET Core, but .NET Framework refuses it, which would abort the
+    /// story's load.
+    /// </summary>
+    private static double ParseNumber(string text)
+    {
+      int end = text.Length;
+      double scale = 1;
+      if (end > 0 && (text[end - 1] == 's' || text[end - 1] == 'S'))
+      {
+        end--;
+        if (end > 0 && (text[end - 1] == 'm' || text[end - 1] == 'M')) end--;
+        else scale = 1000;
+      }
+      string digits = text.Substring(0, end);
+      if (digits.EndsWith(".", System.StringComparison.Ordinal)) digits = digits.Substring(0, digits.Length - 1);
+      if (!double.TryParse(digits, NumberStyles.Float, CultureInfo.InvariantCulture, out double value))
+        value = double.PositiveInfinity;
+      return value * scale;
+    }
+
     private IExpressionNode ParseAtom(TokenCursor cursor)
     {
       var t = cursor.Current;
@@ -486,7 +513,7 @@ namespace Harlowe.Parsing
           return new LiteralNode
           {
             Kind = LiteralKind.Number,
-            Value = double.Parse(t.Value, CultureInfo.InvariantCulture)
+            Value = ParseNumber(t.Value)
           };
 
         case TokenType.StringLiteral:
@@ -557,10 +584,71 @@ namespace Harlowe.Parsing
           var inner = ParseExpression(cursor, allowAssignmentAtTop: false);
           if (cursor.Current.Type == TokenType.ParenClose) cursor.Advance();
           return inner;
+
+        case TokenType.BracketOpen:
+          return ParseCodeHook(cursor);
+
+        case TokenType.LinkOpen:
+          return ParseLinkValue(cursor);
+
+        case TokenType.Error:
+          throw ErrorTokenException(t);
       }
 
       throw new HarloweParseException($"Unexpected token in expression: {t.Type}({t.Value})", t.Line, t.Column);
     }
+
+    /// <summary>
+    /// The body parser that code hooks are read with. A body parser hands itself
+    /// over at construction so hook nesting is counted across both, and a
+    /// standalone expression parser (a save value) makes its own.
+    /// </summary>
+    internal HarloweBodyParser BodyParser;
+
+    private HarloweBodyParser OwnBodyParser => BodyParser ?? new HarloweBodyParser(this);
+
+    /// <summary>
+    /// Cursor is at a code hook's <c>[</c>. Its contents are markup, so the body
+    /// parser reads them up to the paired <c>]</c>. An opener with no partner
+    /// never closed, and is a parse error at the opener.
+    /// </summary>
+    private IExpressionNode ParseCodeHook(TokenCursor cursor)
+    {
+      var open = cursor.Current;
+      if (open.Partner < 0)
+        throw new HarloweParseException("this code hook has no closing ']'", open.Line, open.Column);
+      cursor.Advance();
+      var children = OwnBodyParser.ParseCodeHookChildren(cursor);
+      string slice = cursor.SliceFrom(open.Position);
+      cursor.Advance();
+      return new CodeHookNode { Children = children, Source = slice == null ? null : slice + "]" };
+    }
+
+    /// <summary>
+    /// A <c>[[…]]</c> in an expression. Reference lexes it as a link there too,
+    /// and the link syntax is a shorthand for <c>(link-goto:)</c>, which is the
+    /// node this builds.
+    /// </summary>
+    private IExpressionNode ParseLinkValue(TokenCursor cursor)
+    {
+      var open = cursor.Current;
+      var link = OwnBodyParser.ParseLinkForExpression(cursor);
+      var args = new List<IExpressionNode> { new LiteralNode { Kind = LiteralKind.String, Value = link.Text } };
+      if (link.Text != link.Target)
+        args.Add(new LiteralNode { Kind = LiteralKind.String, Value = link.Target });
+      return new MacroCallNode { Name = "link-goto", Arguments = args, Line = open.Line, Column = open.Column };
+    }
+
+    /// <summary>
+    /// Raises a lex-time <see cref="TokenType.Error"/> token (a wrong operator
+    /// spelling, a malformed colour) as a parse error at its own position. It
+    /// surfaces when the parser reaches the token rather than when it was
+    /// lexed, so the body parser's per-node recovery confines it to the one
+    /// macro and the rest of the passage still renders — as reference renders
+    /// the error in place of that expression.
+    /// </summary>
+    private static HarloweParseException ErrorTokenException(Token t)
+      => new HarloweParseException(t.Value, t.Line, t.Column);
 
     /// <summary>
     /// Consumes every <see cref="TokenType.Comment"/> (<c>--</c>) at the
