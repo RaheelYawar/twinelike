@@ -72,6 +72,8 @@ When the checks above pass, click **Publish release**. The tag is already in pla
 
 The `workflow_dispatch` trigger on `release.yml` lets you draft a release without pushing a tag first — useful for retries or for cutting a release entirely from the GitHub UI. Provide the version (e.g. `0.1.1`) as the input; the tag is then created on Publish.
 
+With **nuget_only** ticked, the dispatch instead pushes the published release `v<version>`'s `.nupkg` to nuget.org: `gh workflow run release.yml -f version=X.Y.Z -f nuget_only=true`. Use it when the NuGet push failed after Publish. Re-running that failed job runs the workflow as it was at the tag, so it won't pick up a fix to `release.yml`.
+
 ## If something goes wrong
 
 - **Bad release notes / wrong assets.** Discard the draft from the GitHub UI (it's not public until you publish). Fix `CHANGELOG.md` / csproj, commit, then either re-trigger via workflow_dispatch — or delete the tag locally and on the remote (`git push --delete origin vX.Y.Z`) and re-tag.
@@ -82,4 +84,4 @@ The `workflow_dispatch` trigger on `release.yml` lets you draft a release withou
 
 Publishing to nuget.org is automated and gated on the same human click as the GitHub Release. When you click **Publish release** (step 6), the `release: published` event triggers the `publish-nuget` job in `release.yml`, which downloads the `.nupkg` attached to that release and `dotnet nuget push`es it. It pushes the *reviewed* artifact — no rebuild — and uses `--skip-duplicate` so a re-run is a no-op. There's no symbol package, since ILRepack's merge breaks the PDB match. There's no separate manual push for normal releases.
 
-This needs a repo secret **`NUGET_API_KEY`** (Settings → Secrets and variables → Actions) — create it at nuget.org → API Keys, scoped to **Push** with glob `Twinelike`. **These keys expire (365-day max); when one lapses the push job fails while the draft still succeeds — regenerate the key, update the secret, and re-run the job.**
+It uses nuget.org **trusted publishing**, so there's no API key to expire. A policy at nuget.org → Trusted Publishing trusts repository owner `RaheelYawar`, repository `twinelike`, workflow file `release.yml`, with no environment and Push scope. The job's `NuGet/login` step trades the run's GitHub OIDC token for a one-hour key. If the push fails, fix the cause and run the **nuget_only** dispatch above.

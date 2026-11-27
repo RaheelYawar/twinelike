@@ -6,11 +6,17 @@ on:
       - 'v*.*.*'
   # Manual dispatch lets you draft a release without pushing a tag first —
   # the tag is created by GitHub when you click "Publish release" in the UI.
+  # With nuget_only it instead pushes an already-published release's package,
+  # for when the publish-nuget job failed.
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version (e.g. 0.1.0) — creates a draft release named v<version>'
+        description: 'Version (e.g. 0.1.0)'
         required: true
+      nuget_only:
+        description: 'Push the published release v<version> to nuget.org instead of drafting a release'
+        type: boolean
+        default: false
   # Publishing a drafted release (clicking "Publish release" in the UI) fires
   # the publish-nuget job below — so the irreversible push to nuget.org sits
   # behind the same human approval gate as making the GitHub Release public.
@@ -24,8 +30,9 @@ jobs:
   release:
     name: Build, pack, and draft a GitHub Release
     # Only the draft-creation path (tag push / manual dispatch). Skipped when the
-    # trigger is a release being published — that path runs publish-nuget only.
-    if: github.event_name != 'release'
+    # trigger is a release being published, or a nuget_only dispatch — those
+    # run publish-nuget only.
+    if: github.event_name != 'release' && !inputs.nuget_only
     runs-on: ubuntu-latest
 
     steps:
@@ -131,19 +138,25 @@ jobs:
             release-staging/*
 
   # ──────────────────────────────────────────────────────────────────────────
-  # Publish to NuGet — runs only when a drafted GitHub Release is *published*
-  # (you click "Publish release"). Pushes the exact .nupkg that was attached to
+  # Publish to NuGet — runs when a drafted GitHub Release is *published*
+  # (you click "Publish release"), or on a nuget_only dispatch for a release
+  # that's already published. Pushes the exact .nupkg that was attached to
   # and reviewed on the release — no rebuild — so what lands on nuget.org is
   # byte-identical to what you approved.
   #
-  # Requires a repo secret NUGET_API_KEY (Settings → Secrets and variables →
-  # Actions → New repository secret). Create the key at nuget.org → API Keys,
-  # scoped to push for the Twinelike package (glob `Twinelike` or `*`).
+  # Uses nuget.org trusted publishing, so there's no API key secret: a
+  # policy on nuget.org trusts this repo's release.yml, and NuGet/login
+  # trades the job's GitHub OIDC token for a one-hour key.
   # ──────────────────────────────────────────────────────────────────────────
   publish-nuget:
     name: Publish to NuGet
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' || inputs.nuget_only
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || format('v{0}', inputs.version) }}
 
     steps:
       - name: Set up .NET 8 SDK
@@ -151,24 +164,37 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      # Pull the package that this release attached.
+      # Pull the package that this release attached. The draft check keeps a
+      # dispatch from pushing a release nobody has published.
       - name: Download package asset from the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if [ "$(gh release view "$TAG" --repo "${{ github.repository }}" --json isDraft --jq .isDraft)" != "false" ]; then
+            echo "::error::$TAG isn't a published release."
+            exit 1
+          fi
           mkdir -p nuget-push
-          gh release download "${{ github.event.release.tag_name }}" \
+          gh release download "$TAG" \
             --repo "${{ github.repository }}" \
             --pattern '*.nupkg' \
             --dir nuget-push
           echo "--- downloaded ---"
           ls -la nuget-push
 
+      # Right before the push: the key it returns lasts an hour. `user` is the
+      # nuget.org profile name, not an email address.
+      - name: Log in to nuget.org
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: RaheelYawar
+
       # --skip-duplicate turns a re-run into a no-op instead of a hard failure
       # if that version is already live on nuget.org.
       - name: Push to nuget.org
         run: |
           dotnet nuget push "nuget-push/*.nupkg" \
-            --api-key "${{ secrets.NUGET_API_KEY }}" \
+            --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" \
             --source https://api.nuget.org/v3/index.json \
             --skip-duplicate
