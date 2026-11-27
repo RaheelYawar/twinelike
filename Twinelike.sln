@@ -5,6 +5,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Twinelike", "Twinelike.cspr
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HarloweParser.Tests", "HarloweParser.Tests\HarloweParser.Tests.csproj", "{CA8E1CEE-7C77-43C4-8639-292AEAF8BD73}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tools", "tools", "{0610C291-84A3-43E2-A974-D3498B070CCD}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Twinelike.Probe", "tools\Twinelike.Probe\Twinelike.Probe.csproj", "{5E8D2728-08E3-4A00-A206-3AC5389D9D75}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -19,5 +23,12 @@ Global
 		{CA8E1CEE-7C77-43C4-8639-292AEAF8BD73}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{CA8E1CEE-7C77-43C4-8639-292AEAF8BD73}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{CA8E1CEE-7C77-43C4-8639-292AEAF8BD73}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5E8D2728-08E3-4A00-A206-3AC5389D9D75}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5E8D2728-08E3-4A00-A206-3AC5389D9D75}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5E8D2728-08E3-4A00-A206-3AC5389D9D75}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5E8D2728-08E3-4A00-A206-3AC5389D9D75}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{5E8D2728-08E3-4A00-A206-3AC5389D9D75} = {0610C291-84A3-43E2-A974-D3498B070CCD}
 	EndGlobalSection
 EndGlobal

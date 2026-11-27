@@ -1,30 +1,42 @@
 # Macro Semantics Divergences vs Reference Harlowe
 
-Findings are the gaps
-between our macro implementations and reference Harlowe's, scoped to
-**user-visible behavioural differences** — cosmetic and internal-implementation
-divergences are skipped.
-
-Already-fixed or already-filed items are excluded from this list — see
-`TODO.md` `Known TODOs` for the standing tracking list and `SAVE-LOAD-PLAN.md`
-for the save-model slice (which lands `(history:)` semantics).
+The gaps between our macro implementations and reference Harlowe's, limited to
+**user-visible behaviour**; cosmetic and internal differences are left out.
+Fixed entries stay, marked ✅, so every number stays stable. Open bugs and the
+roadmap are in `TODO.md`, and deliberate differences between Harlowe majors are
+in `COMPATIBILITY.md`.
 
 ## Counts
 
 - **High severity (0 active, 6 fixed)**: silent wrong result or breaks documented Harlowe idioms.
 - **Medium severity (0 active, 10 fixed, 1 reclassified)**: error-message divergence, missing feature an author would expect, or rare-case wrong result.
-- **Low severity (6 active, 2 fixed)**: documented as deliberate or marginal.
+- **Low severity (23 active, 4 fixed)**: documented as deliberate or marginal.
 
-**6 active, all low-severity** — #17 (load-guard vs intra-turn `(goto:)`), #18
+**23 active, all low-severity** — #26 (deliberate: a printed array renders each
+item separately, so markup can't span items), #17 (load-guard vs intra-turn `(goto:)`), #18
 (stacked-interaction nesting order), #21 (deliberate: out-of-range array sets
 error rather than growing sparse holes), #23 (deliberate: a `via`-lambda's RNG
 draw is rewound per match so the passes stay idempotent), #24 (deliberate: the
 `even`/`odd` datatypes require a Number rather than coercing one), #25
 (deliberate: the `lowercase`/`uppercase` datatypes don't expand under case
-mapping, so `ß` is neither).
+mapping, so `ß` is neither), #28 (deliberate: custom macro recursion stops at
+this library's stack-safe limits), #29 (deliberate: `(partial:)` doesn't copy
+the target's signature), #30 (deliberate: `(for:)+(output:)` works), #31
+(deliberate: markup in a code hook can't pair with markup outside the macro),
+#32 (a revision in a macro body whose target comes later does nothing), #33
+(a revision, `(for:)` or link changer attached to `(show:)` has no effect), #34
+(natural order is approximate for accented text and hex strings),
+#35 (deliberate: limits on `(for:)` passes, `(range:)` length, print depth, live hooks and changer size),
+#36 (a run of spaces in a hand-edited tags attribute adds no empty tags), #38 (a
+hook hiding itself, or copied while hidden, can come back different), #39
+(`time` moves by frames),
+#41 (a revision's later copies aren't there yet while an earlier copy runs),
+#42 (overlapping revision targets run the content twice in either order), #43
+(`(for:)` with a click or hover changer is an error), #44 (a list inside `{…}`
+or formatting inside a list item keeps the rest of the item), #45 (an unpaired
+`<name|` shows as text, where the browser drops it as a tag).
 
-Numbers below are stable IDs (referenced from "Recommended ordering"); fixed
-items are kept and marked rather than renumbered. "Reclassified" means the
+Each section lists its entries in number order; #27 was never used. "Reclassified" means the
 finding was real but misattributed — #7 recorded a Harlowe 4.0 behaviour as a
 gap against our Harlowe 3 target; it lives on as a compatibility switch in
 `COMPATIBILITY.md`. When auditing against the 4.0-unstable snapshot, always ask
@@ -33,65 +45,6 @@ which major a behaviour belongs to before filing it here.
 ---
 
 ## High-severity divergences
-
-### 19. Links to nonexistent passages are live, and following one poisons the save — ✅ FIXED (2026-07-12)
-
-**Resolved.** A link is now existence-checked where it is *built* — both
-`BodyRenderer.Visit(LinkNode)` and `LinkGotoMacro`, through the same
-`MacroContext.PassageExists` gate `(goto:)` uses (skipped when no story is wired,
-so standalone renderer tests are unaffected). A dangling target renders its label
-as plain prose plus an in-prose error and emits **no `Link` event at all**, so the
-bug is closed structurally: there is nothing for a host to make clickable.
-`StorySession.Goto` refuses an unknown passage outright — returning the current
-view with an error appended, before touching a single field — so a host passing an
-arbitrary string, or clicking a link whose target was removed through the editing
-API between render and click, still can't get a nonexistent name into the timeline
-and from there into an unloadable save. `Harlowe.GetBrokenLinks()` was added
-alongside as the authoring/CI check (it reads the `Branches` inventory
-`BranchCollector` already derives, so it costs an index lookup).
-
-**Deliberate divergence recorded:** reference renders an unclickable red
-`<tw-broken-link>` and no error; we render the label plus an error. We have no HTML
-to hand an engine-agnostic host, and a dedicated broken-link render channel wasn't
-worth the surface. The un-navigable half is reproduced exactly; the *visible* half
-rides the error channel, which hosts already silence in production builds if they
-want reference's quieter presentation. Note this also makes us **stricter** than
-reference in one place: reference shows a broken link silently, we report it.
-
-See `BrokenLinkTests.cs` — in particular
-`DeadLink_Clicked_Saved_ThenLoaded_Survives`, which walks the whole original chain
-(dead link → click → save → load) and fails on the pre-fix code. Original finding
-below.
-
-- **Ours**: nothing checks that a link's target exists.
-  `BodyRenderer.Visit(LinkNode)` is `_output.Link(node.Text, node.Target)` flat,
-  and `LinkGotoMacro` never consults `MacroContext.PassageExists` — so
-  `[[Go->Missing]]` and `(link-goto: "Click", "Nowhere")` both emit an ordinary,
-  clickable `Link` event that the host wires to `StorySession.Goto`. `Goto` then
-  doesn't validate either: it calls `EnterPassage`, finds no passage, and returns
-  `EmptyResult` — **zero entries, no `Error`, a silently blank screen** — while
-  leaving `CurrentPassage` and the present `Moment.PassageName` set to the name
-  that doesn't exist. `SaveGame` happily serialises that Moment; `DeserialiseTimeline`
-  then validates every passage on load, so the blob is rejected **forever** with
-  *"saved passage 'Missing' no longer exists"*. A dead link therefore turns into a
-  permanently unloadable save. (`(goto:)` and `(click-goto:)` *do* validate — this
-  is the un-validated half of the family.)
-- **Reference**: `Passages.hasValid(passage)` gates every link.
-  `ts/macrolib/links.ts` (search `Since the passage isn't available`) emits
-  `<tw-broken-link passage-name="…">text</tw-broken-link>` instead of `<tw-link>`
-  — documented as *"a broken link (a red link that can't be clicked) will be
-  created"*. The `[[…]]` syntax gets the same treatment: the same file notes
-  *"the Harlowe engine actually converts all standard links into (link-goto:)
-  macro calls internally — the link syntax is, essentially, a syntactic shorthand
-  for (link-goto:)"*. The click never happens, so the rest of the chain can't.
-- **Trigger**: `[[Go->Missing]]`, click it, `(save-game: "1")`, reload. Reached in a
-  real story either by a typo'd target or by `RemovePassage` orphaning a link under
-  a live session — which is how the fix was driven end to end. (An earlier draft of
-  this entry claimed `TestFiles/testFile.html` ships dangling links; it doesn't —
-  `GetBrokenLinks()` reports it clean, and the note in `CLAUDE.md` that said
-  otherwise has been corrected.)
-- **User-visible**: dead links look and behave like live ones; following one blanks
-  the passage with no diagnostic; any save taken afterwards can never be loaded.
 
 ### 1. `(goto:)` doesn't validate target exists — ✅ FIXED (2026-06-01)
 
@@ -264,58 +217,69 @@ string-target / second-arg / rerun / reveal / command tests in
   name", so `(click: "literal text")` (a primary documented use) doesn't
   work. Second-arg changers error as arg-count. `(click-rerun:)` is unknown.
 
+### 19. Links to nonexistent passages are live, and following one poisons the save — ✅ FIXED (2026-07-12)
+
+**Resolved.** A link is existence-checked when it *renders*, in
+`BodyRenderer.Visit(LinkNode)`, through the same `MacroContext.PassageExists` gate
+`(goto:)` uses (skipped when no story is wired, so standalone renderer tests are
+unaffected). `(link-goto:)` returns a command that renders through the same method,
+so a link stored in a variable is checked when it's printed. A dangling target renders its label
+as plain prose plus an in-prose error and emits **no `Link` event at all**, so the
+bug is closed structurally: there is nothing for a host to make clickable.
+`StorySession.Goto` refuses an unknown passage outright — returning the current
+view with an error appended, before touching a single field — so a host passing an
+arbitrary string, or clicking a link whose target was removed through the editing
+API between render and click, still can't get a nonexistent name into the timeline
+and from there into an unloadable save. `HarloweStory.GetBrokenLinks()` was added
+alongside as the authoring/CI check (it reads the `Branches` inventory
+`BranchCollector` already derives, so it costs an index lookup).
+
+**Deliberate divergence recorded:** reference renders an unclickable red
+`<tw-broken-link>` and no error; we render the label plus an error. We have no HTML
+to hand an engine-agnostic host, and a dedicated broken-link render channel wasn't
+worth the surface. The un-navigable half is reproduced exactly; the *visible* half
+rides the error channel, which hosts already silence in production builds if they
+want reference's quieter presentation. Note this also makes us **stricter** than
+reference in one place: reference shows a broken link silently, we report it.
+
+See `BrokenLinkTests.cs` — in particular
+`DeadLink_Clicked_Saved_ThenLoaded_Survives`, which walks the whole original chain
+(dead link → click → save → load) and fails on the pre-fix code. Original finding
+below.
+
+- **Ours**: nothing checks that a link's target exists.
+  `BodyRenderer.Visit(LinkNode)` is `_output.Link(node.Text, node.Target)` flat,
+  and `LinkGotoMacro` never consults `MacroContext.PassageExists` — so
+  `[[Go->Missing]]` and `(link-goto: "Click", "Nowhere")` both emit an ordinary,
+  clickable `Link` event that the host wires to `StorySession.Goto`. `Goto` then
+  doesn't validate either: it calls `EnterPassage`, finds no passage, and returns
+  `EmptyResult` — **zero entries, no `Error`, a silently blank screen** — while
+  leaving `CurrentPassage` and the present `Moment.PassageName` set to the name
+  that doesn't exist. `SaveGame` happily serialises that Moment; `DeserialiseTimeline`
+  then validates every passage on load, so the blob is rejected **forever** with
+  *"saved passage 'Missing' no longer exists"*. A dead link therefore turns into a
+  permanently unloadable save. (`(goto:)` and `(click-goto:)` *do* validate — this
+  is the un-validated half of the family.)
+- **Reference**: `Passages.hasValid(passage)` gates every link.
+  `ts/macrolib/links.ts` (search `Since the passage isn't available`) emits
+  `<tw-broken-link passage-name="…">text</tw-broken-link>` instead of `<tw-link>`
+  — documented as *"a broken link (a red link that can't be clicked) will be
+  created"*. The `[[…]]` syntax gets the same treatment: the same file notes
+  *"the Harlowe engine actually converts all standard links into (link-goto:)
+  macro calls internally — the link syntax is, essentially, a syntactic shorthand
+  for (link-goto:)"*. The click never happens, so the rest of the chain can't.
+- **Trigger**: `[[Go->Missing]]`, click it, `(save-game: "1")`, reload. Reached in a
+  real story either by a typo'd target or by `RemovePassage` orphaning a link under
+  a live session — which is how the fix was driven end to end. (An earlier draft of
+  this entry claimed `TestFiles/testFile.html` ships dangling links; it doesn't —
+  `GetBrokenLinks()` reports it clean, and the note in `CLAUDE.md` that said
+  otherwise has been corrected.)
+- **User-visible**: dead links look and behave like live ones; following one blanks
+  the passage with no diagnostic; any save taken afterwards can never be loaded.
+
 ---
 
 ## Medium-severity divergences
-
-### 20. String targets don't bestride text nodes — ✅ FIXED (2026-07-15)
-
-**Resolution.** `TextOccurrenceFinder` was rebuilt as a direct port of
-reference's `findTextInNodes` + `wrapTextNodes` pair: matching runs over the
-tree's *flattened* text-node stream in document order (so a needle can span
-inline formatting, styled spans, links, and hooks), boundary nodes are split
-around each hit, and — the key discovery that kept the fix contained — every
-fragment of one match moves into a **single** `RenderHookNode` placed at the
-first fragment's position, exactly like reference's jQuery
-`wrapAll(<tw-pseudo-hook>)`, whose rehoming persists after the unwrap. One
-match = one wrap, so the consumer contract (revision splices, enchant tagging,
-interaction arming, strip/disenchant sweeps, dispatch-time region lookups)
-needed **zero changes**; the entire fix sits inside the finder. Consequences
-mirrored from reference and pinned in tests: the trigger case now replaces
-(`Say ''hello'' friend` + `(replace: "hello friend")[X]` → `Say X`, with X
-rendering *inside* the bold span — the match relocated to the first
-fragment's home), a wholly-spanned styled word leaves its emptied style span
-behind, scanning resumes after each match, and the enchant/interaction passes
-stay idempotent because the rehomed text is contiguous on re-find. See the
-"bestriding" tests in `RevisionMacroTests` / `EnchantMacroTests` /
-`InteractionMacroTests`. Original report below.
-
----
-
-- **Ours**: `TextOccurrenceFinder` matches a needle **within a single
-  `RenderTextNode`** and says so in its own docstring. Adjacent prose coalesces
-  into one node (so a `(print:)` in the middle is fine), but anything that opens a
-  child container — inline formatting, a styled span, a link, a hook — splits the
-  prose into siblings, and a needle spanning the boundary is silently not found.
-  Affects every string-target consumer: `(replace:)`/`(append:)`/`(prepend:)`,
-  `(enchant:)`/`(change:)`, and the whole `(click:)`/`(mouseover:)`/`(mouseout:)`
-  family.
-- **Reference**: `findTextInNodes` in `ts/utils/renderutils.ts` accumulates
-  `examinedNodes`/`examinedText` across consecutive text nodes precisely so a match
-  can straddle them — its header comment is *"to allow transformations of exact
-  textual matches within passage text, **regardless** of the actual DOM hierarchy
-  which those matches bestride"* — and splits the run back apart around the hit.
-  (Matching is exact/case-sensitive in both, so that half already agrees.)
-- **Trigger**: `Say ''hello'' friend(replace: "hello friend")[X]` — reference
-  replaces, we render `Say hello friend` unchanged and emit no error. The control
-  `Say hello friend(replace: "hello friend")[X]` works, so the failure is invisible
-  until an author adds emphasis inside the phrase.
-- **User-visible**: a string-target macro silently no-ops whenever the phrase
-  contains markup. Newly reachable: the inline-formatting slice (`''bold''` etc.)
-  landed the most common way to split a phrase.
-- **Fix**: rework `TextOccurrenceFinder` to walk a flattened text-node run (the
-  `findTextInNodes` model) and split across nodes, instead of scanning each
-  `RenderTextNode` in isolation.
 
 ### 6. `(else:)` silently no-ops with no preceding conditional — ✅ FIXED (2026-06-01)
 
@@ -585,6 +549,55 @@ lambda's `where` after the via body (the only order that reparses, since
 - **User-visible**: A `where`-filtered fold (a documented idiom) raises an
   in-prose parse error in ours instead of summing the filtered subset.
 
+### 20. String targets don't bestride text nodes — ✅ FIXED (2026-07-15)
+
+**Resolution.** `TextOccurrenceFinder` was rebuilt as a direct port of
+reference's `findTextInNodes` + `wrapTextNodes` pair: matching runs over the
+tree's *flattened* text-node stream in document order (so a needle can span
+inline formatting, styled spans, links, and hooks), boundary nodes are split
+around each hit, and — the key discovery that kept the fix contained — every
+fragment of one match moves into a **single** `RenderHookNode` placed at the
+first fragment's position, exactly like reference's jQuery
+`wrapAll(<tw-pseudo-hook>)`, whose rehoming persists after the unwrap. One
+match = one wrap, so the consumer contract (revision splices, enchant tagging,
+interaction arming, strip/disenchant sweeps, dispatch-time region lookups)
+needed **zero changes**; the entire fix sits inside the finder. Consequences
+mirrored from reference and pinned in tests: the trigger case now replaces
+(`Say ''hello'' friend` + `(replace: "hello friend")[X]` → `Say X`, with X
+rendering *inside* the bold span — the match relocated to the first
+fragment's home), a wholly-spanned styled word leaves its emptied style span
+behind, scanning resumes after each match, and the enchant/interaction passes
+stay idempotent because the rehomed text is contiguous on re-find. See the
+"bestriding" tests in `RevisionMacroTests` / `EnchantMacroTests` /
+`InteractionMacroTests`. Original report below.
+
+---
+
+- **Ours**: `TextOccurrenceFinder` matches a needle **within a single
+  `RenderTextNode`** and says so in its own docstring. Adjacent prose coalesces
+  into one node (so a `(print:)` in the middle is fine), but anything that opens a
+  child container — inline formatting, a styled span, a link, a hook — splits the
+  prose into siblings, and a needle spanning the boundary is silently not found.
+  Affects every string-target consumer: `(replace:)`/`(append:)`/`(prepend:)`,
+  `(enchant:)`/`(change:)`, and the whole `(click:)`/`(mouseover:)`/`(mouseout:)`
+  family.
+- **Reference**: `findTextInNodes` in `ts/utils/renderutils.ts` accumulates
+  `examinedNodes`/`examinedText` across consecutive text nodes precisely so a match
+  can straddle them — its header comment is *"to allow transformations of exact
+  textual matches within passage text, **regardless** of the actual DOM hierarchy
+  which those matches bestride"* — and splits the run back apart around the hit.
+  (Matching is exact/case-sensitive in both, so that half already agrees.)
+- **Trigger**: `Say ''hello'' friend(replace: "hello friend")[X]` — reference
+  replaces, we render `Say hello friend` unchanged and emit no error. The control
+  `Say hello friend(replace: "hello friend")[X]` works, so the failure is invisible
+  until an author adds emphasis inside the phrase.
+- **User-visible**: a string-target macro silently no-ops whenever the phrase
+  contains markup. Newly reachable: the inline-formatting slice (`''bold''` etc.)
+  landed the most common way to split a phrase.
+- **Fix**: rework `TextOccurrenceFinder` to walk a flattened text-node run (the
+  `findTextInNodes` model) and split across nodes, instead of scanning each
+  `RenderTextNode` in isolation.
+
 ---
 
 ## Low-severity divergences
@@ -622,7 +635,7 @@ finding below.
   loading a game."*) clears on a navigation to a **new turn** — a host-driven
   `StorySession.Goto` (link click) or any undo/redo/load restore. An *in-passage*
   `(goto:)` is an intra-turn **redirect** in our model (decision 7 of
-  `SAVE-LOAD-PLAN.md`: auto-followed `(goto:)` maps to reference's `redirect()`,
+  `docs/plans/SAVE-LOAD-PLAN.md`: auto-followed `(goto:)` maps to reference's `redirect()`,
   not `play()`), so it does **not** clear the guard — `load → (goto:) → load`
   within one turn is suppressed (the second `(load-game:)` errors).
 - **Reference**: `section.loadedGame` is scoped to a single `showPassage`
@@ -754,8 +767,8 @@ type signature). See the `ValidateOperators_*` tests in
 - **User-visible**: rare and one-directional (we reject where reference
   accepts), and an author reaching it has almost certainly forgotten a
   `(num:)`. Deliberate: reference's own Datatype article says these "Only
-  matches even numbers" / "odd numbers", so the documented contract wins over
-  the coercion artefact, per the version policy in `CLAUDE.md`. Pinned by
+  matches even numbers" / "odd numbers", so the documented contract was kept
+  over the coercion artefact, an exception to following the released build. Pinned by
   `EvenAndOdd_RejectNonNumbers`. Revisit only if a real story depends on it.
 
 ### 25. The `lowercase` / `uppercase` datatypes don't expand under case mapping (deliberate; found in the Datatype slice review, 2026-07-26)
@@ -777,6 +790,87 @@ type signature). See the `ValidateOperators_*` tests in
   `Lowercase_DoesNotExpandUnderCaseMapping`. Revisit if the string macros ever
   gain full case mapping, and move both together.
 
+### 26. A printed array renders each item separately (deliberate; found in the printed-markup slice, 2026-11-21)
+
+- **Ours**: `BodyRenderer.EmitPrinted` renders each item as its own markup source, joined by commas. A datamap prints as literal `key:value` text.
+- **Reference**: `printBuiltinValue` joins the items into one string before rendering, so markup can span items, and prints a datamap as an HTML table with verbatim cells.
+- **Trigger**: `(print: (a: "''x", "y''"))`, where the bold opens in one item and closes in another.
+- **User-visible**: those delimiters stay literal. Deliberate: per-item rendering keeps non-string items such as datatypes and changers from being parsed as markup, and the core never puts HTML tables into the render channel.
+
+### 28. Custom macro recursion stops sooner than in a browser (deliberate; found in the custom macro slice, 2026-11-22)
+
+Real 3.3.9 recurses until the JavaScript stack runs out, about 450 calls for a simple macro. Here a call counts toward the 128-level render nesting limit, with a second limit on open expressions, and past either one it's the same in-prose "infinite loop" error. A stack overflow can't be caught and would kill the host, and these limits fit a 512 KB stack even where the runtime has no stack check.
+
+### 29. `(partial:)` doesn't copy the target's type signature (deliberate; found in the custom macro slice, 2026-11-22)
+
+Reference trims the target's signature and checks calls against it, keeping any rest position even when pre-filled, so `(partial: 'text-style', 'bold')` called with nothing errors there. Here the target macro does its own checking on the combined values, so that call works. Twinelike's built-ins have no signature objects to copy.
+
+### 30. `(for:)` composed with `(output:)` works (deliberate; found in the custom macro slice, 2026-11-22)
+
+`(for: each _a, 1, 2)+(output:)[_a]` renders `12` here, which is what Harlowe's own spec asserts. Real 3.3.9 stops with an internal JavaScript error when the command runs, so no working story can depend on that.
+
+### 31. Markup in a code hook can't pair with markup outside the macro (deliberate; found in the custom macro review, 2026-11-22)
+
+Reference lexes a passage with one stack of open markers, so a closer inside a code hook can close something opened before the macro. That discards the macro's own markers and turns the call into prose: `''(print: [ a'' ])''` renders a bold `(print: [ a` followed by ` ])''`. A code hook with no `]` likewise leaves `(print: [ )z` as prose. Here a code hook has its own markers, so the first example prints ` a'' ` in bold and the second is an in-prose error that takes the rest of its line with it, as other unparseable macros do. Only malformed macro calls are affected, and matching them would mean un-lexing a macro that has already been tokenized.
+
+### 32. A revision in a macro body with a later target does nothing (found in the custom macro review, 2026-11-22)
+
+`(set: $m to (macro: [(replace: ?a)[new](output-data: 1)]))($m:)|a>[x]` renders `1newx` in real 3.3.9, printing the hook beside the call even though `?a` isn't on the page yet. Here it renders `1x`, as the same `(replace:)` outside a macro does in both. A target already on the page behaves the same in both.
+
+### 33. A revision, `(for:)` or link changer attached to `(show:)` has no effect (found in the `(show:)` slice, 2026-11-23)
+
+A changer written before `(show:)` styles the hook it reveals, and a false condition stops it, as in real 3.3.9. Reference also passes the rest of the changer into the reveal, so `|a)[_i](for: each _i, 1, 2)(show: ?a)` shows `2`, the last pass, and `(click-replace: ?c)(show: ?a)` arms a click. Here those show the hook once, with no loop variable and no click. `(link:)` before `(show:)` throws an internal error in real 3.3.9, so nothing can depend on it.
+
+### 34. Natural order is approximate for accented text and hex strings (found in the dataset slice, 2026-11-23)
+
+Spreading a dataset, `(passages:)`, the order `startup` passages run in, and `(dm-names:)`, `(dm-values:)` and `(dm-entries:)` all sort with `NaturalOrder`, which covers ASCII exactly. Real 3.3.9 uses the browser's English collator, so `(a: ...(ds: "é", "e", "z"))` is `e,é,z` there and `e,z,é` here, because other letters sort after `z`. It also reads `"0x10"` as the number 16, so `(dm-names:)` puts `"0x9"` before `"0x10"`, and reads date-shaped strings as dates. Neither is implemented here.
+
+### 35. Limits on `(for:)` passes, `(range:)` length, print depth, live hooks and changer size (deliberate; found in the `(range:)` slice, 2026-11-23)
+
+One render can make a quarter of a million `(for:)` passes, one `(range:)` can hold 200,000 numbers, a value can print 256 levels deep, a passage can have 500 `(live:)` hooks running, and a changer can hold 1,024 parts, about one per changer joined into it, which is ten doublings of one added to itself. Past any of these it's an in-prose error. Real 3.3.9 sets no limit of its own: `(range:)` worked at 100,000 and failed with a JavaScript stack error at 150,000, printing managed 300 levels and failed at 5,000, and a 3,000 by 3,000 loop was still running when the test stopped it after 3 seconds. Here a stuck render or stack overflow would take the host game down with it.
+
+### 36. A run of spaces in a hand-edited tags attribute adds no empty tags (found in the `(passage:)` review, 2026-11-23)
+
+Reference splits the `tags` attribute on each whitespace character, so `tags="a  b"` gives `(passage:)` three tags, the middle one empty. Here it gives two, because `HarlowePassage.Tags` promises hosts a list with no empty entries. Matching reference under that promise would mean keeping the raw attribute beside the list, a copy that goes stale when a host edits `Tags`, for something Twine doesn't write: none of the pinned exports has a run of spaces in its tags. An untagged passage does get reference's one empty tag.
+
+### 37. A visible hook revising itself while it renders keeps its later content — ✅ FIXED (2026-11-24)
+
+**Resolved.** A revision of a hook still being written first moves what's written so far aside, into a placeholder in the hook, so the revision lands after, before or over all of it, as in reference, where the hook's whole text is in place before its macros run. `|o>[x(replace: ?o)[y]z]` renders `y` and the `(append:)` form `xzy`, as in real 3.3.9, and so do `(replace: ?passage)[x]y` (`x`) and `w(append: ?passage)[x]y` (`wyx`).
+
+### 38. A hook hiding itself, or copied while hidden, can come back different (found in the `(hide:)` slice, 2026-11-23)
+
+Reference renders a hook's content before running its macros, so `(hide:)` inside the hook it names takes the whole content out at once. Here the hook is hidden when it finishes rendering, so the result shows the same, but a macro after the `(hide:)` still sees the content on the page: `|a>[x(hide: ?a)(replace: "x")[y]](show: ?a)` shows `xy` in real 3.3.9 and `y` here. Copies differ too. When a revision's content holds a hook that hides itself, each target's copy renders in turn here, so the first copy's `(hide:)` can't see the second (#41): `|o>[]|q>[](append: ?o, ?q)[|a>[x](hide: ?a)]` followed by `(show: ?a's 1st)` shows `x` and `(show: ?a)` shows `xx`, where 3.3.9 shows `xx` and `x`.
+
+### 39. `time` moves by frames (found in the `(live:)` slice, 2026-11-24)
+
+`time` reads the clock the host moves with `StorySession.Tick`, so between two frames it doesn't change, where reference reads the browser's clock, which does. A click 6 ms after a frame reads the frame's time here.
+
+This entry also recorded a trailing space that a live hook inside `{…}` lost. That's fixed (2026-11-25). Every render after the passage, a live hook's included, now collapses on its own as it finishes, as reference's `Section.execute` does, so `{(live: 100ms)[ (set: $n to it + 1) $n ]}` shows `1 ` as in real 3.3.9. 91 of 92 measured cases with a click, tick or `(show:)` inside `{…}` match; the other is a harness artifact.
+
+### 40. A revision's own content can't revise its target first — ✅ FIXED (2026-11-24)
+
+**Resolved.** A revision renders its content into a placeholder in each of its targets and then runs it, as reference's `ChangeDescriptor.render` inserts it before `Section.execute` runs it, so a revision inside that content lands on top, each target gets its own rendering, with its own side effects, clicks and links, and a hook in the content can be targeted at once. While the passage renders, a revision only reaches what's before it, after any ordinal has picked; a changer left in content a revision emptied does nothing; and `(for:)` combines with a revision. Clicks, live hooks and `(show:)` render the same way. 76 of 82 measured cases match real 3.3.9, the rest being #38, #41, #42 and #43; harlowe-demo's battles now get past their first menu.
+
+### 41. A revision's later copies aren't there yet while an earlier copy runs (found in the revision slice, 2026-11-24)
+
+Reference inserts a revision's content into every target before running any of it, so an earlier copy's macros can see and reach a later copy's text and unrun hooks. Here each copy renders in turn, so a later one is still an empty placeholder. While the passage renders, a revision can't reach a later copy anyway, so this only shows after it, or with macros that aren't revisions: `|a>[x]|a>[y](link: 'go')[(replace: ?a)[|c>[w](append: ?c)[q]]]` shows `wqqqwq` in real 3.3.9 after the click, and `wqqwq` here. Matching it would mean rendering every copy's text before running any copy's macros, which the renderer can't separate.
+
+### 42. Overlapping revision targets run the content twice in either order (found in the revision slice, 2026-11-24)
+
+With the `x` inside `?a`, `(set: $n to 0)|a>[x](replace: ?a, "x")[(set: $n to it + 1)]$n` shows `2` in real 3.3.9 and here, but `(replace: "x", ?a)` shows `1` there and `2` here. Reference's result depends on whether the copy for the inner target is inserted before or after the outer target is emptied; here every copy runs, on the page or off it.
+
+### 43. `(for:)` with a click or hover changer is an error (found in the revision slice, 2026-11-24)
+
+`|a>[x](for: each _i, 1, 2)+(click: ?a)[_i]` is an in-prose error here. Real 3.3.9 arms the click once per pass, and a single click reveals every pass: `x12`. Here a click reveals one region per click, so this needs one click to fire several interactions, unlike #18's stacking.
+
+### 44. A list inside `{…}` or formatting inside a list item keeps the rest of the item (found in the list slice, 2026-11-25)
+
+Reference's renderer closes one more list level than it opened. Where an enclosing list is open in the same render, as with a list in a `{…}` span or inline formatting inside a list item, that surplus `</ul>` closes the outer list early, because none of `<tw-collapsed>`, `<b>` or `<li>` bounds an end tag's scope. So `* {` / `* b` / `} c` shows ` c` after the whole list in real 3.3.9, and `* a {x` / `* b` / `} c` / `* d` also leaves `d` as a stray item. Here the tags balance, so ` c` stays in its item. Where nothing enclosing is open, the surplus close is ignored and the results match.
+
+### 45. A `<name|` with nothing to attach to shows as text (found in the project review, 2026-11-26)
+
+An unpaired `<name|` prints as written here, as an unpaired `|name>` does in both. Real 3.3.9 builds its page as HTML, so the browser reads `<n|` as the start of a tag and drops it, along with the text after it up to the next `>`: `]<n|a` shows `]` there and `]<n|a` here. About 15,700 of the bench's generated snippets do this, and the snippet suite leaves them out. A host shows text as text, so there's nothing for it to drop.
+
 ---
 
 ## Confirmed non-divergences
@@ -793,76 +887,16 @@ something changes.
 - `(text-color:)` / `(text-colour:)` / `(color:)` / `(colour:)` family
 - `(text-style:)` — reset semantics (`"none"`) and unknown-name error path
 - Lambda-consuming family (`(find:)`, `(altered:)`, `(folded:)`, etc.) — arg
-  shape and `pos` binding (already verified in the lambda-pos slice). Caveat:
-  `(folded:)`'s missing `where`-clause filter is a real divergence — see #15.
-- `(history:)` — known divergence filed for save-model slice in
-  `SAVE-LOAD-PLAN.md`; not re-flagged here
-
----
-
-## Recommended ordering
-
-~~**Do #19 first.**~~ ✅ done (2026-07-12) — broken links no longer emit a `Link`
-event and `StorySession.Goto` refuses an unknown passage, so nothing active can
-destroy player data any more. **No high-severity divergences remain.**
-
-The rest group naturally by size:
-
-**Small contained fixes** (1–2 hours each, isolated changes):
-
-- ~~`(goto:)` validation (#1) — one method, one branch.~~ ✅ done.
-- ~~`(elseif:)` registration (#2) — new macro class + register call.~~ ✅ done.
-- ~~`(else:)` stray-use error (#6) — one branch in `ElseMacro`.~~ ✅ done.
-- ~~`(dm:)` duplicate-key error (#8) — one branch in `DmMacro`.~~ ✅ done.
-- ~~`(text:)`/`(string:)` variadic + alias (#9) — minor refactor + register.~~ ✅ done.
-- ~~`(for:)` zero-item + `(loop:)` alias (#10) — `MinArgs` change + register.~~ ✅ done.
-- ~~`(num:)` semantics + `(number:)` alias (#12) — refactor + register.~~ ✅ done.
-- ~~`(align:)` regex-based parsing (#13) — replace the four-string lookup.~~ ✅ done.
-- ~~`(sorted:)` mixed-type ordering (#14) — relax the `item.Kind != kind` check;
-  sort numbers ahead of strings in one comparer.~~ ✅ done — and the `via`
-  key-lambda landed with it, closing #14 whole.
-- ~~`(random:)` fractional truncation (#16) — relax the `TryAsBound` check.~~ ✅ done.
-
-Total: ~10 small slices, sized appropriately for a single PR each, no shared
-architecture.
-
-**Medium architectural touches** (interact with deferred slices):
-
-- ~~`(if:)` / `(unless:)` returning Changer (#3) — touches `BodyRenderer`'s
-  conditional path.~~ ✅ done.
-- ~~`(text-size:)` accepting Measurement (#7).~~ ✅ Not work — reclassified
-  2026-07-19 as a 3→4 compatibility switch (`COMPATIBILITY.md` row 10); we
-  already match Harlowe 3's `(text-size: Number)`.
-- ~~`(replace:)`/`(append:)`/`(prepend:)` variadic (#11) — small but touches
-  `RevisionChangers.Build` interface for multiple targets.~~ ✅ done — and the
-  descriptor grew reference's `newTargets` list, fixing composed revision
-  changers (accumulate + dedup) in the same change.
-- ~~`(folded:)` `where`-clause support (#15) — `ParseLambdaTail` must accept a
-  trailing `where` after `making … via …`, and `EvalFold` must skip filtered
-  items (keep the prior accumulator), excluding the seed value per 3.3.6.~~
-  ✅ done — exactly that shape, plus the printer emits the reparseable
-  trailing-`where` order for fold lambdas.
-
-**Blocked on deferred slices**:
-
-- ~~`(change:)`/`(enchant:)` string targets + via-lambda (#4).~~ ✅ done —
-  landed directly, no parent slice needed: string-target resolution reuses
-  `TextOccurrenceFinder` inside the (idempotent) enchant pass.
-- ~~`(click:)` family expansion (#5) — can now reuse #4's machinery (tagged
-  string-occurrence wraps re-resolved by a persistent pass). The
-  `(click-rerun:)` macro is also part of this.~~ ✅ done — reused exactly that
-  machinery, and re-aligned plain-`(click:)` reveal semantics + composed-style
-  routing to reference in the same slice (see #5's resolution note). The
-  `-goto`/`-undo` command variants shipped as a follow-up (2026-07-10, see
-  #5's resolution note).
+  shape and `pos` binding.
+- `(history:)` — derived from the save timeline, as reference derives it.
 
 ---
 
 ## Critical files (quick reference)
 
-- `E:\Git\twinelike\HarloweParser\Runtime\Macros\` — all our macro
+- `HarloweParser/Runtime/Macros/` — all our macro
   implementations, one class per file.
-- `E:\Git\twinelike\HarloweParser\Runtime\Macros\StandardMacros.cs` —
+- `HarloweParser/Runtime/Macros/StandardMacros.cs` —
   macro registration; the `RegisterAll` site for new aliases.
 - Reference macros live under `ts/macrolib/`, grouped by category
   (`commands.ts`, `datastructures.ts`, `stylechangers.ts`,

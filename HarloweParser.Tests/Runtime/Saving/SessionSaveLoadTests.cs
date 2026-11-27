@@ -8,14 +8,14 @@ namespace Harlowe.Tests.Runtime.Saving
   /// <summary>End-to-end tests of the session save/load engine surface over a real timeline.</summary>
   public class SessionSaveLoadTests
   {
-    private static Harlowe Story(params string[] bodies)
+    private static HarloweStory Story(params string[] bodies)
     {
       var sb = new StringBuilder();
       sb.Append("<html><body><tw-storydata name=\"T\" startnode=\"1\" ifid=\"TEST-IFID\" creator=\"\" creator-version=\"\">");
       for (int i = 0; i < bodies.Length; i++)
         sb.Append($"<tw-passagedata pid=\"{i + 1}\" name=\"P{i + 1}\" tags=\"\">{bodies[i]}</tw-passagedata>");
       sb.Append("</tw-storydata></body></html>");
-      return new Harlowe(sb.ToString());
+      return new HarloweStory(sb.ToString());
     }
 
     [Fact]
@@ -146,7 +146,7 @@ namespace Harlowe.Tests.Runtime.Saving
       storage.TryWrite(SaveKeys.ToStorageKey("SOME-IFID", "theirs"), "blob", "Theirs");
 
       // An IFID-less story must list only its own (bare-key) saves, not the foreign one.
-      var noIfid = new Harlowe("<html><body><tw-storydata name=\"T\" startnode=\"1\">"
+      var noIfid = new HarloweStory("<html><body><tw-storydata name=\"T\" startnode=\"1\">"
         + "<tw-passagedata pid=\"1\" name=\"P1\" tags=\"\">p1</tw-passagedata>"
         + "</tw-storydata></body></html>");
       var session = new StorySession(noIfid, storage);

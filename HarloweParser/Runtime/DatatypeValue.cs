@@ -23,13 +23,13 @@ namespace Harlowe.Runtime
   /// consumers run under IL2CPP. Interning also makes reference equality agree
   /// with <see cref="EqualsDatatype"/>.</para>
   ///
-  /// <para><em>Not yet implemented:</em> spread datatypes (<c>...num</c>), which
-  /// wait on the <c>...</c> spread syntax, and the <c>(p:)</c> string-pattern
-  /// family, which subclasses this in reference (<c>ts/datatypes/pattern.ts</c>).
-  /// Datatype names for value types this library doesn't have yet — <c>ds</c>,
-  /// <c>gradient</c>, <c>image</c>, <c>macro</c>, <c>command</c>, <c>codehook</c>,
-  /// <c>measure</c> — still lex and compare; they simply match nothing, which is
-  /// what an author sees for a value they can't construct either.</para>
+  /// <para><em>Not yet implemented:</em> spread datatypes (<c>...num</c>) outside
+  /// a typed variable, and the <c>(p:)</c> string-pattern family, which subclasses
+  /// this in reference (<c>ts/datatypes/pattern.ts</c>). Datatype names for value
+  /// types this library doesn't have yet — <c>ds</c>, <c>gradient</c>,
+  /// <c>image</c>, <c>measure</c> — still lex and compare; they simply match
+  /// nothing, which is what an author sees for a value they can't construct
+  /// either.</para>
   /// </summary>
   public class DatatypeValue
   {
@@ -101,14 +101,13 @@ namespace Harlowe.Runtime
     }
 
     /// <summary>
-    /// Does <paramref name="value"/> belong to the named type? Reference's
+    /// Does a value belong to the named type? Reference's
     /// <c>typeIndex</c> table in <c>ts/datatypes/datatype.ts</c>, kept as a table
     /// here too so "which names are implemented" is a readable list rather than
     /// something you derive by diffing a switch against
     /// <see cref="Spellings"/>. A name absent from this table — which here means
-    /// a name for a value type this library doesn't implement (<c>ds</c>,
-    /// <c>gradient</c>, <c>image</c>, <c>macro</c>, <c>command</c>,
-    /// <c>codehook</c>, <c>measure</c>) — matches nothing, as in reference
+    /// a name for a value type this library doesn't implement (<c>gradient</c>,
+    /// <c>image</c>, <c>measure</c>) — matches nothing, as in reference
     /// (<c>typeIndex[name] ? … : false</c>).
     /// </summary>
     private static readonly Dictionary<string, Func<HarloweValue, bool>> TypeIndex =
@@ -122,10 +121,14 @@ namespace Harlowe.Runtime
 
         { "array", v => v.Kind == HarloweValueKind.Array },
         { "dm", v => v.Kind == HarloweValueKind.Datamap },
+        { "ds", v => v.Kind == HarloweValueKind.Dataset },
         { "datatype", v => v.Kind == HarloweValueKind.Datatype },
         { "changer", v => v.Kind == HarloweValueKind.Changer },
         { "colour", v => v.Kind == HarloweValueKind.Colour },
         { "lambda", v => v.Kind == HarloweValueKind.Lambda },
+        { "macro", v => v.Kind == HarloweValueKind.CustomMacro },
+        { "codehook", v => v.Kind == HarloweValueKind.CodeHook },
+        { "command", v => v.Kind == HarloweValueKind.Command },
         { "str", v => v.Kind == HarloweValueKind.String },
         { "num", v => v.Kind == HarloweValueKind.Number },
         { "bool", v => v.Kind == HarloweValueKind.Bool },
@@ -187,10 +190,14 @@ namespace Harlowe.Runtime
       {
         case HarloweValueKind.Array: return Interned["array"];
         case HarloweValueKind.Datamap: return Interned["dm"];
+        case HarloweValueKind.Dataset: return Interned["ds"];
         case HarloweValueKind.Datatype: return Interned["datatype"];
         case HarloweValueKind.Changer: return Interned["changer"];
         case HarloweValueKind.Colour: return Interned["colour"];
         case HarloweValueKind.Lambda: return Interned["lambda"];
+        case HarloweValueKind.CustomMacro: return Interned["macro"];
+        case HarloweValueKind.CodeHook: return Interned["codehook"];
+        case HarloweValueKind.Command: return Interned["command"];
         case HarloweValueKind.String: return Interned["str"];
         case HarloweValueKind.Number: return Interned["num"];
         case HarloweValueKind.Bool: return Interned["bool"];
@@ -205,7 +212,28 @@ namespace Harlowe.Runtime
     public bool IsTypeOf(HarloweValue value)
     {
       if (value == null) return false;
-      return TypeIndex.TryGetValue(Name, out var predicate) && predicate(value);
+      string name = IsSpread ? Name.Substring(3) : Name;
+      return TypeIndex.TryGetValue(name, out var predicate) && predicate(value);
+    }
+
+    /// <summary>True for the spread form, <c>...num</c>, which is what a spread typed variable reports as its datatype.</summary>
+    public bool IsSpread => Name.StartsWith("...", StringComparison.Ordinal);
+
+    private static readonly Dictionary<string, DatatypeValue> Spreads = new Dictionary<string, DatatypeValue>(StringComparer.Ordinal);
+
+    /// <summary>This type's spread form, one shared instance per name.</summary>
+    internal DatatypeValue AsSpread()
+    {
+      if (IsSpread) return this;
+      lock (Spreads)
+      {
+        if (!Spreads.TryGetValue(Name, out var spread))
+        {
+          spread = new DatatypeValue("..." + Name);
+          Spreads[Name] = spread;
+        }
+        return spread;
+      }
     }
 
     private static bool IsEmpty(HarloweValue value)
@@ -215,6 +243,7 @@ namespace Harlowe.Runtime
         case HarloweValueKind.String: return value.AsString.Length == 0;
         case HarloweValueKind.Array: return value.AsArray.Count == 0;
         case HarloweValueKind.Datamap: return value.AsDatamap.Count == 0;
+        case HarloweValueKind.Dataset: return value.AsDataset.Count == 0;
       }
       return false;
     }
@@ -315,8 +344,8 @@ namespace Harlowe.Runtime
     /// <summary>
     /// Renderer-facing form, reference's <c>print()</c>/<c>objectName</c>:
     /// <c>[the num datatype]</c>. Reference wraps this in verbatim markup so the
-    /// brackets aren't read as a hook; we hand plain text to the render channel,
-    /// which never re-parses it.
+    /// brackets aren't read as a hook; our renderer only parses strings as
+    /// markup, so this is printed as it stands.
     ///
     /// <para>Deliberately <em>not</em> <see cref="ToString"/> — this is prose
     /// shown to a player, so it must be requested explicitly rather than

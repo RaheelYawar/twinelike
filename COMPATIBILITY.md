@@ -1,6 +1,6 @@
 # Harlowe Version Compatibility
 
-**Status: machinery shipped 2026-07-20; one switch implemented (row 1), ten still inventory.** `HarloweProfile` selects a profile from the story's declared `format-version` (host-overridable at the loader), and `CompatibilityProfileTests` reflects over the switch properties to demand a behavioural probe per switch — so a switch declared but wired to nothing fails the build. This file stays the append-only record of every point where Harlowe majors deliberately differ. The governing policy — per-major lock-in, append-only profiles, what does and doesn't earn a switch — is the "Version policy" section of `CLAUDE.md`; the implementation procedure, which outlives this slice because every future major re-runs it, is `COMPATIBILITY-PLAN.md`.
+**Status: machinery shipped 2026-07-20; two switches implemented (rows 1 and 2), twelve still inventory.** `HarloweProfile` selects a profile from the story's declared `format-version` (host-overridable at the loader), and `CompatibilityProfileTests` reflects over the switch properties to demand a behavioural probe per switch — so a switch declared but wired to nothing fails the build. This file stays the append-only record of every point where Harlowe majors deliberately differ. The governing policy — per-major lock-in, append-only profiles, what does and doesn't earn a switch — is the "Version policy" section of `CLAUDE.md`; the implementation procedure, which outlives this slice because every future major re-runs it, is `docs/plans/COMPATIBILITY-PLAN.md`.
 
 **Add a row the moment a version difference is found**, even if nothing is implemented on either side. A missing switch is invisible; an empty row is not.
 
@@ -19,7 +19,7 @@
 | # | Switch | V3 (≤3.3.9) | V4 | Ours | Reference |
 |---|---|---|---|---|---|
 | 1 | `--` comment markup | none: prose `--` is literal, `5--3` is `5 - (-3)` | comments out the next element | **both** (`HarloweProfile.CommentMarkup`) | `comment` rule, `ts/markup/patterns.ts` |
-| 2 | Unset story variable read | defaults to `0` | error | **V4** | 4.0 Alterations → Coding |
+| 2 | Unset story variable read, and `it` with nothing bound | defaults to `0` | error | **both** (`HarloweProfile.UnsetReadsAsZero`) | `get` in `internaltypes/varref`; 4.0 Alterations → Coding |
 | 3 | Colour `is` tolerance | RGB within 1e-3, alpha exact | all data values within 0.01 | **V3** | `colour.ts` `is()`; 4.0 Alterations → Macros |
 | 4 | `'s` with surrounding spaces (`$a 's 1st`); `it's` as `its` synonym | rejected | accepted | see note | 4.0 Alterations → Coding |
 | 5 | `any` array/dataset data name | works (renamed `some` in 3.3.0, alias kept) | removed, conflicts with the `any` datatype | — (see note) | 4.0 Compatibility |
@@ -29,12 +29,15 @@
 | 9 | Colour `oklch` data name | absent | present, alongside `lch` | — | 4.0 Alterations → Coding |
 | 10 | Measurement datatype in `(text-size:)`, `(border-size:)`, `(corner-radius:)`, `(text-indent:)`, `(box:)`, `(scroll:)`, … | number-based "scale" arguments | CSS-style measurements | **V3** for `(text-size:)`; rest unimplemented | 4.0 Additions → Coding; `MACRO-DIVERGENCES.md` #7 |
 | 11 | `[=` unclosed hook "punch-through" in headers/footers | broken, left unfixed for compatibility | fixed | — (column markup unimplemented) | 4.0 Bugfixes → Macros |
+| 12 | `(move:)` of a temp variable declared in an enclosing hook | the source stays readable | the source reads as deleted until that hook ends | **V3** | `delete` in `ts/internaltypes/varscope.ts` |
+| 13 | `(move:)` out of a type-restricted variable | only copies, the source keeps its value | deletes | **V3** | `delete()` in `ts/internaltypes/varref.ts` passes `value ?? undefined` to `canSet` |
+| 14 | A data pattern as a variable's type, `(a: num)-type $a` | restricts later writes | doesn't, only a plain datatype does | **V3** | `defineType` in `ts/datatypes/typedvar.ts` |
 
 Row 5's `any` *datatype* shipped with the Datatype slice (2026-07-25) under both profiles, per the new-in-N rule; the row is about the array/dataset *data name*, which is still unimplemented here along with the rest of the `some`/`all` determiner family. The two can coexist because a word in property position never reaches the datatype rule (`$arr's any` lexes `any` as a data key), so whoever implements determiners inherits the V3 side for free and only has to withhold it under V4.
 
 Row 4 is two halves and **only one is a switch**, measured 2026-07-20. `it's` already lexes as `its` incidentally, in both profiles — `(print: it's 1st)` gives `Identifier(it)` + `Operator('s)`, because `TryScanPossessive` accepts a preceding `Identifier`. The spaced-`'s` half is not a boolean: the same whitespace check that rejects `$a 's 1st` doubles as the string-literal disambiguator, so today that input lexes `'s 1st)` as a **StringLiteral** which swallows the macro's closing paren (`(print: $a 's name')` likewise yields `StringLiteral(s name)`). Accepting spaced `'s` therefore needs a designed disambiguation rule — how to tell a possessive from a quote — not a flag. Recorded so nobody plans it as one.
 
-Row 10 detail, for whenever it is implemented: units are `px`, `em`, `rem`, `Lh` (direct CSS equivalents) plus `w` and `h` (CSS percentages that also declare which dimension they apply to). Measurements support arithmetic — added and subtracted with each other (`2em - 10px`), multiplied and divided by numbers (`50px * 2`) — so the value type needs operator support, not just parsing.
+Row 10 detail, for whenever it is implemented: units are `px`, `em`, `rem`, `Lh` (direct CSS equivalents) plus `w` and `h` (CSS percentages that also declare which dimension they apply to). Measurements support arithmetic — added and subtracted with each other (`2em - 10px`), multiplied and divided by numbers (`50px * 2`) — so the value type needs operator support, not just parsing. 4.0 also reads times as measurements, through its `cssMeasure` pattern, where 3.3.9's `cssTime` rule makes `2s` the number 2000. Both profiles read times the 3.3.9 way for now, so the switch belongs to this row when measurements land.
 
 ## Non-switches
 
@@ -42,7 +45,7 @@ Reference bugfixes between majors, fixed under **all** profiles per the rules ab
 
 - `(print: < 4)` inferring a `0` on the left of a comparison (4.0 errors).
 - `2 + ` not erroring with a missing right operand (4.0 errors).
-- Dataset `is` being order-dependent, so `(ds: 2, 3)` ≠ `(ds: 3) + (ds: 2)` (4.0 compares order-independently).
+- Dataset `is` being order-dependent, so `(ds: 2, 3)` ≠ `(ds: 3) + (ds: 2)` (4.0 compares order-independently). Implemented with `(ds:)`: order is ignored under every profile, as the 3.3.9 manual also says.
 
 ## Watch items
 

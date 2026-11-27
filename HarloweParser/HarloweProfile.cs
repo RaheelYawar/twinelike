@@ -37,25 +37,38 @@ namespace Harlowe
     /// </summary>
     public bool CommentMarkup { get; private set; }
 
+    /// <summary>
+    /// Whether a story variable or <c>it</c> with no value reads as <c>0</c>.
+    /// Under 3.x, the getter in <c>internaltypes/varref</c> gives 0 for a name
+    /// missing from the story's variables, and <c>it</c> starts at 0. Harlowe
+    /// 4.0 removed the default ("story-wide variables … no longer have a default
+    /// value of 0 when first used"), so reading one is an error there. Temp
+    /// variables have no default under either major. Consumed by
+    /// <see cref="Runtime.ExpressionEvaluator.ReadVariable"/> and the
+    /// evaluator's read of <c>it</c>.
+    /// </summary>
+    public bool UnsetReadsAsZero { get; private set; }
+
     private HarloweProfile() { }
 
     /// <summary>Harlowe 3 semantics, pinned to 3.3.9 — the last 3.x release. Twine binds a story to the newest version within its major, so a 3.2-authored story has been running under 3.3.9 rules for years; lock-in is per major, not per minor.</summary>
     public static readonly HarloweProfile V3 = new HarloweProfile
     {
       CommentMarkup = false,
+      UnsetReadsAsZero = true,
     };
 
     /// <summary>Harlowe 4 semantics, tracking the 4.0-unstable branch until 4.0 releases.</summary>
     public static readonly HarloweProfile V4 = new HarloweProfile
     {
       CommentMarkup = true,
+      UnsetReadsAsZero = false,
     };
 
     /// <summary>
     /// The newest profile the library knows about. Used when a story declares
-    /// no format version, or declares one from a major newer than any we
-    /// implement — in both cases the story is likelier to want current
-    /// semantics than a historical reconstruction.
+    /// a major newer than any we implement, where current semantics are the
+    /// closest thing available.
     /// <para><b>This moves</b> when a new major is added, which is what makes
     /// it wrong for anything that must stay stable across releases — see
     /// <see cref="SaveFormat"/>.</para>
@@ -82,20 +95,18 @@ namespace Harlowe
     /// major is read — <c>"3.3.9"</c>, <c>"3"</c> and <c>"3.0.0-beta"</c> all
     /// select <see cref="V3"/>.
     ///
-    /// <para>Absent, unparseable, or from a major newer than we implement
-    /// selects <see cref="Latest"/>. A major <em>below</em> 3 also selects
-    /// <see cref="V3"/> rather than the newest: the lock-in promise starts at
-    /// 3.x because 1.x/2.x were never audited here, but a 2.x story's prose is
-    /// exactly as likely to contain <c>--</c> em-dashes as a 3.x story's, so
-    /// clamping down preserves that prose where defaulting up would eat it.
-    /// <see cref="GetCompatibilityNotices"/> on the story reports each of these
+    /// <para>A version that is absent, unparseable, or below 3 also selects
+    /// <see cref="V3"/>, the release this library targets. Guessing Harlowe 4
+    /// would treat every <c>--</c> em-dash as a comment and silently delete the
+    /// prose after it, while guessing Harlowe 3 at worst shows a comment as
+    /// text. Only a major newer than we implement selects <see cref="Latest"/>.
+    /// <see cref="HarloweStory.GetCompatibilityNotices"/> reports each of these
     /// cases; nothing here throws.</para>
     /// </summary>
     public static HarloweProfile Resolve(string formatVersion)
     {
       int major = ParseMajor(formatVersion);
-      if (major < 0) return Latest;   // absent or unparseable
-      if (major <= 3) return V3;      // 3.x, and the below-3 clamp
+      if (major <= 3) return V3;      // 3.x, below 3, absent or unparseable (-1)
       if (major == 4) return V4;
       return Latest;                  // a major newer than we implement
     }
@@ -124,7 +135,7 @@ namespace Harlowe
 
     /// <summary>
     /// The newest major this type reproduces. Read by
-    /// <see cref="Harlowe.GetCompatibilityNotices"/> to tell "from a newer
+    /// <see cref="HarloweStory.GetCompatibilityNotices"/> to tell "from a newer
     /// major than we implement" apart from "a major we implement".
     /// </summary>
     internal const int LatestKnownMajor = 4;

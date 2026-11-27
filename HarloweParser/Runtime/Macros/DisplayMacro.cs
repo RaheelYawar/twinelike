@@ -9,23 +9,30 @@ namespace Harlowe.Runtime.Macros
   /// callback is missing (e.g. running the renderer outside a session in a
   /// test), returns an in-prose error rather than crashing.
   ///
-  /// <para><b>Body vs. expression position.</b> When called as a command from
-  /// body position, <see cref="MacroContext.Output"/> is the active render
-  /// sink and the displayed passage renders directly into it — links, errors,
-  /// and style events propagate to the parent output rather than being
-  /// flattened to a string snapshot. When called from expression position
-  /// (e.g. inside another macro's args, as in <c>(set: $x to (display: "P"))</c>),
-  /// <see cref="MacroContext.Output"/> is null and the displayed passage is
-  /// captured into a private buffer; the returned String is the buffer's
-  /// concatenated text. Structured events on the buffer are dropped in the
-  /// expression-position path — a known limitation until a proper Command
-  /// value kind lands.</para>
+  /// <para><b>Body vs. expression position.</b> In prose,
+  /// <see cref="MacroContext.Output"/> is the active render sink and the
+  /// displayed passage renders directly into it, so links, errors and styles
+  /// reach the parent output. In an expression, as in
+  /// <c>(set: $x to (display: "P"))</c>, the evaluator makes a command instead
+  /// and this runs when the command reaches prose. A call with no sink, through
+  /// <c>(partial:)</c>, captures the passage into a buffer and returns its text,
+  /// without the structured events.</para>
   /// </summary>
-  public class DisplayMacro : IMacro
+  public class DisplayMacro : IMacro, ICommandCheck
   {
     public string Name => "display";
     public int MinArgs => 1;
     public int MaxArgs => 1;
+
+    HarloweValue ICommandCheck.Check(List<HarloweValue> args, MacroContext context)
+    {
+      var name = args[0];
+      if (name.Kind != HarloweValueKind.String)
+        return HarloweValue.OfError($"(display:) requires a String, got {name.Kind}");
+      if (context.PassageExists != null && !context.PassageExists(name.AsString))
+        return HarloweValue.OfError($"passage '{name.AsString}' not found");
+      return null;
+    }
 
     public HarloweValue Invoke(List<HarloweValue> args, MacroContext context)
     {

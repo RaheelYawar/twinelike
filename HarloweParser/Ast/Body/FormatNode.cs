@@ -17,7 +17,11 @@ namespace Harlowe.Ast.Body
     /// <summary><c>~~text~~</c> — strikethrough.</summary>
     Strike,
     /// <summary><c>^^text^^</c> — superscript.</summary>
-    Superscript
+    Superscript,
+    /// <summary><c>*text*</c> — emphasis, which renders as italics.</summary>
+    Emphasis,
+    /// <summary><c>**text**</c> — strong emphasis, which renders as boldface.</summary>
+    Strong
   }
 
   /// <summary>
@@ -66,6 +70,8 @@ namespace Harlowe.Ast.Body
         case InlineFormat.Italic: return "//";
         case InlineFormat.Strike: return "~~";
         case InlineFormat.Superscript: return "^^";
+        case InlineFormat.Emphasis: return "*";
+        case InlineFormat.Strong: return "**";
         default:
           throw new System.ArgumentOutOfRangeException(
             nameof(format), format, "no markup delimiter mapped for this InlineFormat");
@@ -86,6 +92,8 @@ namespace Harlowe.Ast.Body
         case "//": return InlineFormat.Italic;
         case "~~": return InlineFormat.Strike;
         case "^^": return InlineFormat.Superscript;
+        case "*": return InlineFormat.Emphasis;
+        case "**": return InlineFormat.Strong;
         default:
           throw new System.ArgumentException(
             $"no InlineFormat mapped for delimiter '{delimiter}'", nameof(delimiter));

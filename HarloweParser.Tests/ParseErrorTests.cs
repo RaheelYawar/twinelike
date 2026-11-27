@@ -4,7 +4,7 @@ using Xunit;
 namespace Harlowe.Tests
 {
   /// <summary>
-  /// <see cref="Harlowe.GetParseErrors"/> — the load-time report of passages that
+  /// <see cref="HarloweStory.GetParseErrors"/> — the load-time report of passages that
   /// didn't parse. Sibling of <see cref="BrokenLinkTests"/>, and needed for the
   /// same reason: the loaders are deliberately tolerant, so a passage that won't
   /// parse doesn't abort the load — it gets a synthetic error stub and stays quiet
@@ -13,9 +13,9 @@ namespace Harlowe.Tests
   /// </summary>
   public class ParseErrorTests
   {
-    private static Harlowe Story(params (string name, string body)[] passages)
+    private static HarloweStory Story(params (string name, string body)[] passages)
     {
-      var s = new Harlowe();
+      var s = new HarloweStory();
       foreach (var (name, body) in passages)
         s.AddPassage(new HarlowePassage { Name = name, Body = body });
       s.StartNode = s.GetPassage(passages[0].name).Pid;
@@ -123,6 +123,18 @@ namespace Harlowe.Tests
       Assert.Equal("In passage 'P': something went wrong.", e.Message);
     }
 
+    [Fact]
+    public void LexTimeOperatorTypo_IsReportedAsPartial_AtTheTypo()
+    {
+      // A wrong operator spelling fails only its macro, not the whole passage.
+      var e = Assert.Single(Story(("Start", "before\n(if: $hp gt 0)[alive]\nafter")).GetParseErrors());
+      Assert.False(e.IsWholePassage);
+      Assert.Contains("use '>' instead of 'gt'", e.Detail);
+      Assert.Equal(2, e.Line);
+      Assert.Equal(10, e.Column);
+      Assert.Equal("(if: $hp gt 0)", e.Source);
+    }
+
     // ----- interplay with GetBrokenLinks -----
 
     [Fact]
@@ -141,7 +153,8 @@ namespace Harlowe.Tests
     public void AWhollyDeadPassage_ReportsNoBrokenLinks()
     {
       // Nothing survived to point anywhere; GetParseErrors is what speaks for it.
-      var story = Story(("Start", "(set: $x to 5 eq 6)[[Go->Missing]]"));
+      // The unclosed macro swallows the link, so the passage is one error node.
+      var story = Story(("Start", "(set: $x to [[Go->Missing]]"));
 
       Assert.Single(story.GetParseErrors());
       Assert.Empty(story.GetBrokenLinks());

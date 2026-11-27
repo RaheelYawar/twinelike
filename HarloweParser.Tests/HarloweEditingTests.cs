@@ -34,12 +34,12 @@ namespace Harlowe.Tests
     // Real-pipeline construction (tokenized + parsed links, clean passages),
     // for the RenamePassage link-rewriting tests that need genuine LinkNodes
     // rather than MakePassage's single fake TextNode.
-    private static Harlowe Read(string twee) => new TweeReader().Read(twee);
+    private static HarloweStory Read(string twee) => new TweeReader().Read(twee);
 
     [Fact]
     public void PublicConstructor_BuildsEmptyStory()
     {
-      var story = new Harlowe();
+      var story = new HarloweStory();
       Assert.Equal(0, story.PassageCount);
       Assert.Equal(string.Empty, story.StoryName);
       Assert.Equal("0", story.StartNode);
@@ -48,7 +48,7 @@ namespace Harlowe.Tests
     [Fact]
     public void AddPassage_PublicAndIndexedByName()
     {
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(MakePassage("First", "hello"));
       Assert.Equal(1, story.PassageCount);
       Assert.NotNull(story.GetPassage("First"));
@@ -57,7 +57,7 @@ namespace Harlowe.Tests
     [Fact]
     public void AddPassage_AutoSynthesizesPid_WhenNullOrEmpty()
     {
-      var story = new Harlowe();
+      var story = new HarloweStory();
       var p = MakePassage("First");
       p.Pid = null;
       story.AddPassage(p);
@@ -72,7 +72,7 @@ namespace Harlowe.Tests
     [Fact]
     public void AddPassage_PreservesExplicitPid()
     {
-      var story = new Harlowe();
+      var story = new HarloweStory();
       var p = MakePassage("First");
       p.Pid = "42";
       story.AddPassage(p);
@@ -80,11 +80,44 @@ namespace Harlowe.Tests
     }
 
     [Fact]
-    public void AddPassage_DuplicateName_Throws()
+    public void AddPassage_DuplicateName_ThrowsAndLeavesThePassageAlone()
     {
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(MakePassage("First"));
-      Assert.Throws<System.ArgumentException>(() => story.AddPassage(MakePassage("First")));
+      // No Ast, so AddPassage would parse the body if it got that far.
+      var dup = new HarlowePassage { Name = "First", RawBody = "(set: $x to 1)" };
+      var ex = Assert.Throws<System.ArgumentException>(() => story.AddPassage(dup));
+      Assert.Contains("a passage named 'First' already exists", ex.Message);
+      Assert.Null(dup.Pid);
+      Assert.Null(dup.Ast);
+      Assert.Equal(1, story.PassageCount);
+    }
+
+    [Fact]
+    public void AddPassage_NoName_ThrowsAndLeavesThePassageAlone()
+    {
+      var story = new HarloweStory();
+      var p = new HarlowePassage { RawBody = "(set: $x to 1)" };
+      var ex = Assert.Throws<System.ArgumentException>(() => story.AddPassage(p));
+      Assert.Contains("the passage has no name", ex.Message);
+      Assert.Equal("passage", ex.ParamName);
+      Assert.Null(p.Pid);
+      Assert.Null(p.Ast);
+      Assert.Equal(0, story.PassageCount);
+    }
+
+    [Fact]
+    public void NullArguments_ThrowArgumentNullException()
+    {
+      Assert.Equal("passage", Assert.Throws<System.ArgumentNullException>(() => new HarloweStory().AddPassage(null)).ParamName);
+      Assert.Equal("htmlText", Assert.Throws<System.ArgumentNullException>(() => new HarloweStory((string)null)).ParamName);
+      Assert.Equal("story", Assert.Throws<System.ArgumentNullException>(() => new StorySession(null)).ParamName);
+    }
+
+    [Fact]
+    public void HtmlWithoutStoryData_ThrowsHarloweParseException()
+    {
+      Assert.Throws<HarloweParseException>(() => new HarloweStory("<html><body>not a story</body></html>"));
     }
 
     [Fact]
@@ -92,7 +125,7 @@ namespace Harlowe.Tests
     {
       // A shared pid makes GetPassageByPid/GetStartPassage resolution
       // non-deterministic, so an explicit collision is refused loudly.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       var p = MakePassage("First");
       p.Pid = "7";
       story.AddPassage(p);
@@ -109,7 +142,7 @@ namespace Harlowe.Tests
     {
       // The synthesizer already avoids existing numeric pids; pin that the
       // uniqueness check doesn't reject its output.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       var p = MakePassage("First");
       p.Pid = "1";
       story.AddPassage(p);
@@ -123,7 +156,7 @@ namespace Harlowe.Tests
     [Fact]
     public void AddPassage_Null_Throws()
     {
-      var story = new Harlowe();
+      var story = new HarloweStory();
       Assert.Throws<System.ArgumentNullException>(() => story.AddPassage(null));
     }
 
@@ -133,7 +166,7 @@ namespace Harlowe.Tests
       // The documented from-scratch shorthand only sets Name + Body. AddPassage
       // should parse the body so the resulting passage is structurally complete
       // — otherwise rendering and TweeWriter both see a hollow passage.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       var p = new HarlowePassage { Name = "Foo", Body = "hello" };
       story.AddPassage(p);
 
@@ -153,7 +186,7 @@ namespace Harlowe.Tests
       // The caller's body source is authoritative. Hydration must not rewrite
       // it to a macro-stripped prose view — that would silently drop macros on
       // round-trip through (passage.Body → AddPassage).
-      var story = new Harlowe();
+      var story = new HarloweStory();
       var p = new HarlowePassage { Name = "X", Body = "(set: $x to 1)Hello" };
       story.AddPassage(p);
       Assert.Equal("(set: $x to 1)Hello", p.Body);
@@ -169,7 +202,7 @@ namespace Harlowe.Tests
       // visible through the other and reach Twee write-out — previously they
       // were independent fields, so a Body edit left RawBody (what the writer
       // emits) stale, and vice versa.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(new HarlowePassage { Name = "P", Body = "original" });
       var p = story.GetPassage("P");
 
@@ -184,11 +217,57 @@ namespace Harlowe.Tests
     }
 
     [Fact]
+    public void Body_EditAfterAdd_ReparsesSoRuntimeAndReportsSeeTheEdit()
+    {
+      // Before, only the writer saw an edit: the runtime kept playing the old
+      // AST, and Branches and both load-time reports described the old text.
+      var story = Read(":: Start\nold [[A]]\n\n:: A\na\n\n:: B\nb");
+      story.StartNode = story.GetPassage("Start").Pid;
+      var start = story.GetPassage("Start");
+
+      start.Body = "new [[B]] [[Gone]] (set: $x to 1 eq 1)";
+
+      Assert.Equal(2, start.Branches.Count);
+      Assert.Equal("B", start.Branches[0].Name);
+      Assert.Equal("Gone", Assert.Single(story.GetBrokenLinks()).Target);
+      Assert.Equal("Start", Assert.Single(story.GetParseErrors()).PassageName);
+      Assert.StartsWith("new", new StorySession(story).Render().Text);
+    }
+
+    [Fact]
+    public void RawBody_EditAfterAdd_ReparsesUnderTheStorysProfile()
+    {
+      // Under Harlowe 3 `--` is prose, not a comment: the re-parse must follow
+      // the story's declared major exactly as the loader did.
+      var story = Read(":: StoryData\n{\"format-version\":\"3.3.9\"}\n\n:: Start\nx");
+      story.StartNode = story.GetPassage("Start").Pid;
+
+      story.GetPassage("Start").RawBody = "wait -- what";
+
+      Assert.Equal("wait -- what", new StorySession(story).Render().Text);
+    }
+
+    [Fact]
+    public void Body_EditWhileRemoved_IsInStepWhenAddedBack()
+    {
+      // Cut, edit, paste: the passage keeps re-parsing while out of the story,
+      // so re-adding it can't resurrect the AST of the text it had before.
+      var story = Read(":: Start\nold\n\n:: Other\nhi");
+      var start = story.GetPassage("Start");
+      Assert.True(story.RemovePassage("Start"));
+      start.Body = "new";
+      story.AddPassage(start);
+      story.StartNode = start.Pid;
+
+      Assert.Equal("new", new StorySession(story).Render().Text);
+    }
+
+    [Fact]
     public void AddPassage_HydrationDoesNotOverwritePrebuiltAst()
     {
       // Test fixtures (and the HTML/Twee loaders) construct the AST by hand and
       // pass a fully-formed passage. Hydration must not stomp on their work.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       var prebuilt = MakePassage("Foo", "hand-built");
       var originalAst = prebuilt.Ast;
       var originalBranches = prebuilt.Branches;
@@ -203,7 +282,7 @@ namespace Harlowe.Tests
     {
       // A passage with neither Body nor Ast is degenerate but legal — render
       // and TweeWriter are both null-safe. Hydration must not invent content.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       var p = new HarlowePassage { Name = "Empty" };
       story.AddPassage(p);
       Assert.Null(story.GetPassage("Empty").Ast);
@@ -214,7 +293,7 @@ namespace Harlowe.Tests
     {
       // An empty body is still a body. The AST should be a real (empty) tree
       // rather than null so downstream code can treat the passage uniformly.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       var p = new HarlowePassage { Name = "Empty", Body = "" };
       story.AddPassage(p);
 
@@ -230,7 +309,7 @@ namespace Harlowe.Tests
       // End-to-end: a hand-constructed story should render to the expected
       // text. This is the core regression — before hydration, this returned
       // empty content.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(new HarlowePassage { Pid = "1", Name = "Start", Body = "(set: $x to 5)$x" });
       story.StartNode = "1";
 
@@ -244,7 +323,7 @@ namespace Harlowe.Tests
     {
       // [[Next]] in the body should land in Branches via the same collector the
       // HTML and Twee loaders use.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(new HarlowePassage { Name = "Start", Body = "go [[Next]]" });
 
       var stored = story.GetPassage("Start");
@@ -261,7 +340,7 @@ namespace Harlowe.Tests
       // ParseErrorNode AST so the rest of the story remains usable and the
       // broken passage renders an in-prose error at render time. Editors that
       // batch per-passage saves don't crash on a single bad expression.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       var p = new HarlowePassage { Name = "Broken", Body = "(for: each)" };
       story.AddPassage(p);
 
@@ -277,7 +356,7 @@ namespace Harlowe.Tests
     [Fact]
     public void RemovePassage_ExistingPassage_ReturnsTrue()
     {
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(MakePassage("First"));
       Assert.True(story.RemovePassage("First"));
       Assert.Equal(0, story.PassageCount);
@@ -287,14 +366,14 @@ namespace Harlowe.Tests
     [Fact]
     public void RemovePassage_NonExistent_ReturnsFalse()
     {
-      var story = new Harlowe();
+      var story = new HarloweStory();
       Assert.False(story.RemovePassage("Nope"));
     }
 
     [Fact]
     public void RemovePassage_Null_ReturnsFalse()
     {
-      var story = new Harlowe();
+      var story = new HarloweStory();
       Assert.False(story.RemovePassage(null));
     }
 
@@ -304,7 +383,7 @@ namespace Harlowe.Tests
       // Removing the start passage breaks GetStartPassage cleanly — it's the
       // same dangling-pid behaviour HTML stories already exhibit when the
       // export's startnode attribute names a missing passage.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       var start = MakePassage("First");
       start.Pid = "1";
       story.AddPassage(start);
@@ -318,7 +397,7 @@ namespace Harlowe.Tests
     [Fact]
     public void RenamePassage_RekeysLookup()
     {
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(MakePassage("Old"));
       Assert.True(story.RenamePassage("Old", "New"));
       Assert.Null(story.GetPassage("Old"));
@@ -332,7 +411,7 @@ namespace Harlowe.Tests
       // Identity check: the renamed entry should be the same object, not a
       // copy. Catches an implementation that re-creates the passage instead
       // of re-keying.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       var p = MakePassage("Old");
       story.AddPassage(p);
       story.RenamePassage("Old", "New");
@@ -342,14 +421,14 @@ namespace Harlowe.Tests
     [Fact]
     public void RenamePassage_NonExistent_ReturnsFalse()
     {
-      var story = new Harlowe();
+      var story = new HarloweStory();
       Assert.False(story.RenamePassage("Nope", "Anything"));
     }
 
     [Fact]
     public void RenamePassage_Collision_LeavesStoryUnchanged()
     {
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(MakePassage("First"));
       story.AddPassage(MakePassage("Second"));
       Assert.False(story.RenamePassage("First", "Second"));
@@ -361,20 +440,39 @@ namespace Harlowe.Tests
     [Fact]
     public void RenamePassage_SameName_ReturnsTrueOrFalseBasedOnExistence()
     {
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(MakePassage("First"));
       Assert.True(story.RenamePassage("First", "First"));
       Assert.False(story.RenamePassage("Nope", "Nope"));
     }
 
     [Fact]
-    public void RenamePassage_RewritesInboundLinks_AllThreeForms()
+    public void RenamePassage_RewritesInboundLinks_AllFourForms()
     {
-      // Bare, right-arrow, and left-arrow links all retarget; the collapsed
-      // [[Old]] form updates its visible text too (text == target there).
-      var story = Read(":: Start\n[[Old]] [[go->Old]] [[Old<-back]]\n\n:: Old\nhi");
+      // Bare, right-arrow, pipe, and left-arrow links all retarget; the
+      // collapsed [[Old]] form updates its visible text too (text == target).
+      var story = Read(":: Start\n[[Old]] [[go->Old]] [[run|Old]] [[Old<-back]]\n\n:: Old\nhi");
       Assert.True(story.RenamePassage("Old", "New"));
-      Assert.Equal("[[New]] [[go->New]] [[New<-back]]", story.GetPassageBody("Start"));
+      Assert.Equal("[[New]] [[go->New]] [[run|New]] [[New<-back]]", story.GetPassageBody("Start"));
+      Assert.Empty(story.GetBrokenLinks());
+    }
+
+    [Fact]
+    public void RenamePassage_NewNameStartingWithADigit_InsertsItLiterally()
+    {
+      // The digit must not be read as part of a regex group reference.
+      var story = Read(":: Start\n[[go->Old]] [[run|Old]]\n\n:: Old\nhi");
+      Assert.True(story.RenamePassage("Old", "2nd Floor"));
+      Assert.Equal("[[go->2nd Floor]] [[run|2nd Floor]]", story.GetPassageBody("Start"));
+    }
+
+    [Fact]
+    public void RenamePassage_PipeLinkShowingTheOldNameAsText_IsUntouched()
+    {
+      // In [[Old|Elsewhere]] the target is Elsewhere; "Old" is only its text.
+      var story = Read(":: Start\n[[Old|Elsewhere]]\n\n:: Old\nhi\n\n:: Elsewhere\nthere");
+      Assert.True(story.RenamePassage("Old", "New"));
+      Assert.Equal("[[Old|Elsewhere]]", story.GetPassageBody("Start"));
     }
 
     [Fact]
@@ -476,7 +574,7 @@ namespace Harlowe.Tests
       // ((display:), goto) where the project's contract is in-prose errors,
       // not exceptions. Lookup returns by dictionary key; the consumer's
       // mismatched passage.Name is theirs to clean up via RenamePassage.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       var p = MakePassage("First");
       story.AddPassage(p);
       p.Name = "Mutated";
@@ -493,7 +591,7 @@ namespace Harlowe.Tests
       // GetPassage should be null-safe on input — a quirk of the prior
       // ContainsKey form (which throws on null) hid this; the integrity-check
       // rewrite restores the documented "null on miss" contract.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       Assert.Null(story.GetPassage(null));
     }
 
@@ -503,14 +601,14 @@ namespace Harlowe.Tests
       // GetPassageBody used to delegate to Dictionary.TryGetValue, which
       // throws ArgumentNullException on null keys. Now matches the rest of
       // the lookup API's null-safe contract.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       Assert.Equal(string.Empty, story.GetPassageBody(null));
     }
 
     [Fact]
     public void GetPassageBranches_NullName_ReturnsNull()
     {
-      var story = new Harlowe();
+      var story = new HarloweStory();
       Assert.Null(story.GetPassageBranches(null));
     }
 
@@ -521,7 +619,7 @@ namespace Harlowe.Tests
       // short-circuits when Ast is set and never coerces Body). GetPassageBody
       // must still honour its documented never-null return — otherwise
       // downstream .Length / .Contains calls crash with NullReferenceException.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       var ast = new Ast.Body.PassageBody { Children = new System.Collections.Generic.List<Ast.Body.IBodyNode>() };
       story.AddPassage(new HarlowePassage { Name = "X", Body = null, Ast = ast });
       Assert.Equal(string.Empty, story.GetPassageBody("X"));
@@ -530,7 +628,7 @@ namespace Harlowe.Tests
     [Fact]
     public void GetPassageByPid_FindsByPid()
     {
-      var story = new Harlowe();
+      var story = new HarloweStory();
       var p = MakePassage("First");
       p.Pid = "42";
       story.AddPassage(p);
@@ -540,7 +638,7 @@ namespace Harlowe.Tests
     [Fact]
     public void GetPassageByPid_NullOrUnknown_ReturnsNull()
     {
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(MakePassage("First"));
       Assert.Null(story.GetPassageByPid(null));
       Assert.Null(story.GetPassageByPid(""));
@@ -550,7 +648,7 @@ namespace Harlowe.Tests
     [Fact]
     public void Passages_EnumeratesInLoadOrder()
     {
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(MakePassage("First"));
       story.AddPassage(MakePassage("Second"));
       story.AddPassage(MakePassage("Third"));
@@ -562,7 +660,7 @@ namespace Harlowe.Tests
     [Fact]
     public void StoryMetadata_PublicallyWritable_ReflectsInWriterOutput()
     {
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.StoryName = "MyStory";
       story.Ifid = "ABC-123";
       story.Format = "Harlowe";
@@ -581,7 +679,7 @@ namespace Harlowe.Tests
     [Fact]
     public void StoryDataExtras_PublicallyWritable_PreservedThroughWriter()
     {
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.StoryDataExtras = new Dictionary<string, object>
       {
         { "tag-colors", new Dictionary<string, object> { { "important", "red" } } },
@@ -634,7 +732,7 @@ namespace Harlowe.Tests
     {
       // Two synthesized pids ("1", "2"). Remove the first; the next
       // AddPassage must NOT synthesize "2" (which would collide).
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(MakePassage("A"));
       story.AddPassage(MakePassage("B"));
       Assert.Equal("1", story.GetPassage("A").Pid);
@@ -651,7 +749,7 @@ namespace Harlowe.Tests
     {
       // An explicit pid > Count must still leave the synthesizer collision-
       // free on the next AddPassage.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(new HarlowePassage
       {
         Name = "Manual", Pid = "10",
@@ -667,7 +765,7 @@ namespace Harlowe.Tests
     {
       // A non-numeric explicit pid shouldn't break the max-scan — it's just
       // skipped; the synthesizer keeps producing numerics.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(new HarlowePassage
       {
         Name = "Weird", Pid = "abc",
@@ -683,7 +781,7 @@ namespace Harlowe.Tests
     [Fact]
     public void Passages_EnumeratesInInsertionOrder()
     {
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(MakePassage("A"));
       story.AddPassage(MakePassage("B"));
       story.AddPassage(MakePassage("C"));
@@ -698,7 +796,7 @@ namespace Harlowe.Tests
     {
       // Without an explicit order list, a rename = Remove+Add would push the
       // renamed entry to the end. The order list keeps it in place.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(MakePassage("A"));
       story.AddPassage(MakePassage("B"));
       story.AddPassage(MakePassage("C"));
@@ -712,7 +810,7 @@ namespace Harlowe.Tests
     [Fact]
     public void RemovePassage_RemovesFromOrderList()
     {
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(MakePassage("A"));
       story.AddPassage(MakePassage("B"));
       story.AddPassage(MakePassage("C"));
@@ -744,23 +842,24 @@ namespace Harlowe.Tests
     {
       // Public-field DTO: a consumer can null a passage's Ast after adding it.
       // The writer must fall back to RawBody rather than throw or emit nothing.
-      var story = new Harlowe();
+      var story = new HarloweStory();
       story.AddPassage(MakePassage("P", "raw text"));   // MakePassage marks IsDirty
       story.GetPassage("P").Ast = null;
       Assert.Contains("raw text", new TweeWriter().Write(story));
     }
 
     [Fact]
-    public void AddPassage_TokenizerFailure_RecoversWithStub()
+    public void AddPassage_LexTimeOperatorTypo_RecoversInPlace()
     {
-      // `=<` throws in the tokenizer itself; AddPassage's AST hydration must
-      // apply the same catch + stub recovery the loaders use rather than let
-      // the exception escape to the caller.
-      var story = new Harlowe();
+      // `=<` is a lex-time authoring error; AddPassage's AST hydration must
+      // recover it the way the loaders do — confined to its macro, nothing
+      // escaping to the caller.
+      var story = new HarloweStory();
       story.AddPassage(new HarlowePassage { Name = "Bad", RawBody = "(if: $x =< 5)[low]" });
 
       var stored = story.GetPassage("Bad");
-      Assert.True(ParseErrorNode.IsWhollyParseError(stored.Ast));
+      Assert.IsType<ParseErrorNode>(stored.Ast.Children[0]);
+      Assert.False(ParseErrorNode.IsWhollyParseError(stored.Ast));
       Assert.Equal("(if: $x =< 5)[low]", stored.RawBody);
     }
   }

@@ -48,7 +48,7 @@ namespace Harlowe.Runtime
     /// of Unicode 6 whitespace ... except Ogham space mark" - space, the five
     /// ASCII whitespace controls, U+00A0, U+2000 through U+200A, U+2028, U+2029,
     /// U+202F, U+205F, U+3000. Spelled out rather than deferring to
-    /// <see cref="char.IsWhiteSpace"/>, which also accepts U+1680 OGHAM SPACE
+    /// <see cref="char.IsWhiteSpace(char)"/>, which also accepts U+1680 OGHAM SPACE
     /// MARK and U+0085 NEL.
     ///
     /// <para>The exotic code points are compared as numbers, not char literals:

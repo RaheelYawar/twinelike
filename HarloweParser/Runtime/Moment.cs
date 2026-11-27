@@ -24,11 +24,18 @@ namespace Harlowe.Runtime
 
     /// <summary>
     /// Forward delta of story (<c>$</c>) variables changed during this turn —
-    /// only the changed vars, not a full store clone. Flattened oldest-first to
-    /// reconstruct full state on undo/redo/load. Captured when the turn leaves the
-    /// present slot.
+    /// only the changed vars, not a full store clone. A null value records a
+    /// variable <c>(move:)</c> removed. Flattened oldest-first to reconstruct full
+    /// state on undo/redo/load. Captured when the turn leaves the present slot.
     /// </summary>
     public Dictionary<string, HarloweValue> StoreDelta;
+
+    /// <summary>
+    /// Type restrictions put on story variables during this turn, by name, or
+    /// null if none were. Flattened alongside <see cref="StoreDelta"/>, so undoing
+    /// the turn lifts them.
+    /// </summary>
+    public Dictionary<string, HarloweValue> TypeDelta;
 
     /// <summary>
     /// The ordered passages entered during this turn when it spanned more than one
@@ -45,5 +52,15 @@ namespace Harlowe.Runtime
 
     /// <summary>PRNG draw position recorded for this turn — set only when the turn drew a random number, so a no-draw turn stays compressible (null). Restored as the next turn's <em>start</em> position on undo/redo.</summary>
     public int? SeedIter;
+
+    /// <summary>
+    /// Opaque host data attached to this turn through <see cref="StorySession.TurnData"/>,
+    /// or null when the host attached none. Not part of reference Harlowe's Moment:
+    /// the runtime never reads it and story code can't see it. It rides the timeline
+    /// with its turn — through undo/redo, discarded with an abandoned redo branch, and
+    /// round-tripped by save/load (a blob carrying any is stamped
+    /// <see cref="Saving.SaveBlobVersion.TurnData"/>).
+    /// </summary>
+    public string TurnData;
   }
 }

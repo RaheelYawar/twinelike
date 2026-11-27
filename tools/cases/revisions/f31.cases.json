@@ -1,0 +1,1 @@
+[{"source":"|a>[x(hide: ?a)(replace: \"x\")[y]](show: ?a)","steps":[20]},{"source":"|o>[]|q>[](append: ?o, ?q)[|a>[x](hide: ?a)](show: ?a's 1st)","steps":[20]},{"source":"|o>[]|q>[](append: ?o, ?q)[|a>[x](hide: ?a)](show: ?a)","steps":[20]},{"source":"|a>[x(hide: ?a)y](show: ?a)","steps":[20]},{"source":"|a>[x(hide: ?a)y]","steps":[20]}]

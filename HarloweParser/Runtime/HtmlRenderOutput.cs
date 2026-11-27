@@ -60,7 +60,7 @@ namespace Harlowe.Runtime
   /// (<c>harlowe-blink</c>, <c>harlowe-shudder</c>, etc.) in their own
   /// stylesheet; this adapter does not inject them.</para>
   /// </summary>
-  public class HtmlRenderOutput : IRenderOutput
+  public class HtmlRenderOutput : ILinkLabelOutput
   {
     /// <summary>
     /// Default <c>href</c> emitted on interactive anchors. <c>javascript:void(0)</c>
@@ -74,7 +74,10 @@ namespace Harlowe.Runtime
     /// </summary>
     public const string DefaultInteractiveHref = "javascript:void(0)";
 
-    private readonly IRenderOutput _inner;
+    // Forwards to the host's sink, lowering what that sink can't receive. Its
+    // label suppression also swallows this adapter's own tags, while _openTags
+    // keeps balancing them.
+    private readonly OutputFeatureAdapter _inner;
     private readonly string _interactiveHref;
     private readonly Stack<string[]> _openTags = new Stack<string[]>();
 
@@ -104,11 +107,12 @@ namespace Harlowe.Runtime
     /// </summary>
     public HtmlRenderOutput(IRenderOutput inner, string interactiveHref)
     {
+      if (inner == null) throw new System.ArgumentNullException(nameof(inner));
       if (inner is HtmlRenderOutput)
         throw new System.ArgumentException(
           "HtmlRenderOutput cannot wrap another HtmlRenderOutput — Text and Error would double-escape while Html/PushStyle pass through once. Wrap the underlying buffer directly.",
           nameof(inner));
-      _inner = inner;
+      _inner = new OutputFeatureAdapter(inner);
       _interactiveHref = string.IsNullOrWhiteSpace(interactiveHref) ? string.Empty : interactiveHref;
     }
 
@@ -135,7 +139,9 @@ namespace Harlowe.Runtime
 
     // BeginLink/EndLink forward as typed entries like Link (target raw, per
     // the IRenderOutput escaping contract); the label content between them
-    // arrives through Text/Html and is escaped by those channels.
+    // arrives through Text/Html and is escaped by those channels. For an
+    // inner sink without ILinkLabelOutput, _inner flattens the label into a
+    // Link whose text is therefore already escaped exactly once.
     public void BeginLink(string target) => _inner.BeginLink(target);
     public void EndLink() => _inner.EndLink();
 
@@ -207,7 +213,7 @@ namespace Harlowe.Runtime
            style.Color != null || style.BackgroundColor != null
         || style.BackgroundImage != null || style.FontFamily != null
         || style.FontSize != null || style.Opacity != null
-        || style.Alignment != null
+        || style.Alignment != null || HasTransition(style)
         || (style.Effects != null && style.Effects.Count > 0);
 
       if (!hasNonFlag)
@@ -233,7 +239,7 @@ namespace Harlowe.Runtime
     /// </summary>
     private static string BuildSpanTag(StyleSpec style)
     {
-      var sb = new StringBuilder("span style=\"");
+      var sb = new StringBuilder();
       bool first = true;
 
       if (style.Color != null) AppendCss(sb, ref first, "color", style.Color, preEscaped: false);
@@ -278,8 +284,29 @@ namespace Harlowe.Runtime
         for (int i = 0; i < style.Effects.Count; i++)
           AppendEffect(sb, ref first, style.Effects[i]);
       }
-      sb.Append("\"");
+      sb.Insert(0, first ? "span" : "span style=\"");
+      if (!first) sb.Append("\"");
+      // Transitions need a script or stylesheet to play, so they're only named
+      // here, as reference's <tw-transition-container data-t8n> names them.
+      AppendData(sb, "data-t8n", style.Transition);
+      AppendData(sb, "data-t8n-time", Milliseconds(style.TransitionTime));
+      AppendData(sb, "data-t8n-delay", Milliseconds(style.TransitionDelay));
+      AppendData(sb, "data-t8n-skip", Milliseconds(style.TransitionSkip));
+      AppendData(sb, "data-t8n-depart", style.TransitionDepart);
+      AppendData(sb, "data-t8n-arrive", style.TransitionArrive);
       return sb.ToString();
+    }
+
+    private static bool HasTransition(StyleSpec style)
+      => style.Transition != null || style.TransitionTime != null || style.TransitionDelay != null
+        || style.TransitionSkip != null || style.TransitionDepart != null || style.TransitionArrive != null;
+
+    private static string Milliseconds(double? ms)
+      => ms == null ? null : HarloweValue.FormatNumber(ms.Value);
+
+    private static void AppendData(StringBuilder sb, string name, string value)
+    {
+      if (value != null) sb.Append(' ').Append(name).Append("=\"").Append(EscapeAttribute(value)).Append('"');
     }
 
     private static void AppendCss(StringBuilder sb, ref bool first, string prop, string value, bool preEscaped)

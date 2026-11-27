@@ -15,14 +15,14 @@ namespace Harlowe.Tests.Runtime.Macros
   /// </summary>
   public class LinkMacroTests
   {
-    private static Harlowe OnePassage(string body)
+    private static HarloweStory OnePassage(string body)
     {
       var sb = new System.Text.StringBuilder();
       sb.Append("<html><body><tw-storydata name=\"T\" startnode=\"1\" creator=\"\" creator-version=\"\">");
       sb.Append("<tw-passagedata pid=\"1\" name=\"P1\" tags=\"\">");
       sb.Append(body);
       sb.Append("</tw-passagedata></tw-storydata></body></html>");
-      return new Harlowe(sb.ToString());
+      return new HarloweStory(sb.ToString());
     }
 
     private static StorySession Session(string body) => new StorySession(OnePassage(body));
@@ -34,7 +34,7 @@ namespace Harlowe.Tests.Runtime.Macros
       sb.Append("<tw-passagedata pid=\"1\" name=\"P1\" tags=\"\">").Append(p1).Append("</tw-passagedata>");
       sb.Append("<tw-passagedata pid=\"2\" name=\"P2\" tags=\"\">").Append(p2).Append("</tw-passagedata>");
       sb.Append("</tw-storydata></body></html>");
-      return new StorySession(new Harlowe(sb.ToString()));
+      return new StorySession(new HarloweStory(sb.ToString()));
     }
 
     private static string FirstRegionId(RenderResult result)
@@ -348,12 +348,12 @@ namespace Harlowe.Tests.Runtime.Macros
     }
 
     [Fact]
-    public void LinkGoto_NoOutput_ReturnsProseOnlyError()
+    public void LinkGoto_OutsideProse_IsACommandValue()
     {
       var (reg, ctx) = Standalone();
       var v = reg.Invoke("link-goto", new List<HarloweValue> { HarloweValue.OfString("t") }, ctx);
-      Assert.True(v.IsError);
-      Assert.Contains("passage prose", v.ErrorMessage);
+      Assert.Equal(HarloweValueKind.Command, v.Kind);
+      Assert.Equal("[A (link-goto:) command]", v.ToHarloweString());
     }
 
     [Fact]

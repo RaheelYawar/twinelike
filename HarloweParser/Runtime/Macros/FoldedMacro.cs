@@ -17,14 +17,13 @@ namespace Harlowe.Runtime.Macros
   /// Per Harlowe's documented behaviour the initial accumulator is the first
   /// item, so the fold runs from the second item onward and an empty input
   /// has no starting value — that surfaces as an in-prose error. A single
-  /// item folds to itself. Auto-iterates a single trailing array arg (see
-  /// <see cref="FindMacro"/> for the rationale).
+  /// item folds to itself.
   /// </para>
   /// </summary>
   public class FoldedMacro : IMacro
   {
     public string Name => "folded";
-    public int MinArgs => 2;
+    public int MinArgs => 1;
     public int MaxArgs => -1;
 
     public HarloweValue Invoke(List<HarloweValue> args, MacroContext context)
@@ -33,7 +32,7 @@ namespace Harlowe.Runtime.Macros
         return HarloweValue.OfError("(folded:) first argument must be a lambda");
 
       var lambda = args[0].AsLambda;
-      var items = LambdaArgs.ExpandItems(args, startIndex: 1);
+      var items = LambdaArgs.Items(args, startIndex: 1);
       if (items.Count == 0)
         return HarloweValue.OfError("(folded:) needs at least one item to fold");
 

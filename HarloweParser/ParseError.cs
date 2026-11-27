@@ -2,7 +2,7 @@ namespace Harlowe
 {
   /// <summary>
   /// One place a passage failed to parse, as reported by
-  /// <see cref="Harlowe.GetParseErrors"/>. The sibling of <see cref="BrokenLink"/>,
+  /// <see cref="HarloweStory.GetParseErrors"/>. The sibling of <see cref="BrokenLink"/>,
   /// and shaped the same way — a host engine calls it at load and shows these to
   /// whoever is building the story.
   ///

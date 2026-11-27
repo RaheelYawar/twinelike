@@ -105,11 +105,12 @@ namespace Harlowe.Runtime
       // to plain prose before re-matching; (change:)'s (source null) stay,
       // exactly like its style layers.
       var targets = ResolveTargets(root, enchantment.Target, enchantment.StringTarget,
-        wrap => wrap.SourceEnchantment = source);
+        wrap => wrap.SourceEnchantment = source, ctx);
       if (targets == null) return;
 
       int pos = 0;
       bool lambdaFailed = false;
+      NodePositions positions = null;
       for (int i = 0; i < targets.Count; i++)
       {
         var target = targets[i];
@@ -134,7 +135,15 @@ namespace Harlowe.Runtime
           changer = enchantment.Changer;
         }
 
-        changer.ApplyToTarget(root, target, source);
+        if (target is RenderLinkNode)
+        {
+          if (positions == null) positions = new NodePositions(root);
+          changer.ApplyToNode(positions, target, source);
+        }
+        else
+        {
+          changer.ApplyToTarget(root, target, source);
+        }
       }
     }
 
@@ -191,13 +200,21 @@ namespace Harlowe.Runtime
     /// occurrences are wrapped fresh via <see cref="TextOccurrenceFinder"/>).
     /// Each new occurrence wrap is handed to <paramref name="tagWrap"/> so the
     /// caller stamps its own strip/disenchant tag. Returns <c>null</c> when the
-    /// entry has no target at all.
+    /// entry has no target at all, or when <paramref name="ctx"/>'s walk budget
+    /// is used up, in which case the page shows the budget error.
     /// </summary>
     internal static IReadOnlyList<RenderNode> ResolveTargets(RenderRoot root, HookNameValue hookTarget,
-                                                             string stringTarget, Action<RenderHookNode> tagWrap)
+                                                             string stringTarget, Action<RenderHookNode> tagWrap,
+                                                             MacroContext ctx)
     {
+      if (hookTarget == null && stringTarget == null) return null;
+      if (ctx != null && !ctx.TrySpendOnTargetWalk(root))
+      {
+        ctx.ShowTargetWalkRefusal(root);
+        return null;
+      }
+
       if (hookTarget != null) return HookResolver.Resolve(root, hookTarget);
-      if (stringTarget == null) return null;
 
       var wraps = TextOccurrenceFinder.FindAndWrap(root, stringTarget);
       var list = new List<RenderNode>(wraps.Count);

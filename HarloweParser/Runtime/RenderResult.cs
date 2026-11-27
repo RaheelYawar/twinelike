@@ -29,8 +29,41 @@ namespace Harlowe.Runtime
     /// <summary>
     /// Ordered log of every render event emitted during this passage render:
     /// prose text, HTML pass-through, navigation links, and in-prose errors.
-    /// Walk this list for structured rendering.
+    /// Walk this list for structured rendering. Holds only core
+    /// <see cref="IRenderOutput"/> channels unless the session's
+    /// <see cref="StorySession.OutputFeatures"/> asks for more.
     /// </summary>
     public List<BufferedRenderOutput.Entry> Entries;
+
+    /// <summary>
+    /// Replay <see cref="Entries"/>, including any edits the host made to the
+    /// list, through <paramref name="output"/>. An output implementing
+    /// <see cref="ILinkLabelOutput"/> receives structured link labels as
+    /// brackets whatever the session's <see cref="StorySession.OutputFeatures"/>;
+    /// any other output receives them as flat links. An unmatched bracket in a
+    /// hand-built list is repaired, so a label is never lost. Null-safe on
+    /// <paramref name="output"/> and <see cref="Entries"/>.
+    /// </summary>
+    public void ReplayTo(IRenderOutput output)
+    {
+      if (output == null || Entries == null) return;
+      var sink = new OutputFeatureAdapter(output);
+      int openLinks = 0;
+      for (int i = 0; i < Entries.Count; i++)
+      {
+        var entry = Entries[i];
+        if (entry.Kind == BufferedRenderOutput.Kind.BeginLink)
+        {
+          openLinks++;
+        }
+        else if (entry.Kind == BufferedRenderOutput.Kind.EndLink)
+        {
+          if (openLinks == 0) continue;
+          openLinks--;
+        }
+        entry.ReplayTo(sink);
+      }
+      for (; openLinks > 0; openLinks--) sink.EndLink();
+    }
   }
 }

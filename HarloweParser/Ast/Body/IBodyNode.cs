@@ -25,6 +25,10 @@ namespace Harlowe.Ast.Body
     void Visit(MacroNode node);
     void Visit(HookNode node);
     void Visit(FormatNode node);
+    void Visit(CollapsedNode node);
+    void Visit(VerbatimNode node);
+    void Visit(HorizontalRuleNode node);
+    void Visit(ListNode node);
     void Visit(LinkNode node);
     void Visit(HtmlNode node);
     void Visit(ChangerChainNode node);

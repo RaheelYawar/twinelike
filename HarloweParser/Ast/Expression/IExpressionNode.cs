@@ -26,5 +26,6 @@ namespace Harlowe.Ast.Expression
     void Visit(MacroCallNode node);
     void Visit(LambdaNode node);
     void Visit(HookRefNode node);
+    void Visit(CodeHookNode node);
   }
 }

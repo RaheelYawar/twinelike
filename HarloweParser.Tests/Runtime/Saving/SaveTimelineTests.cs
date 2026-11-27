@@ -14,14 +14,14 @@ namespace Harlowe.Tests.Runtime.Saving
   /// </summary>
   public class SaveTimelineTests
   {
-    private static Harlowe Story(params string[] names)
+    private static HarloweStory Story(params string[] names)
     {
       var sb = new StringBuilder();
       sb.Append("<html><body><tw-storydata name=\"T\" startnode=\"1\" creator=\"\" creator-version=\"\">");
       for (int i = 0; i < names.Length; i++)
         sb.Append($"<tw-passagedata pid=\"{i + 1}\" name=\"{names[i]}\" tags=\"\">body{i}</tw-passagedata>");
       sb.Append("</tw-storydata></body></html>");
-      return new Harlowe(sb.ToString());
+      return new HarloweStory(sb.ToString());
     }
 
     private static (MacroRegistry reg, MacroContext ctx) Env()

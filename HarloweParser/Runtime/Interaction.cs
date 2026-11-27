@@ -18,13 +18,11 @@ namespace Harlowe.Runtime
   /// Armed entries are indexed by region id in
   /// <see cref="MacroContext.ClickHandlers"/>; when the host reports an event,
   /// <see cref="StorySession.DispatchEvent"/> renders
-  /// <see cref="RenderDeferredHook"/> into a detached builder (wrapped in
-  /// <see cref="Styles"/>), then either fills the reveal anchor(s) tagged
-  /// <see cref="RenderHookNode.RevealRegionId"/> (plain macros) or splices into
-  /// every target using <see cref="Mode"/> (combos — string-occurrence targets
-  /// found by their <see cref="RenderHookNode.SourceRegionId"/> tag).
-  /// Tag-based resolution means a node that reached the tree as a clone still
-  /// resolves. Single-use unless <see cref="Once"/> is false
+  /// <see cref="RenderDeferredHook"/> (wrapped in <see cref="Styles"/>) into
+  /// the reveal anchor tagged <see cref="RenderHookNode.RevealRegionId"/>
+  /// (plain macros) or into every target using <see cref="Mode"/> (combos —
+  /// string-occurrence targets found by their
+  /// <see cref="RenderHookNode.SourceRegionId"/> tag). Single-use unless <see cref="Once"/> is false
   /// (<c>(click-rerun:)</c>).
   /// </para>
   /// </summary>
@@ -108,6 +106,9 @@ namespace Harlowe.Runtime
     /// <summary>Renders the deferred hook into a given output on dispatch.</summary>
     public Action<IRenderOutput> RenderDeferredHook;
 
+    /// <summary>The temp scopes in view when this was armed (<see cref="IVariableStore.CaptureScopeChain"/>), which the deferred hook runs in. Null for one built without a variable store.</summary>
+    public object TempScopes;
+
     /// <summary>
     /// Region id, allocated once when the interaction is recorded and kept
     /// stable across passes — so an id the host already holds from a prior
@@ -157,14 +158,18 @@ namespace Harlowe.Runtime
         if (interaction == null) continue;
 
         // A (link:)-family interaction is self-armed: its target is the label
-        // it planted, resolved by tag so a label that reached the tree as a
-        // clone still arms. Otherwise: string occurrences are wrapped fresh
-        // (StripWraps unwound the previous pass's), tagged with the region id
-        // so the next strip finds them — and so the dispatch can resolve a
-        // combo's splice targets by tag.
+        // it planted, resolved by tag. Otherwise: string occurrences are
+        // wrapped fresh (StripWraps unwound the previous pass's), tagged with
+        // the region id so the next strip finds them — and so the dispatch can
+        // resolve a combo's targets by tag.
         IReadOnlyList<RenderNode> targets;
         if (interaction.LabelTarget)
         {
+          if (ctx != null && !ctx.TrySpendOnTargetWalk(root))
+          {
+            ctx.ShowTargetWalkRefusal(root);
+            continue;
+          }
           var labels = new List<RenderNode>();
           RenderNodes.CollectWhere(root,
             n => n is RenderHookNode h && h.LabelRegionId == interaction.RegionId, labels);
@@ -173,13 +178,14 @@ namespace Harlowe.Runtime
         else
         {
           targets = EnchantmentPass.ResolveTargets(root, interaction.Target, interaction.StringTarget,
-            wrap => wrap.SourceRegionId = interaction.RegionId);
+            wrap => wrap.SourceRegionId = interaction.RegionId, ctx);
         }
         if (targets == null) continue;
 
         bool wrappedAny = false;
         int pos = 0;
         bool lambdaFailed = false;
+        NodePositions positions = null;
         for (int j = 0; j < targets.Count; j++)
         {
           if (!(targets[j] is IRenderContainer container)) continue;
@@ -220,19 +226,17 @@ namespace Harlowe.Runtime
             Region = new InteractiveRegion { Id = interaction.RegionId, Kind = interaction.Kind }
           };
 
-          // Fold the armed-region style layers around the interactive node,
-          // innermost = last layer, each cloned + tagged with the region id so
-          // StripWraps removes it alongside the interactive node next pass.
+          // The armed-region style layers go around the interactive node, in
+          // one node tagged with the region id so StripWraps removes it
+          // alongside the interactive node next pass.
           RenderNode wrapped = interactiveNode;
           var armStyles = armChanger?.GetStyleLayers();
-          if (armStyles != null)
+          if (armStyles != null && armStyles.Count > 0)
           {
-            for (int s = armStyles.Count - 1; s >= 0; s--)
-            {
-              var styleNode = new RenderStyleNode { Style = armStyles[s]?.Clone(), SourceRegionId = interaction.RegionId };
-              styleNode.Children.Add(wrapped);
-              wrapped = styleNode;
-            }
+            var styleNode = Changer.StyleNodeFor(armStyles, null);
+            styleNode.SourceRegionId = interaction.RegionId;
+            styleNode.Children.Add(wrapped);
+            wrapped = styleNode;
           }
 
           if (targets[j] is RenderLinkNode)
@@ -244,7 +248,8 @@ namespace Harlowe.Runtime
             // alongside the region event. StripWraps hoists the link back out
             // through the same generalized unwrap.
             interactiveNode.Children.Add(targets[j]);
-            RenderNodes.ReplaceChild(root, targets[j], wrapped);
+            if (positions == null) positions = new NodePositions(root);
+            positions.Replace(targets[j], wrapped);
           }
           else
           {

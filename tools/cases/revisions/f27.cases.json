@@ -1,0 +1,1 @@
+[{"source":"|a>[x]|a>[y](replace: ?a)[(replace: ?a's last)[q]]","steps":[20]},{"source":"|a>[x]|a>[y](replace: ?a)[(replace: ?a's 1st)[q]]","steps":[20]},{"source":"|a>[x]|a>[y]|a>[z](replace: ?a's 2nd)[(append: ?a's last)[q]]","steps":[20]},{"source":"(set: $n to 0)(link-rerun: 'go')[(set: $n to it + 1)$n]","steps":[20,20,20],"clicks":{"1":0,"2":0}}]

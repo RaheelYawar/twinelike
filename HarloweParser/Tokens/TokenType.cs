@@ -34,6 +34,13 @@ namespace Harlowe.Tokens
     /// <summary>The closing <c>]</c> of a hook.</summary>
     HookClose,
 
+    /// <summary>
+    /// An unclosed hook opener, <c>[=</c> with any number of <c>=</c>
+    /// (reference's <c>unclosedHook</c>): the hook holds everything after it in
+    /// the enclosing hook or passage. The Value holds the marker as written.
+    /// </summary>
+    HookOpenUnclosed,
+
     /// <summary>A left-anchored hook name: <c>&lt;name|</c>. The name attaches to the hook on its left.</summary>
     HookNameLeft,
 
@@ -109,14 +116,34 @@ namespace Harlowe.Tokens
     HtmlTag,
 
     /// <summary>
-    /// An inline text-formatting delimiter in passage body — <c>''</c> (bold) or
-    /// <c>//</c> (italic). The Value is the literal delimiter (<c>"''"</c> /
-    /// <c>"//"</c>). These are symmetric toggle markers (opener and closer are
-    /// identical, per reference Harlowe's <c>boldOpener</c>/<c>italicOpener</c>);
-    /// the body parser folds matching pairs into a <see cref="Ast.Body.FormatNode"/>
-    /// and degrades any unmatched delimiter to literal text.
+    /// An inline text-formatting delimiter in passage body: <c>''</c>, <c>//</c>,
+    /// <c>~~</c>, <c>^^</c>, <c>*</c> or <c>**</c>. The Value is the literal
+    /// delimiter. The tokenizer records each pair in <see cref="Token.Partner"/>,
+    /// the body parser folds pairs into a <see cref="Ast.Body.FormatNode"/>, and
+    /// a delimiter with no partner is literal text.
     /// </summary>
     FormatDelimiter,
+
+    /// <summary>
+    /// A whole <c>`…`</c> span (reference's folded <c>verbatim</c> token). The
+    /// Value holds the source including both runs of graves. Everything inside
+    /// is literal text, and an opener with no closer stays a plain
+    /// <see cref="Text"/> token.
+    /// </summary>
+    Verbatim,
+
+    /// <summary>
+    /// A line of three or more hyphens (reference's <c>hr</c>). The Value holds
+    /// the line as written, including the line break it consumes.
+    /// </summary>
+    HorizontalRule,
+
+    /// <summary>
+    /// A list item's marker at the start of a line: <c>*</c>s (reference's
+    /// <c>bulleted</c>) or <c>0.</c>s (<c>numbered</c>), then whitespace. The
+    /// Value holds the marker as written, whitespace on both sides included.
+    /// </summary>
+    ListMarker,
 
     /// <summary>
     /// The <c>--</c> comment marker (reference's <c>comment</c> pattern in
@@ -140,6 +167,35 @@ namespace Harlowe.Tokens
     /// a comment and stays prose.
     /// </summary>
     HtmlComment,
+
+    /// <summary>
+    /// The <c>{</c> that opens a span of collapsing whitespace (reference's
+    /// <c>collapsedFront</c>). The body parser pairs it with a
+    /// <see cref="CollapseClose"/>; an unmatched one degrades to literal text.
+    /// </summary>
+    CollapseOpen,
+
+    /// <summary>The <c>}</c> that closes a collapsing span (reference's <c>collapsedBack</c>). Literal text when nothing is open.</summary>
+    CollapseClose,
+
+    /// <summary>
+    /// An unclosed collapsing marker, <c>{=</c> with any number of <c>=</c>
+    /// (reference's <c>unclosedCollapsed</c>): everything after it in the
+    /// enclosing hook or passage collapses. The Value holds the marker as
+    /// written.
+    /// </summary>
+    CollapseUnclosed,
+
+    /// <summary>
+    /// A lex-time authoring mistake inside an expression — a common wrong
+    /// operator spelling (<c>gt</c>, <c>=&gt;</c>, <c>or a</c>, …, reference's
+    /// <c>incorrectOperator</c> rule in <c>ts/markup/patterns.ts</c>, which
+    /// likewise lexes to an <c>error</c> token) or a malformed hex colour. The
+    /// Value is the corrective message. The expression parser raises it when it
+    /// reaches the token, so the error stays in place of the one macro that
+    /// contains it and the rest of the passage still parses.
+    /// </summary>
+    Error,
 
     /// <summary>Sentinel emitted once the input is exhausted.</summary>
     EndOfFile
